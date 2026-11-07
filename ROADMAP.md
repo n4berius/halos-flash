@@ -40,7 +40,7 @@ In this order. Each ships as an alpha, then is promoted to beta once tested.
   [0.19.1](https://github.com/peonist-ai/halogen-flash-server/blob/main/CHANGELOG.md)), to compare
   releases and checkpoints fairly.
 - **`halogenctl flash check`** (#56). Compare a custom checkpoint's quality with the official
-  one's, on request.
+  one's, on request. Done; to try on the test machine.
 - **`halosctl npu on|off`** (#40). Switch between the two editions.
 - **Tab completion** (#14).
 

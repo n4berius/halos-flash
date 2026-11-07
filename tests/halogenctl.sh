@@ -143,6 +143,7 @@ f systemd-run 'case "$*" in
     else echo "HALOGEN_CHECKPOINT=/models/flash/$c/model.hgn"; fi ;;
   *flash-checkpoint*pull*) echo "Downloading..."; echo "name=mine" ;;
   *flash-checkpoint*verify*) echo "verify $*" >> "$FAKE/log" ;;
+  *flash-checkpoint*check*) echo "check $*" >> "$FAKE/log"; [ -z "${FAKE_CHECK_FAILS:-}" ] || exit 1 ;;
 esac'
 fm="$work/fmodels"; mkdir -p "$fm/flash/mine" "$fm/flash/broken" "$fm/flash/partial"
 printf 'repo=someone/Mine-HGN\ncommit=0123456789abcdef\ncheckpoint=model.hgn\nverified=pass\nverified_with=0.19.1\n' > "$fm/flash/mine/halos.info"
@@ -182,3 +183,22 @@ fi
 "$ctl" flash pull someone/Mine-HGN --as mine > "$work/out" 2>/dev/null; grep -q 'sudo halogenctl flash use mine' "$work/out" || { echo "pull doesn't say how to use it" >&2; exit 1; }
 "$ctl" flash verify mine > /dev/null; grep -q 'verify mine' "$work/log" || exit 1
 ok "flash lists, switches only to verified checkpoints after asking, never removes the active or official one, all as halogen"
+
+# flash check stops Halogen for the GPU, and starts it again whatever happens.
+: > "$work/log"
+if "$ctl" flash check mine < /dev/null > "$work/out" 2>&1; then echo "check stopped Halogen without asking" >&2; exit 1; fi
+if grep -q 'stop halogen.service' "$work/log"; then echo "a declined check stopped Halogen" >&2; exit 1; fi
+"$ctl" flash check mine --yes > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+grep -n -e 'stop halogen.service' -e 'check ' -e 'start halogen.service' "$work/log" | cut -d: -f2- | sed 's/ .*\(stop\|start\) halogen.service/ \1/; s/^check .*/check/' > "$work/order"
+[ "$(tr '\n' ' ' < "$work/order")" = "systemctl stop check systemctl start " ] || { cat "$work/log" >&2; echo "check didn't stop, measure, then start Halogen" >&2; exit 1; }
+: > "$work/log"
+if FAKE_CHECK_FAILS=1 "$ctl" flash check mine --yes > "$work/out" 2>&1; then echo "a failed check passed" >&2; exit 1; fi
+grep -q 'start halogen.service' "$work/log" || { echo "Halogen stayed stopped after a failed check" >&2; exit 1; }
+for bad in official ../mine nothing; do
+  if "$ctl" flash check "$bad" --yes > "$work/out" 2>&1; then echo "check took $bad" >&2; exit 1; fi
+done
+printf 'checked_ppl=3.8109\nchecked_official_ppl=3.8522\nchecked_top1=0.86463\nchecked_kl_median=0.045499\nchecked_with=0.19.1\n' >> "$fm/flash/mine/halos.info"
+"$ctl" flash list > "$work/out"
+grep -qE '^  mine +perplexity 3\.8109 \(official 3\.8522\), same next token 86\.5%, KL median 0\.045499, with Halogen 0\.19\.1$' "$work/out" \
+  || { cat "$work/out" >&2; echo "flash list doesn't show the check" >&2; exit 1; }
+ok "flash check asks, stops Halogen, measures as halogen, starts it again even after a failure, and list shows the result"

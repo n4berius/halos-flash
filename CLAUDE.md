@@ -109,8 +109,13 @@ name, but allows saying halOS runs Halogen.
   `flash use` writes `/srv/configs/flash-checkpoint`; `render-config` turns it into
   `HALOGEN_CHECKPOINT` (no longer in `locked.env`), falling back to the official file for
   anything unexpected, and drops `HALOGEN_VISION_TOWER` when the custom folder has no tower. The
-  official checkpoint is always kept and fetched (owner decision). `ppl` on request and GGUF
-  conversion are later steps.
+  official checkpoint is always kept and fetched (owner decision). `flash check <name>` (#56):
+  halogenctl stops Halogen (ppl needs the GPU; a trap starts it again), then `flash-checkpoint
+  check` runs Halogen's `ppl --json` with the official tokenizer on wikitext-2's test split
+  (`/srv/models/flash/.check/`, fetched from HF's dataset viewer rows API and checked against the
+  sha256 of the text Halogen's docs build from the parquet file, `bbf94c53…`), first `--ref-out`
+  for the official checkpoint once per Halogen version, then `--ref --worst 5` for the custom one;
+  results go to `halos.info` (`checked_*`) and `check.json`. GGUF conversion is a later step.
 - `/srv` is `/var/srv` on bootc. The installer makes LVM volumes for `/`, `/var`, `/var/log`,
   `/var/log/audit`, `/var/home`, `/var/srv/configs` and `/var/srv/models`. The guided install
   names them `halos-root`, `-var`, `-log`, `-audit`, `-home`, `-configs`, `-models` (VG `halos`);
