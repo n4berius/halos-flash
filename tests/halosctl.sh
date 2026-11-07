@@ -22,7 +22,7 @@ case "$1" in
             "$FAKE/status.json" > "$FAKE/s.tmp" && mv "$FAKE/s.tmp" "$FAKE/status.json" ;;
 esac'
 f skopeo 'echo "skopeo $*" >> "$FAKE/log"; case "$*" in
-  *:beta|*:stable-no-npu|*:0.19.0-alpha.1) printf "sha256:feed 0.19.0-beta.1%s\n" "${FAKE_LABEL_TAIL:-}" ;;
+  *:beta|*:stable-no-npu|*:0.19.0-alpha.1|*:beta-no-npu|*:0.19.0-alpha.1-no-npu|*:0.19.0-no-npu) printf "sha256:feed 0.19.0-beta.1%s\n" "${FAKE_LABEL_TAIL:-}" ;;
   *:edge) echo "Error: reading manifest edge: 403 Forbidden" >&2; exit 1 ;;
   *) echo "Error: manifest unknown" >&2; exit 1 ;; esac'
 f systemctl 'echo "systemctl $*" >> "$FAKE/log"; case "$*" in *is-active*) echo "${FAKE_FETCH:-inactive}" ;; esac'
@@ -154,3 +154,60 @@ host "$(dep ghcr.io/n4berius/halos-flash:beta 0.19.0-beta.2 sha256:new)" \
   "$(dep ghcr.io/n4berius/halos-flash:beta 0.19.0-beta.1 sha256:bbb | sed 's/2026-11-05T16/2026-11-01T16/')" > "$work/next.json"
 "$ctl" upgrade --yes > "$work/out"; has 'Warning: the staged image was built before' "$work/out"
 ok "upgrade stages the channel's newest release and records it; history lists every change; an old-name install switches to halos-flash"
+
+# npu on|off: the other edition on the same channel, or the same exact release (pinned by digest).
+mkdir -p "$work/sys/bus/pci/devices/0000:c5:00.1"
+export HALOGEN_SYS="$work/sys"
+host "$(dep ghcr.io/n4berius/halos-flash:beta 0.19.0-beta.1 sha256:bbb)" > "$work/status.json"
+: > "$work/log"
+"$ctl" npu off --yes > "$work/out"
+has '^bootc switch ghcr.io/n4berius/halos-flash:beta-no-npu$' "$work/log"
+has 'stay in /srv/models' "$work/out"; has 'npu-off .*:beta \(0.19.0-beta.1\) -> ghcr.io/n4berius/halos-flash:beta-no-npu' "$work/history"
+"$ctl" npu off --yes > "$work/out"; has 'Already the no-npu edition at the next boot' "$work/out"
+# A channel switch while npu off is staged keeps the no-NPU edition.
+: > "$work/log"; "$ctl" switch release --yes > /dev/null
+has '^bootc switch ghcr.io/n4berius/halos-flash:stable-no-npu$' "$work/log"
+host "$(dep ghcr.io/n4berius/halos-flash:beta 0.19.0-beta.1 sha256:bbb)" > "$work/status.json"
+"$ctl" npu on --yes > "$work/out"; has 'Already the npu edition\.' "$work/out"
+if "$ctl" npu sideways --yes > "$work/out" 2>&1; then echo "took npu sideways" >&2; exit 1; fi
+if "$ctl" npu --yes > "$work/out" 2>&1; then echo "took npu with no word" >&2; exit 1; fi
+host "$(dep ghcr.io/n4berius/halos-flash:0.19.0-alpha.1 0.19.0 sha256:aaa)" > "$work/status.json"
+: > "$work/log"; "$ctl" npu off --yes > "$work/out"
+has 'skopeo .*docker://ghcr.io/n4berius/halos-flash:0.19.0-alpha.1-no-npu' "$work/log"
+has '^bootc switch ghcr.io/n4berius/halos-flash@sha256:feed$' "$work/log"
+# On a pinned machine npu off stages a digest, whose edition can't be read back: npu on, switch
+# and rollback --to must refuse rather than guess (the IOMMU could stay off against the ask).
+for again in "npu on" "npu off" "switch beta" "rollback --to 0.19.0-alpha.1"; do
+  : > "$work/log"
+  # shellcheck disable=SC2086
+  if "$ctl" $again --yes > "$work/out" 2>&1; then echo "$again guessed the edition of a staged digest" >&2; exit 1; fi
+  has 'reboot to it first' "$work/out"; hasnt 'bootc switch' "$work/log"
+done
+host "$(dep ghcr.io/n4berius/halos-flash:beta 0.19.0-beta.1 sha256:bbb)" "$(dep ghcr.io/n4berius/halos-flash:beta 0.19.0-beta.2 sha256:ccc)" > "$work/status.json"
+"$ctl" npu off --yes > "$work/out"; has 'Staged for the next boot, and replaced by this: ghcr.io/n4berius/halos-flash:beta \(0.19.0-beta.2\)' "$work/out"
+has 'can read all of it' "$work/out"
+host "$(dep ghcr.io/n4berius/halos-flash@sha256:aaa 0.19.0 sha256:aaa)" > "$work/status.json"
+sed -i 's/^HALOS_RELEASE=.*/HALOS_RELEASE=0.19.1-dev.abc1234/' "$work/release.env"
+host "$(dep ghcr.io/n4berius/halos-flash@sha256:aaa 0.19.1-dev.abc1234 sha256:aaa)" > "$work/status.json"
+if "$ctl" npu off --yes > "$work/out" 2>&1; then echo "guessed a tag for an untagged build" >&2; exit 1; fi
+has 'Follow a channel first' "$work/out"
+sed -i 's/^HALOS_RELEASE=.*/HALOS_RELEASE=0.19.0-alpha.1/' "$work/release.env"
+# npu on from the no-NPU edition warns on a machine with no NPU, not on one with it.
+sed -i 's/=npu/=no-npu/' "$work/release.env"
+host "$(dep ghcr.io/n4berius/halos-flash:beta-no-npu 0.19.0-beta.1 sha256:bbb)" > "$work/status.json"
+: > "$work/log"; "$ctl" npu on --yes > "$work/out"
+has '^bootc switch ghcr.io/n4berius/halos-flash:beta$' "$work/log"; has 'shows no AMD NPU' "$work/out"
+printf '0x1022\n' > "$work/sys/bus/pci/devices/0000:c5:00.1/vendor"; printf '0x17f0\n' > "$work/sys/bus/pci/devices/0000:c5:00.1/device"
+host "$(dep ghcr.io/n4berius/halos-flash:beta-no-npu 0.19.0-beta.1 sha256:bbb)" > "$work/status.json"
+"$ctl" npu on --yes > "$work/out"; hasnt 'shows no AMD NPU' "$work/out"
+sed -i 's/=no-npu/=npu/' "$work/release.env"
+# A plain version tag keeps moving; a queued rollback must boot first.
+host "$(dep ghcr.io/n4berius/halos-flash:0.19.0 0.19.0 sha256:aaa)" > "$work/status.json"
+: > "$work/log"; "$ctl" npu off --yes > /dev/null
+has '^bootc switch ghcr.io/n4berius/halos-flash:0.19.0-no-npu$' "$work/log"
+host "$(dep ghcr.io/n4berius/halos-flash:beta 0.19.0-beta.1 sha256:bbb)" null \
+  "$(dep ghcr.io/n4berius/halos-flash:alpha 0.19.0-alpha.1 sha256:aaa)" true > "$work/status.json"
+: > "$work/log"
+if "$ctl" npu off --yes > "$work/out" 2>&1; then echo "npu ignored a queued rollback" >&2; exit 1; fi
+has 'rollback is queued' "$work/out"; hasnt 'bootc switch' "$work/log"
+ok "npu off/on switch edition on the same channel or pinned release, keep it through a later channel switch, refuse an untagged build, and warn when there is no NPU"
