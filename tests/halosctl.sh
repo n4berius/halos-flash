@@ -175,6 +175,17 @@ host "$(dep ghcr.io/n4berius/halos-flash:0.19.0-alpha.1 0.19.0 sha256:aaa)" > "$
 : > "$work/log"; "$ctl" npu off --yes > "$work/out"
 has 'skopeo .*docker://ghcr.io/n4berius/halos-flash:0.19.0-alpha.1-no-npu' "$work/log"
 has '^bootc switch ghcr.io/n4berius/halos-flash@sha256:feed$' "$work/log"
+# On a pinned machine npu off stages a digest, whose edition can't be read back: npu on, switch
+# and rollback --to must refuse rather than guess (the IOMMU could stay off against the ask).
+for again in "npu on" "npu off" "switch beta" "rollback --to 0.19.0-alpha.1"; do
+  : > "$work/log"
+  # shellcheck disable=SC2086
+  if "$ctl" $again --yes > "$work/out" 2>&1; then echo "$again guessed the edition of a staged digest" >&2; exit 1; fi
+  has 'reboot to it first' "$work/out"; hasnt 'bootc switch' "$work/log"
+done
+host "$(dep ghcr.io/n4berius/halos-flash:beta 0.19.0-beta.1 sha256:bbb)" "$(dep ghcr.io/n4berius/halos-flash:beta 0.19.0-beta.2 sha256:ccc)" > "$work/status.json"
+"$ctl" npu off --yes > "$work/out"; has 'Staged for the next boot, and replaced by this: ghcr.io/n4berius/halos-flash:beta \(0.19.0-beta.2\)' "$work/out"
+has 'can read all of it' "$work/out"
 host "$(dep ghcr.io/n4berius/halos-flash@sha256:aaa 0.19.0 sha256:aaa)" > "$work/status.json"
 sed -i 's/^HALOS_RELEASE=.*/HALOS_RELEASE=0.19.1-dev.abc1234/' "$work/release.env"
 if "$ctl" npu off --yes > "$work/out" 2>&1; then echo "guessed a tag for an untagged build" >&2; exit 1; fi
