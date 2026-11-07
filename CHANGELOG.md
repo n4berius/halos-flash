@@ -22,6 +22,9 @@ promoted.
     checkpoints are counted in.
   - The build and release workflows use GitHub's actions pinned to exact commits, so a moved
     version tag can't change what runs beside the signing key. (#69)
+- The installer, `halosctl setup` and the docs now say plainly what TPM unlock protects: a disk
+  taken out of the machine, not the machine taken whole. INSTALL.md section 8 explains how to
+  protect the machine too (BIOS password, USB boot off, a boot menu password). (#68)
 - No more serial login prompt restarting every 10 seconds on machines whose first serial port
   doesn't work (freyja logged "failed to get terminal attributes" from boot on). A serial login
   prompt now starts only on a port that answers, and new installs no longer get a serial

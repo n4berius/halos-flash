@@ -241,7 +241,9 @@ case "$cmd" in
     elif [ ! -e "${HALOGEN_DEV:-/dev}/tpmrm0" ] && [ ! -e "${HALOGEN_DEV:-/dev}/tpm0" ]; then echo "   No TPM found: you type the passphrase at each boot."
     elif [ "$(cryptsetup luksDump "$(head -n 1 <<< "$crypt")" 2>/dev/null | grep -cE '^[[:space:]]*[0-9]+: systemd-tpm2')" -gt 0 ]; then
       echo "   It unlocks with the TPM already. After a BIOS or Secure Boot change: sudo halogen-enroll-tpm"
-    elif ask "   Unlock with the TPM, so no passphrase is needed while Secure Boot and the BIOS stay the same? [Y/n]" y; then
+    elif echo "   With the TPM this machine unlocks its own disk: that protects a disk taken out of it, not" \
+              "the machine taken whole (INSTALL.md, section 8)." && \
+         ask "   Unlock with the TPM, so no passphrase is needed while Secure Boot and the BIOS stay the same? [Y/n]" y; then
       halogen-enroll-tpm || echo "   That didn't work; the passphrase still unlocks the disk. Try again later: sudo halogen-enroll-tpm"
     else echo "   Kept: you type the passphrase at each boot."; fi
 

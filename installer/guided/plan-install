@@ -212,9 +212,10 @@ else
     valid_host "$hostname" && break
     say "Use lower-case letters, digits and hyphens, at most 63, not starting or ending with a hyphen."
   done
-  say "" "Encrypting the disk protects the models, settings and API key if the machine or disk is" \
-      "taken. It is unlocked with a passphrase at each boot; after the install, sudo halosctl setup" \
-      "can let the TPM unlock it instead."
+  say "" "Encrypting the disk protects the models, settings and API key. With the passphrase, typed" \
+      "at each boot, it protects the machine and its disk while switched off. After the install, sudo" \
+      "halosctl setup can let the TPM unlock it instead: then the machine unlocks its own disk, which" \
+      "still protects a disk taken out of it, but not the machine taken whole (INSTALL.md, section 8)."
   luks=""
   if yesno "Encrypt the disk (LUKS)?"; then secret "Disk passphrase (at least 8 characters)" 8; luks="$REPLY"; fi
   say "" "The root account is for the local console only. It can never log in over SSH."

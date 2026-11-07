@@ -7,6 +7,16 @@ Report vulnerabilities in Halogen itself to its maintainers, as its documentatio
 
 Only the newest stable release, and the newest pre-release of each channel, get fixes.
 
+## Someone with the machine itself
+
+LUKS with TPM unlock protects a disk taken out of the machine, not the machine taken whole: the
+TPM unlocks the disk for anything that boots through the normal signed chain, the halOS
+installer USB included, and the boot menu can be edited unless it has a password. For a machine
+that could be taken, type the passphrase at every boot. A BIOS setup password, booting only from
+the internal disk (no USB or network boot) and a boot menu password make the TPM's key harder to get, not impossible: the boot files
+aren't encrypted, so someone who can open the case can still change them. INSTALL.md, section 8,
+has the steps.
+
 ## Checkpoints you download
 
 `halogenctl model pull` (NPU checkpoints) and `halogenctl flash pull` (Flash checkpoints) bring
