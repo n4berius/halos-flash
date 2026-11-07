@@ -120,13 +120,24 @@ name, but allows saying halOS runs Halogen.
   sha256 of the text Halogen's docs build from the parquet file, `bbf94c53…`), first `--ref-out`
   for the official checkpoint once per Halogen version, then `--ref --worst 5` for the custom one;
   results go to `halos.info` (`checked_*`) and `check.json`. GGUF conversion is a later step.
+- `halogenctl bench [--quick]` (#15, `/usr/libexec/halogen/bench`, as halogen) runs Halogen's own
+  `sweep` (`/halogen/tools/halogen-bench.py --json`, an HTTP client) in the pinned image against the
+  running server: `--network=host` only, read-only, no mounts, devices or capabilities, the API key
+  through the environment. Halogen's `bench`/`sweep` image modes start their own engine, which
+  would need Halogen stopped, so they aren't used. Reports (text + JSON, with versions, BIOS, kargs,
+  fabric clock, platform profile, checkpoint and settings minus keys) go to `/srv/configs/bench/`.
 - `/srv` is `/var/srv` on bootc. The installer makes LVM volumes for `/`, `/var`, `/var/log`,
   `/var/log/audit`, `/var/home`, `/var/srv/configs` and `/var/srv/models`. The guided install
   names them `halos-root`, `-var`, `-log`, `-audit`, `-home`, `-configs`, `-models` (VG `halos`);
   older installs keep Anaconda's `<product>_<hostname>` names (freyja: `halogen_freyja`).
 - Updates are manual, since a reboot stops inference. `halosctl` (`files/usr/bin/halosctl`)
   handles the OS: `version`, `switch <channel>`, `upgrade`, `rollback [--to]`, `history`
-  (`/var/lib/halos/history`). `halogenctl` handles the engine and models. Exact release tags
+  (`/var/lib/halos/history`), `npu on|off` (the other edition's tag on the same channel, or the
+  same exact release pinned by digest; switch and `rollback --to` take the edition from what boots
+  next, so a staged edition change survives, and refuse when it is pinned by digest, whose edition
+  can't be told from the ref; NPU presence is read from PCI, 1022:1502/17f0, since
+  the no-NPU edition's `amd_iommu=off` hides `/dev/accel`; bootc applies the kargs.d difference,
+  to confirm on freyja). `halogenctl` handles the engine and models. Exact release tags
   never move. Channel tags (`alpha`, `beta`, `rc`, `stable`, `edge`) do, and each one points to
   the newest release at least that stable (`scripts/channels.sh`), so a channel never moves
   backwards. The version tag (`0.19.0`) moves with stable releases and weekly rebuilds. The

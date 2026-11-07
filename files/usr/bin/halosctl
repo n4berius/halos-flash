@@ -16,11 +16,14 @@ usage: halosctl version
        halosctl upgrade [--check] [--reboot] [--yes]
        halosctl switch alpha|beta|rc|release|edge [--reboot] [--yes]
        halosctl rollback [--to <version>] [--reboot] [--yes]
+       halosctl npu on|off [--reboot] [--yes]
        halosctl history
        halosctl setup [--skip]
 
 Channels: alpha, beta and rc are test releases; release (stable) is for production; edge is
 every change to main. Each channel also gets newer releases of the more stable ones.
+npu off moves to the no-NPU edition (IOMMU off, faster prefill); npu on moves back. Both keep
+the channel or release, and /srv: the NPU models stay on disk.
 Changes apply at the next reboot, which stops Halogen. --reboot does it at once.
 U
 }
@@ -57,13 +60,42 @@ channel() {
   case "$t" in alpha|beta|rc|stable|edge) echo "$t" ;; latest) echo stable ;; esac
 }
 
+# What boots next: the staged image if there is one, else the running one.
+next_dep() { if [ -n "$(field staged ref)" ]; then echo staged; else echo booted; fi; }
+# The edition of what boots next, as a tag suffix, so switch and rollback --to keep an edition
+# change staged by npu on|off. "?" when it can't be told: a staged image pinned by digest (from
+# rollback --to, or npu on|off on a pinned machine) names no edition, and guessing could turn
+# the IOMMU off, or leave it off, against what was asked.
+next_suffix() {
+  local d t; d="$(next_dep)"
+  [ "$d" = staged ] || { echo "$suffix"; return; }
+  t="$(field staged ref)"; t="${t##*/}"
+  case "$t" in *@*) echo "?" ;; *:*-no-npu) echo "-no-npu" ;; *:*) echo "" ;; *) echo "?" ;; esac
+}
+# next_suffix, or stop when it can't be told. Call it in the main shell, not in $(...).
+need_suffix() {
+  sfx="$(next_suffix)"
+  [ "$sfx" != "?" ] || die "a change pinned to one exact build is staged for the next boot: $(describe staged).
+Its edition can't be told from its name, so reboot to it first, then run this again."
+}
+# Is there an AMD NPU (XDNA) in this machine? Read from PCI, which works on either edition.
+has_npu() {
+  local d
+  for d in "${HALOGEN_SYS:-/sys}"/bus/pci/devices/*; do
+    [ "$(cat "$d/vendor" 2>/dev/null)" = 0x1022 ] || continue
+    # The PCI ids the kernel's amdxdna driver takes (Strix Halo is 17f0).
+    case "$(cat "$d/device" 2>/dev/null)" in 0x1502|0x17f0|0x17f2|0x17f3|0x1b0b|0x1b0c) return 0 ;; esac
+  done
+  return 1
+}
+
 record() {
   mkdir -p "$(dirname "$history")"
   printf '%s  %-8s  %s -> %s  (by %s)\n' "$(date -u '+%Y-%m-%d %H:%M UTC')" "$1" "$2" "$3" \
     "${SUDO_USER:-root}" >> "$history"
 }
 
-yes=0; reboot=0; check=0; skip=0; to=""
+yes=0; sfx=""; reboot=0; check=0; skip=0; to=""
 confirm() {
   [ "$yes" = 1 ] && return 0
   [ -t 0 ] || die "nothing changed: add --yes to confirm without a terminal"
@@ -99,6 +131,7 @@ switch_to() {
   info="$(remote "$target")"; digest="${info%% *}"
   from="$(describe booted)"
   echo "Now:   $from"
+  [ -z "$(field staged ref)" ] || echo "Staged for the next boot, and replaced by this: $(describe staged)"
   echo "After: $target (${info#* })"
   confirm "Switch to it?"
   if [ -n "$pin" ]; then bootc switch "$(repo)@$digest"; else bootc switch "$target"; fi
@@ -128,7 +161,7 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-[ "$cmd" = switch ] || [ "${#args[@]}" = 0 ] || die "unexpected ${args[0]} (for an older release: halosctl rollback --to <version>)"
+case "$cmd" in switch|npu) ;; *) [ "${#args[@]}" = 0 ] ;; esac || die "unexpected ${args[0]} (for an older release: halosctl rollback --to <version>)"
 
 case "$cmd" in
   version)
@@ -180,15 +213,16 @@ case "$cmd" in
       *) die "unknown channel ${args[0]}: use alpha, beta, rc, release or edge" ;;
     esac
     # Compared with what boots next: a staged switch to another channel can be undone this way.
-    next=booted; [ -z "$(field staged ref)" ] || next=staged
-    [ "$ch" != "$(channel "$next")" ] || { echo "Already on $ch. For its newest release: sudo halosctl upgrade"; exit 0; }
-    switch_to switch "$(repo):$ch$suffix"
+    [ "$ch" != "$(channel "$(next_dep)")" ] || { echo "Already on $ch. For its newest release: sudo halosctl upgrade"; exit 0; }
+    need_suffix
+    switch_to switch "$(repo):$ch$sfx"
     ;;
   rollback)
     if [ -n "$to" ]; then
       [[ "$to" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$ ]] || die "not a release: $to (such as 0.19.0-alpha.1)"
       echo "This pins the machine to $to; follow a channel again later with: sudo halosctl switch <channel>"
-      switch_to rollback "$(repo):$to$suffix" pin
+      need_suffix
+      switch_to rollback "$(repo):$to$sfx" pin
       exit 0
     fi
     ! queued || die "a rollback is already queued. Reboot to apply it (sudo systemctl reboot), or undo it with: sudo bootc rollback"
@@ -202,6 +236,46 @@ case "$cmd" in
     bootc rollback
     record rollback "$from" "$target"
     finish
+    ;;
+  npu)
+    [ "${#args[@]}" = 1 ] || die "npu on or npu off?"
+    case "${args[0]}" in
+      on) want=npu; new="" ;;
+      off) want=no-npu; new="-no-npu" ;;
+      *) die "npu on or npu off, not ${args[0]}" ;;
+    esac
+    ! queued || die "a rollback is queued for the next boot. Reboot first, then run this again."
+    next="$(next_dep)"; need_suffix
+    now="npu"; [ "$sfx" = "" ] || now="no-npu"
+    [ "$want" != "$now" ] || { echo "Already the $want edition$([ "$next" = staged ] && echo " at the next boot")."; exit 0; }
+    # Keep the channel, or the exact release the machine is pinned to.
+    ch="$(channel "$next")"
+    if [ -n "$ch" ]; then target="$(repo):$ch$new"; pin=""
+    else
+      tag="$(field "$next" ref)"; tag="${tag##*/}"
+      case "$tag" in *@*) tag="" ;; *:*) tag="${tag##*:}"; tag="${tag%-no-npu}" ;; *) tag="" ;; esac
+      [ -n "$tag" ] || tag="${HALOS_RELEASE:-}"
+      [[ "$tag" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$ ]] \
+        || die "this machine follows no channel and its release ($tag) has no tag for the other edition. Follow a channel first: sudo halosctl switch <channel>"
+      target="$(repo):$tag$new"; pin=pin
+      # A plain version tag (0.19.0) moves with stable releases and weekly rebuilds: keep following it.
+      if [[ "$tag" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then pin=""; fi
+    fi
+    if [ "$want" = no-npu ]; then
+      echo "The no-NPU edition turns the IOMMU off: Halogen measured 13-16% faster prefill, and no"
+      echo "NPU models run. The IOMMU stops plugged-in devices from reading memory. Without it, a device"
+      echo "plugged into a USB4/Thunderbolt port or PCIe slot can read all of it, including the disk"
+      echo "encryption key while the machine runs. Use it only where nobody untrusted can touch the machine."
+      echo "Your NPU models and checkpoints stay in /srv/models, so npu on needs no new download."
+      echo "HALOGEN_NPU_* settings in halogen.env are ignored on this edition."
+    else
+      if ! has_npu; then
+        echo "Warning: this machine shows no AMD NPU, so the NPU edition's NPU models can't run here."
+      fi
+      echo "The NPU edition keeps the IOMMU on, which the NPU needs. Its first start downloads any"
+      echo "NPU models not already in /srv/models/npu."
+    fi
+    switch_to "npu-${args[0]}" "$target" ${pin:+"$pin"}
     ;;
   history)
     if [ -s "$history" ]; then cat "$history"; else echo "No changes recorded yet. Changes made with halosctl are listed here."; fi

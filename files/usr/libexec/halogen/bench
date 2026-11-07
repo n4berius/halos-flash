@@ -1,0 +1,98 @@
+#!/bin/bash
+# halogenctl bench: measure the running server with Halogen's own sweep tool (the one its
+# published numbers come from), and save a report with what the numbers depend on.
+# Runs as halogen. Usage: bench [--quick]
+# The sweep is an HTTP client, so it needs no GPU, no restart and no models mounted: it runs in
+# the pinned Halogen image with host networking only, to reach 127.0.0.1:8731.
+set -euo pipefail
+die() { echo "halogenctl bench: $*" >&2; exit 1; }
+unset HALOS_RELEASE HALOGEN_VERSION HALOGEN_VARIANT HALOGEN_IMAGE
+# shellcheck source=/dev/null
+. "${HALOGEN_RELEASE_FILE:-/usr/share/halogen/release.env}"
+configs="${HALOGEN_CONFIGS_DIR:-/srv/configs}"
+render="${HALOGEN_RENDER:-/usr/libexec/halogen/render-config}"
+sys="${HALOGEN_SYS:-/sys}"
+cmdline="${HALOGEN_CMDLINE:-/proc/cmdline}"
+api=http://127.0.0.1:8731
+
+# Prefill sizes, generation length and repeats. The full run takes a few minutes.
+pp=512,2048,8192,32768; tg=128; reps=3; kind=full
+case "${1:-}" in
+  '') ;;
+  --quick) pp=2048; reps=1; kind=quick ;;
+  *) die "usage: halogenctl bench [--quick]" ;;
+esac
+
+[ -n "${HALOGEN_IMAGE:-}" ] || die "no Halogen image named in the release file"
+podman image exists "$HALOGEN_IMAGE" || die "Halogen's image isn't here yet; let the first download finish (sudo halogenctl fetch-logs)"
+curl -sf -m 5 -o /dev/null "$api/health" || die "Halogen isn't answering on $api. Check: sudo halogenctl status"
+[ -r "$configs/api-key" ] || die "cannot read $configs/api-key"
+
+# What the numbers depend on. Printable characters only: some of it comes from firmware.
+clean() { tr -cd '[:print:]' | sed 's/^ *//; s/ *$//'; }
+dmi() { { clean < "$sys/class/dmi/id/$1"; } 2>/dev/null || true; }
+karg() { tr ' ' '\n' < "$cmdline" | grep -E "^$1(=|$)" | clean || true; }
+settings="$("$render" --show 2>/dev/null | grep -E '^HALOGEN_[A-Z0-9_]+=' | grep -vE '_(KEY|TOKEN)[A-Z_]*=' | tr -cd '[:print:]\n' || true)"
+checkpoint="$(sed -n 's/^HALOGEN_CHECKPOINT=//p' <<< "$settings" | tail -n 1)"
+case "$checkpoint" in /models/flash/*/*) flash="${checkpoint#/models/flash/}"; flash="${flash%%/*} (your own)" ;; *) flash=official ;; esac
+fabric="$(systemctl is-active halogen-fabric-clock.service 2>/dev/null || true)"
+profile="$({ clean < "$sys/firmware/acpi/platform_profile"; } 2>/dev/null || true)"
+cache="$(sed -n 's/^HALOGEN_PROMPT_CACHE=//p' <<< "$settings" | tail -n 1)"
+
+stamp="$(date -u +%Y%m%d-%H%M%S)"
+dir="$configs/bench"
+umask 027
+mkdir -p "$dir"
+raw="$dir/.$stamp.raw"
+trap 'rm -f "$raw" "$raw.json"' EXIT
+
+echo "Measuring Halogen ($kind run: prefill $pp tokens, generation $tg tokens over Halogen's ten"
+echo "prompt shapes, $reps time(s) each). Other requests are slower meanwhile."
+# The key goes in through the environment, not the command line, so ps never shows it.
+HALOGEN_API_KEY="$(head -n 1 "$configs/api-key")" podman run --rm --pull=never --network=host \
+  --read-only --tmpfs /tmp --cap-drop=all --security-opt no-new-privileges -e HALOGEN_API_KEY \
+  --entrypoint python3 "$HALOGEN_IMAGE" /halogen/tools/halogen-bench.py \
+  --api "$api" -p "$pp" -n "$tg" -r "$reps" --json > "$raw" \
+  || die "the measurement failed; see above, and sudo halogenctl logs"
+# The tool prints two header lines before its JSON. Keep the JSON, with every control character
+# taken out of its text: it came from the server, and ends up on root's terminal.
+if ! sed -n '/^{/,$p' "$raw" | jq 'walk(if type == "string" then gsub("[[:cntrl:]]"; "") else . end)' > "$raw.json" 2>/dev/null ||
+   ! jq -e '.rows | length > 0' "$raw.json" > /dev/null 2>&1; then
+  die "the measurement returned no results it could read; its output was: $(head -c 300 "$raw" | tr -cd '[:print:]\n')"
+fi
+
+jq --arg date "$(date -u '+%Y-%m-%d %H:%M UTC')" --arg kind "$kind" \
+   --arg halos "${HALOS_RELEASE:-unknown}" --arg edition "${HALOGEN_VARIANT:-unknown}" \
+   --arg halogen "${HALOGEN_VERSION:-unknown}" --arg image "$HALOGEN_IMAGE" \
+   --arg kernel "$(uname -r | clean)" --arg board "$(dmi board_vendor) $(dmi board_name)" \
+   --arg bios "$(dmi bios_version)" --arg gtt "$(karg amdgpu.gttsize)" \
+   --arg iommu "$(karg iommu; karg amd_iommu)" --arg fabric "$fabric" --arg profile "$profile" \
+   --arg flash "$flash" --arg settings "$settings" --arg cache "${cache:-default}" '
+  {date: $date, run: $kind,
+   system: {halos: $halos, edition: $edition, halogen: $halogen, image: $image, kernel: $kernel,
+            board: $board, bios: $bios, gttsize: $gtt, iommu: $iommu, fabric_clock: $fabric,
+            platform_profile: $profile, flash_checkpoint: $flash, prompt_cache: $cache,
+            settings: ($settings | split("\n") | map(select(length > 0)))},
+   bench: .}' "$raw.json" > "$dir/$stamp.json"
+
+{
+  echo "halOS benchmark, $(jq -r .date "$dir/$stamp.json") ($kind run)"
+  jq -r '.system | "halOS \(.halos), \(.edition) edition, Halogen \(.halogen)",
+    "Board:     \(.board), BIOS \(.bios)",
+    "Kernel:    \(.kernel); \(.gttsize); \(.iommu | gsub("\n"; " "))",
+    "Fabric clock held: \(.fabric_clock); platform profile: \(if .platform_profile == "" then "not reported" else .platform_profile end)",
+    "Flash checkpoint: \(.flash_checkpoint); prompt cache: \(.prompt_cache)",
+    "Settings:  \(if (.settings | length) == 0 then "defaults" else (.settings | join(", ")) end)"' "$dir/$stamp.json"
+  echo
+  printf '%-10s %-10s %8s %12s\n' test drafter tokens tok/s
+  jq -r '.bench.rows[] | [.test, (.drafter // "default"), .tokens, "\(.mean * 100 | round / 100) ± \(.stdev * 100 | round / 100)"] | @tsv' \
+    "$dir/$stamp.json" | while IFS=$'\t' read -r t d n s; do printf '%-10s %-10s %8s %12s\n' "$t" "$d" "$n" "$s"; done
+  echo
+  echo "pp = reading the prompt (prefill), tg = writing the answer. Both are measured end to end over"
+  echo "HTTP. tg is the mean over Halogen's ten prompt shapes: code runs about twice as fast as prose,"
+  echo "so compare it with another run of this command, not with a single prompt. The prompt cache was"
+  echo "on as you run Halogen: compare pp with Halogen's \"cache on (a cold request)\" rows, and tg is a"
+  echo "little faster from the second pass on, when the same prompts come from the cache."
+} | tee "$dir/$stamp.txt"
+echo
+echo "Saved: $dir/$stamp.txt and $stamp.json"
