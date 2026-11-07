@@ -13,7 +13,7 @@ promoted.
 - `sudo halogenctl flash check <name>` measures your own Flash checkpoint against the official
   one with Halogen's `ppl`, on the same public text Halogen's docs use: perplexity, how often both
   pick the same next word, and how far apart their predictions are. Halogen stops while it runs
-  and starts again afterwards. `flash list` shows the result. (#PR)
+  and starts again afterwards. `flash list` shows the result. (#74)
 - A setting written twice in `halogen.env` (easy to do when pasting from the example file) is
   now pointed out: `halogenctl status`, `config` and `options` name it, and Halogen's log says
   which line is used (the last one). Nothing changes in what Halogen receives. (#71)
