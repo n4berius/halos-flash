@@ -15,6 +15,12 @@ promoted.
   on (versions, BIOS, kernel settings, power profile, checkpoint, settings) and is saved in
   `/srv/configs/bench/` to compare later runs. `--quick` takes under a minute. It uses the prompt
   cache as your server does, so its prompts can push long cached conversations out once. (#73)
+- `sudo halosctl npu off` moves a machine to the no-NPU edition, and `npu on` back, keeping its
+  channel (or exact release) and everything in `/srv`. It warns when turning the NPU on for a
+  machine that has none, and says plainly what turning the IOMMU off costs. A channel switch or
+  `rollback --to` now keeps an edition change that is waiting for the next boot, or, when that
+  can't be told (a machine pinned to one release), asks you to reboot first instead of guessing.
+  (#72)
 - A setting written twice in `halogen.env` (easy to do when pasting from the example file) is
   now pointed out: `halogenctl status`, `config` and `options` name it, and Halogen's log says
   which line is used (the last one). Nothing changes in what Halogen receives. (#71)

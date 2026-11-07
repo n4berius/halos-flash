@@ -123,7 +123,12 @@ name, but allows saying halOS runs Halogen.
   older installs keep Anaconda's `<product>_<hostname>` names (freyja: `halogen_freyja`).
 - Updates are manual, since a reboot stops inference. `halosctl` (`files/usr/bin/halosctl`)
   handles the OS: `version`, `switch <channel>`, `upgrade`, `rollback [--to]`, `history`
-  (`/var/lib/halos/history`). `halogenctl` handles the engine and models. Exact release tags
+  (`/var/lib/halos/history`), `npu on|off` (the other edition's tag on the same channel, or the
+  same exact release pinned by digest; switch and `rollback --to` take the edition from what boots
+  next, so a staged edition change survives, and refuse when it is pinned by digest, whose edition
+  can't be told from the ref; NPU presence is read from PCI, 1022:1502/17f0, since
+  the no-NPU edition's `amd_iommu=off` hides `/dev/accel`; bootc applies the kargs.d difference,
+  to confirm on freyja). `halogenctl` handles the engine and models. Exact release tags
   never move. Channel tags (`alpha`, `beta`, `rc`, `stable`, `edge`) do, and each one points to
   the newest release at least that stable (`scripts/channels.sh`), so a channel never moves
   backwards. The version tag (`0.19.0`) moves with stable releases and weekly rebuilds. The
