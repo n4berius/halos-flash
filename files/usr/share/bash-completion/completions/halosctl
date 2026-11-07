@@ -1,7 +1,8 @@
 # bash completion for halosctl (halOS).
 _halosctl() {
   local cur prev words cword
-  _init_completion 2>/dev/null || { cur="${COMP_WORDS[COMP_CWORD]}"; prev="${COMP_WORDS[COMP_CWORD-1]}"; words=("${COMP_WORDS[@]}"); cword=$COMP_CWORD; }
+  if declare -F _init_completion > /dev/null; then _init_completion || return
+  else cur="${COMP_WORDS[COMP_CWORD]}"; prev="${COMP_WORDS[COMP_CWORD-1]}"; words=("${COMP_WORDS[@]}"); cword=$COMP_CWORD; fi
   if [ "$cword" -eq 1 ]; then
     mapfile -t COMPREPLY < <(compgen -W "version upgrade switch rollback npu history setup help" -- "$cur")
     return
