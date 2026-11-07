@@ -10,6 +10,11 @@ promoted.
 
 ## Unreleased
 
+- `sudo halogenctl bench` measures how fast the server reads prompts and writes answers, with
+  Halogen's own benchmark tool, without restarting it. The report lists what the numbers depend
+  on (versions, BIOS, kernel settings, power profile, checkpoint, settings) and is saved in
+  `/srv/configs/bench/` to compare later runs. `--quick` takes under a minute. It uses the prompt
+  cache as your server does, so its prompts can push long cached conversations out once. (#73)
 - `sudo halosctl npu off` moves a machine to the no-NPU edition, and `npu on` back, keeping its
   channel (or exact release) and everything in `/srv`. It warns when turning the NPU on for a
   machine that has none, and says plainly what turning the IOMMU off costs. A channel switch or

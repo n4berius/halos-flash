@@ -309,5 +309,13 @@ case "${1:-status}" in
       *) echo "usage: halogenctl model pull <hf-repo> [--revision <rev>] [--as <name>] | list | remove <name>" >&2; exit 2 ;;
     esac
     ;;
-  *) echo "usage: halogenctl status|start|stop|restart|logs [lines]|fetch-logs [lines]|doctor|selftest|config|options [--new]|api-key|hf-token [--remove]|model pull|list|remove|flash pull|list|use|verify|remove" >&2; exit 2 ;;
+  bench)
+    # Halogen's own sweep against the running server; the report goes to /srv/configs/bench.
+    case "${2:-}" in ''|--quick) ;; *) echo "usage: halogenctl bench [--quick]" >&2; exit 2 ;; esac
+    [ "$(id -u)" = 0 ] || { echo "Run it with sudo: sudo halogenctl bench ${2:-}" >&2; exit 1; }
+    # Its output comes back through a pipe, so the script (run as halogen) never holds root's
+    # terminal for the minutes it runs.
+    systemd-run --machine=halogen@.host --user --pipe --wait --quiet /usr/libexec/halogen/bench ${2:+"$2"} < /dev/null 2>&1 | cat
+    ;;
+  *) echo "usage: halogenctl status|start|stop|restart|logs [lines]|fetch-logs [lines]|doctor|selftest|bench [--quick]|config|options [--new]|api-key|hf-token [--remove]|model pull|list|remove|flash pull|list|use|verify|remove" >&2; exit 2 ;;
 esac
