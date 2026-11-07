@@ -161,6 +161,9 @@ name, but allows saying halOS runs Halogen.
   the condition the tty, so stty's settings line would otherwise print before every login prompt), and only the VM test's boot entry passes
   `console=ttyS0`. The VM test checks ttyS0's getty is active with the check loaded. QEMU's ttyS1 does not fail
   like freyja's ttyS0 (the getty ran there), so the skip itself can only be checked on freyja.
+- `halogen.service` has `StartLimitBurst=3` in 900 s against GPU crash loops. halogenctl's
+  `start_halogen` runs `reset-failed` first, so a start or restart you ask for (also `flash use`
+  and `model pull`'s offer) is never refused; only automatic restarts count.
 - `halogen-enroll-tpm` uses PCR 7 and `--wipe-slot=tpm2`, so re-enrolling replaces the old
   binding. Enrolling twice on the same boot is a no-op ("already enrolled").
 - In the VM test, `systemd-pcrextend` needs `SYSTEMD_FORCE_MEASURE=1` on non-UKI boots.

@@ -10,6 +10,10 @@ promoted.
 
 ## Unreleased
 
+- Restarting Halogen yourself (`sudo halogenctl restart`, `flash use`, or after a settings
+  change) always works now. A few restarts in a row used to hit Halogen's crash-loop guard ("start
+  of the service was attempted too often"), which only automatic restarts should count towards.
+  (#70)
 - **Security fixes from the full audit:**
   - Your own NPU checkpoints are checked offline, with no access to your Hugging Face token,
     before the download step, which no longer reads them itself.

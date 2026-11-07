@@ -2,6 +2,10 @@
 # Admin wrapper for the rootless Halogen service. Run with sudo.
 set -euo pipefail
 unit() { systemctl --user --machine=halogen@.host "$@"; }
+# A start you ask for always runs. halogen.service allows 3 starts in 15 minutes so a crashing
+# GPU can't restart forever, but your own restarts counted towards that too, and a few in a row
+# locked Halogen out ("start of the service was attempted too often"). reset-failed clears it.
+start_halogen() { unit reset-failed halogen.service 2>/dev/null || true; unit "$1" halogen.service; }
 # Files under /srv/configs and /srv/models belong to halogen, so read and write them as halogen, never as root:
 # a link planted there then can't reach anything halogen couldn't already.
 as_owner() { runuser -u halogen -- "$@"; }
@@ -50,7 +54,8 @@ case "${1:-status}" in
         echo "Flash checkpoint: you chose $c, but Halogen serves the official one: $(sed -n 2p <<< "$s")"
       fi
     fi ;;
-  start|stop|restart) unit "$1" halogen.service ;;
+  start|restart) start_halogen "$1" ;;
+  stop) unit stop halogen.service ;;
   logs) exec journalctl --no-pager "${follow[@]}" -n "$lines" _SYSTEMD_USER_UNIT=halogen.service + _SYSTEMD_USER_UNIT=halogen-fetch.service ;;
   fetch-logs) exec journalctl --no-pager "${follow[@]}" -n "$lines" _SYSTEMD_USER_UNIT=halogen-fetch.service ;;
   doctor)
@@ -184,7 +189,7 @@ case "${1:-status}" in
         restart_now "Switch Halogen to $name?"
         # shellcheck disable=SC2016 # expanded by the halogen shell, from its arguments
         printf '%s\n' "$name" | as_owner sh -c 'umask 027; cat > "$1.new" && mv -f "$1.new" "$1"' sh "$flash_choice"
-        unit restart halogen.service
+        start_halogen restart
         echo "Switched to $name. Halogen is starting; follow it with: sudo halogenctl logs"
         [ "$name" = official ] || echo "If it doesn't start, go back with: sudo halogenctl flash use official"
         ;;
@@ -234,7 +239,7 @@ case "${1:-status}" in
               n="$(grep -n "^HALOGEN_NPU_MODELS=" "$f" | tail -n 1 | cut -d: -f1)"
               N="${n:-0}" awk '"'"'NR == ENVIRON["N"] { print ENVIRON["NEW"]; done = 1; next } { print }
                 END { if (!done) print ENVIRON["NEW"] }'"'"' "$f" > "$f.new" && mv -f "$f.new" "$f"' sh "$configs/halogen.env"
-            unit restart halogen.service
+            start_halogen restart
             echo "Restarted. The first start converts the checkpoint for the NPU (about a minute)."
           fi
         fi
