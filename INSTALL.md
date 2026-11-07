@@ -130,6 +130,9 @@ answered them all and said yes at the end.
 2. **Name of this machine** on the network. Enter keeps `halos`.
 3. **Encrypt the disk (LUKS)?** If yes, type the passphrase twice. You type it at every boot,
    until you let the TPM unlock it in [first-boot setup](#6-first-boot-setup-then-let-the-first-boot-finish).
+   With the passphrase, encryption protects the machine and its disk while it is switched off.
+   With TPM unlock, only a disk taken out of the machine; see
+   [what TPM unlock protects](#what-tpm-unlock-protects-and-what-it-doesnt).
    Use letters, digits and the symbols of a US keyboard: that's the layout the boot prompt has.
 4. **Enable the root account?** If yes, type its password twice. Root can only log in at the
    machine's own screen, never over SSH. Most people answer no and use `sudo`.
@@ -186,7 +189,8 @@ It asks three things, and you can skip each one:
 
 1. **How the disk unlocks at boot.** With the TPM, there's no passphrase to type while Secure
    Boot and the BIOS stay the same; it runs `halogen-enroll-tpm` for you. Or keep typing the
-   passphrase at each boot.
+   passphrase at each boot. The TPM protects a disk taken out of the machine, not the machine
+   taken whole: see [what TPM unlock protects](#what-tpm-unlock-protects-and-what-it-doesnt).
 2. **A Hugging Face token.** Optional: it raises the download limits. Create a read token at
    [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens).
 3. **Settings.** Open `/srv/configs/halogen.env` in an editor, or keep the defaults, which suit
@@ -424,6 +428,39 @@ those, boot asks for the passphrase. Enter it, then run `halogen-enroll-tpm` aga
 the old TPM binding rather than adding another. The CI install
 test enrolls the TPM and reboots without a passphrase, but this hasn't been confirmed on
 hardware yet. If the next boot still asks for the passphrase, report it.
+
+### What TPM unlock protects, and what it doesn't
+
+With the TPM, the machine unlocks its own disk whenever it boots through the normal, signed
+boot chain. That protects a **disk taken out of the machine**: elsewhere it is unreadable
+without the passphrase. It doesn't protect the **machine taken whole**, or someone with time at
+its keyboard: they could boot the halOS installer USB (or another Fedora USB stick), whose root
+shell can ask the same TPM to unlock the disk, or edit the boot menu's kernel line to get a shell. With the passphrase at every
+boot instead, both are protected, at the cost of typing it.
+
+If the machine itself could be taken or tampered with, make those two ways in harder:
+
+1. **In the BIOS:** set an administrator (setup) password, and allow booting only from the
+   internal disk: turn off USB boot and network (PXE) boot, and check that an external drive on
+   a USB4 port can't boot either. To reinstall later, enter the password and turn USB boot back on.
+2. **A boot menu password,** so the kernel line can't be edited:
+
+   ```bash
+   sudo grub2-setpassword
+   ```
+
+   Choose a password you will keep, using only letters, digits and the symbols of a US keyboard:
+   no spaces, backslashes, `*` or `?`, which the command can save differently from what you
+   type. It is asked for only when someone edits a boot entry or opens the GRUB command line.
+   Check it once at the machine's own screen: reboot, and the machine should start by itself
+   with no password. The menu shows only briefly, so press an arrow key as soon as it appears,
+   then `e`: that should ask for the password. This hasn't been tested on halOS hardware yet. If booting itself starts asking for the
+   password, remove it with `sudo rm /boot/grub2/user.cfg`.
+
+These make taking the disk's key harder, not impossible: the boot files on the disk aren't
+encrypted, so someone who can open the case can change them and put the disk back. Only typing
+the passphrase at every boot keeps a stolen machine locked, and even that doesn't protect a
+machine someone tampered with before you typed it.
 
 ## If something goes wrong
 
