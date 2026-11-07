@@ -102,6 +102,12 @@ if ! grep -qE '^  NAME +FOLDER +SIZE +IN USE$' "$work/out" || ! grep -qE '^  my-
 fi
 if grep -q 'None yet' "$work/out"; then echo "said none with a checkpoint present" >&2; exit 1; fi
 ok "model list is readable: own checkpoints with size and use, then Halogen's models one per line"
+# Folder names Halogen's container could create are printed only when plain: no control codes.
+mkdir -p "$work/models/LFM/bad$(printf '\033')[31mname" "$work/models/npu/also$(printf '\033')[2Jbad"
+HALOGEN_MODELS_DIR="$work/models" "$ctl" model list > "$work/out"
+if grep -q "$(printf '\033')" "$work/out"; then echo "a control code reached the screen" >&2; exit 1; fi
+grep -qE '^  my-lfm ' "$work/out" || { cat "$work/out" >&2; echo "plain names were dropped too" >&2; exit 1; }
+ok "model list prints no folder name with control codes in it"
 
 # No npu folder (the no-NPU edition, or before the first download) and a failing settings read:
 # the list still prints and exits 0.

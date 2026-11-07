@@ -14,8 +14,10 @@ progress_s="${HALOGEN_PROGRESS_S:-30}"
 repo=""; revision=""; name=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --revision) revision="${2:-}"; shift 2 ;;
-    --as) name="${2:-}"; shift 2 ;;
+    --revision|--as)
+      [ $# -ge 2 ] || { echo "$1 needs a value" >&2; exit 2; }
+      if [ "$1" = --revision ]; then revision="$2"; else name="$2"; fi
+      shift 2 ;;
     -*) echo "unknown option $1" >&2; exit 2 ;;
     *) repo="$1"; shift ;;
   esac
@@ -46,10 +48,13 @@ done
 mkdir -p "$dir" || exit 1
 rel="${dir#"$models"/}"
 
-args=(-v "$models:/models")
+# Each step sees only this checkpoint's own folder, never the rest of /srv/models: the download
+# writes there (with the token, when there is one), and the probe reads it read-only and offline.
+download_args=(-v "$dir:/models/$rel")
 if [ -s "$hf_token" ]; then
-  args+=(-v "$hf_token:/run/secrets/hf-token:ro" -e HF_TOKEN_PATH=/run/secrets/hf-token)
+  download_args+=(-v "$hf_token:/run/secrets/hf-token:ro" -e HF_TOKEN_PATH=/run/secrets/hf-token)
 fi
+args=()
 # No NPU device: Halogen's probe reads only the checkpoint's config and tokenizer, and the
 # download needs none either. XRT comes with Halogen's image.
 # NET=none for steps that only read local files (the probe reads an untrusted checkpoint).
@@ -57,7 +62,7 @@ in_image() {
   podman run --rm --pull=never --read-only --tmpfs /tmp --cap-drop=all --security-opt no-new-privileges \
     ${NET:+--network="$NET" -e HF_HUB_OFFLINE=1} \
     -e HF_HOME=/tmp/hf -e HF_HUB_OFFLINE=0 -e HF_HUB_DISABLE_TELEMETRY=1 -e HF_HUB_DISABLE_PROGRESS_BARS=1 \
-    "${args[@]}" --entrypoint "$1" "$HALOGEN_IMAGE" "${@:2}"
+    ${args[@]+"${args[@]}"} --entrypoint "$1" "$HALOGEN_IMAGE" "${@:2}"
 }
 
 echo "Downloading $repo${revision:+ at $revision} into $models/$rel. An interrupted download resumes."
@@ -74,6 +79,7 @@ skip=()
 for pattern in '*.gguf' '*.onnx' '*.bin' '*.pt' '*.pth' '*.h5' '*.msgpack' '*.ckpt' 'onnx/*' 'gguf/*' 'original/*'; do
   skip+=(--exclude "$pattern")
 done
+args=("${download_args[@]}")
 in_image hf download "$repo" ${revision:+--revision "$revision"} --local-dir "/models/$rel" "${skip[@]}" \
   2>&1 | grep --line-buffered -v -e '^Hint: ' -e 'hf update' -e 'Still waiting to acquire lock' \
     -e 'sending unauthenticated requests' -e "^/models/$rel\$"
@@ -84,13 +90,16 @@ if [ "$rc" != 0 ]; then
   exit 1
 fi
 
+args=(-v "$dir:/models/$rel:ro")
+# The probe reads an untrusted config.json, so its words reach your screen without control codes.
 info="$(NET=none in_image /usr/local/bin/halogen-npu probe "/models/$rel" 2>&1)" || {
-  printf '%s\n' "$info" >&2
+  printf '%s\n' "$info" | tr -cd '[:print:]\n' >&2
   echo "Halogen can't run this checkpoint on the NPU (above). Remove it with: sudo halogenctl model remove $name" >&2
   [ "${dir#"$models"/.pull/}" = "$dir" ] || { mkdir -p "$models/custom" && mv "$dir" "$models/custom/$name"; }
   exit 1
 }
 base="$(printf '%s\n' "$info" | tr ' ' '\n' | sed -n 's/^base=//p' | head -n 1)"
+[[ "$base" =~ ^[A-Za-z0-9._-]+$ ]] || base=""
 case "$base" in
   lfm*|LFM*) kind=LFM ;;
   d1*|decider*) kind=decider ;;
@@ -104,6 +113,7 @@ else
 fi
 echo "$name is ready in $models/$kind/$name: a ${base:-checkpoint} for the NPU."
 echo "path=/models/$kind/$name"
+args=()
 # shellcheck disable=SC2016 # awk program, not shell
 if NET=none in_image awk -v id="$base-fast" '$1 == "model" && $2 == id { found = 1 } END { exit !found }' /opt/halogen/npu/models.txt 2>/dev/null; then
   echo "fast=1"

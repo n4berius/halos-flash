@@ -43,7 +43,23 @@ if grep -q 'Hint:' <<< "$out"; then echo "hf noise reached the user" >&2; exit 1
 grep -q -- "--exclude \*.gguf" "$work/podman.log"
 grep 'halogen-npu' "$work/podman.log" | grep -q -- '--network=none -e HF_HUB_OFFLINE=1' || { echo "the probe of an untrusted checkpoint had network" >&2; exit 1; }
 if grep 'entrypoint hf' "$work/podman.log" | grep -q -- '--network=none'; then echo "the download lost its network" >&2; exit 1; fi
+# Each step sees only the checkpoint's own folder: the download writable, the probe read-only.
+if grep -q -- "-v $work/models:/models " "$work/podman.log"; then echo "a step saw all of /srv/models" >&2; exit 1; fi
+grep 'entrypoint hf' "$work/podman.log" | grep -q -- "-v $work/models/.pull/LFM3-1.7B:/models/.pull/LFM3-1.7B " \
+  || { echo "the download didn't get its own folder" >&2; exit 1; }
+grep 'halogen-npu' "$work/podman.log" | grep -q -- ":/models/.pull/LFM3-1.7B:ro " \
+  || { echo "the probe's folder wasn't read-only" >&2; exit 1; }
 ok "an LFM3 checkpoint lands in LFM, with its path and :fast named, and other formats skipped; only the download has network"
+# An option with no value at the end stops with a message (it used to loop forever).
+for opt in --revision --as; do
+  if timeout 5 "$pull" LiquidAI/LFM3-1.7B "$opt" > "$work/out" 2>&1; then echo "$opt with no value was accepted" >&2; exit 1; fi
+  grep -qF -- "$opt needs a value" "$work/out" || { cat "$work/out" >&2; echo "$opt with no value hung or said nothing" >&2; exit 1; }
+done
+ok "--revision or --as with no value stops with a message"
+# The probe's words reach the screen without control codes, and only a plain model name is used.
+FAKE_BASE="$(printf 'lfm3\033[2J')" "$pull" LiquidAI/Odd --as odd > "$work/out" 2>&1 || true
+if grep -q "$(printf '\033')" "$work/out"; then echo "a control code from the probe reached the screen" >&2; exit 1; fi
+ok "the probe's output reaches the screen without control codes"
 
 FAKE_BASE=d1-2b "$pull" LiquidAI/d1-2B --as my-d1 --revision abc > "$work/out" 2>&1
 [ -d "$work/models/decider/my-d1" ] && grep -qx 'path=/models/decider/my-d1' "$work/out"

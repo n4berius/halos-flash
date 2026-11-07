@@ -101,3 +101,10 @@ if [ "$(grep -c 'console=ttyS0' installer/iso.yaml)" != 1 ] || ! grep 'console=t
 fi
 echo "ok: serial consoles"
 
+
+# Actions run in jobs that can push images or reach the signing key, so each is pinned to a full
+# commit (a version tag can be moved). Dependabot keeps the pins current.
+if grep -rhE '^\s*-?\s*uses:' .github/workflows | grep -vE 'uses: [^@ ]+@[0-9a-f]{40}( #.*)?$'; then
+  echo "an action above is not pinned to a full commit" >&2; exit 1
+fi
+echo "ok: actions are pinned to commits"

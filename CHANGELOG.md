@@ -10,6 +10,18 @@ promoted.
 
 ## Unreleased
 
+- **Security fixes from the full audit:**
+  - Your own NPU checkpoints are checked offline, with no access to your Hugging Face token,
+    before the download step, which no longer reads them itself.
+  - `model pull`'s download and check see only that checkpoint's folder, the check read-only.
+    `--revision` or `--as` with nothing after it no longer hangs.
+  - `model list` prints no folder name that holds terminal control codes.
+  - The docs no longer say Halogen serves "offline": it never downloads, but its container can
+    reach the network.
+  - The download log no longer claims more than the estimate was downloaded when your own
+    checkpoints are counted in.
+  - The build and release workflows use GitHub's actions pinned to exact commits, so a moved
+    version tag can't change what runs beside the signing key. (#69)
 - The installer, `halosctl setup` and the docs now say plainly what TPM unlock protects: a disk
   taken out of the machine, not the machine taken whole. INSTALL.md section 8 explains how to
   protect the machine too (BIOS password, USB boot off, a boot menu password). (#68)

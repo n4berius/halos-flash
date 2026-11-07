@@ -114,7 +114,13 @@ fi
 # (partial files included) every minute. 0 turns the report off.
 if [ "$progress_s" -gt 0 ]; then
   while sleep "$progress_s" > /dev/null 2>&1; do
-    echo "halogen-fetch: $(du -s --block-size=1G --exclude="$models/flash" "$models" 2>/dev/null | cut -f1) GiB of about $needed_gib GiB downloaded"
+    # Your own checkpoints count in this too, so past the estimate it reports only the size.
+    now_gib="$(du -s --block-size=1G --exclude="$models/flash" "$models" 2>/dev/null | cut -f1)"
+    if [ "${now_gib:-0}" -lt "$needed_gib" ]; then
+      echo "halogen-fetch: ${now_gib:-0} GiB of about $needed_gib GiB downloaded"
+    else
+      echo "halogen-fetch: ${now_gib:-0} GiB in $models (your own checkpoints count too)"
+    fi
   done &
   reporter=$!
   trap 'kill "$reporter" 2>/dev/null' EXIT
@@ -131,13 +137,38 @@ else
 fi
 
 
+# Which model each of your own NPU checkpoints was tuned from, asked of Halogen offline, with
+# the models read-only and no token: a checkpoint is untrusted input to Halogen's parser, so it
+# never sees the network or your token. The download container is only told the answers.
+own_bases=""
+need_probe=""
+# Split the way the download container does (commas and spaces), so no path slips past.
+for id in ${npu_models//,/ }; do case "$id" in /*) need_probe=1 ;; esac; done
+if [ -n "$need_probe" ]; then
+  own_bases="$(podman run --rm --pull=never --read-only --tmpfs /tmp --network=none \
+    --cap-drop=all --security-opt no-new-privileges --entrypoint bash \
+    -e HOME=/tmp -e HF_HOME=/tmp/hf -e HF_HUB_OFFLINE=1 -e FETCH_MODE=probe -e "NPU_MODELS=$npu_models" \
+    -v "$models:/models:ro" -v "$helper:/fetch.sh:ro" "$HALOGEN_IMAGE" /fetch.sh)"
+  case "$?" in
+    0) ;;
+    3) echo "halogen-fetch: the configured models cannot be fetched; fix /srv/configs/halogen.env" >&2; exit 1 ;;
+    *) echo "halogen-fetch: could not check your own NPU checkpoints. Try again with: sudo halogenctl restart" >&2; exit 1 ;;
+  esac
+  # The probe read untrusted checkpoints, so its answers are checked here, outside it: only
+  # "path=model" lines, with a plain model name, reach the download container.
+  if printf '%s\n' "$own_bases" | grep -vE '^$|^/models/[^=]+=[A-Za-z0-9._-]+$' | grep -q .; then
+    echo "halogen-fetch: Halogen's check of your own NPU checkpoints gave an answer halOS doesn't accept" >&2
+    exit 1
+  fi
+fi
+
 wait_s=15
 while :; do
   podman run --rm --pull=never --read-only --tmpfs /tmp \
     --cap-drop=all --security-opt no-new-privileges --entrypoint bash \
     -e HF_HOME=/tmp/hf -e HF_HUB_OFFLINE=0 -e HF_HUB_DISABLE_TELEMETRY=1 -e HF_HUB_DISABLE_PROGRESS_BARS=1 \
     -e "WEIGHTS_REPO=$HALOGEN_WEIGHTS_REPO" -e "WEIGHTS_REVISION=$HALOGEN_WEIGHTS_REVISION" \
-    -e "NPU_MODELS=$npu_models" -e "VISION=$vision" "${token_args[@]}" \
+    -e "NPU_MODELS=$npu_models" -e "OWN_BASES=$own_bases" -e "VISION=$vision" "${token_args[@]}" \
     -v "$models:/models" -v "$helper:/fetch.sh:ro" \
     "$HALOGEN_IMAGE" /fetch.sh
   rc=$?

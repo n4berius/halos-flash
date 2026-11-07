@@ -34,7 +34,7 @@ jobs:
     env:
       HALOGEN_VARIANT: ${{ matrix.variant }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Free disk space
@@ -64,7 +64,7 @@ jobs:
         run: |
           sudo -E scripts/size-report.sh "$(sudo find output -name '*.iso' | head -1)" > size-report.txt 2>&1 || true
           head -c 60000 size-report.txt
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: size-report-${{ matrix.variant }}
           path: size-report.txt
@@ -75,7 +75,7 @@ jobs:
         run: |
           iso="$(sudo find output -name '*.iso' | head -1)"
           tests/iso-install.sh "$iso" "$(scripts/image-ref.sh)" install-test "$HALOGEN_VARIANT"
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: boot-test-${{ matrix.variant }}
@@ -85,7 +85,7 @@ jobs:
             install-test/*.log
             install-test/*.txt
           retention-days: 14
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: halos-flash-${{ env.HALOGEN_VERSION }}-${{ matrix.variant }}-installer
           path: output/**/*.iso

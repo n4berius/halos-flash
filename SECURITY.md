@@ -37,7 +37,9 @@ untrusted input to Halogen. halOS limits what such a file can reach:
   `flash use` refuses anything else. A pull marks the folder unchecked until it passes, and
   never replaces the checkpoint Halogen serves. The server falls back to the official
   checkpoint if the choice is missing, unchecked or holds links.
-- **Serving.** Halogen serves read-only and offline, with no capabilities.
+- **Serving.** Halogen serves with its models read-only and no capabilities, and never downloads
+  anything. Its container can still reach the network, so a checkpoint that could take over
+  Halogen could also send data out.
 
 `verify` checks that a `.hgn` file is well formed. It doesn't read the tokenizer or its chat
 template, which Halogen applies to every request; Halogen checks only that the template's

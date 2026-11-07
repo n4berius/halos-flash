@@ -1,6 +1,10 @@
 #!/bin/bash
 # Runs inside the pinned Halogen image, which records each NPU model's repo,
 # revision, sizes and hashes. Exit 3 means retrying will not help.
+# FETCH_MODE=probe: only ask Halogen which model each of your own checkpoints was tuned from, and
+# print "path=base" lines. fetch-models runs that in an offline container with the models
+# read-only and no token (a checkpoint is untrusted input to Halogen's parser), then passes the
+# lines to the download container as OWN_BASES, which never probes.
 set -uo pipefail
 pins="${HALOGEN_PINS:-/opt/halogen/npu/models.txt}"
 root="${HALOGEN_MODELS_ROOT:-/models}"
@@ -19,6 +23,30 @@ hf_quiet() {
   return "${PIPESTATUS[0]}"
 }
 
+# Which model your own checkpoint (an id that is a path, maybe ending in :fast) was tuned from.
+probe_base() {
+  local p="${1%:fast}" info base
+  p="$root/${p#/models/}"
+  if [ ! -f "$p/config.json" ]; then
+    echo "fetch: $1 is not a checkpoint folder (no config.json). Pull one with: sudo halogenctl model pull <repo>" >&2
+    return 1
+  fi
+  info="$("$npu_bin" probe "$p" 2>&1)" || { echo "fetch: $1: $info" >&2; return 1; }
+  base="$(printf '%s\n' "$info" | tr ' ' '\n' | sed -n 's/^base=//p' | head -n 1)"
+  [[ "$base" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "fetch: $1: Halogen could not tell which model it was tuned from" >&2; return 1; }
+  echo "$base"
+}
+if [ "${FETCH_MODE:-}" = probe ]; then
+  for id in ${NPU_MODELS//,/ }; do
+    case "$id" in
+      /*) [[ "$id" != *=* ]] || { echo "fetch: $id: a path can't contain =" >&2; exit 3; }
+          base="$(probe_base "$id")" || exit 3
+          echo "$id=$base" ;;
+    esac
+  done
+  exit 0
+fi
+
 flash_files="qwen38-flash-next-v2.hgn qwen38-flash-next-ngram.hgn"
 [ -z "$VISION" ] || flash_files="$flash_files qwen38-flash-next-vision.hgn"
 missing=""
@@ -35,17 +63,12 @@ fi
 # Your own checkpoint (a path) runs on the NPU programs of the model it was tuned from.
 # Halogen reads which one from the checkpoint; fetch those programs, never weights.
 # Each entry is id:part, where part is all, devices, vis or aud, as Halogen checks them.
+# The base comes from the offline probe (OWN_BASES); this container never probes.
 own_parts() {
-  local p="${1%:fast}" fast=0 info base own vb ab
-  [ "$p" != "$1" ] && fast=1
-  p="$root/${p#/models/}"
-  if [ ! -f "$p/config.json" ]; then
-    echo "fetch: $1 is not a checkpoint folder (no config.json). Pull one with: sudo halogenctl model pull <repo>" >&2
-    return 1
-  fi
-  info="$("$npu_bin" probe "$p" 2>&1)" || { echo "fetch: $1: $info" >&2; return 1; }
-  base="$(printf '%s\n' "$info" | tr ' ' '\n' | sed -n 's/^base=//p' | head -n 1)"
-  [ -n "$base" ] || { echo "fetch: $1: Halogen could not tell which model it was tuned from" >&2; return 1; }
+  local fast=0 base own vb ab
+  [ "${1%:fast}" != "$1" ] && fast=1
+  base="$(printf '%s\n' "${OWN_BASES:-}" | awk -v id="$1" 'index($0, id "=") == 1 { print substr($0, length(id) + 2); exit }')"
+  [[ "$base" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "fetch: $1 was not probed before the download" >&2; return 1; }
   [ "$fast" = 0 ] || base="$base-fast"
   # Some models have no download of their own and reuse others' programs (LFM3-Omni-2B does),
   # so ask only that the image knows the model.
