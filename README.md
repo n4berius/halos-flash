@@ -210,6 +210,7 @@ sudo halosctl switch beta        # follow a channel: alpha, beta, rc, release (s
 sudo halosctl upgrade            # stage the newest release on your channel (--check only looks)
 sudo halosctl rollback           # back to the previous image (--to 0.19.0-alpha.1 for an older one)
 sudo halosctl history            # every change made with halosctl
+sudo halosctl npu off            # the no-NPU edition (faster prefill, IOMMU off); npu on goes back
 ```
 
 A channel also gets newer releases of the more stable channels, so `beta` gets an RC or stable

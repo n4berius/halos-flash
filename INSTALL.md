@@ -45,6 +45,11 @@ its memory either way.
 | Trade-off | Slower prefill, keeps DMA protection | Halogen measured 13-16% more prefill, but DMA protection is off |
 | Image | `halos-flash:0.19.0` | `halos-flash:0.19.0-no-npu` |
 
+You can change your mind later without reinstalling: `sudo halosctl npu off` moves to the no-NPU
+edition and `sudo halosctl npu on` moves back, on the same channel or release, at the next
+reboot. `/srv` stays as it is: the NPU models and your own checkpoints stay on disk, so going
+back needs no new download, and `HALOGEN_NPU_*` settings are simply ignored while the NPU is off.
+
 ## 2. Prepare the BIOS
 
 1. Update to your maker's newest BIOS. Halogen's
