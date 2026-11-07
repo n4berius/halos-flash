@@ -8,10 +8,10 @@ _halogenctl_names() {
   COMPREPLY=()
   for d in "$@"; do
     [ -d "$d" ] || continue
-    while IFS= read -r n; do
+    while IFS= read -r -d '' n; do
       [[ "$n" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || continue
       [[ "$n" == "$cur"* ]] && COMPREPLY+=("$n")
-    done < <(find "$d" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null)
+    done < <(find "$d" -mindepth 1 -maxdepth 1 -type d -printf '%f\0' 2>/dev/null)
   done
 }
 _halogenctl() {

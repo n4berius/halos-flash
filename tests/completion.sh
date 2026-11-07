@@ -44,7 +44,7 @@ expect "--quick" _halogenctl halogenctl bench ''
 sed "s|local models=/srv/models|local models=$work|" "$dir/halogenctl" > "$work/c"
 # Names a container could create: run in $work, they would leave pwned files there.
 mkdir -p "$work/flash/mine" "$work/flash/.check" "$work/LFM/LFM3-1.7B" "$work/flash/\$(touch\${IFS}pwned)" \
-  "$work/LFM/\`touch pwned2\`" "$work/flash/a b"
+  "$work/LFM/\`touch pwned2\`" "$work/flash/a b" "$work/flash/"$'a\nofficial'
 [ -d "$work/flash/\$(touch\${IFS}pwned)" ] || fail "the test couldn't make its crafted folder"
 # shellcheck source=/dev/null
 . "$work/c"
@@ -64,4 +64,11 @@ expect "--reboot --to --yes" _halosctl halosctl rollback ''
 expect "" _halosctl halosctl rollback --to ''
 expect "--check --reboot --yes" _halosctl halosctl upgrade ''
 echo "ok: halosctl offers channels and each command's options"
-bash -n "$dir/halogen-enroll-tpm" || fail "halogen-enroll-tpm's completion doesn't parse"
+# shellcheck source=/dev/null
+. "$dir/halogen-enroll-tpm"
+# shellcheck disable=SC2016 # the $(...) is the crafted name, meant literally
+lsblk() { printf '%s\n' '/dev/nvme0n1p3 crypto_LUKS' '/dev/nvme0n1p2 xfs' '/dev/$(touch${IFS}pwned3) crypto_LUKS'; }
+expect "/dev/nvme0n1p3" _halogen_enroll_tpm halogen-enroll-tpm ''
+expect "" _halogen_enroll_tpm halogen-enroll-tpm /dev/sd
+if [ -e "$work/pwned3" ]; then fail "a device name ran as a command during completion"; fi
+echo "ok: halogen-enroll-tpm offers LUKS devices only, matched by hand"
