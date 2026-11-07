@@ -312,6 +312,29 @@ Firmware updates use [fwupd](https://fwupd.org/). Check for them with
 `sudo fwupdmgr refresh && sudo fwupdmgr get-updates`, and apply them with
 `sudo fwupdmgr update`. A BIOS update reboots the machine, which stops Halogen until it is back.
 
+### Measuring speed
+
+```bash
+sudo halogenctl bench            # a few minutes
+sudo halogenctl bench --quick    # under a minute: one prompt length, one pass
+```
+
+It measures the running server with Halogen's own
+[`sweep` tool](https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/performance.md#served-throughput-end-to-end-over-http),
+which Halogen's published numbers come from, so yours can be compared with them. It needs no
+restart, but other requests are slower while it runs. It reports:
+
+- **pp** (prefill): how fast a prompt of 512, 2,048, 8,192 and 32,768 tokens is read.
+- **tg** (generation): how fast 128 tokens are written, as the mean over Halogen's ten prompt
+  shapes. Code runs about twice as fast as prose, so compare means, not single prompts.
+
+Each report also lists what the numbers depend on: the halOS and Halogen versions, kernel, BIOS,
+GTT size, IOMMU, the fabric clock, the platform power profile, the Flash checkpoint served and
+your settings. It is saved as text and JSON in `/srv/configs/bench/`, named by date, so a run
+after an upgrade, a BIOS change or `flash use` can be put beside an earlier one. Halogen's
+[measurements](https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/performance.md)
+were taken at about 85 W of sustained power; a machine with a lower power limit reads lower.
+
 ### Your own NPU checkpoints
 
 On the NPU edition, Halogen also runs checkpoints you supply, such as LiquidAI's `d1-2B` and

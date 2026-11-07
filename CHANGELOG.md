@@ -10,6 +10,10 @@ promoted.
 
 ## Unreleased
 
+- `sudo halogenctl bench` measures how fast the server reads prompts and writes answers, with
+  Halogen's own benchmark tool, without restarting it. The report lists what the numbers depend
+  on (versions, BIOS, kernel settings, power profile, checkpoint, settings) and is saved in
+  `/srv/configs/bench/` to compare later runs. `--quick` takes under a minute. (#PR)
 - A setting written twice in `halogen.env` (easy to do when pasting from the example file) is
   now pointed out: `halogenctl status`, `config` and `options` name it, and Halogen's log says
   which line is used (the last one). Nothing changes in what Halogen receives. (#71)

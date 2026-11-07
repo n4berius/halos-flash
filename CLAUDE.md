@@ -111,6 +111,12 @@ name, but allows saying halOS runs Halogen.
   anything unexpected, and drops `HALOGEN_VISION_TOWER` when the custom folder has no tower. The
   official checkpoint is always kept and fetched (owner decision). `ppl` on request and GGUF
   conversion are later steps.
+- `halogenctl bench [--quick]` (#15, `/usr/libexec/halogen/bench`, as halogen) runs Halogen's own
+  `sweep` (`/halogen/tools/halogen-bench.py --json`, an HTTP client) in the pinned image against the
+  running server: `--network=host` only, read-only, no mounts, devices or capabilities, the API key
+  through the environment. Halogen's `bench`/`sweep` image modes start their own engine, which
+  would need Halogen stopped, so they aren't used. Reports (text + JSON, with versions, BIOS, kargs,
+  fabric clock, platform profile, checkpoint and settings minus keys) go to `/srv/configs/bench/`.
 - `/srv` is `/var/srv` on bootc. The installer makes LVM volumes for `/`, `/var`, `/var/log`,
   `/var/log/audit`, `/var/home`, `/var/srv/configs` and `/var/srv/models`. The guided install
   names them `halos-root`, `-var`, `-log`, `-audit`, `-home`, `-configs`, `-models` (VG `halos`);
