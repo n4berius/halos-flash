@@ -177,11 +177,24 @@ case "${1:-status}" in
           read -rp "Stop Halogen and measure $name? [y/N] " answer
           [ "$answer" = y ] || [ "$answer" = Y ] || { echo "Nothing changed."; exit 1; }
         fi
+        # Before Halogen stops: the name, the verify result and the test text (downloaded once).
+        as_halogen /usr/libexec/halogen/flash-checkpoint check-prepare "$name" < /dev/null
+        # From here on Halogen comes back whatever happens: Ctrl-C, a dropped SSH session, a
+        # closed pipe. The measurement is stopped first, so it never holds the GPU beside Halogen;
+        # Halogen is started before anything is printed, since printing to a closed terminal fails.
+        # A Halogen you stopped yourself stays stopped.
+        was_running=0; ! unit is-active --quiet halogen.service || was_running=1
+        trap 'exit 130' INT TERM HUP
+        trap 'set +e; unit stop halogen-flash-check.service > /dev/null 2>&1
+              if [ "$was_running" = 1 ]; then start_halogen start > /dev/null 2>&1
+                { echo; echo "Halogen is starting again; follow it with: sudo halogenctl logs"; } 2> /dev/null
+              else { echo; echo "Halogen was not running before the check, so it is left stopped."; } 2> /dev/null; fi' EXIT
         unit stop halogen.service
-        # Halogen comes back whatever happens, also on Ctrl-C.
-        trap 'echo; echo "Starting Halogen again."; start_halogen start || true' EXIT
-        trap 'exit 130' INT TERM
-        as_halogen /usr/libexec/halogen/flash-checkpoint check "$name"
+        # A named unit the trap can stop, ended after 3 hours if ppl hangs. Its output comes back
+        # through a pipe with control characters taken out, so the script (run as halogen) never
+        # holds root's terminal and the decoded tokens it prints can't drive it.
+        systemd-run --machine=halogen@.host --user --pipe --wait --quiet --unit=halogen-flash-check --collect \
+          -p RuntimeMaxSec=3h /usr/libexec/halogen/flash-checkpoint check "$name" < /dev/null 2>&1 | sed -u 's/[[:cntrl:]]//g'
         ;;
       list)
         c="$(chosen_flash)"; s="$(served_flash)"; served="$(head -n 1 <<< "$s")"

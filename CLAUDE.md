@@ -110,8 +110,12 @@ name, but allows saying halOS runs Halogen.
   `HALOGEN_CHECKPOINT` (no longer in `locked.env`), falling back to the official file for
   anything unexpected, and drops `HALOGEN_VISION_TOWER` when the custom folder has no tower. The
   official checkpoint is always kept and fetched (owner decision). `flash check <name>` (#56):
-  halogenctl stops Halogen (ppl needs the GPU; a trap starts it again), then `flash-checkpoint
-  check` runs Halogen's `ppl --json` with the official tokenizer on wikitext-2's test split
+  halogenctl runs `flash-checkpoint check-prepare` (name, verify, corpus) while Halogen still
+  serves, arms an EXIT trap (with `set +e`; it stops the named unit `halogen-flash-check` first,
+  then starts Halogen only if it was running, before printing, since a dead terminal fails echo),
+  stops Halogen (ppl needs the GPU), then `flash-checkpoint check` (that unit, `RuntimeMaxSec=3h`,
+  output through a pipe with control characters removed; `--pipe` doesn't stop the unit on
+  Ctrl-C, hence the named unit) runs Halogen's `ppl --json` with the official tokenizer on wikitext-2's test split
   (`/srv/models/flash/.check/`, fetched from HF's dataset viewer rows API and checked against the
   sha256 of the text Halogen's docs build from the parquet file, `bbf94c53…`), first `--ref-out`
   for the official checkpoint once per Halogen version, then `--ref --worst 5` for the custom one;

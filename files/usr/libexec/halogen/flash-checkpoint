@@ -3,7 +3,8 @@
 # the halogen user; halogenctl flash pull and flash verify start it.
 #   flash-checkpoint pull <hf-repo> [--revision <rev>] [--as <name>] [--file <checkpoint.hgn>]
 #   flash-checkpoint verify <name>
-#   flash-checkpoint check <name>     (halogenctl stops Halogen first: ppl needs the GPU)
+#   flash-checkpoint check-prepare <name>   (checks the name, downloads the test text)
+#   flash-checkpoint check <name>           (halogenctl stops Halogen first: ppl needs the GPU)
 # Everything runs in the pinned Halogen image: hf and Python list and download, and Halogen's
 # own tools read the checkpoint back. Only the files Halogen loads are downloaded.
 set -uo pipefail
@@ -83,7 +84,9 @@ get_corpus() {
   tmp="$out.part"; : > "$tmp" || return 1
   offset=0; total=1
   while [ "$offset" -lt "$total" ]; do
-    page="$(curl -fsS -m 60 --retry 3 "$corpus_url&offset=$offset&length=100")" || { rm -f "$tmp"; echo "Could not download the test text." >&2; return 1; }
+    # The test split is 4,358 rows (44 pages); a far larger count is not this text.
+    [ "$offset" -lt 10000 ] || { rm -f "$tmp"; echo "The test text is longer than it should be; not used." >&2; return 1; }
+    page="$(curl -fsS -m 60 --retry 3 --max-filesize 2M "$corpus_url&offset=$offset&length=100")" || { rm -f "$tmp"; echo "Could not download the test text." >&2; return 1; }
     total="$(jq -r '.num_rows_total // 0' <<< "$page")"
     jq -j '.rows[].row.text' <<< "$page" >> "$tmp" || { rm -f "$tmp"; return 1; }
     offset=$((offset + 100))
@@ -91,35 +94,44 @@ get_corpus() {
   [ "$(sha256sum < "$tmp" | cut -d' ' -f1)" = "$corpus_sha" ] || { rm -f "$tmp"; echo "The test text didn't match its known hash; not used." >&2; return 1; }
   mv -f "$tmp" "$out"
 }
-# Halogen's ppl: the GPU, no network or capabilities, the models read-only except the folder
-# for the text and the reference dump. Both runs read the official tokenizer, so they score the
-# same tokens. The prose goes to the terminal; the --json object to $1.
+# Halogen's ppl: the GPU, no network or capabilities, the models read-only. The folder for the
+# text and the reference dump is writable only for the official run ($2 = rw), which writes the
+# dump; a custom checkpoint's run only reads it. Both runs read the official tokenizer, mounted
+# where Halogen's tools look, so they score the same tokens, whatever tokenizer a repository
+# ships. The prose goes to the terminal; the --json object to $1.
 ppl() {
-  local json="$1"; shift
+  local json="$1" mode="$2"; shift 2
   podman run --rm --pull=never --device /dev/kfd --device /dev/dri --group-add keep-groups \
-    --ipc=host --ulimit memlock=-1:-1 -v "$models:/models:ro" -v "$check_dir:/models/flash/.check" \
-    -e HALOGEN_TOKENIZER=/models/tokenizer \
+    --ipc=host --ulimit memlock=-1:-1 -v "$models:/models:ro" -v "$check_dir:/models/flash/.check:$mode" \
+    -v "$models/tokenizer:/tokenizer:ro" -e HALOGEN_TOKENIZER=/tokenizer \
     --network=none --cap-drop=all --security-opt no-new-privileges "$HALOGEN_IMAGE" ppl "$@" --json > "$json"
 }
-check_dir_run() {
-  local name="$1" info="$models/flash/$1/halos.info" file ref refjson json p op kl top1 kmean p99
+# What can be checked before Halogen stops: the checkpoint is there and verified, and the text.
+check_prepare() {
+  local name="$1" info="$models/flash/$1/halos.info" file
   file="$(info_get "$info" checkpoint)"
   if ! [[ "$file" =~ ^[A-Za-z0-9._-]+\.hgn$ ]] || [ ! -f "$models/flash/$name/$file" ]; then die "$name is missing its checkpoint file; pull it again."; fi
   [ "$(info_get "$info" verified)" = pass ] || die "$name has not passed Halogen's verify: sudo halogenctl flash verify $name"
+  [ -f "$models/tokenizer/tokenizer.json" ] || die "the official tokenizer is missing; let the download finish (sudo halogenctl fetch-logs)"
   mkdir -p "$check_dir" || die "cannot create $check_dir"
   get_corpus || exit 1
+}
+check_dir_run() {
+  local name="$1" info="$models/flash/$1/halos.info" file ref refjson json p op kl top1 kmean p99 tokens
+  check_prepare "$name"
+  file="$(info_get "$info" checkpoint)"
   ref="$check_dir/official-$HALOGEN_VERSION.ref"; refjson="$check_dir/official-$HALOGEN_VERSION.json"
   if [ ! -s "$ref" ] || ! jq -e '.ppl' "$refjson" > /dev/null 2>&1; then
     rm -f "$check_dir"/official-*.ref "$check_dir"/official-*.json
     echo "Measuring the official checkpoint first (once per Halogen version)..."
-    ppl "$refjson.new" /models/qwen38-flash-next-v2.hgn --corpus /models/flash/.check/wikitext-2-raw-test.txt \
+    ppl "$refjson.new" rw /models/qwen38-flash-next-v2.hgn --corpus /models/flash/.check/wikitext-2-raw-test.txt \
       --ref-out "/models/flash/.check/official-$HALOGEN_VERSION.ref.new" \
       || { rm -f "$refjson.new" "$ref.new"; die "Halogen's ppl failed on the official checkpoint (above)."; }
     if ! mv -f "$ref.new" "$ref" || ! mv -f "$refjson.new" "$refjson"; then die "cannot save the reference"; fi
   fi
   echo "Measuring $name against it..."
   json="$models/flash/$name/check.json"
-  ppl "$json.new" "/models/flash/$name/$file" --corpus /models/flash/.check/wikitext-2-raw-test.txt \
+  ppl "$json.new" ro "/models/flash/$name/$file" --corpus /models/flash/.check/wikitext-2-raw-test.txt \
     --ref "/models/flash/.check/official-$HALOGEN_VERSION.ref" --worst 5 \
     || { rm -f "$json.new"; die "Halogen's ppl failed on $name (above)."; }
   mv -f "$json.new" "$json"
@@ -136,7 +148,8 @@ check_dir_run() {
   # top1_agreement may be a fraction or a percentage; show a percentage.
   top1="$(awk -v t="$top1" 'BEGIN { if (t <= 1) t *= 100; printf "%.1f", t }')"
   echo
-  echo "$name against the official checkpoint, on the wikitext-2 test text ($(jq -r '.tokens // "?"' "$json") tokens):"
+  tokens="$(num .tokens "$json")"
+  echo "$name against the official checkpoint, on the wikitext-2 test text (${tokens:-?} tokens):"
   printf '  perplexity           %-10s official %s   (lower: the text surprises it less)\n' "$p" "$op"
   printf '  same next token      %s%%            (how often both would write the same word)\n' "$top1"
   printf '  KL divergence        median %s, mean %s, p99 %s\n' "$kl" "${kmean:-?}" "${p99:-?}"
@@ -149,12 +162,12 @@ check_dir_run() {
 }
 
 case "${1:-}" in
-  check)
+  check|check-prepare)
     name="${2:-}"
     valid_name "$name" || die "usage: halogenctl flash check <name>, as sudo halogenctl flash list shows it"
     [ -f "$models/flash/$name/halos.info" ] || die "No checkpoint called $name. See: sudo halogenctl flash list"
     if [ -L "$models/flash/$name" ] || [ -L "$models/flash/$name/halos.info" ]; then die "$models/flash/$name holds links; pull it again."; fi
-    check_dir_run "$name"
+    if [ "$1" = check-prepare ]; then check_prepare "$name"; else check_dir_run "$name"; fi
     exit 0 ;;
   verify)
     name="${2:-}"
@@ -164,7 +177,7 @@ case "${1:-}" in
     else die "$name failed Halogen's verify (above), so it can't be used. Pull it again, or remove it: sudo halogenctl flash remove $name"; fi
     exit 0 ;;
   pull) shift ;;
-  *) die "usage: flash-checkpoint pull <hf-repo> [--revision <rev>] [--as <name>] [--file <checkpoint.hgn>] | verify <name> | check <name>" ;;
+  *) die "usage: flash-checkpoint pull <hf-repo> [--revision <rev>] [--as <name>] [--file <checkpoint.hgn>] | verify <name> | check-prepare <name> | check <name>" ;;
 esac
 
 repo=""; revision=main; name=""; want_file=""
@@ -269,9 +282,11 @@ fi
 mkdir -p "$dir" || exit 1
 mounts=(-v "$dir:/models/flash/$name")
 # From the first byte until the checks pass, the folder counts as unchecked.
+# A new download also makes an earlier flash check's numbers stale.
 if [ -f "$info" ]; then
-  { grep -v -e '^verified' "$info"; echo "verified=no"; } > "$info.new" && mv -f "$info.new" "$info" || exit 1
+  { grep -v -e '^verified' -e '^checked' "$info"; echo "verified=no"; } > "$info.new" && mv -f "$info.new" "$info" || exit 1
 fi
+rm -f "$dir/check.json"
 echo "Downloading $checkpoint from $repo at commit ${commit:0:12} into $dir ($(gib "$need") to fetch). An interrupted download resumes."
 if [ "$progress_s" -gt 0 ]; then
   while sleep "$progress_s" > /dev/null 2>&1; do echo "  $(du -sh "$dir" 2>/dev/null | cut -f1) so far"; done &
