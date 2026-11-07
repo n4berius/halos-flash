@@ -50,7 +50,7 @@ mkdir -p "$work/flash/mine" "$work/flash/.check" "$work/LFM/LFM3-1.7B" "$work/fl
 . "$work/c"
 cd "$work"
 offers _halogenctl halogenctl flash use '' > /dev/null; offers _halogenctl halogenctl model remove '' > /dev/null
-[ ! -e "$work/pwned" ] && [ ! -e "$work/pwned2" ] || fail "a folder name ran as a command during completion"
+if [ -e "$work/pwned" ] || [ -e "$work/pwned2" ]; then fail "a folder name ran as a command during completion"; fi
 expect "mine official" _halogenctl halogenctl flash use ''
 expect "mine" _halogenctl halogenctl flash check ''
 expect "mine" _halogenctl halogenctl flash remove m
