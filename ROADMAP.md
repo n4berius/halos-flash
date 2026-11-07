@@ -42,7 +42,7 @@ In this order. Each ships as an alpha, then is promoted to beta once tested.
 - **`halogenctl flash check`** (#56). Compare a custom checkpoint's quality with the official
   one's, on request.
 - **`halosctl npu on|off`** (#40). Switch between the two editions.
-- **Tab completion** (#14).
+- **Tab completion** (#14). Done for bash.
 
 ## Later, after stable
 
