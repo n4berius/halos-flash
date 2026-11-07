@@ -11,7 +11,7 @@ promoted.
 ## Unreleased
 
 - Tab completion for `halogenctl`, `halosctl` and `halogen-enroll-tpm`: commands, options,
-  channels and LUKS devices. (#PR)
+  channels and LUKS devices. (#75)
 - A setting written twice in `halogen.env` (easy to do when pasting from the example file) is
   now pointed out: `halogenctl status`, `config` and `options` name it, and Halogen's log says
   which line is used (the last one). Nothing changes in what Halogen receives. (#71)
