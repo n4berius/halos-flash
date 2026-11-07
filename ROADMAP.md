@@ -38,8 +38,9 @@ In this order. Each ships as an alpha, then is promoted to beta once tested.
 
 - **Benchmark command** (#15). A fixed-length run with Halogen's `ignore_eos` (new in
   [0.19.1](https://github.com/peonist-ai/halogen-flash-server/blob/main/CHANGELOG.md)), to compare
-  releases and checkpoints fairly. Done for the Flash model (Halogen's `sweep`); NPU models and
-  several requests at once can follow.
+  releases and checkpoints fairly. A first version is done (`halogenctl bench`, Halogen's `sweep`
+  against the running server); the fixed-length `ignore_eos` run, NPU models and several
+  requests at once can follow.
 - **`halogenctl flash check`** (#56). Compare a custom checkpoint's quality with the official
   one's, on request.
 - **`halosctl npu on|off`** (#40). Switch between the two editions.

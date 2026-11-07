@@ -334,6 +334,9 @@ your settings. It is saved as text and JSON in `/srv/configs/bench/`, named by d
 after an upgrade, a BIOS change or `flash use` can be put beside an earlier one. Halogen's
 [measurements](https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/performance.md)
 were taken at about 85 W of sustained power; a machine with a lower power limit reads lower.
+The run uses the prompt cache as your server does, so compare `pp` with Halogen's "cache on (a
+cold request)" rows, not the cache-off headline figures. Its prompts also go into the cache, and
+can push out long conversations cached there, which then read their history again once.
 
 ### Your own NPU checkpoints
 

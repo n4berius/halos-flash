@@ -12,9 +12,10 @@ f podman 'case "$1" in
   image) [ -z "${FAKE_NO_IMAGE:-}" ] ;;
   run) printf "%s\n" "$*" >> "$FAKE/podman.log"; echo "key=${HALOGEN_API_KEY:-}" >> "$FAKE/podman.log"
        [ -z "${FAKE_BENCH_FAILS:-}" ] || { echo "cannot reach /health" >&2; exit 2; }
+       printf "halogen-bench: m, ctx 262144, reps 3, effort low\nendpoint x\n\n"
        echo "{\"model\":\"halogen-q38fn\",\"context\":262144,\"reps\":3,\"rows\":[
          {\"test\":\"pp2048\",\"drafter\":\"mtp\",\"tokens\":2049,\"mean\":1701.234,\"stdev\":3.21},
-         {\"test\":\"tg128\",\"drafter\":\"mtp\",\"tokens\":128,\"mean\":64.567,\"stdev\":9.1}]}" ;;
+         {\"test\":\"tg128\",\"drafter\":\"mt\u001b[2Jp\",\"tokens\":128,\"mean\":64.567,\"stdev\":9.1}]}" ;;
 esac'
 f curl '[ -z "${FAKE_DOWN:-}" ]'
 f systemctl 'echo active'
@@ -40,7 +41,8 @@ has 'HALOGEN_KV8=1' "$txt"
 has 'amdgpu\.gttsize=126976; iommu=pt' "$txt"
 has 'platform profile: performance' "$txt"
 has '^pp2048 +mtp +2049 +1701\.23 ± 3\.21' "$txt"
-has '^tg128 +mtp +128 +64\.57 ± 9\.1' "$txt"
+has '^tg128 +mt\[2Jp +128 +64\.57 ± 9\.1' "$txt"
+has 'prompt cache: default' "$txt"
 has 'Saved: ' "$work/out"
 if grep -q $'\e' "$txt" "$json"; then fail "an escape code from firmware got into the report"; fi
 if grep -q 'API_KEY' "$txt" "$json"; then fail "the report names the API key setting"; fi
@@ -52,7 +54,8 @@ ok "a full run saves a text and a JSON report with the system facts, and no key 
 has '--network=host --read-only --tmpfs /tmp --cap-drop=all --security-opt no-new-privileges -e HALOGEN_API_KEY ' "$work/podman.log"
 has '-p 512,2048,8192,32768 -n 128 -r 3 --json' "$work/podman.log"
 has '^key=secret-key-123$' "$work/podman.log"
-if grep -v '^key=' "$work/podman.log" | grep -q 'secret-key-123'; then fail "the key was on podman's command line"; fi
+grep -v '^key=' "$work/podman.log" > "$work/args" || true
+if grep -q 'secret-key-123' "$work/args"; then fail "the key was on podman's command line"; fi
 if grep -qE -- '(-v|--volume|--device) ' "$work/podman.log"; then fail "the sweep got a mount or a device"; fi
 : > "$work/podman.log"
 "$bench" --quick > "$work/out" 2>&1 || fail "the quick run failed"
