@@ -18,6 +18,8 @@ f systemd-run 'case "$*" in
   *render-config*) grep "^HALOGEN_NPU_MODELS=" "$FAKE/configs/halogen.env" || true ;;
 esac'
 export PATH="$work/bin:$PATH" HALOGEN_CONFIGS_DIR="$work/configs"
+export HALOGEN_ALLOWED_FILE="$repo/variants/npu/usr/share/halogen/options.allowed"
+export HALOGEN_LOCKED_FILE="$repo/files/usr/share/halogen/locked.env"
 ctl="$repo/files/usr/bin/halogenctl"
 ok() { echo "ok: $*"; }
 
@@ -87,10 +89,15 @@ printf '  HALOGEN_KV8=1\n' >> "$work/configs/halogen.env"
 HALOGEN_ENV_TEMPLATE="$template" "$ctl" options > "$work/out"
 grep -qE '^  HALOGEN_KV8 +set ' "$work/out" || { cat "$work/out" >&2; echo "an indented setting was not shown as set" >&2; exit 1; }
 grep -q 'more than once' "$work/out" && { cat "$work/out" >&2; echo "a duplicate was reported where there is none" >&2; exit 1; }
-printf 'HALOGEN_KV8=0\n#HALOGEN_MTP_DEPTH=3\n' >> "$work/configs/halogen.env"
-HALOGEN_ENV_TEMPLATE="$template" "$ctl" options > "$work/out"
-grep -qx 'Set more than once in halogen.env (only the last line counts): HALOGEN_KV8' "$work/out" \
-  || { cat "$work/out" >&2; echo "options didn't name the setting set twice (and only that one)" >&2; exit 1; }
+# A setting this system ignores anyway (API_PORT) and a commented line are not named.
+printf 'HALOGEN_KV8=0\n#HALOGEN_MTP_DEPTH=3\nHALOGEN_API_PORT=1\nHALOGEN_API_PORT=2\n' >> "$work/configs/halogen.env"
+: > "$work/log"
+for cmd in options config status; do
+  HALOGEN_ENV_TEMPLATE="$template" "$ctl" "$cmd" > "$work/out" 2>&1 || true
+  grep -qx 'Set more than once in halogen.env (only the last line counts): HALOGEN_KV8' "$work/out" \
+    || { cat "$work/out" >&2; echo "$cmd didn't name the setting set twice (and only that one)" >&2; exit 1; }
+done
+grep -q "runuser -u halogen -- grep -oE" "$work/log" || { echo "the duplicate check read halogen.env as root" >&2; exit 1; }
 rm "$work/configs/halogen.env"
 if HALOGEN_ENV_TEMPLATE="$template" "$ctl" options --new > "$work/out" 2>&1; then echo "options ran without a readable halogen.env" >&2; exit 1; fi
 grep -q 'Run it with sudo' "$work/out" || { cat "$work/out" >&2; exit 1; }
