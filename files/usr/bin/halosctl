@@ -83,7 +83,8 @@ has_npu() {
   local d
   for d in "${HALOGEN_SYS:-/sys}"/bus/pci/devices/*; do
     [ "$(cat "$d/vendor" 2>/dev/null)" = 0x1022 ] || continue
-    case "$(cat "$d/device" 2>/dev/null)" in 0x1502|0x17f0) return 0 ;; esac
+    # The PCI ids the kernel's amdxdna driver takes (Strix Halo is 17f0).
+    case "$(cat "$d/device" 2>/dev/null)" in 0x1502|0x17f0|0x17f2|0x17f3|0x1b0b|0x1b0c) return 0 ;; esac
   done
   return 1
 }
@@ -243,6 +244,7 @@ case "$cmd" in
       off) want=no-npu; new="-no-npu" ;;
       *) die "npu on or npu off, not ${args[0]}" ;;
     esac
+    ! queued || die "a rollback is queued for the next boot. Reboot first, then run this again."
     next="$(next_dep)"; need_suffix
     now="npu"; [ "$sfx" = "" ] || now="no-npu"
     [ "$want" != "$now" ] || { echo "Already the $want edition$([ "$next" = staged ] && echo " at the next boot")."; exit 0; }
@@ -256,6 +258,8 @@ case "$cmd" in
       [[ "$tag" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$ ]] \
         || die "this machine follows no channel and its release ($tag) has no tag for the other edition. Follow a channel first: sudo halosctl switch <channel>"
       target="$(repo):$tag$new"; pin=pin
+      # A plain version tag (0.19.0) moves with stable releases and weekly rebuilds: keep following it.
+      if [[ "$tag" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then pin=""; fi
     fi
     if [ "$want" = no-npu ]; then
       echo "The no-NPU edition turns the IOMMU off: Halogen measured 13-16% faster prefill, and no"

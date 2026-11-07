@@ -22,7 +22,7 @@ case "$1" in
             "$FAKE/status.json" > "$FAKE/s.tmp" && mv "$FAKE/s.tmp" "$FAKE/status.json" ;;
 esac'
 f skopeo 'echo "skopeo $*" >> "$FAKE/log"; case "$*" in
-  *:beta|*:stable-no-npu|*:0.19.0-alpha.1|*:beta-no-npu|*:0.19.0-alpha.1-no-npu) printf "sha256:feed 0.19.0-beta.1%s\n" "${FAKE_LABEL_TAIL:-}" ;;
+  *:beta|*:stable-no-npu|*:0.19.0-alpha.1|*:beta-no-npu|*:0.19.0-alpha.1-no-npu|*:0.19.0-no-npu) printf "sha256:feed 0.19.0-beta.1%s\n" "${FAKE_LABEL_TAIL:-}" ;;
   *:edge) echo "Error: reading manifest edge: 403 Forbidden" >&2; exit 1 ;;
   *) echo "Error: manifest unknown" >&2; exit 1 ;; esac'
 f systemctl 'echo "systemctl $*" >> "$FAKE/log"; case "$*" in *is-active*) echo "${FAKE_FETCH:-inactive}" ;; esac'
@@ -188,6 +188,7 @@ host "$(dep ghcr.io/n4berius/halos-flash:beta 0.19.0-beta.1 sha256:bbb)" "$(dep 
 has 'can read all of it' "$work/out"
 host "$(dep ghcr.io/n4berius/halos-flash@sha256:aaa 0.19.0 sha256:aaa)" > "$work/status.json"
 sed -i 's/^HALOS_RELEASE=.*/HALOS_RELEASE=0.19.1-dev.abc1234/' "$work/release.env"
+host "$(dep ghcr.io/n4berius/halos-flash@sha256:aaa 0.19.1-dev.abc1234 sha256:aaa)" > "$work/status.json"
 if "$ctl" npu off --yes > "$work/out" 2>&1; then echo "guessed a tag for an untagged build" >&2; exit 1; fi
 has 'Follow a channel first' "$work/out"
 sed -i 's/^HALOS_RELEASE=.*/HALOS_RELEASE=0.19.0-alpha.1/' "$work/release.env"
@@ -200,4 +201,13 @@ printf '0x1022\n' > "$work/sys/bus/pci/devices/0000:c5:00.1/vendor"; printf '0x1
 host "$(dep ghcr.io/n4berius/halos-flash:beta-no-npu 0.19.0-beta.1 sha256:bbb)" > "$work/status.json"
 "$ctl" npu on --yes > "$work/out"; hasnt 'shows no AMD NPU' "$work/out"
 sed -i 's/=no-npu/=npu/' "$work/release.env"
+# A plain version tag keeps moving; a queued rollback must boot first.
+host "$(dep ghcr.io/n4berius/halos-flash:0.19.0 0.19.0 sha256:aaa)" > "$work/status.json"
+: > "$work/log"; "$ctl" npu off --yes > /dev/null
+has '^bootc switch ghcr.io/n4berius/halos-flash:0.19.0-no-npu$' "$work/log"
+host "$(dep ghcr.io/n4berius/halos-flash:beta 0.19.0-beta.1 sha256:bbb)" null \
+  "$(dep ghcr.io/n4berius/halos-flash:alpha 0.19.0-alpha.1 sha256:aaa)" true > "$work/status.json"
+: > "$work/log"
+if "$ctl" npu off --yes > "$work/out" 2>&1; then echo "npu ignored a queued rollback" >&2; exit 1; fi
+has 'rollback is queued' "$work/out"; hasnt 'bootc switch' "$work/log"
 ok "npu off/on switch edition on the same channel or pinned release, keep it through a later channel switch, refuse an untagged build, and warn when there is no NPU"
