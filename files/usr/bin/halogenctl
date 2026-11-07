@@ -38,6 +38,15 @@ served_flash() {
   why="$(grep '^halogen-config: .*official one' <<< "$out" | tail -n 1 | sed 's/^halogen-config: //' | tr -cd '[:print:]' || true)"
   echo "${why:-see sudo halogenctl config and sudo halogenctl logs}"
 }
+# Allowed settings halogen.env sets on more than one line (the last one is used). Prints a note,
+# or nothing. Settings this system ignores anyway are left to render-config's messages.
+duplicate_settings() {
+  local d
+  d="$( { as_owner grep -oE '^[[:space:]]*HALOGEN_[A-Z0-9_]+=' "$configs/halogen.env" 2>/dev/null || true; } \
+    | tr -d '= \t' | sort | uniq -d \
+    | { grep -xF -f "${HALOGEN_ALLOWED_FILE:-/usr/share/halogen/options.allowed}" || true; } | tr '\n' ' ')"
+  [ -z "$d" ] || printf '\nSet more than once in halogen.env (only the last line counts): %s\nDelete the older lines (sudo nano %s/halogen.env), then: sudo halogenctl restart\n' "${d% }" "$configs"
+}
 flash_info() { as_owner sed -n "s/^$2=//p" "$models/flash/$1/halos.info" 2>/dev/null | tail -n 1 | tr -cd '[:print:]' || true; }
 
 case "${1:-status}" in
@@ -53,7 +62,8 @@ case "${1:-status}" in
       else
         echo "Flash checkpoint: you chose $c, but Halogen serves the official one: $(sed -n 2p <<< "$s")"
       fi
-    fi ;;
+    fi
+    duplicate_settings ;;
   start|restart) start_halogen "$1" ;;
   stop) unit stop halogen.service ;;
   logs) exec journalctl --no-pager "${follow[@]}" -n "$lines" _SYSTEMD_USER_UNIT=halogen.service + _SYSTEMD_USER_UNIT=halogen-fetch.service ;;
@@ -70,7 +80,8 @@ case "${1:-status}" in
     # Shows what Halogen receives. Ignored lines are explained above the list.
     systemd-run --machine=halogen@.host --user --pipe --wait --quiet /usr/libexec/halogen/render-config --show
     echo "--- locked ---"
-    grep -v '^#' /usr/share/halogen/locked.env
+    grep -v '^#' "${HALOGEN_LOCKED_FILE:-/usr/share/halogen/locked.env}"
+    duplicate_settings
     ;;
   options)
     # Every option this release offers (the edition's template), and whether halogen.env has it.
@@ -100,6 +111,7 @@ case "${1:-status}" in
         if (only_new && !count) print "Nothing new: halogen.env mentions every option this release offers."
         else printf "\nset: in effect from halogen.env. commented: in the file, switched off. new: not in your file yet.\nCopy a line from /srv/configs/halogen.env.example into halogen.env, then: sudo halogenctl restart\n"
       }' "$template"
+    duplicate_settings
     ;;
   selftest)
     # The beta checklist in one go. It changes nothing and prints nothing private.

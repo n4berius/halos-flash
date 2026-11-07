@@ -13,12 +13,14 @@ allowed="${HALOGEN_ALLOWED_FILE:-/usr/share/halogen/options.allowed}"
 runtime="${XDG_RUNTIME_DIR:-/run/user/970}/halogen"
 output="$runtime/effective.env"
 mkdir -p "$runtime" || exit 1
-declare -A values=()
+declare -A values=() where=()
 
 ignore() { echo "halogen-config: ignored $1: $2" >&2; }
 
 if [ -r "$config" ]; then
+  n=0
   while IFS= read -r line || [ -n "$line" ]; do
+    n=$((n + 1))
     line="${line#"${line%%[![:space:]]*}"}"
     case "$line" in
       ''|'#'*) continue ;;
@@ -36,7 +38,12 @@ if [ -r "$config" ]; then
       ignore "$key" "the only supported value is 1"
       continue
     fi
+    # The last line wins, but a setting written twice is usually a copy-paste left behind.
+    if [ -n "${where[$key]:-}" ]; then
+      echo "halogen-config: $key is set more than once in $config (lines ${where[$key]} and $n); line $n is used" >&2
+    fi
     values["$key"]="$value"
+    where["$key"]="$n"
   done < "$config"
 else
   echo "halogen-config: cannot read $config, so Halogen uses its defaults" >&2

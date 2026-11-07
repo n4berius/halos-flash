@@ -174,7 +174,7 @@ sudo halogenctl fetch-logs   # first-boot download progress
 sudo halogenctl logs         # server and fetch logs; add a number for more lines
 sudo halogenctl doctor       # BIOS, kernel, NPU, clock and memlock checks
 sudo halogenctl restart      # after editing /srv/configs/halogen.env
-sudo halogenctl config       # show the settings in effect
+sudo halogenctl config       # show the settings in effect, and any set twice
 sudo halogenctl api-key      # print the API key
 sudo halogenctl hf-token     # save a Hugging Face token for faster model downloads
 sudo halogenctl selftest     # the hardware checklist; prints nothing private

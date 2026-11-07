@@ -10,6 +10,9 @@ promoted.
 
 ## Unreleased
 
+- A setting written twice in `halogen.env` (easy to do when pasting from the example file) is
+  now pointed out: `halogenctl status`, `config` and `options` name it, and Halogen's log says
+  which line is used (the last one). Nothing changes in what Halogen receives. (#71)
 - Restarting Halogen yourself (`sudo halogenctl restart`, `flash use`, or after a settings
   change) always works now. A few restarts in a row used to hit Halogen's crash-loop guard ("start
   of the service was attempted too often"), which only automatic restarts should count towards.

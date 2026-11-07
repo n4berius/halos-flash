@@ -26,8 +26,11 @@ out="$("$render" --show 2>"$work/log")"
 for word in HALOGEN_API_PORT HALOGEN_DOWNLOAD HALOGEN_CHECKPOINT HALOGEN_KV_SLTOS HALOGEN_VISION_TOWER; do
   grep -q "ignored $word" "$work/log" || { echo "no warning for $word" >&2; exit 1; }
 done
+grep -qx "halogen-config: HALOGEN_KV_SLOTS is set more than once in $work/config (lines 2 and 3); line 3 is used" "$work/log" \
+  || { cat "$work/log" >&2; echo "no warning for a setting written twice" >&2; exit 1; }
+[ "$(grep -c 'more than once' "$work/log")" = 1 ] || { echo "a duplicate warning for a setting written once" >&2; exit 1; }
 [ ! -e /tmp/halogen-config-injected ] || { echo "the config ran as shell" >&2; exit 1; }
-echo "ok: only allowed settings pass, the last value wins, and the file never runs as shell"
+echo "ok: only allowed settings pass, the last value wins with a warning, and the file never runs as shell"
 
 export HALOGEN_ALLOWED_FILE="$repo/variants/no-npu/usr/share/halogen/options.allowed"
 echo 'HALOGEN_NPU_MODELS=decider-0.8b' > "$work/config"
