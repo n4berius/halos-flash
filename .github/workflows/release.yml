@@ -29,7 +29,7 @@ jobs:
       image_tag: ${{ steps.info.outputs.image_tag }}
       prerelease: ${{ steps.info.outputs.prerelease }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - name: Pick the tag and the code to build
@@ -102,7 +102,7 @@ jobs:
       IMAGE_TAG: ${{ needs.info.outputs.image_tag }}
       TAG: ${{ needs.info.outputs.tag }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.info.outputs.tag }}
           fetch-depth: 0
@@ -171,7 +171,7 @@ jobs:
       IMAGE_TAG: ${{ needs.info.outputs.image_tag }}
       TAG: ${{ needs.info.outputs.tag }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           ref: ${{ needs.info.outputs.tag }}
@@ -199,7 +199,7 @@ jobs:
           sudo chown -R "$USER" output
           name="halos-flash-$TAG-$HALOGEN_VARIANT.iso"
           scripts/package-iso.sh "$(find output -name '*.iso' | head -1)" assets "$name"
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: iso-${{ matrix.variant }}
           path: assets/*
@@ -213,11 +213,11 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           ref: ${{ needs.info.outputs.tag }}
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: assets
           merge-multiple: true

@@ -55,8 +55,8 @@ name, but allows saying halOS runs Halogen.
   install test runs it too and checks what a VM can pass.
 - First boot: `halogen-prepare` (root) creates `/srv/models`, `/srv/configs`, `halogen.env`
   and the API key. `halogen-fetch` (user) pulls the pinned image, downloads models with `hf`
-  inside that image, and runs Halogen's `verify`. Then `halogen.service` starts read-only and
-  offline. Each restart of `halogen.service` reruns the fetch, which only downloads what's
+  inside that image, and runs Halogen's `verify`. Then `halogen.service` starts with the models
+  read-only and never downloads (its container still has network: "offline" was wrong, audit F). Each restart of `halogen.service` reruns the fetch, which only downloads what's
   missing or changed.
 - `halos-status.timer` runs `login-status` (root, sandboxed, writes only under `/run`) every 30 s:
   one line in `/run/issue.d/50-halos.issue` for the console login screen (agetty's `\4` fills
@@ -88,7 +88,10 @@ name, but allows saying halOS runs Halogen.
   `fetch-models`.
 - Own NPU checkpoints live in `/srv/models/{decider,LFM,custom}/<name>`, put there by
   `halogenctl model pull` (`model-pull`, which uses Halogen's `halogen-npu probe` to pick the
-  folder). The fetch probes each path in `HALOGEN_NPU_MODELS` and fetches its NPU programs.
+  folder; each of its containers mounts only that checkpoint's folder, the probe read-only). The
+  fetch probes each path in `HALOGEN_NPU_MODELS` first in an offline container (`FETCH_MODE=probe`,
+  models read-only, no token) and passes the answers to the download container as `OWN_BASES`,
+  which never probes; then it fetches their NPU programs.
   These folders are mounted writable, because Halogen keeps a conversion beside the
   checkpoint only on a writable folder (on a read-only one it converts into /tmp at every start).
 - Own Flash checkpoints (#56) live in `/srv/models/flash/<name>/`, put there by `halogenctl flash
@@ -180,6 +183,9 @@ name, but allows saying halOS runs Halogen.
   needs no NPU device (so neither the fetch nor `model pull` passes one) and only the checkpoint's config and tokenizer (checked against 0.19.0's
   image). Some of Halogen's models have no download of their own and reuse others' programs
   (`lfm3-omni-2b`, the `-fast` VL and Audio): check the model is known, not that it has a repo.
+- GitHub actions are pinned to full commit SHAs with the version in a comment (`tests/static.sh`
+  checks it; Dependabot updates them). Look SHAs up with `git ls-remote --tags
+  https://github.com/actions/<name>`, which the session's git proxy serves for public repos.
 - `cmd | grep -q` under `set -o pipefail` fails at random on long output: `grep -q` stops reading,
   the writer dies of SIGPIPE, and the pipe fails. In tests, write to a file and grep that.
 - ISO install tests take about 25 to 40 minutes, and a new push cancels the previous run.

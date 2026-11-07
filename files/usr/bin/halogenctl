@@ -254,6 +254,9 @@ case "${1:-status}" in
         for dir in "$models"/decider/*/ "$models"/LFM/*/ "$models"/custom/*/; do
           [ -d "$dir" ] || continue
           dir="${dir%/}"; rel="${dir#"$models"/}"
+          # Halogen's container can write these folders, so a name is printed only when it is plain
+          # (no terminal control codes reach your screen).
+          [[ "$(basename "$dir")" =~ ^[A-Za-z0-9._-]+$ ]] || continue
           [ "$n" -gt 0 ] || printf '  %-28s %-8s %-8s %s\n' NAME FOLDER SIZE "IN USE"
           printf '  %-28s %-8s %-8s %s\n' "$(basename "$dir")" "${rel%%/*}" "$(as_owner du -sh "$dir" | cut -f1)" "$(used "/models/$rel")"
           n=$((n + 1))
@@ -261,7 +264,7 @@ case "${1:-status}" in
         [ "$n" -gt 0 ] || echo "  None yet. Add one with: sudo halogenctl model pull <Hugging Face repo>"
         echo
         echo "Halogen's NPU models (/srv/models/npu):"
-        names="$( { find "$models/npu" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null || true; } | sort)"
+        names="$( { find "$models/npu" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null || true; } | { grep -E '^[A-Za-z0-9._-]+$' || true; } | sort)"
         if [ -z "$names" ]; then echo "  None downloaded yet."
         else
           printf '  %-28s %s\n' NAME "IN USE"

@@ -46,9 +46,12 @@ case "$1" in
     case " $* " in
       *" verify "*) [ ! -e "$FAKE/fail-verify" ] ;;
       *) echo "$*" > "$FAKE/last-run"
-         npu=""; for a in "$@"; do case "$a" in NPU_MODELS=*) npu="${a#NPU_MODELS=}" ;; esac; done
+         npu=""; mode=""; bases=""
+         for a in "$@"; do case "$a" in NPU_MODELS=*) npu="${a#NPU_MODELS=}" ;; FETCH_MODE=*) mode="${a#FETCH_MODE=}" ;; OWN_BASES=*) bases="${a#OWN_BASES=}" ;; esac; done
+         # The probe runs offline: only that run may call Halogen's probe.
+         [ "$mode" = probe ] || export NO_PROBE=1
          HALOGEN_PINS="$FAKE/opt/models.txt" HALOGEN_MODELS_ROOT="$FAKE/mount" WEIGHTS_REPO=r WEIGHTS_REVISION=main \
-         HALOGEN_NPU_BIN="$FAKE/bin/halogen-npu" \
+         HALOGEN_NPU_BIN="$FAKE/bin/halogen-npu" FETCH_MODE="$mode" OWN_BASES="$bases" \
          NPU_MODELS="$npu" VISION="" bash "$HELPER_SRC" ;;
     esac ;;
 esac
@@ -56,6 +59,7 @@ S
 cat > "$work/bin/halogen-npu" <<'S'
 #!/bin/bash
 # Halogen's probe names the model a checkpoint was tuned from.
+[ -z "${NO_PROBE:-}" ] || { echo "probe ran in the download container" >> "$FAKE/probe-leak"; exit 1; }
 [ "$1" = probe ] && [ -f "$2/config.json" ] && echo "task=generate base=$(cat "$2/base" 2>/dev/null || echo lfm3)"
 S
 chmod +x "$work/bin/"*
@@ -152,7 +156,28 @@ echo 'HALOGEN_NPU_MODELS=embed,/models/LFM/mine:fast,/models/LFM/mine' > "$work/
 [ -f "$work/models/npu/lfm3-fast/devices/f.hnpm" ] || { echo "the :fast format's NPU programs were not fetched" >&2; exit 1; }
 if [ -e "$work/models/npu/lfm3/lfm3.hnpw" ]; then echo "weights were fetched for your own checkpoint" >&2; exit 1; fi
 grep -q 'mine is a lfm3' "$work/out" || { echo "the fetch did not say what the checkpoint is" >&2; exit 1; }
-ok "your own checkpoint gets its NPU programs fetched, and no weights"
+# The checkpoint is probed offline, with the models read-only and no token; the download never probes.
+grep 'FETCH_MODE=probe' "$work/podman.log" > "$work/probe-run" || { echo "the checkpoint was not probed first" >&2; exit 1; }
+if ! grep -q -- '--network=none' "$work/probe-run" || ! grep -q -- "-v $work/models:/models:ro" "$work/probe-run"; then
+  cat "$work/probe-run" >&2; echo "the probe ran with network or writable models" >&2; exit 1
+fi
+if grep -q 'hf-token' "$work/probe-run"; then echo "the probe got the HF token" >&2; exit 1; fi
+[ ! -e "$work/probe-leak" ] || { echo "the download container probed a checkpoint" >&2; exit 1; }
+# A space after the comma still gets the probe (the download splits on spaces too).
+echo 'HALOGEN_NPU_MODELS=embed, /models/LFM/mine' > "$work/config.env"
+rm -f "$work/models/.fetch-stamp"; : > "$work/podman.log"
+"$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; echo "a space after the comma broke the fetch" >&2; exit 1; }
+grep -q 'FETCH_MODE=probe' "$work/podman.log" || { echo "a space after the comma skipped the probe" >&2; exit 1; }
+# The probe's answers are checked outside it: anything but path=model stops the fetch.
+cp "$work/bin/podman" "$work/podman.real"
+printf '#!/bin/bash\ncase " $* " in *FETCH_MODE=probe*) echo "/models/LFM/mine=lfm3"; echo "evil"; exit 0 ;; esac\nexec "%s" "$@"\n' "$work/podman.real" > "$work/bin/podman"
+rm -f "$work/models/.fetch-stamp"
+if "$work/fetch" > "$work/out" 2>&1; then echo "a bad probe answer was passed on" >&2; exit 1; fi
+grep -q "gave an answer halOS doesn't accept" "$work/out" || { cat "$work/out" >&2; exit 1; }
+cp "$work/podman.real" "$work/bin/podman"
+echo 'HALOGEN_NPU_MODELS=embed,/models/LFM/mine:fast,/models/LFM/mine' > "$work/config.env"
+"$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+ok "your own checkpoint gets its NPU programs fetched, and no weights; it is probed offline, and only its plain answers are passed on"
 
 : > "$work/podman.log"; "$work/fetch" >/dev/null 2>&1
 if grep -q ' run ' "$work/podman.log"; then echo "an unchanged checkpoint ran the fetch again" >&2; exit 1; fi

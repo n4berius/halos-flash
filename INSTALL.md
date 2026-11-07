@@ -211,7 +211,7 @@ After setup, the first boot runs in this order:
    downloads resume, and network failures retry until they succeed.
 4. Halogen's `verify` mode checks the Flash checkpoint. NPU files are checked against the
    hashes in the pinned container.
-5. Halogen starts offline, with its models read-only, on port 8731.
+5. Halogen starts on port 8731, with its models read-only. It never downloads anything itself.
 
 You can watch it without logging in. Above the login prompt, the machine's screen shows one line
 that updates by itself every 30 seconds. Before setup it reads `waiting for setup: sudo halosctl
