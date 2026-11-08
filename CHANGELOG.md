@@ -10,6 +10,10 @@ promoted.
 
 ## Unreleased
 
+- Images now say which edition they are (NPU or no-NPU) in a label. `halosctl` checks it before
+  switching, and reads it to tell the edition of a build a pinned machine has waiting for the next
+  boot, where it used to ask you to reboot first. Images from before this change have no label,
+  so for those it still asks. (#77)
 - Tab completion for `halogenctl`, `halosctl` and `halogen-enroll-tpm`: commands, options,
   channels and LUKS devices. (#75)
 - `sudo halogenctl flash check <name>` measures your own Flash checkpoint against the official

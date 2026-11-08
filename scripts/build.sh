@@ -26,6 +26,7 @@ esac
 podman build --pull=newer -t "$TAG" \
   --label "org.opencontainers.image.source=https://github.com/n4berius/halos-flash" \
   --label "org.opencontainers.image.version=$RELEASE" \
+  --label "io.github.n4berius.halos.edition=$VARIANT" \
   --build-arg "FEDORA_BOOTC_IMAGE=$FEDORA_BOOTC_IMAGE" \
   --build-arg "HALOGEN_IMAGE=$SOURCE@$HALOGEN_DIGEST" \
   --build-arg "HALOGEN_VERSION=$HALOGEN_VERSION" \
