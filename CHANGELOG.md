@@ -10,6 +10,12 @@ promoted.
 
 ## Unreleased
 
+- **Halogen 0.20.0** ([its changelog](https://github.com/peonist-ai/halogen-flash-server/blob/8242b157ce78fd720f5b3da18d398d2fb8cebce5/CHANGELOG.md)):
+  its image moves to ROCm 10.1 (less power while generating, same speed), prompts read a few
+  percent faster, and a crash with strict tool calls under load is fixed. New: document parsing on
+  the NPU with your own OvisOCR3 (`sudo halogenctl model pull ATH-MaaS/OvisOCR3`; INSTALL.md says
+  how to serve it). The Flash checkpoint and every setting stay the same; at temperature 0 replies
+  can differ from 0.19.1's in the last bits. (#78)
 - **Hardening:** programs running as the `halogen` user (Halogen's helpers, and anything that
   might break out of its container) can no longer type into an admin's root terminal or send it
   escape codes. `halogenctl` gives the scripts it runs as `halogen` no access to your terminal,
