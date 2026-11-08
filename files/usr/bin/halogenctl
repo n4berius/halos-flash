@@ -161,6 +161,41 @@ case "${1:-status}" in
         valid "${3:-}" || { echo "usage: halogenctl flash verify <name>" >&2; exit 2; }
         as_halogen /usr/libexec/halogen/flash-checkpoint verify "$3"
         ;;
+      check)
+        # Halogen's ppl loads the model, which needs the GPU to itself: Halogen stops meanwhile.
+        name="${3:-}"
+        if ! valid "$name" || [ "$name" = official ]; then echo "usage: halogenctl flash check <name> [--yes]" >&2; exit 2; fi
+        [ -n "$(flash_info "$name" repo)" ] || { echo "No checkpoint called $name. See: sudo halogenctl flash list" >&2; exit 1; }
+        if [ "$(unit is-active halogen-fetch.service 2>/dev/null)" = activating ]; then
+          echo "Halogen is downloading models (sudo halogenctl fetch-logs). Check $name when that is done." >&2; exit 1
+        fi
+        echo "This measures $name against the official checkpoint on a public test text (wikitext-2),"
+        echo "with Halogen's ppl. It needs the GPU, so Halogen stops answering for about 15 to 30 minutes"
+        echo "(longest the first time on a Halogen version, when the official checkpoint is measured too)."
+        if [ "$yes" != 1 ]; then
+          [ -t 0 ] || { echo "Nothing changed: add --yes to confirm without a terminal." >&2; exit 1; }
+          read -rp "Stop Halogen and measure $name? [y/N] " answer
+          [ "$answer" = y ] || [ "$answer" = Y ] || { echo "Nothing changed."; exit 1; }
+        fi
+        # Before Halogen stops: the name, the verify result and the test text (downloaded once).
+        as_halogen /usr/libexec/halogen/flash-checkpoint check-prepare "$name" < /dev/null
+        # From here on Halogen comes back whatever happens: Ctrl-C, a dropped SSH session, a
+        # closed pipe. The measurement is stopped first, so it never holds the GPU beside Halogen;
+        # Halogen is started before anything is printed, since printing to a closed terminal fails.
+        # A Halogen you stopped yourself stays stopped.
+        was_running=0; ! unit is-active --quiet halogen.service || was_running=1
+        trap 'exit 130' INT TERM HUP
+        trap 'set +e; unit stop halogen-flash-check.service > /dev/null 2>&1
+              if [ "$was_running" = 1 ]; then start_halogen start > /dev/null 2>&1
+                { echo; echo "Halogen is starting again; follow it with: sudo halogenctl logs"; } 2> /dev/null
+              else { echo; echo "Halogen was not running before the check, so it is left stopped."; } 2> /dev/null; fi' EXIT
+        unit stop halogen.service
+        # A named unit the trap can stop, ended after 3 hours if ppl hangs. Its output comes back
+        # through a pipe with control characters taken out, so the script (run as halogen) never
+        # holds root's terminal and the decoded tokens it prints can't drive it.
+        systemd-run --machine=halogen@.host --user --pipe --wait --quiet --unit=halogen-flash-check --collect \
+          -p RuntimeMaxSec=3h /usr/libexec/halogen/flash-checkpoint check "$name" < /dev/null 2>&1 | sed -u 's/[[:cntrl:]]//g'
+        ;;
       list)
         c="$(chosen_flash)"; s="$(served_flash)"; served="$(head -n 1 <<< "$s")"
         mark() { if [ "$1" = "$served" ]; then echo yes; else echo no; fi; }
@@ -181,6 +216,16 @@ case "${1:-status}" in
           printf '  %-24s %-8s %-7s %-22s %s\n' "$name" "$( { as_owner du -sh "$dir" 2>/dev/null || true; } | cut -f1)" "$(mark "$name")" "$v" \
             "$(flash_info "$name" repo)${commit:+ at ${commit:0:12}}"
         done
+        checks=""
+        for dir in "$models"/flash/*/; do
+          [ -d "$dir" ] || continue
+          name="$(basename "$dir")"; valid "$name" || continue
+          p="$(flash_info "$name" checked_ppl)"; [ -n "$p" ] || continue
+          t="$(awk -v t="$(flash_info "$name" checked_top1)" 'BEGIN { if (t <= 1) t *= 100; printf "%.1f", t }')"
+          checks+="$(printf '  %-24s perplexity %s (official %s), same next token %s%%, KL median %s, with Halogen %s' "$name" "$p" \
+            "$(flash_info "$name" checked_official_ppl)" "$t" "$(flash_info "$name" checked_kl_median)" "$(flash_info "$name" checked_with)")"$'\n'
+        done
+        if [ -n "$checks" ]; then echo; echo "Quality against the official checkpoint (sudo halogenctl flash check <name>):"; printf '%s' "$checks"; fi
         echo
         [ "$c" = "$served" ] || echo "You chose $c, but Halogen serves the official checkpoint: $(sed -n 2p <<< "$s")"
         echo "ACTIVE: the checkpoint Halogen serves. Switch with: sudo halogenctl flash use <name>"
@@ -220,7 +265,7 @@ case "${1:-status}" in
         # As halogen: a folder link planted by a container must not let root delete through it.
         as_owner rm -rf -- "$dir" && echo "Deleted $name."
         ;;
-      *) echo "usage: halogenctl flash pull <hf-repo> [--revision <rev>] [--as <name>] [--file <checkpoint.hgn>] | list | use <name>|official [--yes] | verify <name> | remove <name> [--yes]" >&2; exit 2 ;;
+      *) echo "usage: halogenctl flash pull <hf-repo> [--revision <rev>] [--as <name>] [--file <checkpoint.hgn>] | list | use <name>|official [--yes] | verify <name> | check <name> [--yes] | remove <name> [--yes]" >&2; exit 2 ;;
     esac
     ;;
   model)
@@ -317,5 +362,5 @@ case "${1:-status}" in
     # terminal for the minutes it runs.
     systemd-run --machine=halogen@.host --user --pipe --wait --quiet /usr/libexec/halogen/bench ${2:+"$2"} < /dev/null 2>&1 | cat
     ;;
-  *) echo "usage: halogenctl status|start|stop|restart|logs [lines]|fetch-logs [lines]|doctor|selftest|bench [--quick]|config|options [--new]|api-key|hf-token [--remove]|model pull|list|remove|flash pull|list|use|verify|remove" >&2; exit 2 ;;
+  *) echo "usage: halogenctl status|start|stop|restart|logs [lines]|fetch-logs [lines]|doctor|selftest|bench [--quick]|config|options [--new]|api-key|hf-token [--remove]|model pull|list|remove|flash pull|list|use|verify|check|remove" >&2; exit 2 ;;
 esac

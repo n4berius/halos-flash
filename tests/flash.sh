@@ -52,7 +52,15 @@ case "$entry" in
       for f in "${files[@]}"; do mkdir -p "$(dirname "$dir/$f")"; cp "$FAKE/repo/$f" "$dir/$f"; done
       [ -z "${FAKE_CORRUPT:-}" ] || printf 'x' >> "$dir/$FAKE_CORRUPT" ;;
   /usr/local/bin/flash_serve) echo "loading"; echo "${FAKE_FACTS-61.2 0 1}" ;;
-  "") [ "$1" = verify ] || exit 9; echo "verify $2" >> "$FAKE/verify.log"
+  "") if [ "$1" = ppl ]; then
+        echo "ppl ${*:2}" >> "$FAKE/ppl.log"; echo "halogen ppl: prose" >&2
+        [ "$2" != "${FAKE_PPL_FAIL:-none}" ] || exit 1
+        out=""; prev=""; for a in "$@"; do [ "$prev" != --ref-out ] || out="$a"; prev="$a"; done
+        if [ -n "$out" ]; then echo ref > "${out/\/models/$FAKE/models}"; echo '{"file":"o","tokens":297052,"ppl":3.8522}'
+        else echo '{"file":"m","tokens":297052,"ppl":3.8109,"ref":{"topk":128,"kl":{"mean":0.136478,"median":0.045499,"p90":0.3,"p99":1.444613,"max":11.7},"top1_agreement":0.86463}}'; fi
+        exit 0
+      fi
+      [ "$1" = verify ] || exit 9; echo "verify $2" >> "$FAKE/verify.log"
       case "$2" in *"${FAKE_BAD:-none}"*) echo "FAIL $2"; exit 1 ;; *) echo "PASS $2" ;; esac ;;
   *) exit 9 ;;
 esac
@@ -204,3 +212,55 @@ pull someone/Moving-Table --as moving || fail "a new table was not taken"
 [ "$(cat "$work/models/qwen38-flash-next-ngram.hgn")" = table ] || fail "the official table was changed"
 ok "a new commit's lookup table replaces the old one, and the official table is never changed"
 
+
+# flash check: Halogen's ppl against a reference dump of the official checkpoint, on wikitext-2.
+cat > "$work/bin/curl" <<'S'
+#!/bin/bash
+echo "curl $*" >> "$FAKE/curl.log"
+[ -z "${FAKE_CURL_FAIL:-}" ] || exit 22
+case "$*" in
+  *offset=0\&*) echo '{"num_rows_total":200,"rows":[{"row":{"text":""}},{"row":{"text":" = A = \n"}}]}' ;;
+  *) echo '{"num_rows_total":200,"rows":[{"row":{"text":" b \n"}}]}' ;;
+esac
+S
+chmod +x "$work/bin/curl"
+corpus=$' = A = \n b \n'
+HALOGEN_CORPUS_SHA="$(printf '%s' "$corpus" | sha256sum | cut -d' ' -f1)"
+export HALOGEN_CORPUS_SHA HALOGEN_CORPUS_URL="https://x/rows?d=1"
+sed -i 's/^verified=.*/verified=pass/' "$work/models/flash/mine/halos.info"
+: > "$work/ppl.log"
+"$tool" check mine > "$work/out" 2>&1 || fail "a check failed"
+[ "$(cat "$work/models/flash/.check/wikitext-2-raw-test.txt")" = "$(printf '%s' "$corpus")" ] || fail "the text was not joined from its pages"
+[ -f "$work/models/flash/.check/official-9.9.9.ref" ] || fail "no reference dump"
+grep -q '^ppl /models/qwen38-flash-next-v2.hgn --corpus /models/flash/.check/wikitext-2-raw-test.txt --ref-out /models/flash/.check/official-9.9.9.ref.new --json$' "$work/ppl.log" || fail "the official run was wrong: $(cat "$work/ppl.log")"
+grep -q '^ppl /models/flash/mine/model.hgn --corpus .* --ref /models/flash/.check/official-9.9.9.ref --worst 5 --json$' "$work/ppl.log" || fail "the checkpoint run was wrong"
+{ [ "$(info mine checked_ppl)" = 3.8109 ] && [ "$(info mine checked_official_ppl)" = 3.8522 ] && [ "$(info mine checked_kl_median)" = 0.045499 ] && [ "$(info mine checked_with)" = 9.9.9 ]; } || fail "the result was not recorded"
+grep -qE 'perplexity +3\.8109 +official 3\.8522' "$work/out" || fail "no perplexity line"
+grep -qE 'same next token +86\.5%' "$work/out" || fail "no agreement line"
+grep -q 'median 0.045499, mean 0.136478, p99 1.444613' "$work/out" || fail "no KL line"
+grep 'podman run' "$work/podman.log" | grep ' ppl ' > "$work/runs"
+grep ' --ref-out ' "$work/runs" | grep -q -- "-v $work/models:/models:ro -v $work/models/flash/.check:/models/flash/.check:rw -v $work/models/tokenizer:/tokenizer:ro -e HALOGEN_TOKENIZER=/tokenizer --network=none --cap-drop=all" \
+  || fail "the official run had more than the GPU, read-only models, its own folder and the official tokenizer: $(head -n 1 "$work/runs")"
+grep ' --ref ' "$work/runs" | grep -q -- "-v $work/models/flash/.check:/models/flash/.check:ro -v $work/models/tokenizer:/tokenizer:ro " \
+  || fail "the checkpoint's run could write the reference, or read another tokenizer"
+ok "flash check measures against the official checkpoint offline, with the official tokenizer, and records the result"
+
+: > "$work/ppl.log"; : > "$work/curl.log"
+"$tool" check mine > "$work/out" 2>&1 || fail "a second check failed"
+if grep -q -- '--ref-out' "$work/ppl.log"; then fail "the official checkpoint was measured again"; fi
+[ ! -s "$work/curl.log" ] || fail "the text was downloaded again"
+rm "$work/models/flash/.check/wikitext-2-raw-test.txt"
+if HALOGEN_CORPUS_SHA=0000 "$tool" check mine > "$work/out" 2>&1; then fail "a text with the wrong hash was used"; fi
+grep -q "didn't match its known hash" "$work/out" || fail "no hash message"
+[ ! -e "$work/models/flash/.check/wikitext-2-raw-test.txt" ] || fail "a bad text was kept"
+if FAKE_CURL_FAIL=1 "$tool" check mine > "$work/out" 2>&1; then fail "a failed download passed"; fi
+sed -i 's/^verified=.*/verified=fail/' "$work/models/flash/mine/halos.info"
+if "$tool" check mine > "$work/out" 2>&1; then fail "checked an unverified checkpoint"; fi
+sed -i 's/^verified=.*/verified=pass/' "$work/models/flash/mine/halos.info"
+for bad in ../x official .hidden; do
+  if "$tool" check "$bad" > "$work/out" 2>&1; then fail "took the name $bad"; fi
+done
+rm -f "$work/models/flash/.check/official-9.9.9.ref" "$work/models/flash/.check/official-9.9.9.json"
+if FAKE_PPL_FAIL=/models/qwen38-flash-next-v2.hgn "$tool" check mine > "$work/out" 2>&1; then fail "a failed reference run passed"; fi
+[ ! -e "$work/models/flash/.check/official-9.9.9.ref" ] || fail "a failed reference run left a dump"
+ok "flash check reuses the reference and text, refuses a wrong text, an unverified checkpoint and bad names, and keeps no half results"

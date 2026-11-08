@@ -16,7 +16,7 @@ ARG HALOGEN_WEIGHTS_REVISION
 # the Wi-Fi driver asks for them at boot) and a few admin tools. fwupd stays for firmware updates.
 RUN dnf -y --setopt=install_weak_deps=False install \
       amd-gpu-firmware firewalld linux-firmware tpm2-tss \
-      amdsmi nvtop htop pciutils usbutils tmux wireless-regdb nano && \
+      amdsmi nvtop htop pciutils usbutils tmux wireless-regdb nano bash-completion && \
     dnf -y remove \
       nvidia-gpu-firmware intel-gpu-firmware intel-npu-firmware intel-audio-firmware \
       cirrus-audio-firmware brcmfmac-firmware tiwilink-firmware nxpwireless-firmware \
@@ -27,7 +27,7 @@ RUN dnf -y --setopt=install_weak_deps=False install \
       fwupd-plugin-modem-manager ModemManager-glib libqmi libmbim && \
     dnf clean all && \
     rm -rf /var/log/dnf5.log /var/lib/dnf /var/cache/libdnf5 /run/dnf && \
-    rpm -q fwupd skopeo jq amd-ucode-firmware realtek-firmware mt7xxx-firmware atheros-firmware && \
+    rpm -q bash-completion fwupd skopeo jq amd-ucode-firmware realtek-firmware mt7xxx-firmware atheros-firmware && \
     ls -d /usr/lib/firmware/amdgpu /usr/lib/firmware/amdnpu && \
     command -v runuser setpriv nano
 
