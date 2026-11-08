@@ -18,7 +18,7 @@ f podman 'case "$1" in
          {\"test\":\"tg128\",\"drafter\":\"mt\u001b[2Jp\",\"tokens\":128,\"mean\":64.567,\"stdev\":9.1}]}" ;;
 esac'
 f curl '[ -z "${FAKE_DOWN:-}" ]'
-f systemctl 'echo active'
+f clock '[ -z "${FAKE_CLOCK_LOOSE:-}" ]'
 f render 'printf "HALOGEN_CHECKPOINT=/models/flash/mine/model.hgn\nHALOGEN_KV8=1\nHALOGEN_API_KEY_FILE=/run/secrets/x\n"; echo "halogen-config: noise" >&2'
 printf 'HALOGEN_IMAGE=ghcr.io/peonist-ai/halogen-flash-server@sha256:1\nHALOGEN_VERSION=0.19.1\nHALOGEN_VARIANT=npu\nHALOS_RELEASE=0.19.1-beta.1\n' > "$work/release.env"
 echo 'secret-key-123' > "$work/configs/api-key"
@@ -26,7 +26,7 @@ printf 'Compal\n' > "$work/sys/class/dmi/id/board_vendor"; printf 'Halo\e[2J\n' 
 printf '04.01\n' > "$work/sys/class/dmi/id/bios_version"; printf 'performance\n' > "$work/sys/firmware/acpi/platform_profile"
 echo 'BOOT_IMAGE=x amdgpu.gttsize=126976 iommu=pt quiet' > "$work/cmdline"
 export PATH="$work/bin:$PATH" HALOGEN_RELEASE_FILE="$work/release.env" HALOGEN_CONFIGS_DIR="$work/configs" \
-  HALOGEN_RENDER="$work/bin/render" HALOGEN_SYS="$work/sys" HALOGEN_CMDLINE="$work/cmdline"
+  HALOGEN_RENDER="$work/bin/render" HALOGEN_SYS="$work/sys" HALOGEN_CMDLINE="$work/cmdline" HALOGEN_CLOCK="$work/bin/clock"
 bench="$repo/files/usr/libexec/halogen/bench"
 ok() { echo "ok: $*"; }
 fail() { echo "$*" >&2; [ ! -f "$work/out" ] || cat "$work/out" >&2; exit 1; }
@@ -40,6 +40,7 @@ has '^Flash checkpoint: mine \(your own\)' "$txt"
 has 'HALOGEN_KV8=1' "$txt"
 has 'amdgpu\.gttsize=126976; iommu=pt' "$txt"
 has 'platform profile: performance' "$txt"
+has 'Fabric clock held: yes;' "$txt"
 has '^pp2048 +mtp +2049 +1701\.23 ± 3\.21' "$txt"
 has '^tg128 +mt\[2Jp +128 +64\.57 ± 9\.1' "$txt"
 has 'prompt cache: default' "$txt"
@@ -49,6 +50,8 @@ if grep -q 'API_KEY' "$txt" "$json"; then fail "the report names the API key set
 if grep -q 'secret-key-123' "$txt" "$json"; then fail "the report holds the API key"; fi
 [ "$(jq -r '.bench.rows | length' "$json")" = 2 ] || fail "the JSON lost the rows"
 [ "$(jq -r '.system.halogen' "$json")" = 0.19.1 ] || fail "the JSON lost the system facts"
+FAKE_CLOCK_LOOSE=1 "$bench" --quick > "$work/out" 2>&1 || fail "the run failed with the clock not held"
+has 'Fabric clock held: no;' "$work/out"
 ok "a full run saves a text and a JSON report with the system facts, and no key or escape codes"
 
 has '--network=host --read-only --tmpfs /tmp --cap-drop=all --security-opt no-new-privileges -e HALOGEN_API_KEY ' "$work/podman.log"
