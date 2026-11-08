@@ -127,7 +127,8 @@ name, but allows saying halOS runs Halogen.
   troubleshooting.md: its numbers at about 85 W; one owner's machine about 70 W at balanced against
   127 W at performance). `70-halos-platform-profile.rules` starts it again when the kernel's
   `platform-profile` class device appears, in case the driver (likely `amd_pmf`) loads after the
-  unit ran (its condition then skips it). Only the three names,
+  unit ran (its condition then skips it; freyja has `platform-profile-0`). The unit may write only
+  that file (`ProtectKernelTunables` + `ReadWritePaths`, no capabilities; its core was checked with `systemd-run` on freyja, the full unit after the next edge build). Only the three names,
   and only those the firmware lists in `platform_profile_choices`. The image has no
   power-profiles-daemon or tuned to fight it. freyja ships at `balanced`; `performance` read
   prompts about 22% faster (pp2048 1876 against about 1530 tok/s).

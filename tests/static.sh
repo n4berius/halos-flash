@@ -123,3 +123,21 @@ for unit in files/usr/lib/systemd/system/*.service; do
   grep -qE "systemctl enable .*\b$(basename "$unit" .service)\.service" Containerfile \
     || { echo "$unit has an [Install] section but the Containerfile doesn't enable it" >&2; exit 1; }
 done
+# Every root unit halOS ships keeps its sandbox: a read-only system and no new privileges.
+for unit in files/usr/lib/systemd/system/*.service; do
+  # systemd takes the last line of a setting, so each appears exactly once.
+  if ! grep -qx 'ProtectSystem=strict' "$unit" || ! grep -qx 'NoNewPrivileges=yes' "$unit" \
+    || [ "$(grep -cE '^(ProtectSystem|NoNewPrivileges)=' "$unit")" != 2 ]; then
+    echo "$unit lost ProtectSystem=strict or NoNewPrivileges=yes" >&2; exit 1
+  fi
+done
+# The power profile's unit may write only its one file in /sys, with no capabilities.
+u=files/usr/lib/systemd/system/halos-platform-profile.service
+# A later line would widen an earlier one (capabilities add up), so each setting appears once,
+# and nothing grants capabilities or binds paths in another way.
+if ! grep -qx 'ProtectKernelTunables=yes' "$u" || ! grep -qx 'CapabilityBoundingSet=' "$u" \
+  || [ "$(grep -cE '^(ProtectKernelTunables|CapabilityBoundingSet|ReadWritePaths)=' "$u")" != 3 ] \
+  || ! grep -qx 'ReadWritePaths=-/sys/firmware/acpi/platform_profile' "$u" \
+  || grep -qE '^(AmbientCapabilities|BindPaths|ReadWriteDirectories|PrivilegedExecStart)=' "$u"; then
+  echo "$u may write more than the platform profile" >&2; exit 1
+fi
