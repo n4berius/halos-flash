@@ -16,6 +16,8 @@ promoted.
   the NPU with your own OvisOCR3 (`sudo halogenctl model pull ATH-MaaS/OvisOCR3`; INSTALL.md says
   how to serve it). The Flash checkpoint and every setting stay the same; at temperature 0 replies
   can differ from 0.19.1's in the last bits. (#78)
+- `halogenctl selftest` no longer reports a `chcon` SELinux denial: that is bootc checking its own
+  rights (it expects the refusal) each time halOS asks it for status. Other denials still fail. (#PR)
 
 ## v0.19.1-alpha.6 (2026-11-08)
 

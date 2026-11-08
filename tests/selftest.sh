@@ -89,7 +89,29 @@ if "$selftest" > "$work/out" 2>&1; then echo "failures still exited 0" >&2; exit
 expect '^FAIL firewall:'; expect '^FAIL selinux-denials: 2 different'; expect 'kfd_device_t'; expect 'tclass=packet'
 refuse '192\.168|saddr|path=|pid='
 ok "a closed port and SELinux denials fail, each denial once, with no paths or addresses"
-echo "halogen" > "$work/services"; rm "$work/kernel.log"
+echo "halogen" > "$work/services"
+# bootc's own SELinux check, as freyja logs it (both transports), is not a denial to report.
+cat > "$work/kernel.log" <<'L'
+AVC avc:  denied  { mac_admin } for  pid=7684 comm="chcon" capability=33  scontext=system_u:system_r:unconfined_service_t:s0 tcontext=system_u:system_r:unconfined_service_t:s0 tclass=capability2 permissive=0
+SELINUX_ERR op=setxattr invalid_context="system_u:object_r:invalid_bootcinstall_testlabel_t:s0"
+SYSCALL arch=c000003e syscall=188 success=no exit=-22 comm="chcon" exe="/usr/bin/chcon"
+audit: type=1400 audit(1794150732.406:355): avc:  denied  { mac_admin } for  pid=7684 comm="chcon" capability=33  scontext=system_u:system_r:unconfined_service_t:s0 tcontext=system_u:system_r:unconfined_service_t:s0 tclass=capability2 permissive=0
+audit: type=1401 audit(1794150732.406:355): op=setxattr invalid_context="system_u:object_r:invalid_bootcinstall_testlabel_t:s0"
+L
+"$selftest" > "$work/out" 2>&1 || { cat "$work/out" >&2; echo "bootc's SELinux check failed the selftest" >&2; exit 1; }
+expect '^PASS selinux-denials'
+# The same denial with any other label, or none, still counts.
+cat > "$work/kernel.log" <<'L'
+AVC avc:  denied  { mac_admin } for  pid=7684 comm="chcon" capability=33  scontext=system_u:system_r:unconfined_service_t:s0 tcontext=system_u:system_r:unconfined_service_t:s0 tclass=capability2 permissive=0
+SELINUX_ERR op=setxattr invalid_context="system_u:object_r:something_else_t:s0"
+SYSCALL arch=c000003e syscall=188 success=no exit=-22 comm="chcon" exe="/usr/bin/chcon"
+PROCTITLE proctitle=x
+audit: type=1400 audit(1.2:9): avc:  denied  { mac_admin } for  pid=9 comm="chcon" capability=33  scontext=system_u:system_r:unconfined_service_t:s0 tcontext=system_u:system_r:unconfined_service_t:s0 tclass=capability2 permissive=0
+L
+if "$selftest" > "$work/out" 2>&1; then echo "a chcon denial without bootc's label passed" >&2; exit 1; fi
+expect '^FAIL selinux-denials: 1 different'
+ok "bootc's own SELinux check is not reported, other chcon denials are"
+rm "$work/kernel.log"
 
 mkdir -p "$work/models/npu/0.18.23"
 echo 'ath11k_pci: Direct firmware load for ath11k/WCN6855 failed with error -2' > "$work/kernel.log"
