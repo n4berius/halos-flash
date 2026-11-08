@@ -9,6 +9,16 @@ start_halogen() { unit reset-failed halogen.service 2>/dev/null || true; unit "$
 # Files under /srv/configs and /srv/models belong to halogen, so read and write them as halogen, never as root:
 # a link planted there then can't reach anything halogen couldn't already.
 as_owner() { runuser -u halogen -- "$@"; }
+# Run one of halOS's scripts as halogen, under its user manager. The script never gets root's
+# terminal: its input is /dev/null, and its output comes back through a pipe with control
+# characters (other than tab) removed, in a fixed UTF-8 locale so accented letters and symbols
+# such as ± survive whatever root's locale is; a carriage return becomes a line break. A process running as halogen could otherwise write
+# terminal escape codes to it, or push keystrokes into root's shell. The exit status is the
+# script's (pipefail).
+clean() { LC_ALL=C.UTF-8 sed -u 's/\r/\n/g; s/[^[:print:]\t\n]//g'; }
+halogen_run() {
+  systemd-run --machine=halogen@.host --user --pipe --wait --quiet "$@" < /dev/null 2>&1 | clean
+}
 configs="${HALOGEN_CONFIGS_DIR:-/srv/configs}"
 # logs and fetch-logs keep following only on a terminal, so `| tail` and `> file` finish.
 # An optional second argument sets how many lines to show (default 100).
@@ -28,7 +38,7 @@ chosen_flash() {
 # the official one if it did. Prints the name (official or yours), then the reason, if any.
 served_flash() {
   local out ck
-  out="$(systemd-run --machine=halogen@.host --user --pipe --wait --quiet /usr/libexec/halogen/render-config --show 2>&1)" || true
+  out="$(halogen_run /usr/libexec/halogen/render-config --show)" || true
   ck="$(sed -n 's/^HALOGEN_CHECKPOINT=//p' <<< "$out" | tail -n 1)"
   case "$ck" in
     /models/flash/*/*) ck="${ck#/models/flash/}"; echo "${ck%%/*}" ;;
@@ -51,7 +61,8 @@ flash_info() { as_owner sed -n "s/^$2=//p" "$models/flash/$1/halos.info" 2>/dev/
 
 case "${1:-status}" in
   status)
-    unit --no-pager status halogen-fetch.service halogen.service || true
+    # The service descriptions and status lines come from halogen's own service manager.
+    { unit --no-pager status halogen-fetch.service halogen.service 2>&1 || true; } | clean
     c="$(chosen_flash)"
     if [ "$c" != official ]; then
       s="$(served_flash)"; served="$(head -n 1 <<< "$s")"
@@ -70,15 +81,16 @@ case "${1:-status}" in
   fetch-logs) exec journalctl --no-pager "${follow[@]}" -n "$lines" _SYSTEMD_USER_UNIT=halogen-fetch.service ;;
   doctor)
     # Runs under the service manager, so it sees the service's real limits.
-    systemd-run --machine=halogen@.host --user --pipe --wait --quiet /usr/libexec/halogen/render-config >/dev/null
+    # Only its warnings: the path it prints on success means nothing here. A failure is shown.
+    out="$(halogen_run /usr/libexec/halogen/render-config)" || { printf '%s\n' "$out" >&2; exit 1; }
+    grep '^halogen-config:' <<< "$out" || true
     # While Halogen runs, the GTT it holds is expected, not a leftover from a crash.
     running=0; ! unit --quiet is-active halogen.service || running=1
-    systemd-run --machine=halogen@.host --user --pipe --wait --quiet \
-      --setenv=HALOGEN_SERVER_RUNNING="$running" /usr/libexec/halogen/preflight
+    halogen_run --setenv=HALOGEN_SERVER_RUNNING="$running" /usr/libexec/halogen/preflight
     ;;
   config)
     # Shows what Halogen receives. Ignored lines are explained above the list.
-    systemd-run --machine=halogen@.host --user --pipe --wait --quiet /usr/libexec/halogen/render-config --show
+    halogen_run /usr/libexec/halogen/render-config --show
     echo "--- locked ---"
     grep -v '^#' "${HALOGEN_LOCKED_FILE:-/usr/share/halogen/locked.env}"
     duplicate_settings
@@ -118,7 +130,7 @@ case "${1:-status}" in
     [ "$(id -u)" = 0 ] || { echo "Run it with sudo: sudo halogenctl selftest" >&2; exit 1; }
     exec /usr/libexec/halogen/selftest
     ;;
-  api-key) as_owner cat "$configs/api-key"; echo ;;
+  api-key) as_owner cat "$configs/api-key" | tr -cd '[:print:]'; echo ;;
   hf-token)
     # Store a Hugging Face read token for model downloads. It is never printed.
     token="$configs/hf-token"
@@ -135,7 +147,7 @@ case "${1:-status}" in
   flash)
     # Your own Flash checkpoints under /srv/models/flash, beside the official one, which is
     # always kept so going back needs no download.
-    as_halogen() { systemd-run --machine=halogen@.host --user --pipe --wait --quiet "$@"; }
+    as_halogen() { halogen_run "$@"; }
     valid() { case "$1" in [A-Za-z0-9]*) ;; *) return 1 ;; esac; case "$1" in *[!A-Za-z0-9._-]*) return 1 ;; esac; }
     restart_now() {
       # $1: what to say before asking. --yes skips the question.
@@ -178,7 +190,7 @@ case "${1:-status}" in
           [ "$answer" = y ] || [ "$answer" = Y ] || { echo "Nothing changed."; exit 1; }
         fi
         # Before Halogen stops: the name, the verify result and the test text (downloaded once).
-        as_halogen /usr/libexec/halogen/flash-checkpoint check-prepare "$name" < /dev/null
+        as_halogen /usr/libexec/halogen/flash-checkpoint check-prepare "$name"
         # From here on Halogen comes back whatever happens: Ctrl-C, a dropped SSH session, a
         # closed pipe. The measurement is stopped first, so it never holds the GPU beside Halogen;
         # Halogen is started before anything is printed, since printing to a closed terminal fails.
@@ -193,8 +205,7 @@ case "${1:-status}" in
         # A named unit the trap can stop, ended after 3 hours if ppl hangs. Its output comes back
         # through a pipe with control characters taken out, so the script (run as halogen) never
         # holds root's terminal and the decoded tokens it prints can't drive it.
-        systemd-run --machine=halogen@.host --user --pipe --wait --quiet --unit=halogen-flash-check --collect \
-          -p RuntimeMaxSec=3h /usr/libexec/halogen/flash-checkpoint check "$name" < /dev/null 2>&1 | sed -u 's/[[:cntrl:]]//g'
+        halogen_run --unit=halogen-flash-check --collect -p RuntimeMaxSec=3h /usr/libexec/halogen/flash-checkpoint check "$name"
         ;;
       list)
         c="$(chosen_flash)"; s="$(served_flash)"; served="$(head -n 1 <<< "$s")"
@@ -270,8 +281,8 @@ case "${1:-status}" in
     ;;
   model)
     # Your own NPU checkpoints under /srv/models/{decider,LFM,custom}.
-    as_halogen() { systemd-run --machine=halogen@.host --user --pipe --wait --quiet "$@"; }
-    in_use() { as_halogen /usr/libexec/halogen/render-config --show 2>/dev/null | grep '^HALOGEN_NPU_MODELS=' | tr '=,' '\n' | sed 's/:fast$//' | grep -qxF -- "$1"; }
+    as_halogen() { halogen_run "$@"; }
+    in_use() { as_halogen /usr/libexec/halogen/render-config --show | grep '^HALOGEN_NPU_MODELS=' | tr '=,' '\n' | sed 's/:fast$//' | grep -qxF -- "$1"; }
     case "${2:-list}" in
       pull)
         shift 2
@@ -282,7 +293,8 @@ case "${1:-status}" in
         echo
         echo "To serve it, add $entry to HALOGEN_NPU_MODELS in /srv/configs/halogen.env, for example:"
         if in_use "$path"; then echo "  It is already there. To use the new files: sudo halogenctl restart"; exit 0; fi
-        line="$(as_owner grep '^HALOGEN_NPU_MODELS=' "$configs/halogen.env" | tail -n 1 || true)"
+        # Printed to root's terminal below, so only printable characters.
+        line="$(as_owner grep '^HALOGEN_NPU_MODELS=' "$configs/halogen.env" | tail -n 1 | tr -cd '[:print:]' || true)"
         new="HALOGEN_NPU_MODELS=${line#HALOGEN_NPU_MODELS=}"; new="${new%,}"
         [ "$new" = HALOGEN_NPU_MODELS= ] && new="$new$path" || new="$new,$path"
         echo "  $new"
@@ -304,7 +316,7 @@ case "${1:-status}" in
       list)
         # What HALOGEN_NPU_MODELS serves now (one read, not one per model), without :fast.
         # Each read may fail (no npu folder yet, the halogen user's services down): still list.
-        active="$( { as_halogen /usr/libexec/halogen/render-config --show 2>/dev/null || true; } | sed -n 's/^HALOGEN_NPU_MODELS=//p' | tr ',' '\n' | sed 's/:fast$//')"
+        active="$( { as_halogen /usr/libexec/halogen/render-config --show || true; } | sed -n 's/^HALOGEN_NPU_MODELS=//p' | tr ',' '\n' | sed 's/:fast$//')"
         used() { if grep -qxF -- "$1" <<< "$active"; then echo yes; else echo no; fi; }
         echo "Your own checkpoints (/srv/models/decider, LFM and custom):"
         n=0
@@ -358,9 +370,7 @@ case "${1:-status}" in
     # Halogen's own sweep against the running server; the report goes to /srv/configs/bench.
     case "${2:-}" in ''|--quick) ;; *) echo "usage: halogenctl bench [--quick]" >&2; exit 2 ;; esac
     [ "$(id -u)" = 0 ] || { echo "Run it with sudo: sudo halogenctl bench ${2:-}" >&2; exit 1; }
-    # Its output comes back through a pipe, so the script (run as halogen) never holds root's
-    # terminal for the minutes it runs.
-    systemd-run --machine=halogen@.host --user --pipe --wait --quiet /usr/libexec/halogen/bench ${2:+"$2"} < /dev/null 2>&1 | cat
+    halogen_run /usr/libexec/halogen/bench ${2:+"$2"}
     ;;
   *) echo "usage: halogenctl status|start|stop|restart|logs [lines]|fetch-logs [lines]|doctor|selftest|bench [--quick]|config|options [--new]|api-key|hf-token [--remove]|model pull|list|remove|flash pull|list|use|verify|check|remove" >&2; exit 2 ;;
 esac

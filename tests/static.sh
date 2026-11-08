@@ -112,5 +112,8 @@ if grep -rhE '^\s*-?\s*uses:' .github/workflows | grep -vE 'uses: [^@ ]+@[0-9a-f
   echo "an action above is not pinned to a full commit" >&2; exit 1
 fi
 echo "ok: actions are pinned to commits"
+grep -qx 'dev.tty.legacy_tiocsti = 0' files/usr/lib/sysctl.d/60-halos.conf || { echo "60-halos.conf lost dev.tty.legacy_tiocsti = 0" >&2; exit 1; }
+# journalctl escapes control characters unless told not to; halogenctl must never tell it so.
+if grep -nE 'journalctl.*( -a\b| --all\b| -o +cat| --output[= ]cat)' files/usr/bin/halogenctl; then echo "halogenctl runs journalctl in a mode that prints control characters" >&2; exit 1; fi
 # shellcheck disable=SC2016 # the literal text in build.sh
 grep -q -- '--label "io.github.n4berius.halos.edition=$VARIANT"' scripts/build.sh || { echo "build.sh lost the edition label halosctl reads" >&2; exit 1; }

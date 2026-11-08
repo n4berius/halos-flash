@@ -10,6 +10,12 @@ promoted.
 
 ## Unreleased
 
+- **Hardening:** programs running as the `halogen` user (Halogen's helpers, and anything that
+  might break out of its container) can no longer type into an admin's root terminal or send it
+  escape codes. `halogenctl` gives the scripts it runs as `halogen` no access to your terminal,
+  and `status`, `selftest`, `api-key` and `model pull` strip control characters from anything the
+  `halogen` user could have written. The kernel's terminal-injection call (`TIOCSTI`), already
+  off in Fedora's kernel, is kept off by a setting. (#76)
 - Images now say which edition they are (NPU or no-NPU) in a label. `halosctl` checks it before
   switching, and reads it to tell the edition of a build a pinned machine has waiting for the next
   boot, where it used to ask you to reboot first. Images from before this change have no label,
