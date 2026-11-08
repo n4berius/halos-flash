@@ -15,11 +15,10 @@ How releases are used:
 
 ## Now: beta on Halogen 0.20
 
-`v0.20.0-alpha.1` carries Halogen 0.20.0 (#78), the fixes from the test machine's first bench and
-`flash check` (#81), the selftest's SELinux fix (#82) and the power profile (#83). It passed the
-test machine's checks. The power profile's tighter sandbox (#84) is on edge, in no release yet.
-Next: the beta. Before it, the test machine checks one real install with the guided installer,
-from an alpha's ISO.
+`v0.20.0-beta.1` is out: Halogen 0.20.0 (#78), the fixes from the test machine's first bench and
+`flash check` (#81), the selftest's SELinux fix (#82), the power profile (#83) and its tighter
+sandbox (#84). Still to do on the test machine: one real install with the guided installer, from
+the beta's ISO, and a soak test before the release candidate.
 
 ## Before the release candidate
 

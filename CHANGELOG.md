@@ -10,6 +10,18 @@ promoted.
 
 ## Unreleased
 
+## v0.20.0-beta.1 (2026-11-08)
+
+Promoted from `v0.20.0-alpha.3`: the first beta on Halogen 0.20.0, with everything since
+`v0.19.0-beta.1`. On freyja it passed the selftest, the power profile at `performance` and the
+fabric clock held in `bench`, and earlier `bench`, `flash check` and `halosctl npu off`/`on`.
+
+## v0.20.0-alpha.3 (2026-11-08)
+
+No change to what users get: the release notes for alpha.1 (#85). The same code as alpha.2.
+
+## v0.20.0-alpha.2 (2026-11-08)
+
 - The power profile's boot service can now write only the one file it sets, with no special
   rights, as the security review of #83 suggested. Nothing changes in use. (#84)
 
