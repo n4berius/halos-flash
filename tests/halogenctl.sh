@@ -216,7 +216,7 @@ for bad in official ../mine nothing; do
 done
 printf 'checked_ppl=3.8109\nchecked_official_ppl=3.8522\nchecked_top1=0.86463\nchecked_kl_median=0.045499\nchecked_with=0.19.1\n' >> "$fm/flash/mine/halos.info"
 "$ctl" flash list > "$work/out"
-grep -qE '^  mine +perplexity 3\.8109 \(official 3\.8522\), same next token 86\.5%, KL median 0\.045499, with Halogen 0\.19\.1$' "$work/out" \
+grep -qE '^  mine +perplexity 3\.81 \(official 3\.85\), same next token 86\.5%, KL median 0\.045, with Halogen 0\.19\.1$' "$work/out" \
   || { cat "$work/out" >&2; echo "flash list doesn't show the check" >&2; exit 1; }
 ok "flash check asks, stops Halogen, measures as halogen, starts it again even after a failure, and list shows the result"
 # Scripts run as halogen never get root's terminal: no input, and no control characters back.

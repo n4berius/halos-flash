@@ -35,7 +35,8 @@ karg() { tr ' ' '\n' < "$cmdline" | grep -E "^$1(=|$)" | clean || true; }
 settings="$("$render" --show 2>/dev/null | grep -E '^HALOGEN_[A-Z0-9_]+=' | grep -vE '_(KEY|TOKEN)[A-Z_]*=' | tr -cd '[:print:]\n' || true)"
 checkpoint="$(sed -n 's/^HALOGEN_CHECKPOINT=//p' <<< "$settings" | tail -n 1)"
 case "$checkpoint" in /models/flash/*/*) flash="${checkpoint#/models/flash/}"; flash="${flash%%/*} (your own)" ;; *) flash=official ;; esac
-fabric="$(systemctl is-active halogen-fabric-clock.service 2>/dev/null || true)"
+# The clock unit runs once at boot and exits, so ask the clock script, as the selftest does.
+if "${HALOGEN_CLOCK:-/usr/libexec/halogen/halogen-fabric-clock}" status > /dev/null 2>&1; then fabric=yes; else fabric=no; fi
 profile="$({ clean < "$sys/firmware/acpi/platform_profile"; } 2>/dev/null || true)"
 cache="$(sed -n 's/^HALOGEN_PROMPT_CACHE=//p' <<< "$settings" | tail -n 1)"
 
