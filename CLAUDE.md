@@ -241,25 +241,24 @@ name, but allows saying halOS runs Halogen.
 Open issues are the source of truth, prioritised with the `priority: high/medium/low` labels
 and tracked on the owner's project board. [ROADMAP.md](ROADMAP.md) holds the order and
 [CHANGELOG.md](CHANGELOG.md) what each release changed. When this file was last updated (after
-#78, the move to Halogen 0.20.0):
+`v0.20.0-alpha.1`):
 
-- Released: `v0.19.1-alpha.6`, the last release on Halogen 0.19.1. It carries the guided installer
-  (#66), the serial-getty fix (#67), the TPM wording (#68), the full security audit's fixes (#69),
-  the restart fix (#70) and the duplicate-settings note (#71), all first in alpha.4; `npu on|off`
-  (#72), `bench` (#73), `flash check` (#74), tab completion (#75) and the hardening from their
-  reviews (#76 terminal, #77 edition label), first in alpha.5. On edge since: Halogen 0.20.0 (#78).
-  Next: the owner checks alpha.6 on freyja and does one real guided install from its ISO, then
-  edge on 0.20.0, then an alpha with 0.20.0. Freyja serves `swift-15fn-heretic-coder` with
-  `flash use`.
+- Released: `v0.20.0-alpha.1` (2026-11-08), the first on Halogen 0.20.0: #78, the freyja fixes
+  (#81), the selftest's bootc SELinux fix (#82) and `halosctl power` (#83). It passed freyja's
+  checks (selftest, power profile, fabric clock in bench). On edge since: the profile unit's
+  sandbox (#84). `v0.19.1-alpha.6` was the last release on 0.19.1. Next: beta. Release's beta
+  promotes the newest alpha, so it ships alpha.1 without #84 unless an alpha.2 comes first or
+  beta is built from main. Freyja serves `swift-15fn-heretic-coder` with `flash use`, at the
+  `performance` profile.
 - Before RC: machines refuse unsigned images (#46 phase 2b; ships once every channel points to a
   key-signed image). Done: first-boot setup and "API ready" (#43), the guided installer (#42, one
   real install still to do), the full `security-auditor` pass (#69).
-- Built for stable, still to check on freyja: benchmark (#15), `flash check` (#56), `halosctl npu
-  on|off` (#40), tab completion (#14).
+- Built for stable and run on freyja: benchmark (#15), `flash check` (#56), `halosctl npu on|off`
+  (#40). Tab completion (#14) is still to try there.
 - **Stable waits for Halogen 0.20** (owner decision): halOS is aligned with 0.20.0 first, then
   released as stable. 0.20.0 (ROCm 10.1 in its image, OvisOCR3 document parsing on the NPU as your
   own checkpoint, faster prefill, a strict-tool-call crash fixed; the Flash checkpoints and weights
-  revision unchanged) is pinned by #78 (merged; on edge, in no release yet). Between source commits 47ceb43 and 8242b15, FLAGS.md,
+  revision unchanged) is pinned by #78 (in `v0.20.0-alpha.1`). Between source commits 47ceb43 and 8242b15, FLAGS.md,
   `deploy/entrypoint.sh` and host-setup's requirements are unchanged (only image tags in examples),
   so `options.allowed`, `halogen.env.default`, the Quadlet and kernel arguments stay as they are.
   OvisOCR3 (`ATH-MaaS/OvisOCR3`, 1.7 GB safetensors) goes through `model pull` into `custom` (the
@@ -267,7 +266,7 @@ and tracked on the owner's project board. [ROADMAP.md](ROADMAP.md) holds the ord
   LFM or decider; freyja confirms; its NPU programs in `models.txt` have no pinned revision, like
   `halogen-spotter-0.6b`, so an upstream push to them breaks the fetch's hash check), served as
   `OvisOCR3` from `/models/custom/OvisOCR3`; INSTALL mentions `HALOGEN_WEIGHTS_LOCK=1` (already
-  allowed) beside it. Still to do: test 0.20.0 on freyja, then stable.
+  allowed) beside it. 0.20.0 runs on freyja (alpha.1); still to do: beta, rc, then stable.
 - After stable: unlock over SSH (#13), clevis/tang (#44), GGUF in `flash pull` (#61).
 - The ISO install test also runs when `versions.env` changes (#78), so every Halogen update PR
   gets the LUKS + TPM install in a VM, about 30 minutes for both editions.

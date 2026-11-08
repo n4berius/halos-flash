@@ -13,16 +13,13 @@ How releases are used:
 | beta | major milestones, after the hardware checklist |
 | rc and stable | about quarterly, after a soak test |
 
-## Now: test alpha.6, then Halogen 0.20 on edge
+## Now: beta on Halogen 0.20
 
-`v0.19.1-alpha.6` carries everything from #66 to #77 on Halogen 0.19.1. Halogen 0.20.0 (#78) is on
-edge and goes out in the next alpha once the test machine has run it. Before beta, the test
-machine checks:
-- normal use on the official checkpoint and on a custom one
-- the selftest clean on both
-- the login screen and SSH message show Halogen's state, and say "ready" once it answers
-- one rollback and back
-- one real install with the guided installer, from the alpha's ISO
+`v0.20.0-alpha.1` carries Halogen 0.20.0 (#78), the fixes from the test machine's first bench and
+`flash check` (#81), the selftest's SELinux fix (#82) and the power profile (#83). It passed the
+test machine's checks. The power profile's tighter sandbox (#84) is on edge, in no release yet.
+Next: the beta. Before it, the test machine checks one real install with the guided installer,
+from an alpha's ISO.
 
 ## Before the release candidate
 
