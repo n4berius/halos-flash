@@ -10,6 +10,9 @@ promoted.
 
 ## Unreleased
 
+- `halogenctl model list` shows an NPU model as in use when one of your own checkpoints runs on it
+  ("yes, for OvisOCR3") or the agent guard adds it, where it used to say "no". (#PR)
+
 ## v0.20.0-beta.1 (2026-11-08)
 
 Promoted from `v0.20.0-alpha.3`: the first beta on Halogen 0.20.0, with everything since

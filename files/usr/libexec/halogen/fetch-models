@@ -161,6 +161,9 @@ if [ -n "$need_probe" ]; then
     exit 1
   fi
 fi
+# Kept for halogenctl model list, which says which NPU model each of your checkpoints runs on.
+# Only a note: nothing reads it to decide what to fetch or serve.
+printf '%s\n' "$own_bases" > "$models/.own-bases.new" && mv -f "$models/.own-bases.new" "$models/.own-bases" || true
 
 wait_s=15
 while :; do

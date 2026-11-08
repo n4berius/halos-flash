@@ -320,8 +320,27 @@ case "${1:-status}" in
       list)
         # What HALOGEN_NPU_MODELS serves now (one read, not one per model), without :fast.
         # Each read may fail (no npu folder yet, the halogen user's services down): still list.
-        active="$( { as_halogen /usr/libexec/halogen/render-config --show || true; } | sed -n 's/^HALOGEN_NPU_MODELS=//p' | tr ',' '\n' | sed 's/:fast$//')"
+        rendered="$( { as_halogen /usr/libexec/halogen/render-config --show || true; } )"
+        active="$(sed -n 's/^HALOGEN_NPU_MODELS=//p' <<< "$rendered" | tr ',' '\n' | sed 's/:fast$//')"
         used() { if grep -qxF -- "$1" <<< "$active"; then echo yes; else echo no; fi; }
+        # Halogen's NPU models also run when one of your checkpoints is built on them (the fetch
+        # notes which, in .own-bases), or when the agent guard adds them. The note is written by
+        # halogen, so only plain "path=model" lines count.
+        bases="$( { as_owner cat "$models/.own-bases" 2>/dev/null || true; } | sed 's/:fast=/=/' | { grep -E '^/models/(decider|LFM|custom)/[A-Za-z0-9._-]+=[A-Za-z0-9._-]+$' || true; })"
+        guard=""
+        case "$(sed -n 's/^HALOGEN_AGENT_GUARD=//p' <<< "$rendered" | tail -n 1 | tr '[:upper:]' '[:lower:]')" in
+          watch|hold) guard="halogen-spotter-0.6b decider-4b" ;;
+        esac
+        npu_used() {
+          local p b by=""
+          if grep -qxF -- "$1" <<< "$active"; then echo yes; return; fi
+          while IFS='=' read -r p b; do
+            if [ "$b" = "$1" ] && grep -qxF -- "$p" <<< "$active"; then by+="${by:+, }${p##*/}"; fi
+          done <<< "$bases"
+          if [ -n "$by" ]; then echo "yes, for $by"
+          elif [[ " $guard " == *" $1 "* ]]; then echo "yes, agent guard"
+          else echo no; fi
+        }
         echo "Your own checkpoints (/srv/models/decider, LFM and custom):"
         n=0
         for dir in "$models"/decider/*/ "$models"/LFM/*/ "$models"/custom/*/; do
@@ -341,11 +360,11 @@ case "${1:-status}" in
         if [ -z "$names" ]; then echo "  None downloaded yet."
         else
           printf '  %-28s %s\n' NAME "IN USE"
-          while read -r name; do printf '  %-28s %s\n' "$name" "$(used "$name")"; done <<< "$names"
+          while read -r name; do printf '  %-28s %s\n' "$name" "$(npu_used "$name")"; done <<< "$names"
         fi
         echo
-        echo "IN USE: listed in HALOGEN_NPU_MODELS (sudo halogenctl config). Halogen may add others itself,"
-        echo "such as the agent guard's models."
+        echo "IN USE: listed in HALOGEN_NPU_MODELS (sudo halogenctl config); for an NPU model also when one"
+        echo "of your checkpoints runs on it, or the agent guard adds it. Some models also load another's files."
         ;;
       remove)
         name="${3:-}"
