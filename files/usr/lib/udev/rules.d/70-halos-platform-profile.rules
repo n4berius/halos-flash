@@ -1,0 +1,4 @@
+# The firmware's power profile appears when its driver (on Strix Halo most likely amd_pmf) registers
+# with the kernel's platform-profile class, which can be after halos-platform-profile.service ran at
+# boot and skipped for want of the file. Start it again then; it is a oneshot, so twice is harmless.
+ACTION=="add", SUBSYSTEM=="platform-profile", TAG+="systemd", ENV{SYSTEMD_WANTS}+="halos-platform-profile.service"

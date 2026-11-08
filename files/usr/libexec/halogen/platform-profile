@@ -1,8 +1,9 @@
 #!/bin/bash
 # The firmware's power profile (ACPI platform profile): low-power, balanced or performance.
 # halosctl power saves the choice in /etc/halos/platform-profile; with no choice saved it is
-# performance, as Halogen's own numbers were measured at full power (its docs/troubleshooting.md:
-# about 70 W of package power at balanced against about 127 W at performance on one machine).
+# performance. Halogen's docs/troubleshooting.md: its own numbers were measured at about 85 W of
+# package power, and one owner's machine held about 70 W at balanced against about 127 W at
+# performance. On freyja, performance read prompts about 22% faster than its default, balanced.
 #   platform-profile apply   set the saved choice (at boot and after resume)
 #   platform-profile check <name>   exit 0 when the firmware offers that profile
 # Machines without the file (QEMU, some boards) have nothing to set: apply does nothing there.
@@ -29,10 +30,13 @@ choice() {
 
 case "${1:-}" in
   apply)
-    [ -e "$file" ] || exit 0
+    [ -e "$file" ] || { echo "platform-profile: the firmware offers no power profile; nothing to set"; exit 0; }
     want="$(choice)"
     if ! offered "$want"; then
-      echo "platform-profile: \"$(printf '%s' "$want" | tr -cd 'a-z-' | head -c 20)\" is not a profile this firmware offers ($(tr -cd 'a-z -' < "$choices_file" 2>/dev/null)); left at $(tr -cd 'a-z-' < "$file")" >&2
+      offers="$( { tr -cd 'a-z -' < "$choices_file"; } 2>/dev/null || true)"
+      # The default, on firmware without it, is no error: there is no choice to honour.
+      if [ ! -e "$saved" ]; then echo "platform-profile: this firmware has no performance profile (it offers: $offers); left as it is"; exit 0; fi
+      echo "platform-profile: \"$(printf '%s' "$want" | tr -cd 'a-z-' | head -c 20)\" is not a profile this firmware offers ($offers); left at $(tr -cd 'a-z-' < "$file")" >&2
       exit 1
     fi
     [ "$(cat "$file")" = "$want" ] || echo "$want" > "$file"

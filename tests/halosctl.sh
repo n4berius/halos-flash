@@ -264,12 +264,16 @@ if "$ctl" power low-power > "$work/out" 2>&1; then echo "set a profile the firmw
 has 'does not offer low-power' "$work/out"
 if "$ctl" power 'quiet;reboot' > "$work/out" 2>&1; then echo "took an unknown profile" >&2; exit 1; fi
 if "$ctl" power balanced extra > "$work/out" 2>&1; then echo "took two profiles" >&2; exit 1; fi
+if "$ctl" power balanced --reboot > "$work/out" 2>&1; then echo "took --reboot, which power ignores" >&2; exit 1; fi
 [ "$(cat "$HALOS_PROFILE_FILE")" = low-power ] || { echo "a refused change was saved" >&2; exit 1; }
 if FAKE_UID=1000 "$ctl" power balanced > "$work/out" 2>&1; then echo "ran without root" >&2; exit 1; fi
 # At boot: the saved choice, performance when none, and a choice the firmware lacks fails loudly.
 "$HALOS_PLATFORM_PROFILE" apply 2> "$work/out" && { echo "applied a profile the firmware lacks" >&2; exit 1; }
 has 'not a profile this firmware offers' "$work/out"; [ "$(cat "$acpi/platform_profile")" = low-power ]
 rm "$HALOS_PROFILE_FILE"; "$HALOS_PLATFORM_PROFILE" apply; [ "$(cat "$acpi/platform_profile")" = performance ]
+# Firmware without performance: the default is no error, and the profile stays as it is.
+echo 'low-power balanced' > "$acpi/platform_profile_choices"; echo balanced > "$acpi/platform_profile"
+"$HALOS_PLATFORM_PROFILE" apply > "$work/out"; has 'no performance profile' "$work/out"; [ "$(cat "$acpi/platform_profile")" = balanced ]
 rm "$acpi/platform_profile"; "$HALOS_PLATFORM_PROFILE" apply
 if "$ctl" power > "$work/out" 2>&1; then echo "showed a profile on a machine without one" >&2; exit 1; fi
 has 'offers no power profile' "$work/out"

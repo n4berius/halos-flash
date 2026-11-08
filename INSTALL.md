@@ -532,6 +532,7 @@ machine someone tampered with before you typed it.
 | `curl localhost:8731` gets "connection reset" | Releases before alpha.3 only. Use `127.0.0.1` instead of `localhost` |
 | `/dev/accel/accel0` is missing | Use the NPU edition, and check the IOMMU and firmware |
 | Fabric clock is not held | `systemctl status halogen-fabric-clock` |
+| Selftest warns about the power profile | `sudo halosctl power` shows it; `systemctl status halos-platform-profile` says what happened at boot |
 | Halogen stays down after a config edit | `sudo halogenctl status`, then check the NPU model names |
 | "start of the service was attempted too often" | Halogen crashed 3 times in 15 minutes, its guard against a crash loop. See why with `sudo halogenctl logs`; if the GPU is stuck, reboot. Otherwise `sudo halogenctl restart` tries again. On releases before this fix, first run `sudo systemctl --user -M halogen@ reset-failed halogen.service`, then `sudo halogenctl restart` |
 | Halogen stays down after `flash use` | `sudo halogenctl logs` says why; `sudo halogenctl flash use official` goes back |

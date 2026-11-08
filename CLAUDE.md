@@ -124,7 +124,10 @@ name, but allows saying halOS runs Halogen.
   `/etc/halos/platform-profile` and sets it at once; `halos-platform-profile.service` (root, oneshot,
   at boot and after resume, skipped without `/sys/firmware/acpi/platform_profile`) runs
   `/usr/libexec/halogen/platform-profile apply`, `performance` when nothing is saved (Halogen's
-  troubleshooting.md: about 70 W at balanced against 127 W at performance). Only the three names,
+  troubleshooting.md: its numbers at about 85 W; one owner's machine about 70 W at balanced against
+  127 W at performance). `70-halos-platform-profile.rules` starts it again when the kernel's
+  `platform-profile` class device appears, in case the driver (likely `amd_pmf`) loads after the
+  unit ran (its condition then skips it). Only the three names,
   and only those the firmware lists in `platform_profile_choices`. The image has no
   power-profiles-daemon or tuned to fight it. freyja ships at `balanced`; `performance` read
   prompts about 22% faster (pp2048 1876 against about 1530 tok/s).

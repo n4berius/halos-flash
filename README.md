@@ -220,9 +220,10 @@ sudo halosctl power performance  # firmware power profile: low-power, balanced o
 ```
 
 `power` is the exception: it applies at once and needs no reboot. halOS sets `performance` at every
-boot unless you choose another. Many machines ship at `balanced`, which holds the chip to less
+boot unless you choose another. Some machines ship at `balanced`, which holds the chip to less
 power: Halogen's [troubleshooting guide](https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/troubleshooting.md)
-reports one machine at about 70 W there against about 127 W at `performance`. On freyja,
+measured its own numbers at about 85 W, and reports one owner's machine at about 70 W at
+`balanced` against about 127 W at `performance`. On freyja,
 `performance` read prompts about 22% faster. `balanced` or `low-power` run cooler and quieter.
 
 A channel also gets newer releases of the more stable channels, so `beta` gets an RC or stable
