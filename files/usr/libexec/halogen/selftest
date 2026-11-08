@@ -87,7 +87,16 @@ if have journalctl; then
   # copies. Only the denial, the program and the SELinux types are shown, never paths or
   # addresses, and a denial logged twice counts once.
   out="$(run journalctl -b --no-pager -o cat _TRANSPORT=audit + _TRANSPORT=kernel)"
-  denials="$(printf '%s\n' "$out" | grep -E 'avc: +denied' | while IFS= read -r l; do
+  # bootc tests its own SELinux rights at every run (halosctl version, the login status): it runs
+  # chcon with a label no policy has, invalid_bootcinstall_testlabel_t, expecting the refusal
+  # (bootc's lsm.rs). That denial is followed within a few records by the SELINUX_ERR naming the
+  # label, so a chcon mac_admin denial is dropped only when that line follows it within 4 records;
+  # each such line drops one denial, the latest held, so another chcon denial just before stays.
+  denials="$(printf '%s\n' "$out" | awk '
+    /avc: +denied +\{ mac_admin \}/ && /comm="chcon"/ { held[++n] = $0; left = 4; next }
+    /invalid_context="[^"]*:invalid_bootcinstall_testlabel_t:/ { if (n) n--; next }
+    { print; if (n && --left == 0) { for (i = 1; i <= n; i++) print held[i]; n = 0 } }
+    END { for (i = 1; i <= n; i++) print held[i] }' | grep -E 'avc: +denied' | while IFS= read -r l; do
     printf '%s\n' "$l" | grep -oE 'avc: +denied +\{[^}]*\}|comm="[^"]*"|scontext=[^ ]+|tcontext=[^ ]+|tclass=[^ ]+' | paste -sd' ' -
   done | sort -u)"
   if [ -z "$denials" ]; then say PASS selinux-denials "no SELinux denials since boot"
