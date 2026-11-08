@@ -11,7 +11,7 @@ promoted.
 ## Unreleased
 
 - `halogenctl model list` shows an NPU model as in use when one of your own checkpoints runs on it
-  ("yes, for OvisOCR3") or the agent guard adds it, where it used to say "no". (#PR)
+  ("yes, for OvisOCR3") or the agent guard adds it, where it used to say "no". (#87)
 
 ## v0.20.0-beta.1 (2026-11-08)
 
