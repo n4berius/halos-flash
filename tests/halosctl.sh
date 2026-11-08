@@ -25,8 +25,8 @@ esac'
 # just its edition label, FAKE_STAGED_EDITION, or an error when that is unset.
 f skopeo 'echo "skopeo $*" >> "$FAKE/log"; ref="${*: -1}"; ed=npu; case "$ref" in *-no-npu) ed=no-npu ;; esac
 case "$ref" in
-  *@sha256:*) [ -n "${FAKE_STAGED_EDITION:-}" ] || { echo "Error: manifest unknown" >&2; exit 1; }; echo "$FAKE_STAGED_EDITION" ;;
-  *:beta|*:stable-no-npu|*:0.19.0-alpha.1|*:beta-no-npu|*:0.19.0-alpha.1-no-npu|*:0.19.0-no-npu) printf "%s %s 0.19.0-beta.1%s\n" "sha256:fefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefe" "${FAKE_EDITION:-$ed}" "${FAKE_LABEL_TAIL:-}" ;;
+  *@sha256:*) [ -z "${FAKE_STAGED_FAILS:-}" ] || { echo "Error: network unreachable" >&2; exit 1; }; echo "${FAKE_STAGED_EDITION:-}" ;;
+  *:beta|*:stable-no-npu|*:0.19.0-alpha.1|*:beta-no-npu|*:0.19.0-alpha.1-no-npu|*:0.19.0-no-npu|*:0.19.0-beta.1) printf "%s %s 0.19.0-beta.1%s\n" "sha256:fefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefe" "${FAKE_EDITION-$ed}" "${FAKE_LABEL_TAIL:-}" ;;
   *:edge) echo "Error: reading manifest edge: 403 Forbidden" >&2; exit 1 ;;
   *) echo "Error: manifest unknown" >&2; exit 1 ;; esac'
 f systemctl 'echo "systemctl $*" >> "$FAKE/log"; case "$*" in *is-active*) echo "${FAKE_FETCH:-inactive}" ;; esac'
@@ -196,13 +196,25 @@ FAKE_STAGED_EDITION=no-npu "$ctl" switch beta --yes > "$work/out" 2>&1 || { cat 
 has '^bootc switch ghcr.io/n4berius/halos-flash:beta-no-npu$' "$work/log"
 cp "$work/pinned.json" "$work/status.json"; : > "$work/log"
 FAKE_STAGED_EDITION=no-npu "$ctl" npu on --yes > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
-has 'skopeo .*docker://ghcr.io/n4berius/halos-flash:0.19.0-alpha.1 *$' "$work/log"; has '^bootc switch ghcr.io/n4berius/halos-flash@sha256:' "$work/log"
+# The staged build's own release (its version label), which the fake bootc gives every switch.
+has 'skopeo .*docker://ghcr.io/n4berius/halos-flash:0.19.0-beta.1 *$' "$work/log"; has '^bootc switch ghcr.io/n4berius/halos-flash@sha256:' "$work/log"
+cp "$work/pinned.json" "$work/status.json"
+# A staged rollback --to to another release keeps that release when the edition changes.
+host "$(dep ghcr.io/n4berius/halos-flash:0.19.1-alpha.3 0.19.1-alpha.3 sha256:aaa)" \
+  "$(dep ghcr.io/n4berius/halos-flash@sha256:1111111111111111111111111111111111111111111111111111111111111111 0.19.0-alpha.1 sha256:111)" > "$work/status.json"
+: > "$work/log"
+FAKE_STAGED_EDITION=npu "$ctl" npu off --yes > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+has 'skopeo .*docker://ghcr.io/n4berius/halos-flash:0.19.0-alpha.1-no-npu *$' "$work/log"
+hasnt 'skopeo .*0.19.1-alpha.3-no-npu' "$work/log"
+# Offline, it says so rather than blaming the image.
+if FAKE_STAGED_FAILS=1 "$ctl" npu off --yes > "$work/out" 2>&1; then echo "guessed the edition offline" >&2; exit 1; fi
+has 'check the network' "$work/out"
 cp "$work/pinned.json" "$work/status.json"
 # A tag whose image says it is the other edition is refused; an image without the label is taken.
 host "$(dep ghcr.io/n4berius/halos-flash:beta 0.19.0-beta.1 sha256:bbb)" > "$work/status.json"; : > "$work/log"
 if FAKE_EDITION=npu "$ctl" npu off --yes > "$work/out" 2>&1; then echo "switched to an image labelled the wrong edition" >&2; exit 1; fi
 has 'is the npu edition in the registry, not no-npu' "$work/out"; hasnt 'bootc switch' "$work/log"
-FAKE_EDITION='<no value>' "$ctl" npu off --yes > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+FAKE_EDITION='' "$ctl" npu off --yes > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
 has '^bootc switch ghcr.io/n4berius/halos-flash:beta-no-npu$' "$work/log"; has 'After: .*\(0\.19\.0-beta\.1\)' "$work/out"
 cp "$work/pinned.json" "$work/status.json"
 host "$(dep ghcr.io/n4berius/halos-flash:beta 0.19.0-beta.1 sha256:bbb)" "$(dep ghcr.io/n4berius/halos-flash:beta 0.19.0-beta.2 sha256:ccc)" > "$work/status.json"

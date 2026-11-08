@@ -63,31 +63,37 @@ channel() {
 # What boots next: the staged image if there is one, else the running one.
 next_dep() { if [ -n "$(field staged ref)" ]; then echo staged; else echo booted; fi; }
 # The edition of what boots next, as a tag suffix, so switch and rollback --to keep an edition
-# change staged by npu on|off. "?" when it can't be told: a staged image pinned by digest (from
-# rollback --to, or npu on|off on a pinned machine) names no edition, and guessing could turn
-# the IOMMU off, or leave it off, against what was asked.
+# change staged by npu on|off. A staged image pinned by digest (from rollback --to, or npu on|off
+# on a pinned machine) names no edition in its ref, so its edition label is read from the
+# registry. "?" when it has none (images from before the label), "!" when the registry can't be
+# reached: guessing could turn the IOMMU off, or leave it off, against what was asked.
 next_suffix() {
   local d t; d="$(next_dep)"
   [ "$d" = staged ] || { echo "$suffix"; return; }
   t="$(field staged ref)"; t="${t##*/}"
   case "$t" in
     *@*) # Pinned by digest: the image's edition label says which (images built since it was added carry it).
-      case "$(staged_edition "${t##*@}")" in npu) echo "" ;; no-npu) echo "-no-npu" ;; *) echo "?" ;; esac ;;
+      case "$(staged_edition)" in npu) echo "" ;; no-npu) echo "-no-npu" ;; error) echo "!" ;; *) echo "?" ;; esac ;;
     *:*-no-npu) echo "-no-npu" ;; *:*) echo "" ;; *) echo "?" ;; esac
 }
 edition_label='{{index .Labels "io.github.n4berius.halos.edition"}}'
 auth_args() { [ ! -r /etc/ostree/auth.json ] || echo --authfile /etc/ostree/auth.json; }
-# The edition label of the image a digest names in this machine's repository, or nothing.
+# The edition label of the staged image (its ref is bound to one digest), nothing when it has
+# none, or "error" when the registry can't be asked.
 staged_edition() {
-  local auth; read -ra auth <<< "$(auth_args)"
-  [[ "$1" =~ ^sha256:[0-9a-f]{64}$ ]] || return 0
-  skopeo inspect "${auth[@]}" --no-tags --format "$edition_label" "docker://$(repo)@$1" 2>/dev/null | tr -cd 'a-z-'
+  local auth ref out; read -ra auth <<< "$(auth_args)"
+  ref="$(field staged ref)"
+  [[ "$ref" =~ @sha256:[0-9a-f]{64}$ ]] || return 0
+  out="$(skopeo inspect "${auth[@]}" --no-tags --format "$edition_label" "docker://$ref" 2>/dev/null)" || { echo error; return 0; }
+  printf '%s' "$out" | tr -cd 'a-z-'
 }
 # next_suffix, or stop when it can't be told. Call it in the main shell, not in $(...).
 need_suffix() {
   sfx="$(next_suffix)"
+  [ "$sfx" != "!" ] || die "a change pinned to one exact build is staged for the next boot: $(describe staged).
+Its edition couldn't be read from the registry: check the network, or reboot to it first, then run this again."
   [ "$sfx" != "?" ] || die "a change pinned to one exact build is staged for the next boot: $(describe staged).
-Its edition can't be told from its name, so reboot to it first, then run this again."
+Its edition can't be told (it was built before images carried an edition label), so reboot to it first, then run this again."
 }
 # Is there an AMD NPU (XDNA) in this machine? Read from PCI, which works on either edition.
 has_npu() {
@@ -124,10 +130,10 @@ finish() {
     echo "It applies at the next reboot, which stops Halogen for a few minutes: sudo systemctl reboot"
   fi
 }
-# Exact digest and release of an image in the registry, as "<digest> <release>".
-# Uses bootc's registry login, if there is one (a private package).
-# Exact digest, edition label ("-" on images from before it) and release, as
-# "<digest> <edition> <release>".
+# Exact digest, edition label and release of an image in the registry, as
+# "<digest> <edition> <release>". skopeo prints a missing label as an empty string, so the edition
+# is empty, and the line has two spaces there, on images from before the label. Uses bootc's
+# registry login, if there is one (a private package).
 remote() {
   local auth out; read -ra auth <<< "$(auth_args)"
   if ! out="$(skopeo inspect "${auth[@]}" --no-tags \
@@ -135,8 +141,6 @@ remote() {
     printf '%s\n' "$out" | tr -cd '[:print:]\n' | tail -n 3 >&2
     die "could not read $1 from the registry. Is there a release for it yet, and is the network up?"
   fi
-  # A label the image doesn't have reads "<no value>": one word, "-", so the fields stay apart.
-  out="${out//<no value>/-}"
   printf '%s' "$out" | tr -cd '[:print:]'
 }
 # Switch to another image, after showing from -> to and asking. With "pin", switch to its
@@ -275,7 +279,9 @@ case "$cmd" in
     if [ -n "$ch" ]; then target="$(repo):$ch$new"; pin=""
     else
       tag="$(field "$next" ref)"; tag="${tag##*/}"
-      case "$tag" in *@*) tag="" ;; *:*) tag="${tag##*:}"; tag="${tag%-no-npu}" ;; *) tag="" ;; esac
+      # Pinned by digest: the release that boots next is its version label (a staged rollback --to
+      # keeps its own release), not necessarily the one running.
+      case "$tag" in *@*) tag="$(field "$next" version)" ;; *:*) tag="${tag##*:}"; tag="${tag%-no-npu}" ;; *) tag="" ;; esac
       [ -n "$tag" ] || tag="${HALOS_RELEASE:-}"
       [[ "$tag" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$ ]] \
         || die "this machine follows no channel and its release ($tag) has no tag for the other edition. Follow a channel first: sudo halosctl switch <channel>"
