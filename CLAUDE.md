@@ -142,7 +142,7 @@ name, but allows saying halOS runs Halogen.
   to confirm on freyja). `halogenctl` handles the engine and models. Exact release tags
   never move. Channel tags (`alpha`, `beta`, `rc`, `stable`, `edge`) do, and each one points to
   the newest release at least that stable (`scripts/channels.sh`), so a channel never moves
-  backwards. The version tag (`0.19.0`) moves with stable releases and weekly rebuilds. The
+  backwards. The Halogen version tag (such as `0.19.1`) moves with stable releases and weekly rebuilds. The
   image's release name is `HALOS_RELEASE` in `release.env` and its version label (#40).
 - Root never works inside halogen's folders: `prepare`, `halogenctl` and `selftest` read and write
   there through `runuser -u halogen` (security audit P1/P2/P7). halogenctl runs halOS's scripts as
@@ -247,8 +247,10 @@ and tracked on the owner's project board. [ROADMAP.md](ROADMAP.md) holds the ord
   released as stable. 0.20.0 is out (ROCm 10.1 in its image, OvisOCR3 document parsing on the NPU
   as your own checkpoint, faster prefill, a strict-tool-call crash fixed; the Flash checkpoints are
   unchanged). The daily check opened #78 to pin it; aligning means reading its changelog and docs
-  for new or changed settings (`options.allowed`, `halogen.env.default`), host needs, NPU model
-  folders (OvisOCR3 at `/models/OvisOCR3`, `HALOGEN_WEIGHTS_LOCK`), and testing it on freyja.
+  for new or changed settings (`options.allowed`, `halogen.env.default`), host needs, OvisOCR3 as
+  an own NPU checkpoint (`/models/OvisOCR3` inside the container; check that `model pull`'s probe
+  knows it and which folder it lands in), whether to suggest `HALOGEN_WEIGHTS_LOCK=1` beside it
+  (already allowed), and testing it on freyja.
 - After stable: unlock over SSH (#13), clevis/tang (#44), GGUF in `flash pull` (#61).
 - Known upstream: bootc 1.17.1 rewrites `/etc/fstab` at every boot on Anaconda installs
   (bootc-dev/bootc#2592); `bootc-fstab-edit.service.d/10-halos.conf` skips it. `bootc switch` to

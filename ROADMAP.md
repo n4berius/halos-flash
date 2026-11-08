@@ -53,7 +53,7 @@ Built, to check on the test machine:
 - **`halogenctl flash check`** (#56). Compare a custom checkpoint's quality with the official
   one's, on request. Done; to try on the test machine.
 - **`halosctl npu on|off`** (#40). Switch between the two editions. Done; to try on the test machine.
-- **Tab completion** (#14). Done for bash.
+- **Tab completion** (#14). Done for bash; to try on the test machine.
 
 ## Later, after stable
 
