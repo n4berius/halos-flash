@@ -134,7 +134,10 @@ name, but allows saying halOS runs Halogen.
   backwards. The version tag (`0.19.0`) moves with stable releases and weekly rebuilds. The
   image's release name is `HALOS_RELEASE` in `release.env` and its version label (#40).
 - Root never works inside halogen's folders: `prepare`, `halogenctl` and `selftest` read and write
-  there through `runuser -u halogen` (security audit P1/P2/P7). The two root boot units are
+  there through `runuser -u halogen` (security audit P1/P2/P7). halogenctl runs halOS's scripts as
+  halogen only through `halogen_run` (`systemd-run --pipe` with stdin `/dev/null`, output piped
+  through `sed` that drops control characters but tab), so they never hold root's terminal, and
+  `dev.tty.legacy_tiocsti = 0` blocks keystroke injection outright. The two root boot units are
   sandboxed (`ProtectSystem=strict`, no network); verify and the model probe run with no network
   or capabilities; `sysctl.d/60-halos.conf` and `sshd_config.d/00-halos.conf` hold the no-cost
   hardening. The ISO builder is pinned by digest (`IMAGE_BUILDER` in `versions.env`).

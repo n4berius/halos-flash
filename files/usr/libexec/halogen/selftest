@@ -28,7 +28,8 @@ have() { command -v "$1" > /dev/null 2>&1; }
 # Every outside command gets a time limit, so one stuck tool can't stop the report.
 # Files the halogen user owns are read as halogen, never as root (see prepare).
 as_owner() { runuser -u halogen -- "$@" 2>/dev/null; }
-run() { timeout "${HALOGEN_SELFTEST_TIMEOUT:-20}" "$@" 2>&1; }
+# No input: some of these run as halogen, and must not get root's terminal.
+run() { timeout "${HALOGEN_SELFTEST_TIMEOUT:-20}" "$@" < /dev/null 2>&1; }
 
 echo "halOS self-check, $(date -u '+%Y-%m-%d %H:%M UTC')"
 echo "Edition: ${HALOGEN_VARIANT:-unknown}, Halogen ${HALOGEN_VERSION:-unknown}"

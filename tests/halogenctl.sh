@@ -182,3 +182,14 @@ fi
 "$ctl" flash pull someone/Mine-HGN --as mine > "$work/out" 2>/dev/null; grep -q 'sudo halogenctl flash use mine' "$work/out" || { echo "pull doesn't say how to use it" >&2; exit 1; }
 "$ctl" flash verify mine > /dev/null; grep -q 'verify mine' "$work/log" || exit 1
 ok "flash lists, switches only to verified checkpoints after asking, never removes the active or official one, all as halogen"
+
+# Scripts run as halogen never get root's terminal: no input, and no control characters back.
+f systemd-run 'if read -r -t 1 line; then echo "got input: $line" >> "$FAKE/log"; fi
+printf "HALOGEN_KV8=1\033]0;owned\007\n"; printf "halogen-config: warn\033[2J\tx\n" >&2; exit "${FAKE_RC:-0}"'
+: > "$work/log"
+echo typed-by-root | "$ctl" config > "$work/out" 2>&1
+if grep -q 'got input' "$work/log"; then echo "a script run as halogen read root's input" >&2; exit 1; fi
+if grep -q $'\033\|\007' "$work/out"; then echo "a control character from a script run as halogen reached root's terminal" >&2; exit 1; fi
+grep -qF $'halogen-config: warn[2J\tx' "$work/out" || { cat "$work/out" >&2; echo "the script's own output (with tabs) was lost" >&2; exit 1; }
+if FAKE_RC=3 "$ctl" doctor > "$work/out" 2>&1; then echo "a failing script run as halogen passed" >&2; exit 1; fi
+ok "scripts run as halogen get no input from root's terminal, can't write control characters to it, and their failures still count"

@@ -108,3 +108,4 @@ if grep -rhE '^\s*-?\s*uses:' .github/workflows | grep -vE 'uses: [^@ ]+@[0-9a-f
   echo "an action above is not pinned to a full commit" >&2; exit 1
 fi
 echo "ok: actions are pinned to commits"
+grep -qx 'dev.tty.legacy_tiocsti = 0' files/usr/lib/sysctl.d/60-halos.conf || { echo "60-halos.conf lost dev.tty.legacy_tiocsti = 0" >&2; exit 1; }
