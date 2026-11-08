@@ -233,9 +233,9 @@ and tracked on the owner's project board. [ROADMAP.md](ROADMAP.md) holds the ord
 
 - Released: `v0.19.1-alpha.6`, the last release on Halogen 0.19.1. It carries the guided installer
   (#66), the serial-getty fix (#67), the TPM wording (#68), the full security audit's fixes (#69),
-  the restart fix (#70), the duplicate-settings note (#71) (all first in alpha.4), and `npu on|off`
+  the restart fix (#70) and the duplicate-settings note (#71), all first in alpha.4; `npu on|off`
   (#72), `bench` (#73), `flash check` (#74), tab completion (#75) and the hardening from their
-  reviews (#76 terminal, #77 edition label) (first in alpha.5). On edge since: Halogen 0.20.0 (#78).
+  reviews (#76 terminal, #77 edition label), first in alpha.5. On edge since: Halogen 0.20.0 (#78).
   Next: the owner checks alpha.6 on freyja and does one real guided install from its ISO, then
   edge on 0.20.0, then an alpha with 0.20.0. Freyja serves `swift-15fn-heretic-coder` with
   `flash use`.
