@@ -10,6 +10,11 @@ promoted.
 
 ## Unreleased
 
+- The power profile's boot service can now write only the one file it sets, with no special
+  rights, as the security review of #83 suggested. Nothing changes in use. (#84)
+
+## v0.20.0-alpha.1 (2026-11-08)
+
 - `halogenctl bench` reported the GPU fabric clock as not held when it was: it now asks the clock
   the way the selftest does. `flash check` prints its numbers rounded, no longer shows a passing
   download hiccup as an error, and gives the time it took on the test machine. (#81)
