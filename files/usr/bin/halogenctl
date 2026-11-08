@@ -11,11 +11,13 @@ start_halogen() { unit reset-failed halogen.service 2>/dev/null || true; unit "$
 as_owner() { runuser -u halogen -- "$@"; }
 # Run one of halOS's scripts as halogen, under its user manager. The script never gets root's
 # terminal: its input is /dev/null, and its output comes back through a pipe with control
-# characters (other than tab) removed. A process running as halogen could otherwise write
+# characters (other than tab) removed, in a fixed UTF-8 locale so accented letters and symbols
+# such as ± survive whatever root's locale is; a carriage return becomes a line break. A process running as halogen could otherwise write
 # terminal escape codes to it, or push keystrokes into root's shell. The exit status is the
 # script's (pipefail).
+clean() { LC_ALL=C.UTF-8 sed -u 's/\r/\n/g; s/[^[:print:]\t\n]//g'; }
 halogen_run() {
-  systemd-run --machine=halogen@.host --user --pipe --wait --quiet "$@" < /dev/null 2>&1 | sed -u 's/[^[:print:]\t]//g'
+  systemd-run --machine=halogen@.host --user --pipe --wait --quiet "$@" < /dev/null 2>&1 | clean
 }
 configs="${HALOGEN_CONFIGS_DIR:-/srv/configs}"
 # logs and fetch-logs keep following only on a terminal, so `| tail` and `> file` finish.
@@ -59,7 +61,8 @@ flash_info() { as_owner sed -n "s/^$2=//p" "$models/flash/$1/halos.info" 2>/dev/
 
 case "${1:-status}" in
   status)
-    unit --no-pager status halogen-fetch.service halogen.service || true
+    # The service descriptions and status lines come from halogen's own service manager.
+    { unit --no-pager status halogen-fetch.service halogen.service 2>&1 || true; } | clean
     c="$(chosen_flash)"
     if [ "$c" != official ]; then
       s="$(served_flash)"; served="$(head -n 1 <<< "$s")"
@@ -78,8 +81,9 @@ case "${1:-status}" in
   fetch-logs) exec journalctl --no-pager "${follow[@]}" -n "$lines" _SYSTEMD_USER_UNIT=halogen-fetch.service ;;
   doctor)
     # Runs under the service manager, so it sees the service's real limits.
-    # Only its warnings: the path it prints on success means nothing here.
-    halogen_run /usr/libexec/halogen/render-config | grep '^halogen-config:' || true
+    # Only its warnings: the path it prints on success means nothing here. A failure is shown.
+    out="$(halogen_run /usr/libexec/halogen/render-config)" || { printf '%s\n' "$out" >&2; exit 1; }
+    grep '^halogen-config:' <<< "$out" || true
     # While Halogen runs, the GTT it holds is expected, not a leftover from a crash.
     running=0; ! unit --quiet is-active halogen.service || running=1
     halogen_run --setenv=HALOGEN_SERVER_RUNNING="$running" /usr/libexec/halogen/preflight
@@ -126,7 +130,7 @@ case "${1:-status}" in
     [ "$(id -u)" = 0 ] || { echo "Run it with sudo: sudo halogenctl selftest" >&2; exit 1; }
     exec /usr/libexec/halogen/selftest
     ;;
-  api-key) as_owner cat "$configs/api-key"; echo ;;
+  api-key) as_owner cat "$configs/api-key" | tr -cd '[:print:]'; echo ;;
   hf-token)
     # Store a Hugging Face read token for model downloads. It is never printed.
     token="$configs/hf-token"
@@ -234,7 +238,7 @@ case "${1:-status}" in
   model)
     # Your own NPU checkpoints under /srv/models/{decider,LFM,custom}.
     as_halogen() { halogen_run "$@"; }
-    in_use() { as_halogen /usr/libexec/halogen/render-config --show 2>/dev/null | grep '^HALOGEN_NPU_MODELS=' | tr '=,' '\n' | sed 's/:fast$//' | grep -qxF -- "$1"; }
+    in_use() { as_halogen /usr/libexec/halogen/render-config --show | grep '^HALOGEN_NPU_MODELS=' | tr '=,' '\n' | sed 's/:fast$//' | grep -qxF -- "$1"; }
     case "${2:-list}" in
       pull)
         shift 2
@@ -245,7 +249,8 @@ case "${1:-status}" in
         echo
         echo "To serve it, add $entry to HALOGEN_NPU_MODELS in /srv/configs/halogen.env, for example:"
         if in_use "$path"; then echo "  It is already there. To use the new files: sudo halogenctl restart"; exit 0; fi
-        line="$(as_owner grep '^HALOGEN_NPU_MODELS=' "$configs/halogen.env" | tail -n 1 || true)"
+        # Printed to root's terminal below, so only printable characters.
+        line="$(as_owner grep '^HALOGEN_NPU_MODELS=' "$configs/halogen.env" | tail -n 1 | tr -cd '[:print:]' || true)"
         new="HALOGEN_NPU_MODELS=${line#HALOGEN_NPU_MODELS=}"; new="${new%,}"
         [ "$new" = HALOGEN_NPU_MODELS= ] && new="$new$path" || new="$new,$path"
         echo "  $new"
@@ -267,7 +272,7 @@ case "${1:-status}" in
       list)
         # What HALOGEN_NPU_MODELS serves now (one read, not one per model), without :fast.
         # Each read may fail (no npu folder yet, the halogen user's services down): still list.
-        active="$( { as_halogen /usr/libexec/halogen/render-config --show 2>/dev/null || true; } | sed -n 's/^HALOGEN_NPU_MODELS=//p' | tr ',' '\n' | sed 's/:fast$//')"
+        active="$( { as_halogen /usr/libexec/halogen/render-config --show || true; } | sed -n 's/^HALOGEN_NPU_MODELS=//p' | tr ',' '\n' | sed 's/:fast$//')"
         used() { if grep -qxF -- "$1" <<< "$active"; then echo yes; else echo no; fi; }
         echo "Your own checkpoints (/srv/models/decider, LFM and custom):"
         n=0

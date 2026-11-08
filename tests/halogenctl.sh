@@ -192,4 +192,17 @@ if grep -q 'got input' "$work/log"; then echo "a script run as halogen read root
 if grep -q $'\033\|\007' "$work/out"; then echo "a control character from a script run as halogen reached root's terminal" >&2; exit 1; fi
 grep -qF $'halogen-config: warn[2J\tx' "$work/out" || { cat "$work/out" >&2; echo "the script's own output (with tabs) was lost" >&2; exit 1; }
 if FAKE_RC=3 "$ctl" doctor > "$work/out" 2>&1; then echo "a failing script run as halogen passed" >&2; exit 1; fi
+# doctor shows a failing settings check, even when the other check passes.
+f systemd-run 'case "$*" in *render-config*) echo "mkdir: cannot create directory"; exit 1 ;; *) echo "preflight: ok" ;; esac'
+if "$ctl" doctor > "$work/out" 2>&1; then echo "doctor hid a failing settings check" >&2; exit 1; fi
+grep -q 'cannot create directory' "$work/out" || { cat "$work/out" >&2; echo "doctor hid why the settings check failed" >&2; exit 1; }
 ok "scripts run as halogen get no input from root's terminal, can't write control characters to it, and their failures still count"
+
+# status: the service manager's text is halogen's too.
+f systemctl 'echo "systemctl $*" >> "$FAKE/log"; case "$*" in *" status "*) printf "halogen.service - x\033]52;c;ZWNobyBvd25lZA==\007y\n" ;; esac'
+"$ctl" status > "$work/out" 2>&1 || true
+if grep -q $'\033' "$work/out"; then echo "status passed a control character from halogen's service manager" >&2; exit 1; fi
+grep -q 'halogen.service - x' "$work/out" || { cat "$work/out" >&2; echo "status lost its own text" >&2; exit 1; }
+printf 'key\033[2J\n' > "$work/configs/api-key"
+[ "$("$ctl" api-key)" = 'key[2J' ] || { echo "api-key printed a control character" >&2; exit 1; }
+ok "status and api-key print no control characters the halogen user could have planted"

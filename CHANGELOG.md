@@ -13,8 +13,9 @@ promoted.
 - **Hardening:** programs running as the `halogen` user (Halogen's helpers, and anything that
   might break out of its container) can no longer type into an admin's root terminal or send it
   escape codes. `halogenctl` gives the scripts it runs as `halogen` no access to your terminal,
-  strips control characters from what they print, and the kernel's terminal-injection call
-  (`TIOCSTI`) is switched off. (#76)
+  and `status`, `selftest`, `api-key` and `model pull` strip control characters from anything the
+  `halogen` user could have written. The kernel's terminal-injection call (`TIOCSTI`), already
+  off in Fedora's kernel, is kept off by a setting. (#76)
 - `sudo halogenctl bench` measures how fast the server reads prompts and writes answers, with
   Halogen's own benchmark tool, without restarting it. The report lists what the numbers depend
   on (versions, BIOS, kernel settings, power profile, checkpoint, settings) and is saved in
