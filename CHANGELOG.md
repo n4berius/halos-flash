@@ -12,7 +12,7 @@ promoted.
 
 - `halogenctl bench` reported the GPU fabric clock as not held when it was: it now asks the clock
   the way the selftest does. `flash check` prints its numbers rounded, no longer shows a passing
-  download hiccup as an error, and gives the time it took on the test machine. (#PR)
+  download hiccup as an error, and gives the time it took on the test machine. (#81)
 - **Halogen 0.20.0** ([its changelog](https://github.com/peonist-ai/halogen-flash-server/blob/8242b157ce78fd720f5b3da18d398d2fb8cebce5/CHANGELOG.md)):
   its image moves to ROCm 10.1 (less power while generating, same speed), prompts read a few
   percent faster, and a crash with strict tool calls under load is fixed. New: document parsing on
