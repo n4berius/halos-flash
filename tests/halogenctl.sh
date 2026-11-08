@@ -216,8 +216,13 @@ for bad in official ../mine nothing; do
 done
 printf 'checked_ppl=3.8109\nchecked_official_ppl=3.8522\nchecked_top1=0.86463\nchecked_kl_median=0.045499\nchecked_with=0.19.1\n' >> "$fm/flash/mine/halos.info"
 "$ctl" flash list > "$work/out"
-grep -qE '^  mine +perplexity 3\.8109 \(official 3\.8522\), same next token 86\.5%, KL median 0\.045499, with Halogen 0\.19\.1$' "$work/out" \
+grep -qE '^  mine +perplexity 3\.81 \(official 3\.85\), same next token 86\.5%, KL median 0\.045, with Halogen 0\.19\.1$' "$work/out" \
   || { cat "$work/out" >&2; echo "flash list doesn't show the check" >&2; exit 1; }
+# A version planted as text with an escape in it is printed as text, never as an escape.
+sed -i 's/^checked_with=.*/checked_with=\\033[2J/; s/^checked_kl_median=.*/checked_kl_median=oops/' "$fm/flash/mine/halos.info"
+"$ctl" flash list > "$work/out"
+if grep -q $'\033' "$work/out"; then echo "flash list turned planted text into an escape code" >&2; exit 1; fi
+grep -qE 'KL median \?, ' "$work/out" || { cat "$work/out" >&2; echo "a value that isn't a number wasn't shown as ?" >&2; exit 1; }
 ok "flash check asks, stops Halogen, measures as halogen, starts it again even after a failure, and list shows the result"
 # Scripts run as halogen never get root's terminal: no input, and no control characters back.
 f systemd-run 'if read -r -t 1 line; then echo "got input: $line" >> "$FAKE/log"; fi

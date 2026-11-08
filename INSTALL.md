@@ -401,7 +401,7 @@ sudo halogenctl flash list               # official and yours: size, which is ac
 sudo halogenctl flash use mine           # switch; asks first, then restarts Halogen
 sudo halogenctl flash use official       # back to the official checkpoint
 sudo halogenctl flash verify mine        # check it again (done for you after a Halogen update)
-sudo halogenctl flash check mine         # compare its quality with the official one (stops Halogen ~15-30 min)
+sudo halogenctl flash check mine         # compare its quality with the official one (stops Halogen ~15 min, ~25 the first time)
 sudo halogenctl flash remove mine
 ```
 
@@ -451,8 +451,8 @@ Things to know:
     difference between two quantizations of the same model; much more means it answers
     differently in places, which is expected of a fine-tune and a warning for a plain conversion.
 
-  It needs the GPU, so Halogen stops while it runs (about 15 to 30 minutes, longest the first time
-  on a Halogen version) and starts again afterwards, also if the check fails, is interrupted or
+  It needs the GPU, so Halogen stops while it runs (on the test machine about 15 minutes, and about
+  25 the first time on a Halogen version) and starts again afterwards, also if the check fails, is interrupted or
   your SSH connection drops; if you had stopped Halogen yourself, it stays stopped. The text
   (1.3 MB) is downloaded once, before Halogen stops, and checked against its known hash. The result is kept, and `flash list`
   shows it; the full output, with the five places the two disagree most, is in

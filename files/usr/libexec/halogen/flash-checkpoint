@@ -86,7 +86,9 @@ get_corpus() {
   while [ "$offset" -lt "$total" ]; do
     # The test split is 4,358 rows (44 pages); a far larger count is not this text.
     [ "$offset" -lt 10000 ] || { rm -f "$tmp"; echo "The test text is longer than it should be; not used." >&2; return 1; }
-    page="$(curl -fsS -m 60 --retry 3 --max-filesize 2M "$corpus_url&offset=$offset&length=100")" || { rm -f "$tmp"; echo "Could not download the test text." >&2; return 1; }
+    # curl's own messages stay quiet: --retry rides out a passing server error, and only a final
+    # failure is reported, below.
+    page="$(curl -fs -m 60 --retry 3 --max-filesize 2M "$corpus_url&offset=$offset&length=100")" || { rm -f "$tmp"; echo "Could not download the test text." >&2; return 1; }
     total="$(jq -r '.num_rows_total // 0' <<< "$page")"
     jq -j '.rows[].row.text' <<< "$page" >> "$tmp" || { rm -f "$tmp"; return 1; }
     offset=$((offset + 100))
@@ -145,8 +147,11 @@ check_dir_run() {
     echo "checked_ppl=$p"; echo "checked_official_ppl=$op"
     echo "checked_kl_median=$kl"; echo "checked_top1=$top1"; } > "$info.new" || die "cannot write $info"
   mv -f "$info.new" "$info" || die "cannot write $info"
-  # top1_agreement may be a fraction or a percentage; show a percentage.
+  # top1_agreement may be a fraction or a percentage; show a percentage. The rest is rounded for
+  # reading; halos.info and check.json keep every digit.
   top1="$(awk -v t="$top1" 'BEGIN { if (t <= 1) t *= 100; printf "%.1f", t }')"
+  r() { awk -v v="$1" -v d="$2" 'BEGIN { if (v == "") print "?"; else printf "%." d "f", v }'; }
+  p="$(r "$p" 2)"; op="$(r "$op" 2)"; kl="$(r "$kl" 3)"; kmean="$(r "$kmean" 3)"; p99="$(r "$p99" 2)"
   echo
   tokens="$(num .tokens "$json")"
   echo "$name against the official checkpoint, on the wikitext-2 test text (${tokens:-?} tokens):"

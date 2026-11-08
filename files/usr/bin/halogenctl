@@ -182,8 +182,8 @@ case "${1:-status}" in
           echo "Halogen is downloading models (sudo halogenctl fetch-logs). Check $name when that is done." >&2; exit 1
         fi
         echo "This measures $name against the official checkpoint on a public test text (wikitext-2),"
-        echo "with Halogen's ppl. It needs the GPU, so Halogen stops answering for about 15 to 30 minutes"
-        echo "(longest the first time on a Halogen version, when the official checkpoint is measured too)."
+        echo "with Halogen's ppl. It needs the GPU, so Halogen stops answering for about 15 minutes, or"
+        echo "about 25 the first time on a Halogen version, when the official checkpoint is measured too."
         if [ "$yes" != 1 ]; then
           [ -t 0 ] || { echo "Nothing changed: add --yes to confirm without a terminal." >&2; exit 1; }
           read -rp "Stop Halogen and measure $name? [y/N] " answer
@@ -233,8 +233,12 @@ case "${1:-status}" in
           name="$(basename "$dir")"; valid "$name" || continue
           p="$(flash_info "$name" checked_ppl)"; [ -n "$p" ] || continue
           t="$(awk -v t="$(flash_info "$name" checked_top1)" 'BEGIN { if (t <= 1) t *= 100; printf "%.1f", t }')"
-          checks+="$(printf '  %-24s perplexity %s (official %s), same next token %s%%, KL median %s, with Halogen %s' "$name" "$p" \
-            "$(flash_info "$name" checked_official_ppl)" "$t" "$(flash_info "$name" checked_kl_median)" "$(flash_info "$name" checked_with)")"$'\n'
+          # Only numbers go through awk (it turns \033 in a -v value into a real escape), read
+          # from its environment, which it doesn't unescape; anything else shows as "?".
+          rnd() { R_V="$1" awk -v d="$2" 'BEGIN { v = ENVIRON["R_V"]; if (v ~ /^-?[0-9]+(\.[0-9]+)?([eE]-?[0-9]+)?$/) printf "%." d "f", v; else printf "?" }'; }
+          checks+="$(printf '  %-24s perplexity %s (official %s), same next token %s%%, KL median %s, with Halogen %s' "$name" \
+            "$(rnd "$p" 2)" "$(rnd "$(flash_info "$name" checked_official_ppl)" 2)" "$t" \
+            "$(rnd "$(flash_info "$name" checked_kl_median)" 3)" "$(flash_info "$name" checked_with)")"$'\n'
         done
         if [ -n "$checks" ]; then echo; echo "Quality against the official checkpoint (sudo halogenctl flash check <name>):"; printf '%s' "$checks"; fi
         echo
