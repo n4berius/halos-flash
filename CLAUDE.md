@@ -109,15 +109,35 @@ name, but allows saying halOS runs Halogen.
   `flash use` writes `/srv/configs/flash-checkpoint`; `render-config` turns it into
   `HALOGEN_CHECKPOINT` (no longer in `locked.env`), falling back to the official file for
   anything unexpected, and drops `HALOGEN_VISION_TOWER` when the custom folder has no tower. The
-  official checkpoint is always kept and fetched (owner decision). `ppl` on request and GGUF
-  conversion are later steps.
+  official checkpoint is always kept and fetched (owner decision). `flash check <name>` (#56):
+  halogenctl runs `flash-checkpoint check-prepare` (name, verify, corpus) while Halogen still
+  serves, arms an EXIT trap (with `set +e`; it stops the named unit `halogen-flash-check` first,
+  then starts Halogen only if it was running, before printing, since a dead terminal fails echo),
+  stops Halogen (ppl needs the GPU), then `flash-checkpoint check` (that unit, `RuntimeMaxSec=3h`,
+  output through a pipe with control characters removed; `--pipe` doesn't stop the unit on
+  Ctrl-C, hence the named unit) runs Halogen's `ppl --json` with the official tokenizer on wikitext-2's test split
+  (`/srv/models/flash/.check/`, fetched from HF's dataset viewer rows API and checked against the
+  sha256 of the text Halogen's docs build from the parquet file, `bbf94c53…`), first `--ref-out`
+  for the official checkpoint once per Halogen version, then `--ref --worst 5` for the custom one;
+  results go to `halos.info` (`checked_*`) and `check.json`. GGUF conversion is a later step.
+- `halogenctl bench [--quick]` (#15, `/usr/libexec/halogen/bench`, as halogen) runs Halogen's own
+  `sweep` (`/halogen/tools/halogen-bench.py --json`, an HTTP client) in the pinned image against the
+  running server: `--network=host` only, read-only, no mounts, devices or capabilities, the API key
+  through the environment. Halogen's `bench`/`sweep` image modes start their own engine, which
+  would need Halogen stopped, so they aren't used. Reports (text + JSON, with versions, BIOS, kargs,
+  fabric clock, platform profile, checkpoint and settings minus keys) go to `/srv/configs/bench/`.
 - `/srv` is `/var/srv` on bootc. The installer makes LVM volumes for `/`, `/var`, `/var/log`,
   `/var/log/audit`, `/var/home`, `/var/srv/configs` and `/var/srv/models`. The guided install
   names them `halos-root`, `-var`, `-log`, `-audit`, `-home`, `-configs`, `-models` (VG `halos`);
   older installs keep Anaconda's `<product>_<hostname>` names (freyja: `halogen_freyja`).
 - Updates are manual, since a reboot stops inference. `halosctl` (`files/usr/bin/halosctl`)
   handles the OS: `version`, `switch <channel>`, `upgrade`, `rollback [--to]`, `history`
-  (`/var/lib/halos/history`). `halogenctl` handles the engine and models. Exact release tags
+  (`/var/lib/halos/history`), `npu on|off` (the other edition's tag on the same channel, or the
+  same exact release pinned by digest; switch and `rollback --to` take the edition from what boots
+  next, so a staged edition change survives, and refuse when it is pinned by digest, whose edition
+  can't be told from the ref; NPU presence is read from PCI, 1022:1502/17f0, since
+  the no-NPU edition's `amd_iommu=off` hides `/dev/accel`; bootc applies the kargs.d difference,
+  to confirm on freyja). `halogenctl` handles the engine and models. Exact release tags
   never move. Channel tags (`alpha`, `beta`, `rc`, `stable`, `edge`) do, and each one points to
   the newest release at least that stable (`scripts/channels.sh`), so a channel never moves
   backwards. The version tag (`0.19.0`) moves with stable releases and weekly rebuilds. The

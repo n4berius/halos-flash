@@ -37,7 +37,20 @@ for sub in flash model; do
   block "$repo/files/usr/bin/halogenctl" "$sub" > "$work/block"
   check_offered "halogenctl $sub" 3 "$(offers _halogenctl halogenctl "$sub" '')" < <(labels "$work/block" 6)
 done
-echo "ok: every command and subcommand of halogenctl and halosctl is offered"
+# And the other way: every word offered at the top is a command the tool takes.
+for tool in halogenctl halosctl; do
+  labels "$repo/files/usr/bin/$tool" 2 > "$work/real"
+  while IFS= read -r w; do
+    grep -qx -- "$w" "$work/real" || fail "$tool completion offers '$w', which $tool doesn't take"
+  done < <(offers "_$tool" "$tool" '')
+done
+for sub in flash model; do
+  block "$repo/files/usr/bin/halogenctl" "$sub" > "$work/block"; labels "$work/block" 6 > "$work/real"
+  while IFS= read -r w; do
+    grep -qx -- "$w" "$work/real" || fail "halogenctl $sub completion offers '$w', which it doesn't take"
+  done < <(offers _halogenctl halogenctl "$sub" '')
+done
+echo "ok: every command and subcommand of halogenctl and halosctl is offered, and nothing else"
 
 expect "flash" _halogenctl halogenctl fl
 expect "--quick" _halogenctl halogenctl bench ''

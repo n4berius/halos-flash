@@ -45,6 +45,15 @@ its memory either way.
 | Trade-off | Slower prefill, keeps DMA protection | Halogen measured 13-16% more prefill, but DMA protection is off |
 | Image | `halos-flash:0.19.0` | `halos-flash:0.19.0-no-npu` |
 
+You can change your mind later without reinstalling: `sudo halosctl npu off` moves to the no-NPU
+edition and `sudo halosctl npu on` moves back, on the same channel or release, at the next
+reboot. `/srv` stays as it is: the NPU models and your own checkpoints stay on disk, so going
+back needs no new download, and `HALOGEN_NPU_*` settings are ignored while the NPU is off (the log
+says "ignored HALOGEN_NPU_…: not an option this system allows" for each one; that is expected).
+What turning the IOMMU off costs: a device plugged into a USB4/Thunderbolt port or a PCIe slot can
+then read all of the machine's memory, including the disk encryption key while it runs. Use the
+no-NPU edition only where nobody untrusted can touch the machine.
+
 ## 2. Prepare the BIOS
 
 1. Update to your maker's newest BIOS. Halogen's
@@ -312,6 +321,32 @@ Firmware updates use [fwupd](https://fwupd.org/). Check for them with
 `sudo fwupdmgr refresh && sudo fwupdmgr get-updates`, and apply them with
 `sudo fwupdmgr update`. A BIOS update reboots the machine, which stops Halogen until it is back.
 
+### Measuring speed
+
+```bash
+sudo halogenctl bench            # a few minutes
+sudo halogenctl bench --quick    # under a minute: one prompt length, one pass
+```
+
+It measures the running server with Halogen's own
+[`sweep` tool](https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/performance.md#served-throughput-end-to-end-over-http),
+which Halogen's published numbers come from, so yours can be compared with them. It needs no
+restart, but other requests are slower while it runs. It reports:
+
+- **pp** (prefill): how fast a prompt of 512, 2,048, 8,192 and 32,768 tokens is read.
+- **tg** (generation): how fast 128 tokens are written, as the mean over Halogen's ten prompt
+  shapes. Code runs about twice as fast as prose, so compare means, not single prompts.
+
+Each report also lists what the numbers depend on: the halOS and Halogen versions, kernel, BIOS,
+GTT size, IOMMU, the fabric clock, the platform power profile, the Flash checkpoint served and
+your settings. It is saved as text and JSON in `/srv/configs/bench/`, named by date, so a run
+after an upgrade, a BIOS change or `flash use` can be put beside an earlier one. Halogen's
+[measurements](https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/performance.md)
+were taken at about 85 W of sustained power; a machine with a lower power limit reads lower.
+The run uses the prompt cache as your server does, so compare `pp` with Halogen's "cache on (a
+cold request)" rows, not the cache-off headline figures. Its prompts also go into the cache, and
+can push out long conversations cached there, which then read their history again once.
+
 ### Your own NPU checkpoints
 
 On the NPU edition, Halogen also runs checkpoints you supply, such as LiquidAI's `d1-2B` and
@@ -356,6 +391,7 @@ sudo halogenctl flash list               # official and yours: size, which is ac
 sudo halogenctl flash use mine           # switch; asks first, then restarts Halogen
 sudo halogenctl flash use official       # back to the official checkpoint
 sudo halogenctl flash verify mine        # check it again (done for you after a Halogen update)
+sudo halogenctl flash check mine         # compare its quality with the official one (stops Halogen ~15-30 min)
 sudo halogenctl flash remove mine
 ```
 
@@ -395,7 +431,23 @@ prompts a little until they finish.
 Things to know:
 
 - **Quality is yours to judge.** `verify` proves the file is well formed, not that its answers
-  are good. Compare it with the official model on your own prompts before you rely on it.
+  are good. `flash check` measures it against the official checkpoint with Halogen's
+  [`ppl`](https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/checkpoint-tools.md#how-does-it-compare-to-the-shipped-checkpoint)
+  on the public wikitext-2 test text, the comparison Halogen's docs use:
+  - **perplexity**: how surprised the model is by the text; lower is better, and close to the
+    official one is what a good conversion looks like.
+  - **same next token**: how often both checkpoints would write the same word.
+  - **KL median**: how far apart their predictions are. A few hundredths is the normal
+    difference between two quantizations of the same model; much more means it answers
+    differently in places, which is expected of a fine-tune and a warning for a plain conversion.
+
+  It needs the GPU, so Halogen stops while it runs (about 15 to 30 minutes, longest the first time
+  on a Halogen version) and starts again afterwards, also if the check fails, is interrupted or
+  your SSH connection drops; if you had stopped Halogen yourself, it stays stopped. The text
+  (1.3 MB) is downloaded once, before Halogen stops, and checked against its known hash. The result is kept, and `flash list`
+  shows it; the full output, with the five places the two disagree most, is in
+  `/srv/models/flash/<name>/check.json`. It measures one kind of text: still try your own
+  prompts.
 - **Halogen may refuse it at start,** for example if its chat template's thinking control
   doesn't work ([`HALOGEN_TEMPLATE_UNCHECKED`](https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/FLAGS.md))
   or it needs more memory than is free. `sudo halogenctl status` and the selftest then say so,
@@ -407,7 +459,7 @@ Things to know:
   has a vision tower (`qwen38-flash-next-vision.hgn`). Without one, images stay off and
   `halogenctl config` says why.
 - **Not yet:** GGUF repositories (Halogen can convert them, but `flash pull` doesn't do that
-  yet), and a perplexity comparison against the official model on request.
+  yet).
 - **Where things live.** Checkpoints live in `/srv/models/flash/<name>/`. The choice is
   `/srv/configs/flash-checkpoint`, which only `halogenctl flash use` writes, and
   `HALOGEN_CHECKPOINT` can't be set in `halogen.env`.
