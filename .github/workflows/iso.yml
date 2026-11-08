@@ -3,6 +3,9 @@ on:
   push:
     branches: [main]
     paths: &paths
+      # versions.env pins Halogen's image, the base image and the weights: a change there needs the
+      # full install test too.
+      - versions.env
       - Containerfile*
       - installer/**
       - files/**
