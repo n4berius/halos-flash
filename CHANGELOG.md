@@ -10,6 +10,10 @@ promoted.
 
 ## Unreleased
 
+- Images now say which edition they are (NPU or no-NPU) in a label. `halosctl` checks it before
+  switching, and reads it to tell the edition of a build a pinned machine has waiting for the next
+  boot, where it used to ask you to reboot first. Images from before this change have no label,
+  so for those it still asks. (#PR)
 - `sudo halogenctl bench` measures how fast the server reads prompts and writes answers, with
   Halogen's own benchmark tool, without restarting it. The report lists what the numbers depend
   on (versions, BIOS, kernel settings, power profile, checkpoint, settings) and is saved in

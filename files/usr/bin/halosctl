@@ -70,7 +70,18 @@ next_suffix() {
   local d t; d="$(next_dep)"
   [ "$d" = staged ] || { echo "$suffix"; return; }
   t="$(field staged ref)"; t="${t##*/}"
-  case "$t" in *@*) echo "?" ;; *:*-no-npu) echo "-no-npu" ;; *:*) echo "" ;; *) echo "?" ;; esac
+  case "$t" in
+    *@*) # Pinned by digest: the image's edition label says which (images built since it was added carry it).
+      case "$(staged_edition "${t##*@}")" in npu) echo "" ;; no-npu) echo "-no-npu" ;; *) echo "?" ;; esac ;;
+    *:*-no-npu) echo "-no-npu" ;; *:*) echo "" ;; *) echo "?" ;; esac
+}
+edition_label='{{index .Labels "io.github.n4berius.halos.edition"}}'
+auth_args() { [ ! -r /etc/ostree/auth.json ] || echo --authfile /etc/ostree/auth.json; }
+# The edition label of the image a digest names in this machine's repository, or nothing.
+staged_edition() {
+  local auth; read -ra auth <<< "$(auth_args)"
+  [[ "$1" =~ ^sha256:[0-9a-f]{64}$ ]] || return 0
+  skopeo inspect "${auth[@]}" --no-tags --format "$edition_label" "docker://$(repo)@$1" 2>/dev/null | tr -cd 'a-z-'
 }
 # next_suffix, or stop when it can't be told. Call it in the main shell, not in $(...).
 need_suffix() {
@@ -115,28 +126,39 @@ finish() {
 }
 # Exact digest and release of an image in the registry, as "<digest> <release>".
 # Uses bootc's registry login, if there is one (a private package).
+# Exact digest, edition label ("-" on images from before it) and release, as
+# "<digest> <edition> <release>".
 remote() {
-  local auth=() out; [ ! -r /etc/ostree/auth.json ] || auth=(--authfile /etc/ostree/auth.json)
+  local auth out; read -ra auth <<< "$(auth_args)"
   if ! out="$(skopeo inspect "${auth[@]}" --no-tags \
-      --format '{{.Digest}} {{index .Labels "org.opencontainers.image.version"}}' "docker://$1" 2>&1)"; then
+      --format "{{.Digest}} $edition_label {{index .Labels \"org.opencontainers.image.version\"}}" "docker://$1" 2>&1)"; then
     printf '%s\n' "$out" | tr -cd '[:print:]\n' | tail -n 3 >&2
     die "could not read $1 from the registry. Is there a release for it yet, and is the network up?"
   fi
+  # A label the image doesn't have reads "<no value>": one word, "-", so the fields stay apart.
+  out="${out//<no value>/-}"
   printf '%s' "$out" | tr -cd '[:print:]'
 }
 # Switch to another image, after showing from -> to and asking. With "pin", switch to its
 # exact digest, so the machine stays on that build even if the tag is ever pushed again.
 switch_to() {
-  local what="$1" target="$2" pin="${3:-}" info digest from staged
-  info="$(remote "$target")"; digest="${info%% *}"
+  local what="$1" target="$2" pin="${3:-}" info digest from staged rest edition release want=npu
+  info="$(remote "$target")"; digest="${info%% *}"; rest="${info#* }"
+  edition="${rest%% *}"; release="${rest#* }"
+  [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || die "the registry gave no usable digest for $target"
+  # The tag names an edition; the image's label must agree, when it has one.
+  case "$target" in *-no-npu) want=no-npu ;; esac
+  case "$edition" in
+    npu|no-npu) [ "$edition" = "$want" ] || die "$target is the $edition edition in the registry, not $want; nothing changed" ;;
+  esac
   from="$(describe booted)"
   echo "Now:   $from"
   [ -z "$(field staged ref)" ] || echo "Staged for the next boot, and replaced by this: $(describe staged)"
-  echo "After: $target (${info#* })"
+  echo "After: $target ($release)"
   confirm "Switch to it?"
   if [ -n "$pin" ]; then bootc switch "$(repo)@$digest"; else bootc switch "$target"; fi
   load
-  staged="$(describe staged || echo "$target (${info#* })")"
+  staged="$(describe staged || echo "$target ($release)")"
   if [ -n "$(field staged digest)" ] && [ "$(field staged digest)" != "$digest" ]; then
     echo "Note: the image changed in the registry just now; staged instead: $staged"
   fi
