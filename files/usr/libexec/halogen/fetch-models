@@ -97,7 +97,8 @@ case "$choice" in ''|official|[!A-Za-z0-9]*) ;; *)
   fi ;;
 esac
 
-if [ "$(cat "$stamp" 2>/dev/null)" = "$want" ]; then
+# A machine from before the .own-bases note fetches (and checks) once more, to write it.
+if [ "$(cat "$stamp" 2>/dev/null)" = "$want" ] && [ -e "$models/.own-bases" ]; then
   echo "halogen-fetch: models already match this release"
   exit 0
 fi
@@ -161,6 +162,9 @@ if [ -n "$need_probe" ]; then
     exit 1
   fi
 fi
+# Kept for halogenctl model list, which says which NPU model each of your checkpoints runs on.
+# Only a note: nothing reads it to decide what to fetch or serve.
+if printf '%s\n' "$own_bases" > "$models/.own-bases.new"; then mv -f "$models/.own-bases.new" "$models/.own-bases" || true; fi
 
 wait_s=15
 while :; do

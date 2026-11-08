@@ -156,6 +156,7 @@ echo 'HALOGEN_NPU_MODELS=embed,/models/LFM/mine:fast,/models/LFM/mine' > "$work/
 [ -f "$work/models/npu/lfm3-fast/devices/f.hnpm" ] || { echo "the :fast format's NPU programs were not fetched" >&2; exit 1; }
 if [ -e "$work/models/npu/lfm3/lfm3.hnpw" ]; then echo "weights were fetched for your own checkpoint" >&2; exit 1; fi
 grep -q 'mine is a lfm3' "$work/out" || { echo "the fetch did not say what the checkpoint is" >&2; exit 1; }
+grep -qx '/models/LFM/mine=lfm3' "$work/models/.own-bases" || { cat "$work/models/.own-bases" >&2; echo "the fetch didn't note which NPU model the checkpoint runs on" >&2; exit 1; }
 # The checkpoint is probed offline, with the models read-only and no token; the download never probes.
 grep 'FETCH_MODE=probe' "$work/podman.log" > "$work/probe-run" || { echo "the checkpoint was not probed first" >&2; exit 1; }
 if ! grep -q -- '--network=none' "$work/probe-run" || ! grep -q -- "-v $work/models:/models:ro" "$work/probe-run"; then
@@ -177,7 +178,12 @@ grep -q "gave an answer halOS doesn't accept" "$work/out" || { cat "$work/out" >
 cp "$work/podman.real" "$work/bin/podman"
 echo 'HALOGEN_NPU_MODELS=embed,/models/LFM/mine:fast,/models/LFM/mine' > "$work/config.env"
 "$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+grep -qx '/models/LFM/mine:fast=lfm3' "$work/models/.own-bases" || { cat "$work/models/.own-bases" >&2; echo "the :fast id wasn't noted" >&2; exit 1; }
 ok "your own checkpoint gets its NPU programs fetched, and no weights; it is probed offline, and only its plain answers are passed on"
+# A machine from before the note: the stamp matches, but there is no .own-bases. Fetch once more.
+rm "$work/models/.own-bases"; : > "$work/podman.log"
+"$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+[ -f "$work/models/.own-bases" ] || { cat "$work/out" >&2; echo "an unchanged machine never wrote .own-bases" >&2; exit 1; }
 
 : > "$work/podman.log"; "$work/fetch" >/dev/null 2>&1
 if grep -q ' run ' "$work/podman.log"; then echo "an unchanged checkpoint ran the fetch again" >&2; exit 1; fi
