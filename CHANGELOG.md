@@ -19,7 +19,7 @@ promoted.
 - **Power profile:** halOS now sets the firmware's power profile to `performance` at every boot,
   where many machines ship at `balanced`. On freyja that read prompts about 22% faster.
   `sudo halosctl power balanced` (or `low-power`) picks a cooler, quieter one, at once and for
-  every boot; `sudo halosctl power` shows it, and the selftest warns when it isn't as chosen. (#PR)
+  every boot; `sudo halosctl power` shows it, and the selftest warns when it isn't as chosen. (#83)
 
 ## v0.19.1-alpha.6 (2026-11-08)
 
