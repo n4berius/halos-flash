@@ -4,7 +4,7 @@ _halosctl() {
   if declare -F _init_completion > /dev/null; then _init_completion || return
   else cur="${COMP_WORDS[COMP_CWORD]}"; prev="${COMP_WORDS[COMP_CWORD-1]}"; words=("${COMP_WORDS[@]}"); cword=$COMP_CWORD; fi
   if [ "$cword" -eq 1 ]; then
-    mapfile -t COMPREPLY < <(compgen -W "version upgrade switch rollback npu history setup help" -- "$cur")
+    mapfile -t COMPREPLY < <(compgen -W "version upgrade switch rollback npu power history setup help" -- "$cur")
     return
   fi
   [ "$prev" != --to ] || return 0   # a release such as 0.19.0-alpha.1: nothing to offer
@@ -16,6 +16,7 @@ _halosctl() {
     npu)
       if [ "$cword" -eq 2 ]; then mapfile -t COMPREPLY < <(compgen -W "on off" -- "$cur")
       else mapfile -t COMPREPLY < <(compgen -W "--reboot --yes" -- "$cur"); fi ;;
+    power) [ "$cword" -ne 2 ] || mapfile -t COMPREPLY < <(compgen -W "low-power balanced performance" -- "$cur") ;;
     rollback) mapfile -t COMPREPLY < <(compgen -W "--to --reboot --yes" -- "$cur") ;;
     setup) mapfile -t COMPREPLY < <(compgen -W "--skip" -- "$cur") ;;
   esac

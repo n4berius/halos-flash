@@ -216,7 +216,14 @@ sudo halosctl upgrade            # stage the newest release on your channel (--c
 sudo halosctl rollback           # back to the previous image (--to 0.19.0-alpha.1 for an older one)
 sudo halosctl history            # every change made with halosctl
 sudo halosctl npu off            # the no-NPU edition (faster prefill, IOMMU off); npu on goes back
+sudo halosctl power performance  # firmware power profile: low-power, balanced or performance (the default)
 ```
+
+`power` is the exception: it applies at once and needs no reboot. halOS sets `performance` at every
+boot unless you choose another. Many machines ship at `balanced`, which holds the chip to less
+power: Halogen's [troubleshooting guide](https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/troubleshooting.md)
+reports one machine at about 70 W there against about 127 W at `performance`. On freyja,
+`performance` read prompts about 22% faster. `balanced` or `low-power` run cooler and quieter.
 
 A channel also gets newer releases of the more stable channels, so `beta` gets an RC or stable
 release when it is newer than the newest beta. Without a channel, a machine stays on the exact

@@ -62,7 +62,7 @@ RUN set -eu; \
     echo 'halogen:524288:65536' >> /etc/subuid; \
     echo 'halogen:524288:65536' >> /etc/subgid; \
     firewall-offline-cmd --add-service=halogen; \
-    systemctl enable firewalld.service halogen-prepare.service halos-status.timer; \
+    systemctl enable firewalld.service halogen-prepare.service halos-status.timer halos-platform-profile.service; \
     if [ "$HALOGEN_VARIANT" = npu ]; then \
       systemctl enable halogen-fabric-clock.service; \
     else \

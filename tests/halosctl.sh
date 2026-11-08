@@ -245,3 +245,32 @@ host "$(dep ghcr.io/n4berius/halos-flash:beta 0.19.0-beta.1 sha256:bbb)" null \
 if "$ctl" npu off --yes > "$work/out" 2>&1; then echo "npu ignored a queued rollback" >&2; exit 1; fi
 has 'rollback is queued' "$work/out"; hasnt 'bootc switch' "$work/log"
 ok "npu off/on switch edition on the same channel or pinned release, keep it through a later channel switch, refuse an untagged build, and warn when there is no NPU"
+
+# power: the firmware's power profile, saved in /etc/halos and set at once by platform-profile.
+acpi="$work/sys/firmware/acpi"; mkdir -p "$acpi"
+export HALOS_PROFILE_FILE="$work/etc-halos/platform-profile" HALOS_PLATFORM_PROFILE="$repo/files/usr/libexec/halogen/platform-profile"
+echo balanced > "$acpi/platform_profile"; echo 'low-power balanced performance' > "$acpi/platform_profile_choices"
+: > "$work/log"; "$ctl" power > "$work/out"
+has '^Power profile: balanced$' "$work/out"; has 'performance \(the default\)' "$work/out"; has 'They differ' "$work/out"
+hasnt 'bootc' "$work/log"
+"$ctl" power performance > "$work/out"
+[ "$(cat "$acpi/platform_profile")" = performance ] || { echo "power did not set the profile" >&2; exit 1; }
+[ "$(cat "$HALOS_PROFILE_FILE")" = performance ] || { echo "power did not save the choice" >&2; exit 1; }
+has 'power +balanced -> performance' "$work/history"
+"$ctl" power low-power > "$work/out"; has 'serves slower at low-power' "$work/out"
+"$ctl" power low-power > "$work/out"; has '^Already low-power' "$work/out"
+echo 'balanced performance' > "$acpi/platform_profile_choices"
+if "$ctl" power low-power > "$work/out" 2>&1; then echo "set a profile the firmware does not offer" >&2; exit 1; fi
+has 'does not offer low-power' "$work/out"
+if "$ctl" power 'quiet;reboot' > "$work/out" 2>&1; then echo "took an unknown profile" >&2; exit 1; fi
+if "$ctl" power balanced extra > "$work/out" 2>&1; then echo "took two profiles" >&2; exit 1; fi
+[ "$(cat "$HALOS_PROFILE_FILE")" = low-power ] || { echo "a refused change was saved" >&2; exit 1; }
+if FAKE_UID=1000 "$ctl" power balanced > "$work/out" 2>&1; then echo "ran without root" >&2; exit 1; fi
+# At boot: the saved choice, performance when none, and a choice the firmware lacks fails loudly.
+"$HALOS_PLATFORM_PROFILE" apply 2> "$work/out" && { echo "applied a profile the firmware lacks" >&2; exit 1; }
+has 'not a profile this firmware offers' "$work/out"; [ "$(cat "$acpi/platform_profile")" = low-power ]
+rm "$HALOS_PROFILE_FILE"; "$HALOS_PLATFORM_PROFILE" apply; [ "$(cat "$acpi/platform_profile")" = performance ]
+rm "$acpi/platform_profile"; "$HALOS_PLATFORM_PROFILE" apply
+if "$ctl" power > "$work/out" 2>&1; then echo "showed a profile on a machine without one" >&2; exit 1; fi
+has 'offers no power profile' "$work/out"
+ok "power shows, saves and sets the firmware profile at once, refuses one the firmware lacks, and boot applies the choice or performance"

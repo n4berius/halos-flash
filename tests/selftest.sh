@@ -157,3 +157,12 @@ mkdir -p "$work/state"; : > "$work/state/setup-pending"
 FAKE_STATE=inactive HALOGEN_STATE_DIR="$work/state" "$selftest" > "$work/out" 2>&1 || true
 expect '^WARN server: Halogen waits for first-boot setup: sudo halosctl setup'
 ok "a new install waiting for setup is named in the selftest"
+
+# The firmware power profile: skipped without one, a warning when it differs from the choice.
+"$selftest" > "$work/out" 2>&1 || true; expect '^SKIP power-profile'
+mkdir -p "$work/sys/firmware/acpi"; echo balanced > "$work/sys/firmware/acpi/platform_profile"
+export HALOS_PROFILE_FILE="$work/platform-profile"
+"$selftest" > "$work/out" 2>&1 || true; expect '^WARN power-profile: .*balanced, not performance'
+echo balanced > "$HALOS_PROFILE_FILE"
+"$selftest" > "$work/out" 2>&1 || true; expect '^PASS power-profile'
+ok "the power profile is checked against the choice, and skipped where the firmware has none"
