@@ -6,6 +6,10 @@ for f in "${scripts[@]}"; do
   [ -x "$f" ] || { echo "$f is not executable" >&2; exit 1; }
 done
 if command -v shellcheck >/dev/null; then shellcheck -x "${scripts[@]}"; else echo "shellcheck not installed, skipped"; fi
+# Tab completion files are sourced, not run, so they have no #! line and aren't executable.
+completions=(files/usr/share/bash-completion/completions/*)
+for f in "${completions[@]}"; do bash -n "$f"; done
+if command -v shellcheck >/dev/null; then shellcheck -s bash "${completions[@]}"; fi
 
 python3 - <<'P'
 import configparser, glob, os, re, tomllib, xml.dom.minidom, yaml

@@ -1,0 +1,53 @@
+# bash completion for halogenctl (halOS). Names of your own checkpoints complete only where
+# you can read /srv/models (as root, or in the halogen group): sudo runs completion as you.
+# Those folders can be written by the halogen user and its containers, so their names are never
+# put through compgen -W (which expands $(...) in its words): only plain names, matched by hand.
+_halogenctl_offer() { mapfile -t COMPREPLY < <(compgen -W "$1" -- "$cur"); }
+_halogenctl_names() {
+  local d n
+  COMPREPLY=()
+  for d in "$@"; do
+    [ -d "$d" ] || continue
+    while IFS= read -r -d '' n; do
+      [[ "$n" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || continue
+      [[ "$n" == "$cur"* ]] && COMPREPLY+=("$n")
+    done < <(find "$d" -mindepth 1 -maxdepth 1 -type d -printf '%f\0' 2>/dev/null)
+  done
+}
+_halogenctl() {
+  # shellcheck disable=SC2034 # prev is set by _init_completion
+  local cur prev words cword
+  if declare -F _init_completion > /dev/null; then _init_completion || return
+  else cur="${COMP_WORDS[COMP_CWORD]}"; words=("${COMP_WORDS[@]}"); cword=$COMP_CWORD; fi
+  local models=/srv/models
+  if [ "$cword" -eq 1 ]; then
+    _halogenctl_offer "status start stop restart logs fetch-logs doctor selftest bench config options api-key hf-token model flash"
+    return
+  fi
+  # After an option that takes a value, there is nothing to offer.
+  case "${words[cword-1]}" in --revision|--as|--file) return ;; esac
+  case "${words[1]}" in
+    options) [ "$cword" -eq 2 ] && _halogenctl_offer "--new" ;;
+    bench) [ "$cword" -eq 2 ] && _halogenctl_offer "--quick" ;;
+    hf-token) [ "$cword" -eq 2 ] && _halogenctl_offer "--remove" ;;
+    model)
+      if [ "$cword" -eq 2 ]; then _halogenctl_offer "pull list remove"
+      elif [ "${words[2]}" = remove ] && [ "$cword" -eq 3 ]; then _halogenctl_names "$models/decider" "$models/LFM" "$models/custom"
+      elif [ "${words[2]}" = pull ] && [ "$cword" -ge 4 ]; then _halogenctl_offer "--revision --as"
+      fi ;;
+    flash)
+      if [ "$cword" -eq 2 ]; then _halogenctl_offer "pull list use verify check remove"
+      elif [ "$cword" -eq 3 ]; then
+        case "${words[2]}" in
+          use) _halogenctl_names "$models/flash"; [[ official == "$cur"* ]] && COMPREPLY+=(official) ;;
+          verify|check|remove) _halogenctl_names "$models/flash" ;;
+        esac
+      else
+        case "${words[2]}" in
+          pull) _halogenctl_offer "--revision --as --file" ;;
+          use|check|remove) _halogenctl_offer "--yes" ;;
+        esac
+      fi ;;
+  esac
+}
+complete -F _halogenctl halogenctl

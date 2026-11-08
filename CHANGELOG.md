@@ -10,6 +10,8 @@ promoted.
 
 ## Unreleased
 
+- Tab completion for `halogenctl`, `halosctl` and `halogen-enroll-tpm`: commands, options,
+  channels and LUKS devices. (#75)
 - `sudo halogenctl flash check <name>` measures your own Flash checkpoint against the official
   one with Halogen's `ppl`, on the same public text Halogen's docs use: perplexity, how often both
   pick the same next word, and how far apart their predictions are. Halogen stops while it runs
