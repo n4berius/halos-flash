@@ -115,6 +115,7 @@ selftest_has 'PASS kernel-amdgpu.gttsize:'
 selftest_has 'PASS kernel-iommu:'
 selftest_has 'PASS firewall:'
 selftest_has 'PASS prepare:'
+selftest_has '(PASS|SKIP) power-profile:'   # QEMU likely has no ACPI platform profile
 selftest_has 'PASS folder-flash:'
 selftest_has 'INFO flash: serving the official Flash checkpoint'
 if [ "$variant" = npu ]; then

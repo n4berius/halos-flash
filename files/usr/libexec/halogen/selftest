@@ -170,6 +170,14 @@ if [ "$npu" = 1 ]; then
   if "$clock" status > /dev/null 2>&1; then say PASS fabric-clock "the GPU fabric clock is held"
   else say FAIL fabric-clock "the GPU fabric clock is not held: systemctl status halogen-fabric-clock"; fi
 fi
+# The firmware's power profile, as chosen with halosctl power (performance when none is chosen).
+if [ -r "$sys/firmware/acpi/platform_profile" ]; then
+  pnow="$(tr -cd 'a-z-' < "$sys/firmware/acpi/platform_profile")"; pwant=""
+  [ ! -r "${HALOS_PROFILE_FILE:-/etc/halos/platform-profile}" ] || pwant="$(tr -cd 'a-z-' < "${HALOS_PROFILE_FILE:-/etc/halos/platform-profile}")"
+  pwant="${pwant:-performance}"
+  if [ "$pnow" = "$pwant" ]; then say PASS power-profile "the firmware power profile is $pnow, as chosen"
+  else say WARN power-profile "the firmware power profile is $pnow, not $pwant as chosen: sudo halosctl power $pwant"; fi
+else say SKIP power-profile "the firmware offers no power profile"; fi
 
 # --- Halogen
 if have systemctl; then

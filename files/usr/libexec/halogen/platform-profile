@@ -1,0 +1,46 @@
+#!/bin/bash
+# The firmware's power profile (ACPI platform profile): low-power, balanced or performance.
+# halosctl power saves the choice in /etc/halos/platform-profile; with no choice saved it is
+# performance. Halogen's docs/troubleshooting.md: its own numbers were measured at about 85 W of
+# package power, and one owner's machine held about 70 W at balanced against about 127 W at
+# performance. On freyja, performance read prompts about 22% faster than its default, balanced.
+#   platform-profile apply   set the saved choice (at boot and after resume)
+#   platform-profile check <name>   exit 0 when the firmware offers that profile
+# Machines without the file (QEMU, some boards) have nothing to set: apply does nothing there.
+set -euo pipefail
+sys="${HALOGEN_SYS:-/sys}"
+file="$sys/firmware/acpi/platform_profile"
+choices_file="$sys/firmware/acpi/platform_profile_choices"
+saved="${HALOS_PROFILE_FILE:-/etc/halos/platform-profile}"
+
+# Only the three names, and only when this firmware lists it.
+offered() {
+  case "$1" in low-power|balanced|performance) ;; *) return 1 ;; esac
+  [ -r "$choices_file" ] || return 1
+  local c; read -ra c < "$choices_file" || true
+  local x; for x in "${c[@]}"; do [ "$x" = "$1" ] && return 0; done
+  return 1
+}
+# The saved choice: one word, or performance when none is saved.
+choice() {
+  local w=""
+  [ ! -r "$saved" ] || read -r w < "$saved" || true
+  echo "${w:-performance}"
+}
+
+case "${1:-}" in
+  apply)
+    [ -e "$file" ] || { echo "platform-profile: the firmware offers no power profile; nothing to set"; exit 0; }
+    want="$(choice)"
+    if ! offered "$want"; then
+      offers="$( { tr -cd 'a-z -' < "$choices_file"; } 2>/dev/null || true)"
+      # The default, on firmware without it, is no error: there is no choice to honour.
+      if [ ! -e "$saved" ]; then echo "platform-profile: this firmware has no performance profile (it offers: $offers); left as it is"; exit 0; fi
+      echo "platform-profile: \"$(printf '%s' "$want" | tr -cd 'a-z-' | head -c 20)\" is not a profile this firmware offers ($offers); left at $(tr -cd 'a-z-' < "$file")" >&2
+      exit 1
+    fi
+    [ "$(cat "$file")" = "$want" ] || echo "$want" > "$file"
+    ;;
+  check) offered "${2:-}" ;;
+  *) echo "usage: platform-profile apply | check <name>" >&2; exit 2 ;;
+esac

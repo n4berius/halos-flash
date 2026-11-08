@@ -17,6 +17,7 @@ usage: halosctl version
        halosctl switch alpha|beta|rc|release|edge [--reboot] [--yes]
        halosctl rollback [--to <version>] [--reboot] [--yes]
        halosctl npu on|off [--reboot] [--yes]
+       halosctl power [low-power|balanced|performance]
        halosctl history
        halosctl setup [--skip]
 
@@ -25,6 +26,9 @@ every change to main. Each channel also gets newer releases of the more stable o
 npu off moves to the no-NPU edition (IOMMU off, faster prefill); npu on moves back. Both keep
 the channel or release, and /srv: the NPU models stay on disk.
 Changes apply at the next reboot, which stops Halogen. --reboot does it at once.
+power is the firmware's power profile, and applies at once and at every boot: performance (the
+default) lets the chip draw the most power, so Halogen runs fastest; balanced and low-power draw
+less, run cooler and quieter, and serve slower. Without a name it shows the profile.
 U
 }
 
@@ -171,7 +175,7 @@ switch_to() {
 }
 
 cmd="${1:-version}"; [ $# = 0 ] || shift
-case "$cmd" in history|setup) ;; *) load ;; esac
+case "$cmd" in history|setup|power) ;; *) load ;; esac
 args=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -187,7 +191,7 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-case "$cmd" in switch|npu) ;; *) [ "${#args[@]}" = 0 ] ;; esac || die "unexpected ${args[0]} (for an older release: halosctl rollback --to <version>)"
+case "$cmd" in switch|npu|power) ;; *) [ "${#args[@]}" = 0 ] ;; esac || die "unexpected ${args[0]} (for an older release: halosctl rollback --to <version>)"
 
 case "$cmd" in
   version)
@@ -304,6 +308,34 @@ case "$cmd" in
       echo "NPU models not already in /srv/models/npu."
     fi
     switch_to "npu-${args[0]}" "$target" ${pin:+"$pin"}
+    ;;
+  power)
+    acpi="${HALOGEN_SYS:-/sys}/firmware/acpi"; pp="${HALOS_PLATFORM_PROFILE:-/usr/libexec/halogen/platform-profile}"
+    saved_file="${HALOS_PROFILE_FILE:-/etc/halos/platform-profile}"
+    [ -e "$acpi/platform_profile" ] || die "this machine's firmware offers no power profile (no $acpi/platform_profile), so there is nothing to set"
+    now="$(tr -cd 'a-z-' < "$acpi/platform_profile")"
+    offers="$( { tr -cd 'a-z -' < "$acpi/platform_profile_choices"; } 2>/dev/null || true)"
+    chosen=""; [ ! -r "$saved_file" ] || chosen="$(tr -cd 'a-z-' < "$saved_file")"
+    if [ "${#args[@]}" = 0 ]; then
+      echo "Power profile: $now"
+      echo "Chosen:        ${chosen:-performance (the default)}"
+      [ "$now" = "${chosen:-performance}" ] || echo "They differ: something changed it since boot. Set it again with: sudo halosctl power ${chosen:-performance}"
+      echo "Offered:       $offers"
+      echo "Change it with: sudo halosctl power low-power|balanced|performance (applies at once, no restart)"
+      exit 0
+    fi
+    [ "${#args[@]}" = 1 ] || die "one profile: low-power, balanced or performance"
+    if [ "$reboot$yes$check$skip" != 0000 ] || [ -n "$to" ]; then die "power applies at once and takes no options"; fi
+    want="${args[0]}"
+    case "$want" in low-power|balanced|performance) ;; *) die "unknown profile: use low-power, balanced or performance" ;; esac
+    "$pp" check "$want" || die "this firmware does not offer $want (it offers: $offers); nothing changed"
+    if [ "$want" = "$now" ] && [ "$want" = "${chosen:-performance}" ]; then echo "Already $want."; exit 0; fi
+    mkdir -p "$(dirname "$saved_file")"
+    printf '%s\n' "$want" > "$saved_file.new" && mv -f "$saved_file.new" "$saved_file"
+    record power "$now" "$want"
+    "$pp" apply || die "saved $want, but the firmware did not take it; it is tried again at the next boot"
+    echo "Power profile: $want, now and at every boot. Halogen keeps running; no restart needed."
+    [ "$want" = performance ] || echo "Halogen serves slower at $want than at performance (sudo halogenctl bench measures it)."
     ;;
   history)
     if [ -s "$history" ]; then cat "$history"; else echo "No changes recorded yet. Changes made with halosctl are listed here."; fi

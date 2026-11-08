@@ -120,6 +120,17 @@ name, but allows saying halOS runs Halogen.
   sha256 of the text Halogen's docs build from the parquet file, `bbf94c53…`), first `--ref-out`
   for the official checkpoint once per Halogen version, then `--ref --worst 5` for the custom one;
   results go to `halos.info` (`checked_*`) and `check.json`. GGUF conversion is a later step.
+- `halosctl power [low-power|balanced|performance]` (#83) saves the firmware's ACPI platform profile in
+  `/etc/halos/platform-profile` and sets it at once; `halos-platform-profile.service` (root, oneshot,
+  at boot and after resume, skipped without `/sys/firmware/acpi/platform_profile`) runs
+  `/usr/libexec/halogen/platform-profile apply`, `performance` when nothing is saved (Halogen's
+  troubleshooting.md: its numbers at about 85 W; one owner's machine about 70 W at balanced against
+  127 W at performance). `70-halos-platform-profile.rules` starts it again when the kernel's
+  `platform-profile` class device appears, in case the driver (likely `amd_pmf`) loads after the
+  unit ran (its condition then skips it). Only the three names,
+  and only those the firmware lists in `platform_profile_choices`. The image has no
+  power-profiles-daemon or tuned to fight it. freyja ships at `balanced`; `performance` read
+  prompts about 22% faster (pp2048 1876 against about 1530 tok/s).
 - `halogenctl bench [--quick]` (#15, `/usr/libexec/halogen/bench`, as halogen) runs Halogen's own
   `sweep` (`/halogen/tools/halogen-bench.py --json`, an HTTP client) in the pinned image against the
   running server: `--network=host` only, read-only, no mounts, devices or capabilities, the API key

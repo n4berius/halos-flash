@@ -76,6 +76,8 @@ expect "alpha beta edge rc release" _halosctl halosctl switch ''
 expect "--reboot --to --yes" _halosctl halosctl rollback ''
 expect "" _halosctl halosctl rollback --to ''
 expect "--check --reboot --yes" _halosctl halosctl upgrade ''
+expect "balanced low-power performance" _halosctl halosctl power ''
+expect "" _halosctl halosctl power balanced ''
 echo "ok: halosctl offers channels and each command's options"
 # shellcheck source=/dev/null
 . "$dir/halogen-enroll-tpm"

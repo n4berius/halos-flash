@@ -21,6 +21,10 @@ promoted.
   can differ from 0.19.1's in the last bits. (#78)
 - `halogenctl selftest` no longer reports a `chcon` SELinux denial: that is bootc checking its own
   rights (it expects the refusal) each time halOS asks it for status. Other denials still fail. (#82)
+- **Power profile:** halOS now sets the firmware's power profile to `performance` at every boot,
+  where some machines, freyja among them, ship at `balanced`. On freyja that read prompts about 22% faster.
+  `sudo halosctl power balanced` (or `low-power`) picks a cooler, quieter one, at once and for
+  every boot; `sudo halosctl power` shows it, and the selftest warns when it isn't as chosen. (#83)
 
 ## v0.19.1-alpha.6 (2026-11-08)
 

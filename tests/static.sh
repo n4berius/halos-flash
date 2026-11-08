@@ -117,3 +117,9 @@ grep -qx 'dev.tty.legacy_tiocsti = 0' files/usr/lib/sysctl.d/60-halos.conf || { 
 if grep -nE 'journalctl.*( -a\b| --all\b| -o +cat| --output[= ]cat)' files/usr/bin/halogenctl; then echo "halogenctl runs journalctl in a mode that prints control characters" >&2; exit 1; fi
 # shellcheck disable=SC2016 # the literal text in build.sh
 grep -q -- '--label "io.github.n4berius.halos.edition=$VARIANT"' scripts/build.sh || { echo "build.sh lost the edition label halosctl reads" >&2; exit 1; }
+# Every system unit halOS installs to start on its own is enabled in the image.
+for unit in files/usr/lib/systemd/system/*.service; do
+  grep -q '^\[Install\]' "$unit" || continue
+  grep -qE "systemctl enable .*\b$(basename "$unit" .service)\.service" Containerfile \
+    || { echo "$unit has an [Install] section but the Containerfile doesn't enable it" >&2; exit 1; }
+done

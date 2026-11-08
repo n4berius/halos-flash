@@ -1,0 +1,23 @@
+# The firmware's power profile, as chosen with halosctl power (performance when none is chosen).
+# Runs at boot and after resume, like the fabric clock. Machines without an ACPI platform profile
+# (QEMU, some boards) skip it.
+[Unit]
+Description=Set the firmware power profile chosen with halosctl power
+ConditionPathExists=/sys/firmware/acpi/platform_profile
+After=systemd-modules-load.service suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
+Before=user@970.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/halogen/platform-profile apply
+# It only writes one file in /sys, which ProtectSystem leaves writable. No ProtectKernelTunables:
+# that makes /sys read-only.
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateNetwork=yes
+NoNewPrivileges=yes
+RestrictAddressFamilies=AF_UNIX
+
+[Install]
+WantedBy=multi-user.target suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
