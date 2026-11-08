@@ -110,6 +110,17 @@ audit: type=1400 audit(1.2:9): avc:  denied  { mac_admin } for  pid=9 comm="chco
 L
 if "$selftest" > "$work/out" 2>&1; then echo "a chcon denial without bootc's label passed" >&2; exit 1; fi
 expect '^FAIL selinux-denials: 1 different'
+# Another chcon denial is still reported when bootc's check follows it, right away or later on.
+real='AVC avc:  denied  { mac_admin } for  pid=5 comm="chcon" capability=33  scontext=unconfined_u:unconfined_r:unconfined_t:s0 tcontext=unconfined_u:unconfined_r:unconfined_t:s0 tclass=capability2 permissive=0'
+probe='AVC avc:  denied  { mac_admin } for  pid=7684 comm="chcon" capability=33  scontext=system_u:system_r:unconfined_service_t:s0 tcontext=system_u:system_r:unconfined_service_t:s0 tclass=capability2 permissive=0'
+err='SELINUX_ERR op=setxattr invalid_context="system_u:object_r:invalid_bootcinstall_testlabel_t:s0"'
+printf '%s\n' "$real" 'SYSCALL x' "$probe" "$err" > "$work/kernel.log"
+if "$selftest" > "$work/out" 2>&1; then echo "a chcon denial right before bootc's check was hidden" >&2; exit 1; fi
+expect '^FAIL selinux-denials: 1 different'; expect 'unconfined_t'
+# Past 4 records it is reported, even when a second copy of bootc's error line (the kernel's) follows.
+printf '%s\n' "$real" 'SYSCALL x' 'PROCTITLE x' 'BPF x' 'BPF y' 'BPF z' "$probe" "$err" "audit: type=1401 audit(1.2:9): $err" > "$work/kernel.log"
+if "$selftest" > "$work/out" 2>&1; then echo "a chcon denial before bootc's check was hidden" >&2; exit 1; fi
+expect '^FAIL selinux-denials: 1 different'; expect 'unconfined_t'
 ok "bootc's own SELinux check is not reported, other chcon denials are"
 rm "$work/kernel.log"
 
