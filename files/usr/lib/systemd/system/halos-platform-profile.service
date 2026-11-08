@@ -11,7 +11,7 @@ Before=user@970.service
 Type=oneshot
 ExecStart=/usr/libexec/halogen/platform-profile apply
 # It writes one file in /sys and reads one in /etc. ProtectKernelTunables makes all of /sys
-# read-only; ReadWritePaths opens that one file again (checked on freyja). No capabilities: root
+# read-only; ReadWritePaths opens that one file again (freyja wrote it so, with no capabilities). No capabilities: root
 # owns both files, so plain file permissions are enough.
 ProtectSystem=strict
 ProtectKernelTunables=yes
