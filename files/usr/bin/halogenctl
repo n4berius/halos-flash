@@ -324,9 +324,9 @@ case "${1:-status}" in
         active="$(sed -n 's/^HALOGEN_NPU_MODELS=//p' <<< "$rendered" | tr ',' '\n' | sed 's/:fast$//')"
         used() { if grep -qxF -- "$1" <<< "$active"; then echo yes; else echo no; fi; }
         # Halogen's NPU models also run when one of your checkpoints is built on them (the fetch
-        # notes which, in .own-bases), or when the agent guard adds them. The note is written by
+        # notes which, in .own-bases; a :fast id runs on <model>-fast), or when the agent guard adds them. The note is written by
         # halogen, so only plain "path=model" lines count.
-        bases="$( { as_owner cat "$models/.own-bases" 2>/dev/null || true; } | sed 's/:fast=/=/' | { grep -E '^/models/(decider|LFM|custom)/[A-Za-z0-9._-]+=[A-Za-z0-9._-]+$' || true; })"
+        bases="$( { as_owner cat "$models/.own-bases" 2>/dev/null || true; } | sed -E 's/:fast=([A-Za-z0-9._-]+)$/=\1-fast/' | sort -u | { grep -E '^/models/(decider|LFM|custom)/[A-Za-z0-9._-]+=[A-Za-z0-9._-]+$' || true; })"
         guard=""
         case "$(sed -n 's/^HALOGEN_AGENT_GUARD=//p' <<< "$rendered" | tail -n 1 | tr '[:upper:]' '[:lower:]')" in
           watch|hold) guard="halogen-spotter-0.6b decider-4b" ;;

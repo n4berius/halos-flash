@@ -178,7 +178,12 @@ grep -q "gave an answer halOS doesn't accept" "$work/out" || { cat "$work/out" >
 cp "$work/podman.real" "$work/bin/podman"
 echo 'HALOGEN_NPU_MODELS=embed,/models/LFM/mine:fast,/models/LFM/mine' > "$work/config.env"
 "$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+grep -qx '/models/LFM/mine:fast=lfm3' "$work/models/.own-bases" || { cat "$work/models/.own-bases" >&2; echo "the :fast id wasn't noted" >&2; exit 1; }
 ok "your own checkpoint gets its NPU programs fetched, and no weights; it is probed offline, and only its plain answers are passed on"
+# A machine from before the note: the stamp matches, but there is no .own-bases. Fetch once more.
+rm "$work/models/.own-bases"; : > "$work/podman.log"
+"$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+[ -f "$work/models/.own-bases" ] || { cat "$work/out" >&2; echo "an unchanged machine never wrote .own-bases" >&2; exit 1; }
 
 : > "$work/podman.log"; "$work/fetch" >/dev/null 2>&1
 if grep -q ' run ' "$work/podman.log"; then echo "an unchanged checkpoint ran the fetch again" >&2; exit 1; fi
