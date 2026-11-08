@@ -229,20 +229,27 @@ name, but allows saying halOS runs Halogen.
 Open issues are the source of truth, prioritised with the `priority: high/medium/low` labels
 and tracked on the owner's project board. [ROADMAP.md](ROADMAP.md) holds the order and
 [CHANGELOG.md](CHANGELOG.md) what each release changed. When this file was last updated (after
-`v0.19.1-alpha.3`):
+#76, on Halogen 0.19.1):
 
-- Released: `v0.19.1-alpha.3`, to be promoted to `v0.19.1-beta.1` after a few days on freyja. It has
-  the security hardening (#51 to #53), the options list (#57), Halogen 0.19.1 with its own XRT
-  (#58, #59), custom Flash checkpoints (#60), the login status (#63), `halosctl setup` (#64) and
-  key signing (#65); it is the first release signed with halOS's key. Freyja runs `unsloth-iq4` with `flash use`, at about
-  the official model's speed.
-- Before RC, in this order: machines refuse unsigned images (#46 phase 2; needs key-pair signing,
-  since containers/image can't match GitHub's keyless URI identity, and the owner makes the key),
-  first-boot setup and "API ready" (#43, done in #63 and #64), the guided installer with fixed
-  `halos-*` volume names (#42, done; one real install still to do), and a full `security-auditor` pass.
-- Before stable: benchmark command (#15), `flash check` (#56), `halosctl npu on|off` (#40, trimmed
-  to that), tab completion (#14). After stable: unlock over SSH (#13), clevis/tang (#44), GGUF in
-  `flash pull` (#61).
+- Released: `v0.19.1-alpha.3`. Merged since, on edge and not yet in a release: the guided
+  installer (#66), the serial-getty fix (#67), the TPM wording (#68), the full security audit's
+  fixes (#69), the restart fix (#70), the duplicate-settings note (#71), `npu on|off` (#72),
+  `bench` (#73), `flash check` (#74), tab completion (#75) and the hardening from their reviews
+  (#76 terminal, #77 edition label). Next: the owner checks them on freyja, cuts an alpha, does one
+  real guided install from its ISO, then promotes to beta. Freyja serves
+  `swift-15fn-heretic-coder` with `flash use`.
+- Before RC: machines refuse unsigned images (#46 phase 2b; ships once every channel points to a
+  key-signed image). Done: first-boot setup and "API ready" (#43), the guided installer (#42, one
+  real install still to do), the full `security-auditor` pass (#69).
+- Built for stable, still to check on freyja: benchmark (#15), `flash check` (#56), `halosctl npu
+  on|off` (#40), tab completion (#14).
+- **Stable waits for Halogen 0.20** (owner decision): halOS is aligned with 0.20.0 first, then
+  released as stable. 0.20.0 is out (ROCm 10.1 in its image, OvisOCR3 document parsing on the NPU
+  as your own checkpoint, faster prefill, a strict-tool-call crash fixed; the Flash checkpoints are
+  unchanged). The daily check opened #78 to pin it; aligning means reading its changelog and docs
+  for new or changed settings (`options.allowed`, `halogen.env.default`), host needs, NPU model
+  folders (OvisOCR3 at `/models/OvisOCR3`, `HALOGEN_WEIGHTS_LOCK`), and testing it on freyja.
+- After stable: unlock over SSH (#13), clevis/tang (#44), GGUF in `flash pull` (#61).
 - Known upstream: bootc 1.17.1 rewrites `/etc/fstab` at every boot on Anaconda installs
   (bootc-dev/bootc#2592); `bootc-fstab-edit.service.d/10-halos.conf` skips it. `bootc switch` to
   the ref a machine already follows does nothing; use `bootc upgrade`.
