@@ -42,7 +42,7 @@ In this order. Each ships as an alpha, then is promoted to beta once tested.
   against the running server); the fixed-length `ignore_eos` run, NPU models and several
   requests at once can follow.
 - **`halogenctl flash check`** (#56). Compare a custom checkpoint's quality with the official
-  one's, on request.
+  one's, on request. Done; to try on the test machine.
 - **`halosctl npu on|off`** (#40). Switch between the two editions. Done; to try on the test machine.
 - **Tab completion** (#14).
 

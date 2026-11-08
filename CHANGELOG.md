@@ -10,6 +10,10 @@ promoted.
 
 ## Unreleased
 
+- `sudo halogenctl flash check <name>` measures your own Flash checkpoint against the official
+  one with Halogen's `ppl`, on the same public text Halogen's docs use: perplexity, how often both
+  pick the same next word, and how far apart their predictions are. Halogen stops while it runs
+  and starts again afterwards. `flash list` shows the result. (#74)
 - `sudo halogenctl bench` measures how fast the server reads prompts and writes answers, with
   Halogen's own benchmark tool, without restarting it. The report lists what the numbers depend
   on (versions, BIOS, kernel settings, power profile, checkpoint, settings) and is saved in
