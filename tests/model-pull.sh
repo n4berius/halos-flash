@@ -67,6 +67,13 @@ if grep -qx 'fast=1' "$work/out"; then echo "offered :fast where none exists" >&
 grep -q -- '--revision abc' "$work/podman.log"
 ok "a d1-2B lands in decider under the chosen name and revision"
 
+# Halogen 0.20: OvisOCR3 (document parsing) is an own checkpoint like any other, in custom.
+FAKE_BASE=ovisocr3 "$pull" ATH-MaaS/OvisOCR3 > "$work/out" 2>&1
+if [ ! -d "$work/models/custom/OvisOCR3" ] || ! grep -qx 'path=/models/custom/OvisOCR3' "$work/out"; then
+  cat "$work/out" >&2; echo "OvisOCR3 didn't land in custom under its own name" >&2; exit 1
+fi
+ok "an OvisOCR3 lands in custom as OvisOCR3"
+
 : > "$work/podman.log"
 "$pull" LiquidAI/LFM3-1.7B > /dev/null 2>&1
 grep -q -- "--local-dir $work/models/LFM/LFM3-1.7B\|--local-dir /models/LFM/LFM3-1.7B" "$work/podman.log"

@@ -244,13 +244,15 @@ and tracked on the owner's project board. [ROADMAP.md](ROADMAP.md) holds the ord
 - Built for stable, still to check on freyja: benchmark (#15), `flash check` (#56), `halosctl npu
   on|off` (#40), tab completion (#14).
 - **Stable waits for Halogen 0.20** (owner decision): halOS is aligned with 0.20.0 first, then
-  released as stable. 0.20.0 is out (ROCm 10.1 in its image, OvisOCR3 document parsing on the NPU
-  as your own checkpoint, faster prefill, a strict-tool-call crash fixed; the Flash checkpoints are
-  unchanged). The daily check opened #78 to pin it; aligning means reading its changelog and docs
-  for new or changed settings (`options.allowed`, `halogen.env.default`), host needs, OvisOCR3 as
-  an own NPU checkpoint (`/models/OvisOCR3` inside the container; check that `model pull`'s probe
-  knows it and which folder it lands in), whether to suggest `HALOGEN_WEIGHTS_LOCK=1` beside it
-  (already allowed), and testing it on freyja.
+  released as stable. 0.20.0 (ROCm 10.1 in its image, OvisOCR3 document parsing on the NPU as your
+  own checkpoint, faster prefill, a strict-tool-call crash fixed; the Flash checkpoints and weights
+  revision unchanged) is pinned by #78. Between source commits 47ceb43 and 8242b15, FLAGS.md,
+  `deploy/entrypoint.sh` and host-setup's requirements are unchanged (only image tags in examples),
+  so `options.allowed`, `halogen.env.default`, the Quadlet and kernel arguments stay as they are.
+  OvisOCR3 (`ATH-MaaS/OvisOCR3`, 1.7 GB safetensors) goes through `model pull` into `custom` (the
+  probe's base isn't LFM or decider; its exact name is unchecked until freyja runs it), served as
+  `OvisOCR3` from `/models/custom/OvisOCR3`; INSTALL mentions `HALOGEN_WEIGHTS_LOCK=1` (already
+  allowed) beside it. Still to do: test 0.20.0 on freyja, then stable.
 - After stable: unlock over SSH (#13), clevis/tang (#44), GGUF in `flash pull` (#61).
 - Known upstream: bootc 1.17.1 rewrites `/etc/fstab` at every boot on Anaconda installs
   (bootc-dev/bootc#2592); `bootc-fstab-edit.service.d/10-halos.conf` skips it. `bootc switch` to

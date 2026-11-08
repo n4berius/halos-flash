@@ -367,7 +367,15 @@ interrupted, and puts the checkpoint in the folder that fits:
 |---|---|---|
 | `/srv/models/decider` | `d1-2B`, fine-tunes of `decider-0.8b` | `/models/decider/<name>` |
 | `/srv/models/LFM` | LFM3-1.7B, LFM3-VL-2B, LFM3-Audio-2B, LFM3-Omni-2B | `/models/LFM/<name>` |
-| `/srv/models/custom` | Fine-tunes of the embedding, reranking or guard models | `/models/custom/<name>` |
+| `/srv/models/custom` | Fine-tunes of the embedding, reranking or guard models; OvisOCR3 | `/models/custom/<name>` |
+
+**Document parsing (OvisOCR3).** Since Halogen 0.20 the NPU reads document pages into Markdown, with
+tables as HTML and formulas as LaTeX, from your own [OvisOCR3](https://huggingface.co/ATH-MaaS/OvisOCR3)
+checkpoint (Apache 2.0, about 1.7 GB): `sudo halogenctl model pull ATH-MaaS/OvisOCR3`, then add
+`/models/custom/OvisOCR3` to `HALOGEN_NPU_MODELS`. It answers as `OvisOCR3`, one or two page images a
+request, about 20 seconds a page. Halogen's [NPU page](https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/NPU.md#your-own-ovisocr3)
+has the prompts and limits. Beside several other NPU models, Flash's next request can wait about 40
+seconds while its weights are read back; `HALOGEN_WEIGHTS_LOCK=1` in `halogen.env` keeps them in memory.
 
 It then prints the line to put in `/srv/configs/halogen.env`, and offers to make the change and
 restart. Halogen serves the model under its folder's name. Its first start converts the
