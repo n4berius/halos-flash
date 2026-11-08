@@ -11,7 +11,7 @@ export FAKE="$work"
 f() { printf '#!/bin/bash\n%s\n' "$2" > "$work/bin/$1"; chmod +x "$work/bin/$1"; }
 # runuser -u halogen -- cmd...: log it, then run cmd (as this user; the test checks the routing).
 f runuser 'echo "runuser $*" >> "$FAKE/log"; [ "$1 $2 $3" = "-u halogen --" ] || exit 9; shift 3; exec "$@"'
-f systemctl 'echo "systemctl $*" >> "$FAKE/log"'
+f systemctl 'echo "systemctl $*" >> "$FAKE/log"; case "$*" in *"is-active --quiet halogen.service"*) [ -z "${FAKE_INACTIVE:-}" ] ;; esac'
 # model-pull and render-config, run through systemd-run as halogen.
 f systemd-run 'case "$*" in
   *model-pull*) echo "path=/models/LFM/LFM3-1.7B"; echo "fast=1" ;;
@@ -143,6 +143,8 @@ f systemd-run 'case "$*" in
     else echo "HALOGEN_CHECKPOINT=/models/flash/$c/model.hgn"; fi ;;
   *flash-checkpoint*pull*) echo "Downloading..."; echo "name=mine" ;;
   *flash-checkpoint*verify*) echo "verify $*" >> "$FAKE/log" ;;
+  *flash-checkpoint\ check-prepare*) echo "prepare $*" >> "$FAKE/log"; [ -z "${FAKE_PREPARE_FAILS:-}" ] || exit 1 ;;
+  *flash-checkpoint\ check*) echo "check $*" >> "$FAKE/log"; echo $'"'"'measured \e[2J'"'"'; [ -z "${FAKE_CHECK_FAILS:-}" ] || exit 1 ;;
 esac'
 fm="$work/fmodels"; mkdir -p "$fm/flash/mine" "$fm/flash/broken" "$fm/flash/partial"
 printf 'repo=someone/Mine-HGN\ncommit=0123456789abcdef\ncheckpoint=model.hgn\nverified=pass\nverified_with=0.19.1\n' > "$fm/flash/mine/halos.info"
@@ -183,6 +185,40 @@ fi
 "$ctl" flash verify mine > /dev/null; grep -q 'verify mine' "$work/log" || exit 1
 ok "flash lists, switches only to verified checkpoints after asking, never removes the active or official one, all as halogen"
 
+# flash check stops Halogen for the GPU, and starts it again whatever happens.
+: > "$work/log"
+if "$ctl" flash check mine < /dev/null > "$work/out" 2>&1; then echo "check stopped Halogen without asking" >&2; exit 1; fi
+if grep -q 'stop halogen.service' "$work/log"; then echo "a declined check stopped Halogen" >&2; exit 1; fi
+"$ctl" flash check mine --yes > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+grep -e 'stop halogen.service' -e '^check ' -e '^prepare ' -e 'start halogen.service' "$work/log" | sed 's/ .*\(stop\|start\) halogen.service/ \1/; s/^\(check\|prepare\) .*/\1/' > "$work/order"
+[ "$(tr '\n' ' ' < "$work/order")" = "prepare systemctl stop check systemctl start " ] || { cat "$work/log" >&2; echo "check didn't prepare, stop, measure, then start Halogen" >&2; exit 1; }
+grep -q -- '--unit=halogen-flash-check --collect -p RuntimeMaxSec=3h' "$work/log" || { echo "the measurement had no name or time limit" >&2; exit 1; }
+grep -q 'stop halogen-flash-check.service' "$work/log" || { echo "the measurement was not stopped before Halogen started" >&2; exit 1; }
+if grep -q $'\e' "$work/out"; then echo "a control character from the measurement reached the terminal" >&2; exit 1; fi
+: > "$work/log"
+if FAKE_PREPARE_FAILS=1 "$ctl" flash check mine --yes > "$work/out" 2>&1; then echo "a failed preparation passed" >&2; exit 1; fi
+if grep -q 'stop halogen.service' "$work/log"; then echo "Halogen was stopped although the check couldn't start" >&2; exit 1; fi
+# A terminal that goes away during the measurement (writes then fail) must not keep Halogen down:
+# the reader stops at the measurement's output, so everything printed after it fails.
+: > "$work/log"
+{ "$ctl" flash check mine --yes 2>&1 || true; } | { grep -m 1 -q measured || true; } || true
+grep -q 'start halogen.service' "$work/log" || { echo "Halogen stayed stopped when the terminal went away" >&2; exit 1; }
+# Halogen stopped on purpose stays stopped after a check.
+: > "$work/log"
+FAKE_INACTIVE=1 "$ctl" flash check mine --yes > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+if grep -q 'start halogen.service' "$work/log"; then echo "a check started a Halogen that was stopped before" >&2; exit 1; fi
+grep -q 'left stopped' "$work/out" || { cat "$work/out" >&2; echo "no word that Halogen was left stopped" >&2; exit 1; }
+: > "$work/log"
+if FAKE_CHECK_FAILS=1 "$ctl" flash check mine --yes > "$work/out" 2>&1; then echo "a failed check passed" >&2; exit 1; fi
+grep -q 'start halogen.service' "$work/log" || { echo "Halogen stayed stopped after a failed check" >&2; exit 1; }
+for bad in official ../mine nothing; do
+  if "$ctl" flash check "$bad" --yes > "$work/out" 2>&1; then echo "check took $bad" >&2; exit 1; fi
+done
+printf 'checked_ppl=3.8109\nchecked_official_ppl=3.8522\nchecked_top1=0.86463\nchecked_kl_median=0.045499\nchecked_with=0.19.1\n' >> "$fm/flash/mine/halos.info"
+"$ctl" flash list > "$work/out"
+grep -qE '^  mine +perplexity 3\.8109 \(official 3\.8522\), same next token 86\.5%, KL median 0\.045499, with Halogen 0\.19\.1$' "$work/out" \
+  || { cat "$work/out" >&2; echo "flash list doesn't show the check" >&2; exit 1; }
+ok "flash check asks, stops Halogen, measures as halogen, starts it again even after a failure, and list shows the result"
 # Scripts run as halogen never get root's terminal: no input, and no control characters back.
 f systemd-run 'if read -r -t 1 line; then echo "got input: $line" >> "$FAKE/log"; fi
 printf "HALOGEN_KV8=1\033]0;owned\007\n"; printf "halogen-config: warn\033[2J\tx\n" >&2; exit "${FAKE_RC:-0}"'

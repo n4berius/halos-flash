@@ -3,6 +3,8 @@
 # the halogen user; halogenctl flash pull and flash verify start it.
 #   flash-checkpoint pull <hf-repo> [--revision <rev>] [--as <name>] [--file <checkpoint.hgn>]
 #   flash-checkpoint verify <name>
+#   flash-checkpoint check-prepare <name>   (checks the name, downloads the test text)
+#   flash-checkpoint check <name>           (halogenctl stops Halogen first: ppl needs the GPU)
 # Everything runs in the pinned Halogen image: hf and Python list and download, and Halogen's
 # own tools read the checkpoint back. Only the files Halogen loads are downloaded.
 set -uo pipefail
@@ -67,7 +69,106 @@ verify_dir() {
   [ "$result" = pass ]
 }
 
+# Quality against the official checkpoint, with Halogen's ppl on the public wikitext-2 test split
+# (the corpus Halogen's own docs compare with): perplexity, and per-token KL and top-1 agreement
+# against a reference dump of the official checkpoint, made once per Halogen version.
+corpus_sha="${HALOGEN_CORPUS_SHA:-bbf94c53a05abe9ee670d3b6343608095822c85e26de37c70b24fc571964574a}"
+corpus_url="${HALOGEN_CORPUS_URL:-https://datasets-server.huggingface.co/rows?dataset=Salesforce/wikitext&config=wikitext-2-raw-v1&split=test}"
+check_dir="$models/flash/.check"
+# The text is not ours to ship. Hugging Face's dataset viewer serves its rows; joined, they are
+# byte for byte the text Halogen's docs build from the parquet file, checked by its hash.
+get_corpus() {
+  local out="$check_dir/wikitext-2-raw-test.txt" tmp offset total
+  [ "$(sha256sum 2>/dev/null < "$out" | cut -d' ' -f1)" != "$corpus_sha" ] || return 0
+  echo "Downloading the test text (wikitext-2, about 1.3 MB)..."
+  tmp="$out.part"; : > "$tmp" || return 1
+  offset=0; total=1
+  while [ "$offset" -lt "$total" ]; do
+    # The test split is 4,358 rows (44 pages); a far larger count is not this text.
+    [ "$offset" -lt 10000 ] || { rm -f "$tmp"; echo "The test text is longer than it should be; not used." >&2; return 1; }
+    page="$(curl -fsS -m 60 --retry 3 --max-filesize 2M "$corpus_url&offset=$offset&length=100")" || { rm -f "$tmp"; echo "Could not download the test text." >&2; return 1; }
+    total="$(jq -r '.num_rows_total // 0' <<< "$page")"
+    jq -j '.rows[].row.text' <<< "$page" >> "$tmp" || { rm -f "$tmp"; return 1; }
+    offset=$((offset + 100))
+  done
+  [ "$(sha256sum < "$tmp" | cut -d' ' -f1)" = "$corpus_sha" ] || { rm -f "$tmp"; echo "The test text didn't match its known hash; not used." >&2; return 1; }
+  mv -f "$tmp" "$out"
+}
+# Halogen's ppl: the GPU, no network or capabilities, the models read-only. The folder for the
+# text and the reference dump is writable only for the official run ($2 = rw), which writes the
+# dump; a custom checkpoint's run only reads it. Both runs read the official tokenizer, mounted
+# where Halogen's tools look, so they score the same tokens, whatever tokenizer a repository
+# ships. The prose goes to the terminal; the --json object to $1.
+ppl() {
+  local json="$1" mode="$2"; shift 2
+  podman run --rm --pull=never --device /dev/kfd --device /dev/dri --group-add keep-groups \
+    --ipc=host --ulimit memlock=-1:-1 -v "$models:/models:ro" -v "$check_dir:/models/flash/.check:$mode" \
+    -v "$models/tokenizer:/tokenizer:ro" -e HALOGEN_TOKENIZER=/tokenizer \
+    --network=none --cap-drop=all --security-opt no-new-privileges "$HALOGEN_IMAGE" ppl "$@" --json > "$json"
+}
+# What can be checked before Halogen stops: the checkpoint is there and verified, and the text.
+check_prepare() {
+  local name="$1" info="$models/flash/$1/halos.info" file
+  file="$(info_get "$info" checkpoint)"
+  if ! [[ "$file" =~ ^[A-Za-z0-9._-]+\.hgn$ ]] || [ ! -f "$models/flash/$name/$file" ]; then die "$name is missing its checkpoint file; pull it again."; fi
+  [ "$(info_get "$info" verified)" = pass ] || die "$name has not passed Halogen's verify: sudo halogenctl flash verify $name"
+  [ -f "$models/tokenizer/tokenizer.json" ] || die "the official tokenizer is missing; let the download finish (sudo halogenctl fetch-logs)"
+  mkdir -p "$check_dir" || die "cannot create $check_dir"
+  get_corpus || exit 1
+}
+check_dir_run() {
+  local name="$1" info="$models/flash/$1/halos.info" file ref refjson json p op kl top1 kmean p99 tokens
+  check_prepare "$name"
+  file="$(info_get "$info" checkpoint)"
+  ref="$check_dir/official-$HALOGEN_VERSION.ref"; refjson="$check_dir/official-$HALOGEN_VERSION.json"
+  if [ ! -s "$ref" ] || ! jq -e '.ppl' "$refjson" > /dev/null 2>&1; then
+    rm -f "$check_dir"/official-*.ref "$check_dir"/official-*.json
+    echo "Measuring the official checkpoint first (once per Halogen version)..."
+    ppl "$refjson.new" rw /models/qwen38-flash-next-v2.hgn --corpus /models/flash/.check/wikitext-2-raw-test.txt \
+      --ref-out "/models/flash/.check/official-$HALOGEN_VERSION.ref.new" \
+      || { rm -f "$refjson.new" "$ref.new"; die "Halogen's ppl failed on the official checkpoint (above)."; }
+    if ! mv -f "$ref.new" "$ref" || ! mv -f "$refjson.new" "$refjson"; then die "cannot save the reference"; fi
+  fi
+  echo "Measuring $name against it..."
+  json="$models/flash/$name/check.json"
+  ppl "$json.new" ro "/models/flash/$name/$file" --corpus /models/flash/.check/wikitext-2-raw-test.txt \
+    --ref "/models/flash/.check/official-$HALOGEN_VERSION.ref" --worst 5 \
+    || { rm -f "$json.new"; die "Halogen's ppl failed on $name (above)."; }
+  mv -f "$json.new" "$json"
+  num() { jq -r "$1 // empty" "$2" | grep -E '^-?[0-9.]+(e-?[0-9]+)?$' | head -n 1; }
+  p="$(num .ppl "$json")"; op="$(num .ppl "$refjson")"; kl="$(num .ref.kl.median "$json")"
+  kmean="$(num .ref.kl.mean "$json")"; p99="$(num .ref.kl.p99 "$json")"; top1="$(num .ref.top1_agreement "$json")"
+  if [ -z "$p" ] || [ -z "$op" ] || [ -z "$kl" ] || [ -z "$top1" ]; then die "Halogen's ppl gave no usable numbers; see $json"; fi
+  { grep -v -e '^checked' "$info"
+    echo "checked_with=$HALOGEN_VERSION"
+    echo "checked_at=$(date -u '+%Y-%m-%d %H:%M UTC')"
+    echo "checked_ppl=$p"; echo "checked_official_ppl=$op"
+    echo "checked_kl_median=$kl"; echo "checked_top1=$top1"; } > "$info.new" || die "cannot write $info"
+  mv -f "$info.new" "$info" || die "cannot write $info"
+  # top1_agreement may be a fraction or a percentage; show a percentage.
+  top1="$(awk -v t="$top1" 'BEGIN { if (t <= 1) t *= 100; printf "%.1f", t }')"
+  echo
+  tokens="$(num .tokens "$json")"
+  echo "$name against the official checkpoint, on the wikitext-2 test text (${tokens:-?} tokens):"
+  printf '  perplexity           %-10s official %s   (lower: the text surprises it less)\n' "$p" "$op"
+  printf '  same next token      %s%%            (how often both would write the same word)\n' "$top1"
+  printf '  KL divergence        median %s, mean %s, p99 %s\n' "$kl" "${kmean:-?}" "${p99:-?}"
+  echo
+  echo "How to read it: a median KL of a few hundredths is the ordinary difference between two"
+  echo "quantizations of the same model. A much larger median, or a mean far above the median, means"
+  echo "it answers differently in places: fine for a fine-tune, a warning for a plain conversion."
+  echo "Halogen's docs explain each number: https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/checkpoint-tools.md"
+  echo "Details, with the 5 places they disagree most: $json"
+}
+
 case "${1:-}" in
+  check|check-prepare)
+    name="${2:-}"
+    valid_name "$name" || die "usage: halogenctl flash check <name>, as sudo halogenctl flash list shows it"
+    [ -f "$models/flash/$name/halos.info" ] || die "No checkpoint called $name. See: sudo halogenctl flash list"
+    if [ -L "$models/flash/$name" ] || [ -L "$models/flash/$name/halos.info" ]; then die "$models/flash/$name holds links; pull it again."; fi
+    if [ "$1" = check-prepare ]; then check_prepare "$name"; else check_dir_run "$name"; fi
+    exit 0 ;;
   verify)
     name="${2:-}"
     valid_name "$name" || die "usage: halogenctl flash verify <name>, as sudo halogenctl flash list shows it"
@@ -76,7 +177,7 @@ case "${1:-}" in
     else die "$name failed Halogen's verify (above), so it can't be used. Pull it again, or remove it: sudo halogenctl flash remove $name"; fi
     exit 0 ;;
   pull) shift ;;
-  *) die "usage: flash-checkpoint pull <hf-repo> [--revision <rev>] [--as <name>] [--file <checkpoint.hgn>] | verify <name>" ;;
+  *) die "usage: flash-checkpoint pull <hf-repo> [--revision <rev>] [--as <name>] [--file <checkpoint.hgn>] | verify <name> | check-prepare <name> | check <name>" ;;
 esac
 
 repo=""; revision=main; name=""; want_file=""
@@ -181,9 +282,11 @@ fi
 mkdir -p "$dir" || exit 1
 mounts=(-v "$dir:/models/flash/$name")
 # From the first byte until the checks pass, the folder counts as unchecked.
+# A new download also makes an earlier flash check's numbers stale.
 if [ -f "$info" ]; then
-  { grep -v -e '^verified' "$info"; echo "verified=no"; } > "$info.new" && mv -f "$info.new" "$info" || exit 1
+  { grep -v -e '^verified' -e '^checked' "$info"; echo "verified=no"; } > "$info.new" && mv -f "$info.new" "$info" || exit 1
 fi
+rm -f "$dir/check.json"
 echo "Downloading $checkpoint from $repo at commit ${commit:0:12} into $dir ($(gib "$need") to fetch). An interrupted download resumes."
 if [ "$progress_s" -gt 0 ]; then
   while sleep "$progress_s" > /dev/null 2>&1; do echo "  $(du -sh "$dir" 2>/dev/null | cut -f1) so far"; done &

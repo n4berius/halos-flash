@@ -38,7 +38,7 @@ name, but allows saying halOS runs Halogen.
 | `versions.env` | Every pinned input: Fedora base, Halogen version, digest and source commit, upstream file hashes, weights repo and revision, ISO builder |
 | `Containerfile` | The OS image. XRT is not in it: Halogen's image carries its own since 0.19.1 |
 | `Containerfile.installer`, `installer/` | The live installer image, Anaconda defaults (storage layout for custom partitioning), branding and boot menu. `installer/guided/`: the guided install's kickstart and `plan-install` (#42) |
-| `files/` | Copied into both editions: systemd units, `halosctl`, `halogenctl`, `halogen-enroll-tpm`, `/usr/libexec/halogen/*` (`flash-checkpoint` and `model-pull` download your own checkpoints) |
+| `files/` | Copied into both editions: systemd units, `halosctl`, `halogenctl`, `halogen-enroll-tpm` (bash completion for all three in `usr/share/bash-completion/completions/`; `tests/completion.sh` fails when a tool gains a top-level command, or a `flash`/`model` subcommand, its completion doesn't offer; checkpoint folder names are written by halogen and its containers, so they are never passed to `compgen -W`, which expands `$(...)`: only plain names, matched by hand), `/usr/libexec/halogen/*` (`flash-checkpoint` and `model-pull` download your own checkpoints) |
 | `variants/npu`, `variants/no-npu` | Per-edition kernel arguments, Quadlet drop-ins, the allowed-options list and default `halogen.env` |
 | `scripts/` | `build.sh`, `build-iso.sh`, `package-iso.sh` (single-file release ISO), `release-info.sh`, `gen-options.py` (options from upstream `FLAGS.md`), `halogen-update.sh` (pins a new Halogen release), `size-report.sh`, `channels.sh` (which channel tags a release moves), `next-tag.sh` (the next release tag), `push-image.sh`, `sign-image.sh` (cosign signing) |
 | `CHANGELOG.md`, `ROADMAP.md` | What each release changed (PRs add to Unreleased), and the order of the work ahead |
@@ -109,8 +109,17 @@ name, but allows saying halOS runs Halogen.
   `flash use` writes `/srv/configs/flash-checkpoint`; `render-config` turns it into
   `HALOGEN_CHECKPOINT` (no longer in `locked.env`), falling back to the official file for
   anything unexpected, and drops `HALOGEN_VISION_TOWER` when the custom folder has no tower. The
-  official checkpoint is always kept and fetched (owner decision). `ppl` on request and GGUF
-  conversion are later steps.
+  official checkpoint is always kept and fetched (owner decision). `flash check <name>` (#56):
+  halogenctl runs `flash-checkpoint check-prepare` (name, verify, corpus) while Halogen still
+  serves, arms an EXIT trap (with `set +e`; it stops the named unit `halogen-flash-check` first,
+  then starts Halogen only if it was running, before printing, since a dead terminal fails echo),
+  stops Halogen (ppl needs the GPU), then `flash-checkpoint check` (that unit, `RuntimeMaxSec=3h`,
+  output through a pipe with control characters removed; `--pipe` doesn't stop the unit on
+  Ctrl-C, hence the named unit) runs Halogen's `ppl --json` with the official tokenizer on wikitext-2's test split
+  (`/srv/models/flash/.check/`, fetched from HF's dataset viewer rows API and checked against the
+  sha256 of the text Halogen's docs build from the parquet file, `bbf94c53…`), first `--ref-out`
+  for the official checkpoint once per Halogen version, then `--ref --worst 5` for the custom one;
+  results go to `halos.info` (`checked_*`) and `check.json`. GGUF conversion is a later step.
 - `halogenctl bench [--quick]` (#15, `/usr/libexec/halogen/bench`, as halogen) runs Halogen's own
   `sweep` (`/halogen/tools/halogen-bench.py --json`, an HTTP client) in the pinned image against the
   running server: `--network=host` only, read-only, no mounts, devices or capabilities, the API key

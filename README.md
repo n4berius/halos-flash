@@ -167,6 +167,10 @@ To change what is allowed or locked, edit `files/usr/share/halogen/locked.env` o
 
 ## Operate
 
+`halogenctl`, `halosctl` and `halogen-enroll-tpm` complete with Tab: their commands, options,
+channels, and the names of your own checkpoints (those only when you can read `/srv/models`,
+since `sudo` completes as you).
+
 ```bash
 sudo halosctl setup          # first-boot questions: TPM unlock, HF token, settings (again any time)
 sudo halogenctl status       # service state

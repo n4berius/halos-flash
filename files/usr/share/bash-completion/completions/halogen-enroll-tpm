@@ -1,0 +1,12 @@
+# bash completion for halogen-enroll-tpm (halOS): the LUKS device, if not the one in /etc/crypttab.
+# Device paths are matched by hand, never put through compgen -W, which expands $(...).
+_halogen_enroll_tpm() {
+  local cur="${COMP_WORDS[COMP_CWORD]}" p
+  COMPREPLY=()
+  [ "$COMP_CWORD" -eq 1 ] || return 0
+  while read -r p; do
+    [[ "$p" =~ ^/dev/[A-Za-z0-9/._-]+$ ]] || continue
+    [[ "$p" == "$cur"* ]] && COMPREPLY+=("$p")
+  done < <(lsblk -rnpo PATH,FSTYPE 2>/dev/null | awk '$2 == "crypto_LUKS" { print $1 }')
+}
+complete -F _halogen_enroll_tpm halogen-enroll-tpm
