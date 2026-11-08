@@ -19,6 +19,13 @@ promoted.
   the NPU with your own OvisOCR3 (`sudo halogenctl model pull ATH-MaaS/OvisOCR3`; INSTALL.md says
   how to serve it). The Flash checkpoint and every setting stay the same; at temperature 0 replies
   can differ from 0.19.1's in the last bits. (#78)
+
+## v0.19.1-alpha.6 (2026-11-08)
+
+No change to what users get: the project notes and roadmap were brought up to date (#79).
+
+## v0.19.1-alpha.5 (2026-11-08)
+
 - **Hardening:** programs running as the `halogen` user (Halogen's helpers, and anything that
   might break out of its container) can no longer type into an admin's root terminal or send it
   escape codes. `halogenctl` gives the scripts it runs as `halogen` no access to your terminal,
@@ -46,6 +53,9 @@ promoted.
   `rollback --to` now keeps an edition change that is waiting for the next boot, or, when that
   can't be told (a machine pinned to one release), asks you to reboot first instead of guessing.
   (#72)
+
+## v0.19.1-alpha.4 (2026-11-07)
+
 - A setting written twice in `halogen.env` (easy to do when pasting from the example file) is
   now pointed out: `halogenctl status`, `config` and `options` name it, and Halogen's log says
   which line is used (the last one). Nothing changes in what Halogen receives. (#71)

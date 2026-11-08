@@ -229,15 +229,16 @@ name, but allows saying halOS runs Halogen.
 Open issues are the source of truth, prioritised with the `priority: high/medium/low` labels
 and tracked on the owner's project board. [ROADMAP.md](ROADMAP.md) holds the order and
 [CHANGELOG.md](CHANGELOG.md) what each release changed. When this file was last updated (after
-#79, with #78 moving to Halogen 0.20.0):
+#78, the move to Halogen 0.20.0):
 
-- Released: `v0.19.1-alpha.3`. Merged since, on edge and not yet in a release: the guided
-  installer (#66), the serial-getty fix (#67), the TPM wording (#68), the full security audit's
-  fixes (#69), the restart fix (#70), the duplicate-settings note (#71), `npu on|off` (#72),
-  `bench` (#73), `flash check` (#74), tab completion (#75) and the hardening from their reviews
-  (#76 terminal, #77 edition label). Next: the owner checks them on freyja, cuts an alpha, does one
-  real guided install from its ISO, then promotes to beta. Freyja serves
-  `swift-15fn-heretic-coder` with `flash use`.
+- Released: `v0.19.1-alpha.6`, the last release on Halogen 0.19.1. It carries the guided installer
+  (#66), the serial-getty fix (#67), the TPM wording (#68), the full security audit's fixes (#69),
+  the restart fix (#70) and the duplicate-settings note (#71), all first in alpha.4; `npu on|off`
+  (#72), `bench` (#73), `flash check` (#74), tab completion (#75) and the hardening from their
+  reviews (#76 terminal, #77 edition label), first in alpha.5. On edge since: Halogen 0.20.0 (#78).
+  Next: the owner checks alpha.6 on freyja and does one real guided install from its ISO, then
+  edge on 0.20.0, then an alpha with 0.20.0. Freyja serves `swift-15fn-heretic-coder` with
+  `flash use`.
 - Before RC: machines refuse unsigned images (#46 phase 2b; ships once every channel points to a
   key-signed image). Done: first-boot setup and "API ready" (#43), the guided installer (#42, one
   real install still to do), the full `security-auditor` pass (#69).
@@ -246,7 +247,7 @@ and tracked on the owner's project board. [ROADMAP.md](ROADMAP.md) holds the ord
 - **Stable waits for Halogen 0.20** (owner decision): halOS is aligned with 0.20.0 first, then
   released as stable. 0.20.0 (ROCm 10.1 in its image, OvisOCR3 document parsing on the NPU as your
   own checkpoint, faster prefill, a strict-tool-call crash fixed; the Flash checkpoints and weights
-  revision unchanged) is pinned by #78. Between source commits 47ceb43 and 8242b15, FLAGS.md,
+  revision unchanged) is pinned by #78 (merged; on edge, in no release yet). Between source commits 47ceb43 and 8242b15, FLAGS.md,
   `deploy/entrypoint.sh` and host-setup's requirements are unchanged (only image tags in examples),
   so `options.allowed`, `halogen.env.default`, the Quadlet and kernel arguments stay as they are.
   OvisOCR3 (`ATH-MaaS/OvisOCR3`, 1.7 GB safetensors) goes through `model pull` into `custom` (the
