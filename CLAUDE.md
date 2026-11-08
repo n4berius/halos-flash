@@ -229,7 +229,7 @@ name, but allows saying halOS runs Halogen.
 Open issues are the source of truth, prioritised with the `priority: high/medium/low` labels
 and tracked on the owner's project board. [ROADMAP.md](ROADMAP.md) holds the order and
 [CHANGELOG.md](CHANGELOG.md) what each release changed. When this file was last updated (after
-#76, on Halogen 0.19.1):
+#79, with #78 moving to Halogen 0.20.0):
 
 - Released: `v0.19.1-alpha.3`. Merged since, on edge and not yet in a release: the guided
   installer (#66), the serial-getty fix (#67), the TPM wording (#68), the full security audit's
@@ -250,10 +250,14 @@ and tracked on the owner's project board. [ROADMAP.md](ROADMAP.md) holds the ord
   `deploy/entrypoint.sh` and host-setup's requirements are unchanged (only image tags in examples),
   so `options.allowed`, `halogen.env.default`, the Quadlet and kernel arguments stay as they are.
   OvisOCR3 (`ATH-MaaS/OvisOCR3`, 1.7 GB safetensors) goes through `model pull` into `custom` (the
-  probe's base isn't LFM or decider; its exact name is unchecked until freyja runs it), served as
+  probe's base, almost certainly `ovisocr3` by the image's `models.txt` and the probe binary, isn't
+  LFM or decider; freyja confirms; its NPU programs in `models.txt` have no pinned revision, like
+  `halogen-spotter-0.6b`, so an upstream push to them breaks the fetch's hash check), served as
   `OvisOCR3` from `/models/custom/OvisOCR3`; INSTALL mentions `HALOGEN_WEIGHTS_LOCK=1` (already
   allowed) beside it. Still to do: test 0.20.0 on freyja, then stable.
 - After stable: unlock over SSH (#13), clevis/tang (#44), GGUF in `flash pull` (#61).
+- The ISO install test also runs when `versions.env` changes (#78), so every Halogen update PR
+  gets the LUKS + TPM install in a VM, about 30 minutes for both editions.
 - Known upstream: bootc 1.17.1 rewrites `/etc/fstab` at every boot on Anaconda installs
   (bootc-dev/bootc#2592); `bootc-fstab-edit.service.d/10-halos.conf` skips it. `bootc switch` to
   the ref a machine already follows does nothing; use `bootc upgrade`.

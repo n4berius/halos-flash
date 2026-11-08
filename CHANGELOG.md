@@ -10,7 +10,7 @@ promoted.
 
 ## Unreleased
 
-- **Halogen 0.20.0** ([its changelog](https://github.com/peonist-ai/halogen-flash-server/blob/main/CHANGELOG.md)):
+- **Halogen 0.20.0** ([its changelog](https://github.com/peonist-ai/halogen-flash-server/blob/8242b157ce78fd720f5b3da18d398d2fb8cebce5/CHANGELOG.md)):
   its image moves to ROCm 10.1 (less power while generating, same speed), prompts read a few
   percent faster, and a crash with strict tool calls under load is fixed. New: document parsing on
   the NPU with your own OvisOCR3 (`sudo halogenctl model pull ATH-MaaS/OvisOCR3`; INSTALL.md says
