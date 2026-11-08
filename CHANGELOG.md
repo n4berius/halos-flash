@@ -14,7 +14,7 @@ promoted.
   might break out of its container) can no longer type into an admin's root terminal or send it
   escape codes. `halogenctl` gives the scripts it runs as `halogen` no access to your terminal,
   strips control characters from what they print, and the kernel's terminal-injection call
-  (`TIOCSTI`) is switched off. (#PR)
+  (`TIOCSTI`) is switched off. (#76)
 - `sudo halogenctl bench` measures how fast the server reads prompts and writes answers, with
   Halogen's own benchmark tool, without restarting it. The report lists what the numbers depend
   on (versions, BIOS, kernel settings, power profile, checkpoint, settings) and is saved in
