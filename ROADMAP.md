@@ -13,10 +13,11 @@ How releases are used:
 | beta | major milestones, after the hardware checklist |
 | rc and stable | about quarterly, after a soak test |
 
-## Now: the next alpha, then beta
+## Now: test alpha.6, then Halogen 0.20 on edge
 
-Everything merged since `v0.19.1-alpha.3` (#66 to #77) goes out as an alpha once the test
-machine has checked it, then is promoted to beta after a few days:
+`v0.19.1-alpha.6` carries everything from #66 to #77 on Halogen 0.19.1. Halogen 0.20.0 (#78) is on
+edge and goes out in the next alpha once the test machine has run it. Before beta, the test
+machine checks:
 - normal use on the official checkpoint and on a custom one
 - the selftest clean on both
 - the login screen and SSH message show Halogen's state, and say "ready" once it answers
@@ -39,9 +40,9 @@ In this order. Each ships as an alpha, then is promoted to beta once tested.
 
 ## After the release candidate, before stable
 
-**Stable waits for Halogen 0.20.** halOS moves to Halogen 0.20.0 (#78, opened by the daily check) and
-is aligned with it first: its new and changed settings, the image's ROCm 10.1, OvisOCR3 document
-parsing on the NPU as your own checkpoint, all tested on the test machine. Then stable.
+**Stable waits for Halogen 0.20.** halOS moved to Halogen 0.20.0 in #78: no setting, host need or
+container change was needed, and OvisOCR3 document parsing works through `model pull` (INSTALL.md).
+What's left is running it on the test machine. Then stable.
 
 Built, to check on the test machine:
 
