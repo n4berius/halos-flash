@@ -28,7 +28,7 @@ machines refuse unsigned images (#46, phase 2, #91).
 ## Next
 
 1. Unlock the disk over SSH at boot (#13). Part 1 (#93): the early-boot SSH server and `halosctl
-   ssh-unlock`. Part 2 (#PR): the guided installer asks how the disk unlocks and takes the keys.
+   ssh-unlock`. Part 2 (#94): the guided installer asks how the disk unlocks and takes the keys.
 2. Unlock the disk from a tang server on the network (#44).
 3. GGUF repositories in `flash pull` (#61).
 
