@@ -364,7 +364,9 @@ convert_run() {
   shift
   while [ $# -gt 0 ]; do
     case "$1" in
-      --threads) [[ "${2:-}" =~ ^[0-9]+$ ]] && [ "$2" -ge 1 ] && [ "$2" -le 64 ] || die "--threads takes 1 to 64"; threads="$2"; shift 2 ;;
+      --threads)
+        if ! [[ "${2:-}" =~ ^[0-9]{1,2}$ ]] || [ "$2" -lt 1 ] || [ "$2" -gt 64 ]; then die "--threads takes 1 to 64"; fi
+        threads="$2"; shift 2 ;;
       --keep-source) keep=1; shift ;;
       *) die "unknown option $1" ;;
     esac
@@ -427,7 +429,7 @@ convert_run() {
   sandboxed "$converter" verify --source "$src" --output "$staged" > "$work/verify.json" 2> "$work/verify.err" \
     || { tr -d '\000-\010\013-\037\177' < "$work/verify.err" | tail -n 20; die "bf16-to-hgn's verify failed (above); the result is not used."; }
   # Into place only now, and never over anything.
-  mv -T -n "$staged" "$out" && [ ! -e "$staged" ] || die "Could not move the result to $out."
+  if ! mv -T -n "$staged" "$out" || [ -e "$staged" ]; then die "Could not move the result to $out."; fi
   cp "$work/convert.json" "$out/convert-report.json" 2> /dev/null || true
 
   { echo "repo=$repo"
