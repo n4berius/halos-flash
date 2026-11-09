@@ -13,8 +13,9 @@ promoted.
 - `flash pull` and `flash verify` add the official tokenizer's vocabulary to a checkpoint whose
   `tokenizer/` folder has no `tokenizer.json` (Signal-3.8-Flash-Next-HGN-v2 ships only its chat
   template and settings), keeping its own chat template. Halogen couldn't start on such a checkpoint
-  and restarted every 30 seconds; a checkpoint still without one now fails verify, so `flash use`
-  refuses it. (#88)
+  and restarted every 30 seconds; a checkpoint still without one, or with a vocabulary of its own,
+  now fails verify, so `flash use` refuses it. For one pulled before: `sudo halogenctl flash verify
+  <name>`, then `sudo halogenctl restart` if Halogen serves it. (#88)
 - `halogenctl model list` shows an NPU model as in use when one of your own checkpoints runs on it
   ("yes, for OvisOCR3") or the agent guard adds it, where it used to say "no". (#87)
 

@@ -418,7 +418,12 @@ What `flash pull` does:
   script to run.
 - **Several checkpoints.** If the repository holds more than one `.hgn` checkpoint, choose one
   with `--file <name>.hgn`.
-- **No tokenizer.** If the repository has none, it copies in the official tokenizer.
+- **No tokenizer.** If the repository has none, it copies in the official tokenizer. If its
+  `tokenizer/` has a chat template and settings but no `tokenizer.json` (the vocabulary), the
+  official vocabulary is added and its own chat template stays. If it has a vocabulary of its own
+  but no `tokenizer.json`, halOS can't build one: it fails the check, and `flash use` refuses it.
+  A checkpoint pulled before halOS did this is fixed with `sudo halogenctl flash verify <name>`,
+  then `sudo halogenctl restart` if Halogen serves it.
 - **Room first.** It checks the free space before the first byte. A custom checkpoint
   typically needs 60 to 110 GB, on top of the official model's 110 GB.
 - **Checked twice.** Every file must match the hash Hugging Face lists for it, and the

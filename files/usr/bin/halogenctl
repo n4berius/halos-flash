@@ -172,6 +172,8 @@ case "${1:-status}" in
       verify)
         valid "${3:-}" || { echo "usage: halogenctl flash verify <name>" >&2; exit 2; }
         as_halogen /usr/libexec/halogen/flash-checkpoint verify "$3"
+        # Halogen reads the checkpoint's files only when it starts.
+        if [ "$(chosen_flash)" = "$3" ]; then echo "Halogen serves $3: restart it to use the checked files: sudo halogenctl restart"; fi
         ;;
       check)
         # Halogen's ppl loads the model, which needs the GPU to itself: Halogen stops meanwhile.
