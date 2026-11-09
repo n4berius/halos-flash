@@ -17,7 +17,7 @@ listing() {
   (cd "$work/repo" && find . -type f | sed 's|^\./||' | sort) | while read -r f; do
     size="$(stat -c %s "$work/repo/$f")"
     blob="$({ printf 'blob %d\0' "$size"; cat "$work/repo/$f"; } | sha1sum | cut -d' ' -f1)"
-    case "$f" in *.hgn) sha="$(sha256sum "$work/repo/$f" | cut -d' ' -f1)" ;; *) sha=- ;; esac
+    case "$f" in *.hgn|*.safetensors) sha="$(sha256sum "$work/repo/$f" | cut -d' ' -f1)" ;; *) sha=- ;; esac
     printf 'file\t%s\t%s\t%s\t%s\n' "$f" "$size" "$sha" "$blob"
   done
 }
@@ -290,3 +290,102 @@ rm -f "$work/models/flash/.check/official-9.9.9.ref" "$work/models/flash/.check/
 if FAKE_PPL_FAIL=/models/qwen38-flash-next-v2.hgn "$tool" check mine > "$work/out" 2>&1; then fail "a failed reference run passed"; fi
 [ ! -e "$work/models/flash/.check/official-9.9.9.ref" ] || fail "a failed reference run left a dump"
 ok "flash check reuses the reference and text, refuses a wrong text, an unverified checkpoint and bad names, and keeps no half results"
+
+# Converting full-precision weights (halogenctl flash convert): a fake bf16-to-hgn that writes the
+# layout the real one publishes, and an unshare that records how the converter was run.
+cat > "$work/bin/b2h" <<'S'
+#!/bin/bash
+echo "b2h $*" >> "$FAKE/b2h.log"
+cmd="$1"; shift; src=""; out=""
+while [ $# -gt 0 ]; do case "$1" in --source) src="$2"; shift 2 ;; --output) out="$2"; shift 2 ;; *) shift ;; esac; done
+[ -f "$src/model.safetensors.index.json" ] || { echo "missing index" >&2; exit 1; }
+case "$cmd" in
+  convert) [ -z "${FAKE_CONVERT_FAIL:-}" ] || { echo "error: unsupported tensor" >&2; exit 1; }
+    mkdir -p "$out/tokenizer"; echo converted > "$out/model.hgn"; echo table > "$out/qwen38-flash-next-ngram.hgn"
+    echo eyes > "$out/qwen38-flash-next-vision.hgn"; cp "$src/tokenizer.json" "$out/tokenizer/"; cp "$src/config.json" "$out/"
+    echo '{"schema": 2}' > "$out/conversion-manifest.json"; echo '{"published": true}' ;;
+  verify) echo '{"ok": true}' ;;
+esac
+S
+cat > "$work/bin/unshare" <<'S'
+#!/bin/bash
+echo "unshare $*" >> "$FAKE/unshare.log"
+while [ $# -gt 0 ] && [ "$1" != -- ]; do shift; done; shift; exec "$@"
+S
+chmod +x "$work/bin/b2h" "$work/bin/unshare"
+export HALOS_BF16_TO_HGN="$work/bin/b2h" HALOS_CONVERT_OUT_BYTES=1000
+bf16_repo() { # mtp vision: whether the index lists them
+  rm -rf "$work/repo"; mkdir -p "$work/repo"
+  put config.json '{"architectures": ["Qwen4ExpForConditionalGeneration"], "model_type": "qwen4_exp"}'
+  local keys='"model.layers.0.mlp.gate.weight": "model-00001-of-00002.safetensors"'
+  [ "$1" != 1 ] || keys+=', "mtp.layers.0.mlp.gate.weight": "model-00002-of-00002.safetensors"'
+  [ "$2" != 1 ] || keys+=', "visual.blocks.0.attn.qkv.weight": "model-00002-of-00002.safetensors"'
+  put model.safetensors.index.json "{\"weight_map\": {$keys}}"
+  for f in tokenizer.json tokenizer_config.json chat_template.jinja merges.txt generation_config.json; do put "$f" "{\"$f\": 1}"; done
+  put model-00001-of-00002.safetensors weights1; put model-00002-of-00002.safetensors weights2; put README.md hi
+}
+prepare() { listing > "$work/listing"; : > "$work/hf.log"; "$tool" convert-prepare "$@" > "$work/out" 2>&1; }
+run() { listing > "$work/listing"; : > "$work/hf.log"; : > "$work/verify.log"; : > "$work/b2h.log"; : > "$work/unshare.log"; "$tool" convert-run "$@" > "$work/out" 2>&1; }
+
+bf16_repo 1 1
+prepare someone/Flash-BF16 --as conv || fail "a good convert-prepare failed"
+grep -qx 'name=conv' "$work/out" || fail "no name"
+src="$work/models/flash/.convert/conv/source"
+{ [ -f "$src/config.json" ] && [ -f "$src/chat_template.jinja" ] && [ ! -e "$src/model-00001-of-00002.safetensors" ]; } \
+  || fail "prepare should fetch only the small files"
+grep -q "hf $commit model.safetensors.index.json config.json" "$work/hf.log" || fail "small files not fetched at the commit: $(cat "$work/hf.log")"
+prepare someone/Flash-BF16 --as conv2 || fail "a second prepare failed"
+grep -q '^download=' "$work/out" || fail "no sizes"
+rm -rf "$work/models/flash/.convert/conv2"
+ok "convert-prepare fetches only the small files, at the exact commit, and says what the conversion needs"
+
+for case in "0 1:MTP head" "1 0:vision tower"; do
+  read -r mtp vision <<< "${case%%:*}"; bf16_repo "$mtp" "$vision"
+  if prepare someone/Flash-BF16 --as part; then fail "an incomplete model was taken"; fi
+  grep -q "no ${case#*:}" "$work/out" || fail "expected 'no ${case#*:}'"
+  [ ! -e "$work/models/flash/.convert/part/source/model-00001-of-00002.safetensors" ] || fail "weights downloaded for a refused model"
+done
+bf16_repo 1 1; put config.json '{"architectures": ["LlamaForCausalLM"], "model_type": "llama"}'
+if prepare someone/Llama --as llama; then fail "another model was taken"; fi
+grep -q "isn't Qwen3.8 Flash Next weights (model_type llama)" "$work/out" || fail "wrong message for another model"
+bf16_repo 1 1; rm "$work/repo/chat_template.jinja"
+if prepare someone/Flash-BF16 --as noasset; then fail "a repo without chat_template.jinja was taken"; fi
+grep -q 'lacks chat_template.jinja' "$work/out" || fail "missing asset not named"
+bf16_repo 1 1
+if FAKE_FREE=100 prepare someone/Flash-BF16 --as small; then fail "too little disk was accepted"; fi
+grep -q 'free' "$work/out" || fail "disk shortage not said"
+mkdir -p "$work/models/flash/taken"
+if prepare someone/Flash-BF16 --as taken; then fail "an existing name was reused"; fi
+rmdir "$work/models/flash/taken"
+ok "convert-prepare refuses another model, one without an MTP head or vision tower, a missing asset, too little disk and a taken name, before any weights download"
+
+run conv --threads 3 || fail "a good conversion failed"
+out="$work/models/flash/conv"
+{ [ "$(cat "$out/model.hgn")" = converted ] && [ -f "$out/qwen38-flash-next-vision.hgn" ]; } || fail "no output"
+grep -q "hf $commit model-00001-of-00002.safetensors model-00002-of-00002.safetensors" "$work/hf.log" || fail "weights not fetched at the commit"
+grep -q 'convert --source .* --output .*/flash/conv --profile v2 --threads 3' "$work/b2h.log" || fail "converter args: $(cat "$work/b2h.log")"
+grep -q '^b2h verify' "$work/b2h.log" || fail "bf16-to-hgn's verify didn't run"
+[ "$(grep -c -- '--net' "$work/unshare.log")" = 2 ] || fail "the converter ran with network"
+{ [ "$(info conv checkpoint)" = model.hgn ] && [ "$(info conv verified)" = pass ] && [ "$(info conv commit)" = "$commit" ]; } || fail "halos.info: $(cat "$out/halos.info")"
+info conv converted_with | grep -q '^bf16-to-hgn ' || fail "no converted_with"
+grep -q 'model.hgn' "$work/verify.log" || fail "Halogen's verify skipped model.hgn"
+grep -q 'vision' "$work/verify.log" || fail "Halogen's verify skipped the vision tower"
+if grep -q ngram "$work/verify.log"; then fail "the table went to Halogen's verify"; fi
+[ ! -e "$work/models/flash/.convert/conv" ] || fail "the downloaded weights stayed"
+grep -q 'flash check conv' "$work/out" || fail "no pointer to flash check"
+ok "convert-run downloads the weights at the commit, converts and verifies without network, checks with Halogen's verify, records it and frees the weights"
+
+rm -rf "$out"; prepare someone/Flash-BF16 --as conv > /dev/null
+run conv --keep-source || fail "--keep-source failed"
+[ -f "$work/models/flash/.convert/conv/source/model-00001-of-00002.safetensors" ] || fail "--keep-source didn't keep the weights"
+rm -rf "$out" "$work/models/flash/.convert"; prepare someone/Flash-BF16 --as conv > /dev/null
+if FAKE_CORRUPT=model-00002-of-00002.safetensors run conv; then fail "a corrupt download was converted"; fi
+grep -q "does not match" "$work/out" || fail "corruption not named"; [ ! -e "$out" ] || fail "output from a corrupt download"
+rm -rf "$work/models/flash/.convert"; prepare someone/Flash-BF16 --as conv > /dev/null
+if FAKE_CONVERT_FAIL=1 run conv; then fail "a failed conversion passed"; fi
+grep -q 'unsupported tensor' "$work/out" || fail "the converter's error wasn't shown"
+grep -q 'start it again to retry' "$work/out" || fail "the retry wasn't explained"
+[ ! -e "$out" ] || fail "output from a failed conversion"
+if run conv --threads 99; then fail "took 99 threads"; fi
+ok "convert-run keeps the weights when asked, and refuses a corrupt download, a failed conversion and bad options"
+

@@ -267,6 +267,61 @@ case "${1:-status}" in
         echo "Switched to $name. Halogen is starting; follow it with: sudo halogenctl logs"
         [ "$name" = official ] || echo "If it doesn't start, go back with: sudo halogenctl flash use official"
         ;;
+      convert)
+        # Full-precision (BF16) Qwen3.8 Flash Next weights to a checkpoint, on this machine. The
+        # checks and small downloads run now; the long part (download, conversion, checks) runs
+        # as its own service, so closing the terminal doesn't stop it.
+        shift 2
+        if [ "$(unit is-active halogen-flash-convert.service 2> /dev/null)" = active ]; then
+          echo "A conversion is already running. Follow it: sudo halogenctl flash convert-logs" >&2; exit 1
+        fi
+        run_args=(); prep_args=()
+        while [ $# -gt 0 ]; do
+          case "$1" in
+            --threads) [ $# -ge 2 ] || { echo "--threads needs a number" >&2; exit 2; }; run_args+=("$1" "$2"); shift 2 ;;
+            --keep-source) run_args+=("$1"); shift ;;
+            *) prep_args+=("$1"); shift ;;
+          esac
+        done
+        out="$(as_halogen /usr/libexec/halogen/flash-checkpoint convert-prepare "${prep_args[@]}" | tee /dev/stderr)" || exit 1
+        name="$(sed -n 's/^name=//p' <<< "$out" | tail -n 1)"
+        valid "$name" || exit 1
+        echo
+        echo "This downloads $(sed -n 's/^download=//p' <<< "$out") of weights into /srv/models/flash/.convert/$name, converts them on the CPU"
+        echo "into /srv/models/flash/$name ($(sed -n 's/^result=//p' <<< "$out")), checks the result, then deletes the downloaded weights"
+        echo "(--keep-source keeps them). The conversion takes many hours, likely a day or more. Halogen keeps"
+        echo "serving meanwhile, more slowly, since both use the same memory."
+        if [ "$yes" != 1 ]; then
+          [ -t 0 ] || { echo "Nothing changed: add --yes to confirm without a terminal." >&2; exit 1; }
+          read -rp "Start? [y/N] " answer
+          [ "$answer" = y ] || [ "$answer" = Y ] || { echo "Nothing started. The small files stay in /srv/models/flash/.convert/$name."; exit 1; }
+        fi
+        unit reset-failed halogen-flash-convert.service > /dev/null 2>&1 || true
+        systemd-run --machine=halogen@.host --user --unit=halogen-flash-convert --collect --quiet \
+          -p Nice=10 -p IOSchedulingClass=idle -p CPUWeight=20 \
+          /usr/libexec/halogen/flash-checkpoint convert-run "$name" "${run_args[@]}" || exit 1
+        echo "Started. Follow it: sudo halogenctl flash convert-logs   Stop it: sudo halogenctl flash convert-stop"
+        ;;
+      convert-logs)
+        exec journalctl --no-pager "${follow[@]}" -n "${3:-100}" _SYSTEMD_USER_UNIT=halogen-flash-convert.service ;;
+      convert-stop)
+        name="${3:-}"
+        if [ "$(unit is-active halogen-flash-convert.service 2> /dev/null)" = active ]; then
+          unit stop halogen-flash-convert.service && echo "Stopped the conversion. Started again, it resumes the download; the conversion itself starts over."
+        else echo "No conversion is running."; fi
+        if [ -n "$name" ]; then
+          valid "$name" || { echo "usage: halogenctl flash convert-stop [<name>]" >&2; exit 2; }
+          dir="$models/flash/.convert/$name"
+          as_owner test -d "$dir" || { echo "Nothing downloaded for $name." >&2; exit 1; }
+          if [ "$yes" != 1 ]; then
+            [ -t 0 ] || { echo "Nothing deleted: add --yes to confirm without a terminal." >&2; exit 1; }
+            read -rp "Delete the downloaded weights for $name ($(as_owner du -sh "$dir" | cut -f1))? [y/N] " answer
+            [ "$answer" = y ] || [ "$answer" = Y ] || exit 0
+          fi
+          as_owner rm -rf -- "$dir" && echo "Deleted the downloaded weights for $name."
+          as_owner find "$models/flash" -maxdepth 1 -name '.bf16-to-hgn-*' -exec rm -rf -- {} + 2> /dev/null || true
+        fi
+        ;;
       remove)
         name="${3:-}"
         valid "$name" || { echo "usage: halogenctl flash remove <name>" >&2; exit 2; }
@@ -282,7 +337,7 @@ case "${1:-status}" in
         # As halogen: a folder link planted by a container must not let root delete through it.
         as_owner rm -rf -- "$dir" && echo "Deleted $name."
         ;;
-      *) echo "usage: halogenctl flash pull <hf-repo> [--revision <rev>] [--as <name>] [--file <checkpoint.hgn>] | list | use <name>|official [--yes] | verify <name> | check <name> [--yes] | remove <name> [--yes]" >&2; exit 2 ;;
+      *) echo "usage: halogenctl flash pull <hf-repo> [--revision <rev>] [--as <name>] [--file <checkpoint.hgn>] | convert <hf-repo> [--revision <rev>] [--as <name>] [--threads <n>] [--keep-source] [--yes] | convert-logs [lines] | convert-stop [<name>] [--yes] | list | use <name>|official [--yes] | verify <name> | check <name> [--yes] | remove <name> [--yes]" >&2; exit 2 ;;
     esac
     ;;
   model)
@@ -397,5 +452,5 @@ case "${1:-status}" in
     [ "$(id -u)" = 0 ] || { echo "Run it with sudo: sudo halogenctl bench ${2:-}" >&2; exit 1; }
     halogen_run /usr/libexec/halogen/bench ${2:+"$2"}
     ;;
-  *) echo "usage: halogenctl status|start|stop|restart|logs [lines]|fetch-logs [lines]|doctor|selftest|bench [--quick]|config|options [--new]|api-key|hf-token [--remove]|model pull|list|remove|flash pull|list|use|verify|check|remove" >&2; exit 2 ;;
+  *) echo "usage: halogenctl status|start|stop|restart|logs [lines]|fetch-logs [lines]|doctor|selftest|bench [--quick]|config|options [--new]|api-key|hf-token [--remove]|model pull|list|remove|flash pull|convert|convert-logs|convert-stop|list|use|verify|check|remove" >&2; exit 2 ;;
 esac

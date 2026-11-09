@@ -5,6 +5,8 @@
 #   flash-checkpoint verify <name>
 #   flash-checkpoint check-prepare <name>   (checks the name, downloads the test text)
 #   flash-checkpoint check <name>           (halogenctl stops Halogen first: ppl needs the GPU)
+#   flash-checkpoint convert-prepare <hf-repo> [--revision <rev>] [--as <name>]
+#   flash-checkpoint convert-run <name> [--threads <n>] [--keep-source]   (halogenctl flash convert)
 # Everything runs in the pinned Halogen image: hf and Python list and download, and Halogen's
 # own tools read the checkpoint back. Only the files Halogen loads are downloaded.
 set -uo pipefail
@@ -199,6 +201,202 @@ check_dir_run() {
   echo "Details, with the 5 places they disagree most: $json"
 }
 
+# What a repository holds at a revision: the exact commit in $commit, then each file's size and
+# hash in $files (name, size, LFS sha256, git blob id; tab-separated).
+list_repo() {
+  local repo="$1" revision="$2" listing err
+  echo "Looking up $repo at $revision..."
+  listing="$(online python3 - "$repo" "$revision" <<'PY'
+import sys
+from huggingface_hub import HfApi
+repo, rev = sys.argv[1], sys.argv[2]
+try:
+    info = HfApi().model_info(repo, revision=rev, files_metadata=True)
+except Exception as e:
+    print("error " + " ".join(str(e).split())[:300])
+    sys.exit(0)
+print("commit", info.sha)
+for s in info.siblings or []:
+    if any(c.isspace() for c in s.rfilename):
+        continue
+    lfs = getattr(s, "lfs", None)
+    sha = (lfs.get("sha256") if isinstance(lfs, dict) else getattr(lfs, "sha256", None)) if lfs is not None else None
+    # Git's own id for files kept outside LFS (small ones, such as the tokenizer's).
+    blob = getattr(s, "blob_id", None)
+    print("\t".join(["file", s.rfilename, str(s.size if s.size is not None else -1), sha or "-", blob or "-"]))
+PY
+)" || die "Could not reach Hugging Face. Is the network up?"
+  err="$(sed -n 's/^error //p' <<< "$listing")"
+  [ -z "$err" ] || die "Hugging Face did not answer for $repo at $revision: $err
+(A private or gated repository needs a token: sudo halogenctl hf-token)"
+  commit="$(sed -n 's/^commit //p' <<< "$listing")"
+  [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || die "Hugging Face gave no commit for $repo at $revision"
+  files="$(awk -F'\t' '$1 == "file" { print $2 "\t" $3 "\t" $4 "\t" $5 }' <<< "$listing")"
+}
+size_of() { awk -F'\t' -v f="$1" '$1 == f { print $2; exit }' <<< "$files"; }
+sha_of() { awk -F'\t' -v f="$1" '$1 == f { print $3; exit }' <<< "$files"; }
+blob_of() { awk -F'\t' -v f="$1" '$1 == f { print $4; exit }' <<< "$files"; }
+has() { [ -n "$(size_of "$1")" ]; }
+gib() { awk -v b="$1" 'BEGIN { printf "%.1f GiB", b / 1073741824 }'; }
+# Each file must be exactly what the repository holds at that commit (Hugging Face's own hashes).
+check_hashes() { # dir file...
+  local dir="$1" f s b got; shift
+  for f in "$@"; do
+    s="$(sha_of "$f")"; b="$(blob_of "$f")"
+    if [ "$s" != - ]; then got="$(sha256sum "$dir/$f" | cut -d' ' -f1)"
+    elif [ "$b" != - ]; then got="$({ printf 'blob %d\0' "$(stat -c %s "$dir/$f")"; cat "$dir/$f"; } | sha1sum | cut -d' ' -f1)"; s="$b"
+    else die "$repo lists no hash for $f, so it can't be checked."; fi
+    [ "$got" = "$s" ] || die "$f does not match $repo's hash. Run it again to download it afresh."
+  done
+}
+
+
+# --- Converting full-precision weights (halogenctl flash convert) -------------------------------
+# A repository of BF16 safetensors (the format models are trained and published in) becomes a
+# Halogen checkpoint here, with bf16-to-hgn (github.com/Quat3rnion/bf16-to-hgn, MIT or Apache-2.0,
+# built into the image from a pinned commit, CPU only). Only Qwen3.8 Flash Next weights convert,
+# and only complete ones: the repository's own MTP head, vision tower and tokenizer are used and
+# nothing official is put in their place. The weights download into $convert_dir/<name>/source
+# (about 360 GB), convert into flash/<name> (about 119 GB) and are deleted afterwards unless kept.
+converter="${HALOS_BF16_TO_HGN:-/usr/libexec/halogen/bf16-to-hgn}"
+convert_dir="$models/flash/.convert"
+# The files the converter needs besides the weights, and the optional ones it copies when there.
+convert_assets_required=(config.json tokenizer.json tokenizer_config.json chat_template.jinja merges.txt generation_config.json)
+convert_assets_optional=(vocab.json special_tokens_map.json added_tokens.json preprocessor_config.json video_preprocessor_config.json processor_config.json)
+# The output, in bytes: about 119 GB for the v2 profile (bf16-to-hgn's README), plus its own 5%
+# and 64 MiB reserve, plus room to spare.
+convert_out_bytes="${HALOS_CONVERT_OUT_BYTES:-128000000000}"
+
+convert_prepare() {
+  local repo="" revision=main name="" src f missing=() idx cfg weights=0 need free n
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --revision|--as) [ $# -ge 2 ] || die "$1 needs a value"
+        if [ "$1" = --revision ]; then revision="$2"; else name="$2"; fi; shift 2 ;;
+      -*) die "unknown option $1" ;;
+      *) repo="$1"; shift ;;
+    esac
+  done
+  [[ "$repo" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$ ]] \
+    || die "usage: halogenctl flash convert <hf-repo, such as someone/My-Flash-BF16> [--revision <rev>] [--as <name>]"
+  [[ "$revision" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || die "'$revision' is not a branch, tag or commit"
+  name="${name:-${repo##*/}}"
+  valid_name "$name" || die "'$name' can't be a checkpoint name: use letters, digits, '.', '_' or '-', not 'official' (pick one with --as)"
+  [ ! -e "$models/flash/$name" ] || die "$models/flash/$name already exists. Pick another name with --as, or remove it first: sudo halogenctl flash remove $name"
+  [ -x "$converter" ] || die "This image has no converter ($converter)."
+  list_repo "$repo" "$revision"
+  has model.safetensors.index.json || die "$repo has no model.safetensors.index.json, so it isn't a safetensors checkpoint this can convert."
+  for f in "${convert_assets_required[@]}"; do has "$f" || missing+=("$f"); done
+  [ "${#missing[@]}" = 0 ] || die "$repo lacks ${missing[*]}, which the converter needs beside the weights."
+
+  # The small files first, to check the model before the big download.
+  src="$convert_dir/$name/source"
+  mkdir -p "$src" || exit 1
+  mounts=(-v "$src:/models/flash/.convert/$name/source")
+  n=(model.safetensors.index.json "${convert_assets_required[@]}")
+  for f in "${convert_assets_optional[@]}"; do ! has "$f" || n+=("$f"); done
+  online hf download "$repo" "${n[@]}" --revision "$commit" --local-dir "/models/flash/.convert/$name/source" < /dev/null > /dev/null 2>&1 \
+    || die "Could not download $repo's small files. Run it again to retry."
+  check_hashes "$src" "${n[@]}"
+  cfg="$src/config.json"; idx="$src/model.safetensors.index.json"
+  jq -e '.model_type == "qwen4_exp" and ((.architectures // []) | index("Qwen4ExpForConditionalGeneration") != null)' "$cfg" > /dev/null 2>&1 \
+    || die "$repo isn't Qwen3.8 Flash Next weights ($(jq -r '"model_type " + (.model_type // "none")' "$cfg" 2>/dev/null)). bf16-to-hgn converts only that model."
+  # The converter substitutes nothing: an MTP head and a vision tower must be in the weights.
+  jq -e '.weight_map | keys | any(startswith("mtp.")) and any(startswith("visual."))' "$idx" > /dev/null 2>&1 \
+    || die "$repo's weights have no $(jq -e '.weight_map | keys | any(startswith("mtp."))' "$idx" > /dev/null 2>&1 && echo "vision tower (visual.*)" || echo "MTP head (mtp.*)"). The converter needs the complete model, so it can't convert this one."
+  while IFS=$'\t' read -r f size _; do
+    case "$f" in *.safetensors) ;; *) continue ;; esac
+    [[ "$f" =~ ^[A-Za-z0-9._-]+\.safetensors$ ]] || die "$repo has a weights file in a subfolder ($f), which the converter doesn't read."
+    [ "$(stat -c %s "$src/$f" 2> /dev/null)" = "$size" ] || weights=$((weights + size))
+  done <<< "$files"
+  [ "$weights" -gt 0 ] || [ -n "$(find "$src" -maxdepth 1 -name '*.safetensors' -print -quit)" ] || die "$repo lists no .safetensors files."
+  need=$((weights + convert_out_bytes))
+  free="$(df --output=avail --block-size=1 "$models" | tail -n 1 | tr -d ' ')"
+  if [ "$need" -gt "$(( ${free:-0} - 1073741824 ))" ]; then
+    die "$repo needs $(gib "$need") ($(gib "$weights") of weights to download, about $(gib "$convert_out_bytes") for the result) and $models has $(gib "${free:-0}") free."
+  fi
+  { echo "repo=$repo"; echo "revision=$revision"; echo "commit=$commit"; } > "$convert_dir/$name/convert.info" || exit 1
+  echo "name=$name"
+  echo "download=$(gib "$weights")"
+  echo "result=about $(gib "$convert_out_bytes")"
+}
+
+convert_run() {
+  local name="$1" threads="" keep=0 info repo commit src out started reporter f shards=() rc
+  shift
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --threads) [[ "${2:-}" =~ ^[0-9]+$ ]] && [ "$2" -ge 1 ] && [ "$2" -le 64 ] || die "--threads takes 1 to 64"; threads="$2"; shift 2 ;;
+      --keep-source) keep=1; shift ;;
+      *) die "unknown option $1" ;;
+    esac
+  done
+  valid_name "$name" || die "bad name"
+  info="$convert_dir/$name/convert.info"; src="$convert_dir/$name/source"; out="$models/flash/$name"
+  [ -f "$info" ] || die "Nothing prepared for $name: start with sudo halogenctl flash convert <repo>"
+  repo="$(info_get "$info" repo)"; commit="$(info_get "$info" commit)"
+  [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || die "$info names no commit"
+  [ ! -e "$out" ] || die "$out already exists."
+  threads="${threads:-$(( $(nproc) / 2 ))}"; [ "$threads" -ge 1 ] || threads=1; [ "$threads" -le 16 ] || threads=16
+
+  # The weights, resumable, then checked against the repository's hashes.
+  list_repo "$repo" "$commit"
+  mapfile -t shards < <(awk -F'\t' '$1 ~ /^[A-Za-z0-9._-]+\.safetensors$/ { print $1 }' <<< "$files")
+  [ "${#shards[@]}" -gt 0 ] || die "$repo lists no .safetensors files."
+  mounts=(-v "$src:/models/flash/.convert/$name/source")
+  echo "Downloading ${#shards[@]} weight files of $repo at commit ${commit:0:12} into $src. An interrupted download resumes."
+  if [ "$progress_s" -gt 0 ]; then
+    while sleep "$((progress_s * 10))" > /dev/null 2>&1; do echo "  $(du -sh "$src" 2>/dev/null | cut -f1) downloaded so far"; done &
+    reporter=$!
+  fi
+  online hf download "$repo" "${shards[@]}" --revision "$commit" --local-dir "/models/flash/.convert/$name/source" < /dev/null 2>&1 \
+    | grep --line-buffered -v -e '^Hint: ' -e 'hf update' -e 'Still waiting to acquire lock' -e 'sending unauthenticated requests' -e "^/models/flash/.convert/$name/source\$"
+  rc="${PIPESTATUS[0]}"
+  [ -z "${reporter:-}" ] || kill "$reporter" 2> /dev/null
+  [ "$rc" = 0 ] || die "The download stopped. Start the conversion again to resume it."
+  echo "Checking the weights against $repo's hashes..."
+  check_hashes "$src" "${shards[@]}"
+  rm -rf "$src/.cache"
+
+  # A conversion stopped part-way leaves a staging folder the converter never resumes.
+  rm -rf "$models/flash"/.bf16-to-hgn-* 2> /dev/null || true
+  started="$(date -u +%s)"
+  echo "Converting on the CPU with $threads threads. This takes many hours, likely a day or more;"
+  echo "Halogen keeps serving meanwhile, more slowly. Progress is logged every 10 minutes."
+  # About how far: the converter writes its output into files of their final size, filling them
+  # in as it goes, so the space actually used grows with the work done.
+  ( while sleep 600; do
+      used="$(du -sk "$models/flash"/.bf16-to-hgn-* 2> /dev/null | awk '{ s += $1 } END { print s + 0 }')"
+      echo "  converted about $(awk -v k="$used" -v t="$convert_out_bytes" 'BEGIN { printf "%.0f GB (%d%%)", k * 1024 / 1e9, k * 1024 * 100 / t }'), $(( ($(date -u +%s) - started) / 3600 ))h$(( ($(date -u +%s) - started) / 60 % 60 ))m so far"
+    done ) &
+  reporter=$!
+  # No network for the converter: a user and network namespace of its own, as halogen.
+  unshare --user --map-current-user --net -- "$converter" convert --source "$src" --output "$out" --profile v2 --threads "$threads" \
+    > "$convert_dir/$name/convert.json" 2> "$convert_dir/$name/convert.err"
+  rc=$?
+  kill "$reporter" 2> /dev/null
+  tr -d '\000-\010\013-\037\177' < "$convert_dir/$name/convert.err" | tail -n 20
+  [ "$rc" = 0 ] || die "The conversion failed (above). The downloaded weights stay in $src: start it again to retry, or remove them: sudo halogenctl flash convert-stop $name"
+  echo "Converted in $(( ($(date -u +%s) - started) / 3600 )) hours. Checking every value it wrote against the weights..."
+  unshare --user --map-current-user --net -- "$converter" verify --source "$src" --output "$out" \
+    > "$convert_dir/$name/verify.json" 2> "$convert_dir/$name/verify.err" \
+    || { tr -d '\000-\010\013-\037\177' < "$convert_dir/$name/verify.err" | tail -n 20; die "bf16-to-hgn's verify failed (above); $out is not used."; }
+  cp "$convert_dir/$name/convert.json" "$out/convert-report.json" 2> /dev/null || true
+
+  { echo "repo=$repo"
+    echo "revision=$(info_get "$info" revision)"
+    echo "commit=$commit"
+    echo "checkpoint=model.hgn"
+    echo "converted_with=bf16-to-hgn ${BF16_TO_HGN_COMMIT:-unknown}, profile v2"
+    echo "pulled_at=$(date -u '+%Y-%m-%d %H:%M UTC')"
+    echo "verified=no"; } > "$out/halos.info.new" && mv -f "$out/halos.info.new" "$out/halos.info" || exit 1
+  verify_dir "$name" || die "$name failed Halogen's verify (above), so it can't be used. Remove it: sudo halogenctl flash remove $name"
+  if [ "$keep" = 1 ]; then echo "The downloaded weights stay in $src (--keep-source)."
+  else rm -rf "${convert_dir:?}/$name"; echo "The downloaded weights were removed, to free the space."; fi
+  echo "$name is ready: converted from $repo at commit ${commit:0:12}, checked by bf16-to-hgn and Halogen's verify."
+  echo "A converted model hasn't been measured for quality yet: run sudo halogenctl flash check $name before serving it."
+}
+
 case "${1:-}" in
   check|check-prepare)
     name="${2:-}"
@@ -214,6 +412,8 @@ case "${1:-}" in
     if verify_dir "$name"; then echo "$name passed Halogen's verify."
     else die "$name failed Halogen's verify (above), so it can't be used. Pull it again, or remove it: sudo halogenctl flash remove $name"; fi
     exit 0 ;;
+  convert-prepare) shift; convert_prepare "$@"; exit 0 ;;
+  convert-run) shift; convert_run "$@"; exit 0 ;;
   pull) shift ;;
   *) die "usage: flash-checkpoint pull <hf-repo> [--revision <rev>] [--as <name>] [--file <checkpoint.hgn>] | verify <name> | check-prepare <name> | check <name>" ;;
 esac
@@ -245,38 +445,7 @@ fi
 [ -f "$models/tokenizer/tokenizer.json" ] \
   || die "The official model isn't downloaded yet. Let the first boot finish: sudo halogenctl fetch-logs"
 
-# What the repository holds at that revision: the exact commit, then each file's size and hash.
-echo "Looking up $repo at $revision..."
-listing="$(online python3 - "$repo" "$revision" <<'PY'
-import sys
-from huggingface_hub import HfApi
-repo, rev = sys.argv[1], sys.argv[2]
-try:
-    info = HfApi().model_info(repo, revision=rev, files_metadata=True)
-except Exception as e:
-    print("error " + " ".join(str(e).split())[:300])
-    sys.exit(0)
-print("commit", info.sha)
-for s in info.siblings or []:
-    if any(c.isspace() for c in s.rfilename):
-        continue
-    lfs = getattr(s, "lfs", None)
-    sha = (lfs.get("sha256") if isinstance(lfs, dict) else getattr(lfs, "sha256", None)) if lfs is not None else None
-    # Git's own id for files kept outside LFS (small ones, such as the tokenizer's).
-    blob = getattr(s, "blob_id", None)
-    print("\t".join(["file", s.rfilename, str(s.size if s.size is not None else -1), sha or "-", blob or "-"]))
-PY
-)" || die "Could not reach Hugging Face. Is the network up?"
-err="$(sed -n 's/^error //p' <<< "$listing")"
-[ -z "$err" ] || die "Hugging Face did not answer for $repo at $revision: $err
-(A private or gated repository needs a token: sudo halogenctl hf-token)"
-commit="$(sed -n 's/^commit //p' <<< "$listing")"
-[[ "$commit" =~ ^[0-9a-f]{40}$ ]] || die "Hugging Face gave no commit for $repo at $revision"
-files="$(awk -F'\t' '$1 == "file" { print $2 "\t" $3 "\t" $4 "\t" $5 }' <<< "$listing")"
-size_of() { awk -F'\t' -v f="$1" '$1 == f { print $2; exit }' <<< "$files"; }
-sha_of() { awk -F'\t' -v f="$1" '$1 == f { print $3; exit }' <<< "$files"; }
-blob_of() { awk -F'\t' -v f="$1" '$1 == f { print $4; exit }' <<< "$files"; }
-has() { [ -n "$(size_of "$1")" ]; }
+list_repo "$repo" "$revision"
 
 # The checkpoint: a .hgn in the repository's top folder that isn't one of its companions.
 candidates="$(cut -f1 <<< "$files" | grep -E '^[A-Za-z0-9._-]+\.hgn$' | grep -vE 'ngram|vision|mtp|overlay' || true)"
@@ -309,7 +478,6 @@ for f in "${sized[@]}"; do
   [ "$(stat -c %s "$dir/$f" 2>/dev/null)" = "$s" ] || need=$((need + s))
 done
 free="$(df --output=avail --block-size=1 "$models" | tail -n 1 | tr -d ' ')"
-gib() { awk -v b="$1" 'BEGIN { printf "%.1f GiB", b / 1073741824 }'; }
 if [ "$need" -gt "$(( ${free:-0} - 1073741824 ))" ]; then
   die "$repo needs $(gib "$need") more and $models has $(gib "${free:-0}") free."
 fi
@@ -371,15 +539,8 @@ else
 fi
 [ -z "${reporter:-}" ] || kill "$reporter" 2>/dev/null
 
-# Each file must be exactly what the repository holds at that commit (Hugging Face's own hashes).
 echo "Checking the files against $repo's hashes..."
-for f in "${wanted[@]}"; do
-  s="$(sha_of "$f")"; b="$(blob_of "$f")"
-  if [ "$s" != - ]; then got="$(sha256sum "$dir/$f" | cut -d' ' -f1)"
-  elif [ "$b" != - ]; then got="$({ printf 'blob %d\0' "$(stat -c %s "$dir/$f")"; cat "$dir/$f"; } | sha1sum | cut -d' ' -f1)"; s="$b"
-  else die "$repo lists no hash for $f, so it can't be checked."; fi
-  [ "$got" = "$s" ] || die "$f does not match $repo's hash. Pull again to download it afresh."
-done
+check_hashes "$dir" "${wanted[@]}"
 
 # Files from an earlier pull that this commit doesn't have would still be loaded (an old
 # quality sidecar beside a new checkpoint), so they go.

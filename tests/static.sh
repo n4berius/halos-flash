@@ -54,6 +54,13 @@ assert re.fullmatch(r"[0-9a-f]{40}", pins["HALOGEN_WEIGHTS_REVISION"]), "HALOGEN
 # Older Halogen images have no XRT of their own and need the host's.
 assert tuple(map(int, re.match(r"(\d+)\.(\d+)\.(\d+)", pins["HALOGEN_VERSION"]).groups())) >= (0, 19, 1), "Halogen before 0.19.1 needs the host's XRT"
 assert "DEBIAN_IMAGE" not in pins and "XRT_MIN_VERSION" not in pins
+# bf16-to-hgn is built from an exact commit, and its licenses ship (halogenctl flash convert).
+assert re.fullmatch(r"[0-9a-f]{40}", pins["BF16_TO_HGN_COMMIT"]), "BF16_TO_HGN_COMMIT must be a full commit"
+cf = open("Containerfile").read()
+assert 'git checkout -q "$BF16_TO_HGN_COMMIT"' in cf and "cargo build --release --locked" in cf, "bf16-to-hgn isn't built from its pin"
+assert "/usr/share/licenses/bf16-to-hgn/" in cf and "native/NOTICE" in cf, "bf16-to-hgn's licenses aren't shipped"
+assert "bf16-to-hgn" in open("THIRD-PARTY-NOTICES.md").read(), "THIRD-PARTY-NOTICES doesn't name bf16-to-hgn"
+assert '--build-arg "BF16_TO_HGN_COMMIT=$BF16_TO_HGN_COMMIT"' in open("scripts/build.sh").read(), "build.sh doesn't pass the pin"
 # The public key machines get is the one the signing script checks with (#46).
 sign = open("scripts/sign-image.sh").read()
 embedded = re.search(r"PUBLIC_KEY='(-----BEGIN PUBLIC KEY-----.*?-----END PUBLIC KEY-----)'", sign, re.S).group(1)

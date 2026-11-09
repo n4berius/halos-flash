@@ -482,6 +482,38 @@ What `flash pull` does:
 Downloads and checks are read from disk while Halogen keeps serving, which can slow long
 prompts a little until they finish.
 
+#### Converting full-precision weights
+
+Many models are published only in full precision (BF16 `.safetensors`), the format they were
+trained in, not as a Halogen `.hgn`. For **Qwen3.8 Flash Next** weights, halOS can convert them
+on the machine with [bf16-to-hgn](https://github.com/Quat3rnion/bf16-to-hgn), a third-party tool
+(MIT or Apache-2.0) built into the image from a pinned version:
+
+```bash
+sudo halogenctl flash convert someone/Some-Flash-BF16 --revision <commit> --as mine
+sudo halogenctl flash convert-logs       # follow it (Ctrl-C stops following, not the conversion)
+sudo halogenctl flash convert-stop       # stop it; add the name to delete the downloaded weights too
+sudo halogenctl flash check mine         # then judge it, before serving it
+```
+
+- **Checked before the big download.** It downloads the repository's small files first and
+  refuses anything but Qwen3.8 Flash Next, and weights without an MTP head or vision tower: the
+  converter uses the repository's own and puts nothing official in their place. Then it checks
+  there is room for the weights (about 360 GB) and the result (about 119 GB).
+- **Runs on its own.** After you confirm, the download, the conversion and the checks run as a
+  service, so closing the terminal doesn't stop them. A stopped download resumes; a stopped
+  conversion starts over.
+- **Takes long.** The conversion runs on the CPU (`--threads`, by default half the cores, at most
+  16), with low priority, and takes many hours, likely a day or more. No full-size conversion has
+  been timed yet. Halogen keeps serving meanwhile, more slowly, since both use the same memory.
+- **Checked twice.** bf16-to-hgn's own `verify` checks every value it wrote against the weights,
+  then Halogen's `verify` checks the result, as for `flash pull`. The converter runs with no
+  network.
+- **The weights are deleted** afterwards, to free the 360 GB. `--keep-source` keeps them in
+  `/srv/models/flash/.convert/<name>/source`.
+- **Judge it before serving it.** A conversion's quality hasn't been measured by anyone: run
+  `flash check` and compare its numbers with the official checkpoint's before `flash use`.
+
 Things to know:
 
 - **Quality is yours to judge.** `verify` proves the file is well formed, not that its answers

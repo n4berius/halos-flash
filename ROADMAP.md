@@ -27,8 +27,13 @@ machines refuse unsigned images (#46, phase 2, #91).
 
 ## Next
 
-1. Unlock the disk over SSH at boot (#13). Part 1 (#93): the early-boot SSH server and `halosctl
-   ssh-unlock`. Part 2 (#94): the guided installer asks how the disk unlocks and takes the keys.
+The second stable release aims at the first three: machines refuse unsigned images (#46, done in
+#91 and #96), unlocking over SSH (#13, done in #93 and #94), and converting full-precision weights.
+
+1. Convert full-precision (BF16 safetensors) checkpoints to `.hgn` on the machine (#PR):
+   `halogenctl flash convert`, with [bf16-to-hgn](https://github.com/Quat3rnion/bf16-to-hgn). It
+   handles Qwen3.8 Flash Next only, on the CPU. Still to do: a first real conversion on freyja
+   (time and quality), the GPU (HIP) build, and Qwen4 / Qwen4 Flash Next when we get there.
 2. Unlock the disk from a tang server on the network (#44).
 3. GGUF repositories in `flash pull` (#61).
 

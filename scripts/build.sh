@@ -38,5 +38,6 @@ podman build --pull=newer -t "$TAG" \
   --build-arg "HALOGEN_NOTICES_SHA256=$HALOGEN_NOTICES_SHA256" \
   --build-arg "HALOGEN_WEIGHTS_REPO=$HALOGEN_WEIGHTS_REPO" \
   --build-arg "HALOGEN_WEIGHTS_REVISION=$HALOGEN_WEIGHTS_REVISION" \
+  --build-arg "BF16_TO_HGN_COMMIT=$BF16_TO_HGN_COMMIT" \
   .
 echo "Built $TAG (halOS $RELEASE) with Halogen $HALOGEN_VERSION ($HALOGEN_DIGEST)"
