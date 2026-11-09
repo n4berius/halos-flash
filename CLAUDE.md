@@ -173,8 +173,16 @@ name, but allows saying halOS runs Halogen.
   job with `environment: signing` and only its step named Sign get them; public half in `files/etc/pki/containers/halos-flash.pub`
   and embedded in the script, `tests/static.sh` checks they match). containers/image can match a
   keyless signer only by email, not GitHub's workflow URI, so machines will check the key. Both
-  are checked in the same job, including the classic `.sig` tag. Machines don't enforce it yet:
-  the policy (#46 phase 2b) ships once every channel points to a key-signed image.
+  are checked in the same job, including the classic `.sig` tag. Machines enforce it (#46 phase 2b):
+  `/etc/containers/policy.json` defaults to reject (bootc refuses `--enforce-container-sigpolicy`
+  when the global default is `insecureAcceptAnything`; it checks only that default), requires the
+  key for `ghcr.io/n4berius/halos-flash` (`matchRepository`, so tags and digests both pass), and
+  accepts every other registry and local storage through the transports' `""` scopes, as before.
+  `registries.d/halos-flash.yaml` turns on `use-sigstore-attachments`, without which no signature
+  is found. Every `bootc switch` in halosctl passes the flag; the installers' `%post` runs `bootc
+  switch --mutate-in-place --enforce-container-sigpolicy`; an install whose spec is still
+  `insecure` turns it on at its next `halosctl upgrade` (a switch to the same name, which also
+  fetches the newest image). Oldest key-signed release: `0.19.1-alpha.3`.
 
 ## Lessons already learned
 
@@ -250,8 +258,10 @@ and tracked on the owner's project board. [ROADMAP.md](ROADMAP.md) holds the ord
   On edge since: the tokenizer fill-in for checkpoints that ship none (#88). The issues for #14, #15,
   #40 and #56 are closed. Freyja serves the official checkpoint or its own (Signal-3.8-Flash-Next-HGN-v2),
   swapped as needed, at the `performance` profile.
-- Next: machines refuse unsigned images (#46 phase 2b; ships once every channel points to a
-  key-signed image), then unlock over SSH (#13), clevis/tang (#44), GGUF in `flash pull` (#61).
+- Next, for the second stable release: unlock over SSH (#13), then BF16 safetensors to `.hgn`
+  on the machine with the third-party Quat3rnion/bf16-to-hgn (Qwen3.8 Flash Next only; Qwen4 later;
+  it substitutes nothing, so the repo must carry the MTP head, vision tower and table). Then
+  clevis/tang (#44), GGUF in `flash pull` (#61).
 - **Halogen 0.20.0** (stable since `v0.20.0`): 0.20.0 (ROCm 10.1 in its image, OvisOCR3 document parsing on the NPU as your
   own checkpoint, faster prefill, a strict-tool-call crash fixed; the Flash checkpoints and weights
   revision unchanged) is pinned by #78. Between source commits 47ceb43 and 8242b15, FLAGS.md,

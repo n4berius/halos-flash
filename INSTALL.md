@@ -109,6 +109,25 @@ Using `bootc` directly: `bootc switch` to the name the machine already follows d
 ("Image specification is unchanged"), even when that tag now points to a newer build. Use
 `sudo bootc upgrade` (or `sudo halosctl upgrade`) to get the newest build of the current name.
 
+### Signed images
+
+Every halOS image is signed with halOS's key, and a machine takes an update only when that
+signature checks out, so nobody else's image can be passed off as halOS's. `sudo halogenctl
+selftest` shows it as `image-signatures`. Machines installed from this release on check from the
+start. Older installs turn it on with their next `sudo halosctl upgrade` after rebooting into
+this release: it says so, asks, and stages the newest image of the name it follows with the check
+on. So the first upgrade to this release still installs without the check, and the next one turns
+it on; each needs a reboot.
+
+- Releases before `0.19.1-alpha.3` aren't signed with the key, so `halosctl rollback --to` can't go
+  back to them. `halosctl rollback` to the previous image on the disk still works.
+- The rules are in `/etc/containers/policy.json`: halOS's images need halOS's signature, and
+  images from other registries (Halogen's own, or containers you run with podman) are taken as
+  before. If that file is changed or removed, `halosctl` refuses to switch and says how to put
+  halOS's copy back (`sudo cp /usr/etc/containers/policy.json /etc/containers/policy.json`).
+- `bootc switch` by hand needs `--enforce-container-sigpolicy`, or the machine stops checking.
+  `halosctl` always passes it.
+
 To build an ISO yourself, see [BUILDING.md](BUILDING.md).
 
 ## 4. Write the USB drive

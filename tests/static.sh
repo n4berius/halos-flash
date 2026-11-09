@@ -12,7 +12,7 @@ for f in "${completions[@]}"; do bash -n "$f"; done
 if command -v shellcheck >/dev/null; then shellcheck -s bash "${completions[@]}"; fi
 
 python3 - <<'P'
-import configparser, glob, os, re, tomllib, xml.dom.minidom, yaml
+import configparser, glob, json, os, re, tomllib, xml.dom.minidom, yaml
 
 kargs = tomllib.load(open("variants/npu/usr/lib/bootc/kargs.d/10-halogen.toml", "rb"))["kargs"]
 no_npu = tomllib.load(open("variants/no-npu/usr/lib/bootc/kargs.d/10-halogen.toml", "rb"))["kargs"]
@@ -58,6 +58,21 @@ assert "DEBIAN_IMAGE" not in pins and "XRT_MIN_VERSION" not in pins
 sign = open("scripts/sign-image.sh").read()
 embedded = re.search(r"PUBLIC_KEY='(-----BEGIN PUBLIC KEY-----.*?-----END PUBLIC KEY-----)'", sign, re.S).group(1)
 assert embedded + "\n" == open("files/etc/pki/containers/halos-flash.pub").read(), "the image's public key differs from sign-image.sh's"
+# Machines take halOS's images only with that key's signature (#46 phase 2b). bootc refuses to
+# check against a policy whose default accepts anything, so the default rejects; other registries
+# and local storage are accepted, as before (the Halogen image is pinned by digest).
+pol = json.load(open("files/etc/containers/policy.json"))
+assert pol["default"] == [{"type": "reject"}], "the policy's default must reject: bootc refuses an insecure default"
+ours = pol["transports"]["docker"]["ghcr.io/n4berius/halos-flash"]
+assert ours == [{"type": "sigstoreSigned", "keyPath": "/etc/pki/containers/halos-flash.pub",
+                 "signedIdentity": {"type": "matchRepository"}}], ours
+assert all(e == [{"type": "insecureAcceptAnything"}] for t, scopes in pol["transports"].items()
+           for scope, e in scopes.items() if scope == ""), "only whole transports are accepted unsigned"
+assert set(pol["transports"]["docker"]) == {"ghcr.io/n4berius/halos-flash", ""}, "a new docker scope needs a look"
+reg = yaml.safe_load(open("files/etc/containers/registries.d/halos-flash.yaml"))
+assert reg["docker"]["ghcr.io/n4berius/halos-flash"]["use-sigstore-attachments"] is True, "machines wouldn't find the signatures"
+for ks in ("installer/guided/halos-guided.ks", "installer/anaconda/interactive-defaults.ks"):
+    assert "\nbootc switch --mutate-in-place --enforce-container-sigpolicy @TARGET_IMAGE@\n%end" in open(ks).read(), f"{ks} doesn't turn the signature check on"
 for wf in ("build", "release", "refresh"):
     w = open(f".github/workflows/{wf}.yml").read()
     assert "COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}" in w, f"{wf}.yml doesn't pass the signing key"
@@ -146,4 +161,10 @@ if ! grep -qx 'ProtectKernelTunables=yes' "$u" || ! grep -qx 'CapabilityBounding
   || ! grep -qx 'ReadWritePaths=-/sys/firmware/acpi/platform_profile' "$u" \
   || grep -qE '^(AmbientCapabilities|BindPaths|ReadWriteDirectories|PrivilegedExecStart)=' "$u"; then
   echo "$u may write more than the platform profile" >&2; exit 1
+fi
+# Every bootc switch halosctl runs asks bootc to check the signature (#46).
+switches="$(grep -E '\bbootc switch\b' files/usr/bin/halosctl | grep -v '^ *#')"
+# shellcheck disable=SC2016 # the literal text in halosctl
+if [ -z "$switches" ] || grep -vF 'bootc switch "$sig_flag"' <<< "$switches" | grep -q .; then
+  echo "halosctl has a bootc switch without --enforce-container-sigpolicy" >&2; exit 1
 fi

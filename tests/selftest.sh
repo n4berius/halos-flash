@@ -11,7 +11,7 @@ export FAKE="$work"
 
 # Only basic tools, so a tool missing from the image really is missing here.
 for t in bash sh cat head tail sed awk grep find df date paste wc sort uname basename readlink \
-  mktemp chmod rm stat tr cut printf python3 timeout id ls env mkdir; do
+  mktemp chmod rm stat tr cut printf python3 timeout id ls env mkdir jq; do
   p="$(command -v "$t")" && ln -sf "$p" "$sysbin/$t"
 done
 ln -sf /usr/bin/test "$sysbin/test"   # as_owner test -e runs the program, not the shell builtin
@@ -35,7 +35,7 @@ f lsblk 'echo "/dev/nvme0n1p3 crypto_LUKS"'
 f cryptsetup 'printf "Tokens:\n  0: systemd-tpm2\n"'
 f amd-smi 'if [ -n "${FAKE_NOGPU:-}" ]; then echo "ERROR:root:Unable to detect any GPU devices"; exit 255; fi; printf "GPU: 0\n    BDF: 0000:c3:00.0\n"'
 f systemd-run 'case "$*" in *render-config*) printf "%s\n" "${FAKE_RENDER:-HALOGEN_CHECKPOINT=/models/qwen38-flash-next-v2.hgn}" ;; *) echo "preflight: ok" ;; esac'
-f bootc 'echo "Booted image: ghcr.io/n4berius/halos-flash:9.9.9"'
+f bootc 'case "$*" in *json*) echo "{\"spec\":{\"image\":{\"signature\":\"${FAKE_SIG:-containerPolicy}\"}}}" ;; *) echo "Booted image: ghcr.io/n4berius/halos-flash:9.9.9" ;; esac'
 f systemctl 'case "$*" in *--failed*) cat "$FAKE/failed" 2>/dev/null ;; *"show -p Job"*) echo "${FAKE_JOB:-}" ;;
   *halogen-fetch*) echo "${FAKE_FETCH:-inactive}" ;; *) echo "${FAKE_STATE:-active}" ;; esac'
 f fabric-clock 'exit 0'
@@ -50,14 +50,15 @@ printf '8ef7ad828f7fa715cba0721a8ef9f9ab20d44e50\n' > "$work/models/.cache/huggi
 
 export PATH="$fake:$sysbin" HALOGEN_RELEASE_FILE="$work/release.env" HALOGEN_SYSFS="$work/sys" \
   HALOGEN_DEV="$work/dev" HALOGEN_CMDLINE="$work/cmdline" HALOGEN_MEMINFO="$work/meminfo" \
-  HALOGEN_MODELS_DIR="$work/models" HALOGEN_CONFIGS_DIR="$work/configs" HALOGEN_CLOCK="$fake/fabric-clock"
+  HALOGEN_MODELS_DIR="$work/models" HALOGEN_CONFIGS_DIR="$work/configs" HALOGEN_CLOCK="$fake/fabric-clock" \
+  HALOS_POLICY="$repo/files/etc/containers/policy.json"
 selftest="$repo/files/usr/libexec/halogen/selftest"
 ok() { echo "ok: $*"; }
 expect() { grep -qE "$1" "$work/out" || { echo "expected '$1' in:" >&2; cat "$work/out" >&2; exit 1; }; }
 refuse() { if grep -qE "$1" "$work/out"; then echo "did not expect '$1' in:" >&2; cat "$work/out" >&2; exit 1; fi; }
 
 "$selftest" > "$work/out" 2>&1 || { cat "$work/out" >&2; echo "a healthy machine failed" >&2; exit 1; }
-for id in secure-boot kernel-iommu memory selinux-denials firewall luks-tpm gpu-kfd npu-device npu-label \
+for id in secure-boot image-signatures kernel-iommu memory selinux-denials firewall luks-tpm gpu-kfd npu-device npu-label \
   fabric-clock server preflight api-ipv4 api-ipv6 api-models npu-folder folder-LFM folder-flash; do
   expect "^PASS $id:"
 done
@@ -73,6 +74,13 @@ ok "a healthy NPU machine passes every check, reading the halogen user's files a
 refuse 'SECRET-KEY-MARKER|SECRET-TOKEN-MARKER'
 if grep -q 'SECRET-KEY-MARKER' "$work/curl.log"; then echo "the API key was on a command line" >&2; exit 1; fi
 ok "the API key and HF token never appear in the report or on a command line"
+
+FAKE_SIG=insecure "$selftest" > "$work/out" 2>&1 || true
+expect "^WARN image-signatures: updates aren't checked.*halosctl upgrade"
+echo '{"default":[{"type":"insecureAcceptAnything"}]}' > "$work/policy.json"
+HALOS_POLICY="$work/policy.json" "$selftest" > "$work/out" 2>&1 || true
+expect '^WARN image-signatures:.*/usr/etc/containers/policy.json'
+ok "an install that doesn't check signatures yet, or a changed policy, is a warning"
 
 rm "$fake/mokutil" "$fake/amd-smi"
 "$selftest" > "$work/out" 2>&1 || true

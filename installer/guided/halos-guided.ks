@@ -32,3 +32,10 @@ rc=$?
 chvt 1 || true
 exit $rc
 %end
+
+%post
+# halOS images are signed (#46). The line above installs without checking signatures; this turns
+# the check on for every update (bootc's in-place switch, made for an installer's %post). Should it
+# fail, the install still boots, the selftest warns, and halosctl upgrade turns it on later.
+bootc switch --mutate-in-place --enforce-container-sigpolicy @TARGET_IMAGE@
+%end

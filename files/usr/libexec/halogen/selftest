@@ -53,6 +53,17 @@ if have mokutil; then
   esac
 else say SKIP secure-boot "mokutil is not installed"; fi
 
+# halOS images are signed (#46): bootc checks them only when the image spec asks it to and the
+# policy requires halOS's key. Installs from before turn it on with their next halosctl upgrade.
+policy="${HALOS_POLICY:-/etc/containers/policy.json}"
+if have bootc && have jq; then
+  sig="$(run bootc status --format=json --format-version=1 | jq -r '.spec.image.signature // "" | if type == "string" then . else "other" end' 2>/dev/null)"
+  if ! jq -e '.default == [{"type": "reject"}] and any(.transports.docker["ghcr.io/n4berius/halos-flash"][]?; .type == "sigstoreSigned")' "$policy" > /dev/null 2>&1; then
+    say WARN image-signatures "$policy doesn't require halOS's signature; restore it: sudo cp /usr/etc/containers/policy.json /etc/containers/policy.json"
+  elif [ "$sig" = containerPolicy ]; then say PASS image-signatures "updates are taken only when signed with halOS's key"
+  else say WARN image-signatures "updates aren't checked for halOS's signature yet (bootc: ${sig:-unknown}); the next sudo halosctl upgrade turns it on"; fi
+else say SKIP image-signatures "bootc or jq is not installed"; fi
+
 line="$(cat "$cmdline")"
 for want in amdgpu.gttsize=126976 ttm.pages_limit=32505856; do
   case " $line " in *" $want "*) say PASS "kernel-${want%%=*}" "$want is set" ;;
