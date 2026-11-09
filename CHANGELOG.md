@@ -19,8 +19,23 @@ promoted.
   and restarted every 30 seconds; a checkpoint still without one, or with a vocabulary of its own,
   now fails verify, so `flash use` refuses it. For one pulled before: `sudo halogenctl flash verify
   <name>`, then `sudo halogenctl restart` if Halogen serves it. (#88)
+
+## v0.20.0 (2026-11-09)
+
+The first stable release on Halogen 0.20.0, promoted from `v0.20.0-rc.2`: everything since
+`v0.19.0-beta.1`, listed under the releases below. freyja was also reinstalled with
+the guided installer, and passed restarts, tab completion and a `model pull` of OvisOCR3.
+
+## v0.20.0-rc.2 (2026-11-08)
+
+Built from main, so it carries one change beside the beta's notes (#86):
+
 - `halogenctl model list` shows an NPU model as in use when one of your own checkpoints runs on it
   ("yes, for OvisOCR3") or the agent guard adds it, where it used to say "no". (#87)
+
+## v0.20.0-rc.1 (2026-11-08)
+
+Promoted from `v0.20.0-beta.1`, with no change.
 
 ## v0.20.0-beta.1 (2026-11-08)
 

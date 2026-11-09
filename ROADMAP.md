@@ -13,50 +13,25 @@ How releases are used:
 | beta | major milestones, after the hardware checklist |
 | rc and stable | about quarterly, after a soak test |
 
-## Now: beta on Halogen 0.20
+## Now: v0.20.0 is stable
 
-`v0.20.0-beta.1` is out: Halogen 0.20.0 (#78), the fixes from the test machine's first bench and
-`flash check` (#81), the selftest's SELinux fix (#82), the power profile (#83) and its tighter
-sandbox (#84). Still to do on the test machine: one real install with the guided installer, from
-the beta's ISO, and a soak test before the release candidate.
+`v0.20.0` (2026-11-09) is the first stable release on Halogen 0.20.0, promoted from
+`v0.20.0-rc.2`. On the test machine it passed the selftest, the benchmark, `flash check`,
+`npu off`/`on`, tab completion, restarts and a `model pull` of OvisOCR3, and was reinstalled with the
+guided installer. Done on the way: first-boot setup and the "API ready" line (#43), the guided
+installer (#42), a full security audit (#69), the benchmark (#15), `flash check` (#56),
+`halosctl npu on|off` (#40) and tab completion (#14).
 
-## Before the release candidate
+On edge, for the next release: the tokenizer fix for checkpoints that ship no vocabulary (#88).
 
-In this order. Each ships as an alpha, then is promoted to beta once tested.
+## Next
 
 1. **Machines refuse unsigned images** (#46, phase 2). Images are signed with halOS's own key
    since #65. Next, machines check that signature, once every channel points to a key-signed
    image. Until then it protects nothing.
-2. **First-boot setup and an "API ready" line on the login screen** (#43). Done: the login
-   status (#63), then `halosctl setup` (#64).
-3. **Guided installer** (#42). It picks the disk, asks only for encryption, root and the admin user,
-   and uses fixed `halos-*` volume names. Done; needs one real install before beta.
-4. **A full security audit** of the whole image, not just of single changes. Done (#69), and its
-   follow-up hardening (#76, #77).
-
-## After the release candidate, before stable
-
-**Stable waits for Halogen 0.20.** halOS moved to Halogen 0.20.0 in #78: no setting, host need or
-container change was needed, and OvisOCR3 document parsing works through `model pull` (INSTALL.md).
-What's left is running it on the test machine. Then stable.
-
-Built, to check on the test machine:
-
-- **Benchmark command** (#15). A fixed-length run with Halogen's `ignore_eos` (new in
-  [0.19.1](https://github.com/peonist-ai/halogen-flash-server/blob/main/CHANGELOG.md)), to compare
-  releases and checkpoints fairly. A first version is done (`halogenctl bench`, Halogen's `sweep`
-  against the running server); the fixed-length `ignore_eos` run, NPU models and several
-  requests at once can follow.
-- **`halogenctl flash check`** (#56). Compare a custom checkpoint's quality with the official
-  one's, on request. Done; to try on the test machine.
-- **`halosctl npu on|off`** (#40). Switch between the two editions. Done; to try on the test machine.
-- **Tab completion** (#14). Done for bash; to try on the test machine.
-
-## Later, after stable
-
-- Unlock the disk over SSH at boot (#13).
-- Unlock the disk from a tang server on the network (#44).
-- GGUF repositories in `flash pull` (#61).
+2. Unlock the disk over SSH at boot (#13).
+3. Unlock the disk from a tang server on the network (#44).
+4. GGUF repositories in `flash pull` (#61).
 
 ## Always
 
