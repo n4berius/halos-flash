@@ -65,7 +65,7 @@ find_esp() { # [ro]: only to read (status), so nothing is remounted or written
   local p t rm tran m devs=() mnt=()
   # The machine's own disks, as the initramfs looks (not a USB stick's EFI partition).
   while read -r p t rm tran m; do
-    [ "$t" = "$esp_type" ] && [ "$rm" = 0 ] && [ "$tran" != usb ] || continue
+    if [ "$t" != "$esp_type" ] || [ "$rm" != 0 ] || [ "$tran" = usb ]; then continue; fi
     devs+=("$p"); mnt+=("${m:-}")
   done < <(lsblk -rno PATH,PARTTYPE,RM,TRAN,MOUNTPOINT)
   [ "${#devs[@]}" -gt 0 ] || die "no EFI system partition found"
@@ -95,7 +95,9 @@ case "$cmd" in
     [ $# = 2 ] || die "usage: ssh-unlock fetch github|gitlab|codeberg <user>"
     case "$1" in github) host=github.com ;; gitlab) host=gitlab.com ;; codeberg) host=codeberg.org ;; *) die "unknown site: $1" ;; esac
     user="$2"
-    [[ "$user" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] && [[ "$user" != *..* ]] || die "not a user name: $(printf '%s' "$user" | tr -cd '[:print:]' | head -c 64)"
+    if ! [[ "$user" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || [[ "$user" == *..* ]]; then
+      die "not a user name: $(printf '%s' "$user" | tr -cd '[:print:]' | head -c 64)"
+    fi
     # The download runs as nobody: only its output is used.
     drop=(); if [ "$(id -u)" = 0 ] && [ -z "${HALOS_FETCH_AS_ROOT:-}" ]; then drop=(setpriv --reuid=65534 --regid=65534 --clear-groups --); fi
     if ! body="$("${drop[@]}" curl -fsSL --proto '=https' --tlsv1.2 --max-time 20 --max-filesize 200000 "https://$host/$user.keys" 2>&1)"; then
