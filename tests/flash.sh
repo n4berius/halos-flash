@@ -7,6 +7,7 @@ work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/bin" "$work/models/tokenizer" "$work/repo/tokenizer"
 export FAKE="$work"
 echo '{"official": true}' > "$work/models/tokenizer/tokenizer.json"
+echo '{"official vocab": 1}' > "$work/models/tokenizer/vocab.json"; echo '#official merges' > "$work/models/tokenizer/merges.txt"
 
 # The fake repository: its files, and the listing Hugging Face would give for them.
 commit=0123456789abcdef0123456789abcdef01234567
@@ -116,6 +117,31 @@ reset_repo; rm -r "$work/repo/tokenizer"
 pull someone/No-Tokenizer --as no-tok || fail "pull failed"
 { grep -q official "$work/models/flash/no-tok/tokenizer/tokenizer.json" && [ ! -L "$work/models/flash/no-tok/tokenizer" ]; } || fail "official tokenizer not copied"
 ok "a repository without a tokenizer gets a copy of the official one"
+# A tokenizer/ with only a chat template and settings (Signal-3.8-Flash-Next-HGN-v2) gets the
+# official vocabulary; its own chat template stays. A checkpoint pulled before the fix is filled
+# in by verify.
+reset_repo; rm "$work/repo/tokenizer/tokenizer.json"; put tokenizer/tokenizer_config.json '{"own": 1}'
+pull someone/Half-Tokenizer --as half > "$work/out" 2>&1 || { cat "$work/out" >&2; fail "pull failed"; }
+d="$work/models/flash/half/tokenizer"
+{ grep -q official "$d/tokenizer.json" && grep -q official "$d/vocab.json" && grep -q official "$d/merges.txt" && grep -q own "$d/tokenizer_config.json" && [ -f "$d/chat_template.jinja" ]; } || fail "the vocabulary wasn't added, or the repository's own files were replaced"
+grep -q 'official vocabulary was added (tokenizer.json vocab.json merges.txt)' "$work/out" || fail "the pull didn't say what it added"
+# A pull again drops the added files with everything the repository lacks, and puts them back.
+pull someone/Half-Tokenizer --as half > "$work/out" 2>&1 || { cat "$work/out" >&2; fail "the second pull failed"; }
+grep -q official "$d/tokenizer.json" || fail "a pull again lost the added vocabulary"
+[ "$(info half verified)" = pass ] || fail "a filled-in tokenizer didn't pass"
+rm "$d/tokenizer.json"; "$tool" verify half > "$work/out" 2>&1 || { cat "$work/out" >&2; fail "verify didn't fill in the tokenizer"; }
+grep -q official "$d/tokenizer.json" || fail "verify didn't add the vocabulary"
+mv "$work/models/tokenizer/tokenizer.json" "$work/tok.bak"; rm "$d/tokenizer.json"
+if "$tool" verify half > "$work/out" 2>&1; then fail "a checkpoint with no tokenizer.json passed"; fi
+[ "$(info half verified)" = fail ] || fail "it wasn't recorded as failed, so flash use would switch to it"
+mv "$work/tok.bak" "$work/models/tokenizer/tokenizer.json"
+# A repository with a vocabulary of its own but no tokenizer.json is not mixed with the official one.
+reset_repo; rm "$work/repo/tokenizer/tokenizer.json"; put tokenizer/vocab.json '{"own vocab": 1}'
+if pull someone/Own-Vocab --as ownvocab > "$work/out" 2>&1; then fail "a vocabulary of its own was mixed with the official tokenizer"; fi
+grep -q 'vocabulary of its own (vocab.json)' "$work/out" || { cat "$work/out" >&2; fail "no explanation"; }
+[ ! -e "$work/models/flash/ownvocab/tokenizer/tokenizer.json" ] || fail "the official tokenizer.json was added beside its own vocabulary"
+[ "$(info ownvocab verified)" = fail ] || fail "it wasn't recorded as failed"
+ok "a tokenizer without tokenizer.json gets the official vocabulary, and one still without it, or with its own vocabulary, fails verify"
 
 reset_repo
 if FAKE_CORRUPT=model.hgn pull someone/Corrupt --as corrupt; then fail "a file with the wrong hash was accepted"; fi
