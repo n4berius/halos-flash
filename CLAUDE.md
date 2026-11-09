@@ -363,6 +363,15 @@ and tracked on the owner's project board. [ROADMAP.md](ROADMAP.md) holds the ord
   `halogen-spotter-0.6b`, so an upstream push to them breaks the fetch's hash check), served as
   `OvisOCR3` from `/models/custom/OvisOCR3`; INSTALL mentions `HALOGEN_WEIGHTS_LOCK=1` (already
   allowed) beside it.
+- **Halogen 0.20.1** (#95, on edge, not yet released): reply-end prompt-cache entries by default
+  (one more entry per slot, about 112 MiB each; `HALOGEN_CACHE_REPLY` is read by
+  `deploy/entrypoint.sh` but isn't in FLAGS.md, so it isn't allowed here), `HALOGEN_FORK_MAP=auto`
+  retired (accepted and ignored), `HALOGEN_FORK_AUTO_KEEPS`/`_AUTO_END_ONLY` no longer read (the
+  first dropped from `options.allowed` and the templates; `render-config` drops it from an old
+  `halogen.env`). Between source commits 8242b15 and d2f4286 only that entrypoint line, FLAGS.md's
+  fork rows and image tags in examples changed: Quadlet, kernel arguments, host-setup, the Flash
+  checkpoints and weights revision stay. The image's `/opt/halogen/npu/models.txt` is byte-identical
+  to 0.20.0's (read from the layer, anonymously from ghcr.io), so no NPU program downloads again.
 - The ISO install test also runs when `versions.env` changes (#78), so every Halogen update PR
   gets the LUKS + TPM install in a VM, about 30 minutes for both editions.
 - Known upstream: bootc 1.17.1 rewrites `/etc/fstab` at every boot on Anaconda installs

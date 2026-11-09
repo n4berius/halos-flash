@@ -10,6 +10,12 @@ promoted.
 
 ## Unreleased
 
+- Halogen 0.20.1: follow-up turns start faster (the end of each reply is cached, on by default,
+  about 0.4 GiB more RAM at 4 slots), a turn that ended inside its reasoning now gets its answer,
+  and a routine `kv pool` line no longer shows red in the logs. The Flash checkpoints and
+  the NPU model files are unchanged, so nothing new downloads. The setting
+  `HALOGEN_FORK_AUTO_KEEPS` is gone (Halogen no longer reads it) and `HALOGEN_FORK_MAP=auto` is
+  ignored with one line at start; a `halogen.env` that still has either keeps working. (#95)
 - Hardening from the security reviews of #91, #93 and #94 (#96):
   - `halosctl version` says whether updates are signature-checked, and the SSH login message warns
     when they aren't; the selftest's new `signature-files` line warns if the policy, registry
