@@ -1,0 +1,21 @@
+#!/bin/bash
+# halOS guided install (#13): how the disk unlocks, as chosen in plan-install. Run from the %post
+# section plan-install writes into the kickstart, with the choice as the argument and the keys
+# that may unlock over SSH on stdin. The keys and the choice (read by halosctl setup at first
+# boot) go on the new system's EFI partition, where the initramfs looks, through the same helper
+# halosctl uses. Should it fail, the install still boots: sudo halosctl ssh-unlock on sets it up.
+# Its output lands in the installed system's /var/log/anaconda/ks-script-*.log.
+set -u
+choice="${1:-}"
+root="${ANA_INSTALL_PATH:-/mnt/sysroot}"
+esp=""
+for d in "$root/boot/efi" /mnt/sysimage/boot/efi; do
+  if mountpoint -q "$d"; then esp="$d"; break; fi
+done
+echo "halOS: unlock choice $choice; EFI partition at ${esp:-(searched for)}"
+if HALOS_ESP="$esp" HALOS_UNLOCK_CHOICE="$choice" "${HALOS_KEYS_TOOL:-/usr/libexec/halos/ssh-unlock}" install-choice; then
+  echo "halOS: unlock choice saved"
+else
+  echo "halOS: the unlock choice couldn't be saved; after the install: sudo halosctl ssh-unlock on"
+fi
+exit 0

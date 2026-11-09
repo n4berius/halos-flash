@@ -47,24 +47,3 @@ rc=${PIPESTATUS[0]}
 umount "$root/sysroot"
 exit "$rc"
 %end
-
-%post --nochroot --interpreter=/usr/bin/bash
-# How the disk unlocks (#13), as chosen in plan-install. The keys that may unlock over SSH, and
-# the choice (read by halosctl setup at first boot), go on the new system's EFI partition, where
-# the initramfs looks: written by the same helper halosctl uses. Should it fail, the install still
-# boots; sudo halosctl ssh-unlock on sets it up later.
-root="${ANA_INSTALL_PATH:-/mnt/sysroot}"
-[ -s /tmp/halos-unlock-choice ] || exit 0
-esp=""
-for d in "$root/boot/efi" /mnt/sysimage/boot/efi; do
-  if mountpoint -q "$d"; then esp="$d"; break; fi
-done
-log() { echo "halOS: $*" | tee /dev/console; }
-if HALOS_ESP="$esp" HALOS_UNLOCK_CHOICE="$(cat /tmp/halos-unlock-choice)" /usr/libexec/halos/ssh-unlock install-choice \
-    < <(cat /tmp/halos-unlock-keys 2> /dev/null); then
-  log "unlock choice saved ($(cat /tmp/halos-unlock-choice))"
-else
-  log "the unlock choice couldn't be saved; after the install: sudo halosctl ssh-unlock on"
-fi
-exit 0
-%end

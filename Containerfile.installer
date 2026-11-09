@@ -34,6 +34,7 @@ COPY installer/guided/halos-guided.ks /usr/share/anaconda/halos-guided.ks
 COPY installer/guided/plan-install /usr/libexec/halos/plan-install
 # The same key helper as the installed system's halosctl ssh-unlock (#13).
 COPY files/usr/libexec/halogen/ssh-unlock /usr/libexec/halos/ssh-unlock
+COPY installer/guided/save-unlock /usr/libexec/halos/save-unlock
 COPY installer/anaconda-shell.conf /usr/lib/systemd/logind.conf.d/anaconda-shell.conf
 COPY installer/allowroot.conf /etc/systemd/user/pipewire.service.d/allowroot.conf
 COPY installer/allowroot.conf /etc/systemd/user/pipewire.socket.d/allowroot.conf

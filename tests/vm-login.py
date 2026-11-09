@@ -127,7 +127,10 @@ if mode == "luks-stale" and os.environ.get("HALOS_TEST_SSH_UNLOCK"):
     typed("halosctl ssh-unlock > /tmp/sshu 2>&1; echo SSHU-RC=$? >> /tmp/sshu; "
           "echo CHOICE $(/usr/libexec/halogen/ssh-unlock choice) >> /tmp/sshu; "
           "echo ADMINKEYS $(grep -c halostest /var/home/admin/.ssh/authorized_keys) >> /tmp/sshu; "
-          "halogenctl selftest 2>&1 | grep ssh-unlock >> /tmp/sshu; cat /tmp/sshu > /dev/ttyS0; echo SSHU-END > /dev/ttyS0\n")
+          "halogenctl selftest 2>&1 | grep ssh-unlock >> /tmp/sshu; "
+          # What the installer's save-unlock said (/var/log/anaconda keeps the %post output).
+          "grep -h halOS /var/log/anaconda/ks-script-*.log >> /tmp/sshu; "
+          "cat /tmp/sshu > /dev/ttyS0; echo SSHU-END > /dev/ttyS0\n")
     log = wait_serial("SSHU-END", 120)
     (out / "ssh-unlock.txt").write_text(log.split("SELFTEST-RC=")[-1].split("SSHU-END")[0])
 

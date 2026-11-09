@@ -115,7 +115,7 @@ yn() { # prompt default
 }
 # Unlocking over SSH (#13): keys are fetched and checked by the same helper halosctl uses.
 keys_tool="${HALOS_KEYS_TOOL:-/usr/libexec/halos/ssh-unlock}"
-unlock_dir="${HALOS_UNLOCK_DIR:-/tmp}"
+unlock_dir="${HALOS_UNLOCK_DIR:-/tmp}"   # only for the fetch's error text
 unlock=none; keys=""; admin_keys=""; keys_from=""
 network_up() { command -v nm-online > /dev/null && nm-online -q -t 20 2> /dev/null; }
 # Where the keys are, until some are found and taken; 1 to go back to the unlock choice.
@@ -359,11 +359,16 @@ umask 077
   echo "logvol /var/srv/configs --vgname=halos --name=configs --fstype=xfs --size=$((1 * mib))"
   echo "logvol /var/srv/models  --vgname=halos --name=models  --fstype=xfs --size=1 --grow"
   echo "$finish"
+  # How an encrypted disk unlocks (#13): a %post of its own, with the choice and the keys in it,
+  # so nothing depends on files in /tmp surviving until then. The keys are checked public keys
+  # (plain characters only), so no line of them can end the here-document.
+  if [ -n "$luks" ]; then
+    echo "%post --nochroot --interpreter=/usr/bin/bash"
+    echo "/usr/libexec/halos/save-unlock $unlock <<'HALOS_KEYS'"
+    [ -z "$keys" ] || printf '%s\n' "$keys"
+    echo "HALOS_KEYS"
+    echo "%end"
+  fi
 } > "$out" || stop "Could not write $out."
-# For the kickstart's %post: how an encrypted disk unlocks, and the keys that may unlock it.
-rm -f "$unlock_dir/halos-unlock-choice" "$unlock_dir/halos-unlock-keys"
-if [ -n "$luks" ]; then printf '%s\n' "$unlock" > "$unlock_dir/halos-unlock-choice" || stop "Could not write the unlock choice."; fi
-if [ -n "$keys" ]; then printf '%s\n' "$keys" > "$unlock_dir/halos-unlock-keys" || stop "Could not write the keys."
-else rm -f "$unlock_dir/halos-unlock-keys"; fi
 say "" "Installing halOS on $disk. This takes a few minutes; the machine then $([ "$finish" = reboot ] && echo restarts || echo powers off)."
 exit 0

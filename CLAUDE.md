@@ -223,11 +223,13 @@ name, but allows saying halOS runs Halogen.
   both/tpm/ssh/none (Enter: both) and, for SSH, GitHub/GitLab/Codeberg (`nm-online` first) or a
   pasted key, through the same helper copied into the installer image as
   `/usr/libexec/halos/ssh-unlock`; "back" returns to the choice; the keys can go on the admin user
-  too (`sshkey --username=`). It writes `/tmp/halos-unlock-choice` and `/tmp/halos-unlock-keys`
-  (600); the guided kickstart's second `%post --nochroot` runs the helper's `install-choice` with
-  `HALOS_ESP` set to the new system's mounted ESP (`$ANA_INSTALL_PATH/boot/efi` or
-  `/mnt/sysimage/boot/efi`; otherwise the helper looks), which installs the keys and writes
-  `/halos/unlock-choice` there. `halosctl setup` reads it (`ssh-unlock choice`) for its defaults.
+  too (`sshkey --username=`). With encryption it writes a `%post --nochroot` into its own kickstart
+  lines, with the choice and keys in a here-document, running `/usr/libexec/halos/save-unlock`
+  (`installer/guided/save-unlock`); a static `%post` reading files `%pre` left in `/tmp` saved
+  nothing in the VM test. save-unlock runs the helper's `install-choice` with `HALOS_ESP` set to the
+  new system's mounted ESP (`$ANA_INSTALL_PATH/boot/efi` or `/mnt/sysimage/boot/efi`; otherwise the
+  helper looks), which installs the keys and writes `/halos/unlock-choice` there; its output is in
+  the installed system's `/var/log/anaconda/ks-script-*.log`, which the VM test prints. `halosctl setup` reads it (`ssh-unlock choice`) for its defaults.
   Unattended answers: `unlock`, `ssh_key`, `admin_ssh`; the VM test installs with `unlock=both`
   and its key, so the first boot only reads the state.
 
