@@ -79,14 +79,20 @@ f=files/etc/ssh/sshd_config.d/00-halos.conf
 grep -qx 'PermitRootLogin no' "$f" || { echo "$f must say PermitRootLogin no" >&2; exit 1; }
 echo "ok: root can't log in over SSH"
 
-# Every workflow that publishes an image also signs it (#46).
+# Every workflow that publishes an image also signs it (#46), and gets cosign before its first
+# push, so a failed download leaves nothing unsigned (#90). Fetching alone doesn't count as signing.
 for f in .github/workflows/*.yml; do
   code="$(grep -v '^[[:space:]]*#' "$f")"   # commands only, not comments
-  if grep -q 'podman push\|push-image.sh' <<< "$code" && ! grep -q 'sign-image.sh' <<< "$code"; then
-    echo "$f pushes images but doesn't sign them (scripts/sign-image.sh)" >&2; exit 1
+  grep -q 'podman push\|push-image.sh' <<< "$code" || continue
+  signs="$(grep -v -- '--fetch' <<< "$code")"
+  grep -q 'sign-image.sh' <<< "$signs" || { echo "$f pushes images but doesn't sign them (scripts/sign-image.sh)" >&2; exit 1; }
+  fetch_at="$(grep -n 'sign-image.sh.* --fetch' <<< "$code" | head -n 1 | cut -d: -f1)"
+  push_at="$(grep -n 'podman push\|push-image.sh' <<< "$code" | head -n 1 | cut -d: -f1)"
+  if [ -z "$fetch_at" ] || [ "$fetch_at" -gt "$push_at" ]; then
+    echo "$f pushes before it gets cosign (sign-image.sh --fetch)" >&2; exit 1
   fi
 done
-echo "ok: every workflow that pushes an image signs it"
+echo "ok: every workflow that pushes an image gets cosign first and signs it"
 
 # Halogen's container runs with no capabilities (security audit R2).
 q=files/etc/containers/systemd/users/970/halogen.container

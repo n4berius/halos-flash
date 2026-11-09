@@ -26,12 +26,14 @@ bFysLUF3azuwIUBhmbvNzPERgxn9rDNbraHldK+i4aBedqF6TFkK7l+1vg==
 
 verify_only=0; [ "${1:-}" != --verify ] || { verify_only=1; shift; }
 fetch_only=0; [ "${1:-}" != --fetch ] || { fetch_only=1; shift; }
-[ $# -ge 1 ] || [ "$fetch_only" = 1 ] || { echo "usage: sign-image.sh [--verify] <repo:tag> [repo:tag ...] | --fetch" >&2; exit 2; }
+if [ "$fetch_only" = 1 ]; then [ $# -eq 0 ] && [ "$verify_only" = 0 ]; else [ $# -ge 1 ]; fi \
+  || { echo "usage: sign-image.sh [--verify] <repo:tag> [repo:tag ...] | --fetch" >&2; exit 2; }
 
 bin="${RUNNER_TEMP:-/tmp}/cosign-$COSIGN_VERSION"
 # GitHub's download servers sometimes answer 504 for a minute or two (the stable refresh of
-# 2026-11-09 failed on four in seven seconds), so retry for up to about five minutes.
-[ -f "$bin" ] || curl -fsSL --retry 8 --retry-max-time 300 -o "$bin" "https://github.com/sigstore/cosign/releases/download/$COSIGN_VERSION/cosign-linux-amd64"
+# 2026-11-09 failed on four in seven seconds), so retry for up to about five minutes. A stalled
+# download times out (under 100 kB/s for a minute) and is retried too.
+[ -f "$bin" ] || curl -fsSL --retry 8 --retry-max-time 300 --connect-timeout 30 --speed-limit 100000 --speed-time 60 -o "$bin" "https://github.com/sigstore/cosign/releases/download/$COSIGN_VERSION/cosign-linux-amd64"
 # Checked every time, not only after a download: earlier steps share this folder.
 echo "$COSIGN_SHA256  $bin" | sha256sum -c --quiet - || { rm -f "$bin"; exit 1; }
 [ "$fetch_only" = 0 ] || exit 0

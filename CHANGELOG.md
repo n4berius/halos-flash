@@ -10,6 +10,9 @@ promoted.
 
 ## Unreleased
 
+- Building images: the signing tool is downloaded before anything is pushed, and its download
+  retries for up to five minutes. A GitHub outage during the weekly stable refresh had left the
+  `0.20.0` tag pointing to an unsigned rebuild. (#90)
 - `flash pull` and `flash verify` add the official tokenizer's vocabulary to a checkpoint whose
   `tokenizer/` folder has no `tokenizer.json` (Signal-3.8-Flash-Next-HGN-v2 ships only its chat
   template and settings), keeping its own chat template. Halogen couldn't start on such a checkpoint
