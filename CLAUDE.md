@@ -235,7 +235,7 @@ name, but allows saying halOS runs Halogen.
   Unattended answers: `unlock`, `ssh_key`, `admin_ssh`; the VM test installs with `unlock=both`
   and its key, so the first boot only reads the state.
 
-- Hardening (#PR): `need_policy` also requires the rule's `keyPath`; `halosctl version` prints
+- Hardening (#96): `need_policy` also requires the rule's `keyPath`; `halosctl version` prints
   `Signatures:` (login-status shows only the "not checked" line in the motd); `need_policy` also
   `cmp`s the public key with `/usr/etc`'s copy when there; `switch_to` warns about an older staged
   build only for `upgrade` (the first signed upgrade, same name; build times of other channels and

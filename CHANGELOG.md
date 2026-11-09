@@ -10,7 +10,7 @@ promoted.
 
 ## Unreleased
 
-- Hardening from the security reviews of #91, #93 and #94 (#PR):
+- Hardening from the security reviews of #91, #93 and #94 (#96):
   - `halosctl version` says whether updates are signature-checked, and the SSH login message warns
     when they aren't; the selftest's new `signature-files` line warns if the policy, registry
     setting or halOS's key differ from the image's copies, or root has a policy of its own.
