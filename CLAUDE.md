@@ -35,7 +35,7 @@ name, but allows saying halOS runs Halogen.
 
 | Path | What it is |
 |---|---|
-| `versions.env` | Every pinned input: Fedora base, Halogen version, digest and source commit, upstream file hashes, weights repo and revision, ISO builder |
+| `versions.env` | Every pinned input: Fedora base, Halogen version, digest and source commit, upstream file hashes, weights repo and revision, ISO builder, bf16-to-hgn commit |
 | `Containerfile` | The OS image. XRT is not in it: Halogen's image carries its own since 0.19.1 |
 | `Containerfile.installer`, `installer/` | The live installer image, Anaconda defaults (storage layout for custom partitioning), branding and boot menu. `installer/guided/`: the guided install's kickstart and `plan-install` (#42) |
 | `files/` | Copied into both editions: systemd units, `halosctl`, `halogenctl`, `halogen-enroll-tpm` (bash completion for all three in `usr/share/bash-completion/completions/`; `tests/completion.sh` fails when a tool gains a top-level command, or a `flash`/`model` subcommand, its completion doesn't offer; checkpoint folder names are written by halogen and its containers, so they are never passed to `compgen -W`, which expands `$(...)`: only plain names, matched by hand), `/usr/libexec/halogen/*` (`flash-checkpoint` and `model-pull` download your own checkpoints) |
@@ -234,6 +234,49 @@ name, but allows saying halOS runs Halogen.
   the installed system's `/var/log/anaconda/ks-script-*.log`, which the VM test prints. `halosctl setup` reads it (`ssh-unlock choice`) for its defaults.
   Unattended answers: `unlock`, `ssh_key`, `admin_ssh`; the VM test installs with `unlock=both`
   and its key, so the first boot only reads the state.
+
+- Hardening (#96): `need_policy` also requires the rule's `keyPath`; `halosctl version` prints
+  `Signatures:` (login-status shows only the "not checked" line in the motd); `need_policy` also
+  `cmp`s the public key with `/usr/etc`'s copy when there; `switch_to` warns about an older staged
+  build only for `upgrade` (the first signed upgrade, same name; build times of other channels and
+  of the other edition, built in a parallel job, differ normally) and then drops `--reboot`; the
+  selftest's `signature-files` (SKIP without `/usr/etc` copies)
+  compares `/etc/{containers/policy.json,containers/registries.d/halos-flash.yaml,
+  pki/containers/halos-flash.pub}` with `/usr/etc` and warns about
+  `/root/.config/containers/policy.json`. SSH unlock: `ssh-unlock record` keeps sha256 of the ESP's
+  `authorized_keys` and the host key, private (what boot serves) and public, in
+  `/var/lib/halos/ssh-unlock.sums`; `record` only makes a first record (`on` replaces it with
+  `HALOS_RECORD_REPLACE=1`, after `install` made a new host key if the ESP had changed since the
+  record); `setup` records an installer's keys and says so; `remove` drops it; `verify` returns
+  0/1/2 (match, differ, none) for the selftest. `halosctl ssh-passwords on|off` writes or removes
+  `/etc/ssh/sshd_config.d/20-halos-keys-only.conf` (`PasswordAuthentication no`,
+  `KbdInteractiveAuthentication no`; sshd takes the first value, so 20 beats Fedora's 50), only when
+  `$SUDO_USER` has a key sshd accepts (read as that user, checked with ssh-keygen; home and .ssh not
+  group/world-writable), checked with `sshd -t` and `sshd -T` (the setting sshd will use); in
+  setup a failure doesn't stop setup. A second signing key isn't shipped: it needs a
+  key pair the owner makes offline (RELEASING.md).
+
+- Converting full-precision weights (`halogenctl flash convert`, #97): bf16-to-hgn
+  (Quat3rnion, MIT/Apache-2.0, `native/` Apache-2.0) is built in the Containerfile's
+  `bf16-to-hgn` stage from `BF16_TO_HGN_COMMIT` (same Fedora base, so libstdc++/libgomp match;
+  `cargo build --release --locked`, CPU only, about a minute) and copied to
+  `/usr/libexec/halogen/bf16-to-hgn` with its licenses; `release.env` records the commit. Its HF
+  input must be complete Qwen3.8 Flash Next (`model_type` `qwen4_exp`,
+  `Qwen4ExpForConditionalGeneration`, `mtp.*` and `model.visual.*` tensors (HF names; shards are those the index names), config/tokenizer/
+  chat_template/merges/generation_config); it reads every shard's header, so `flash-checkpoint
+  convert-prepare` checks config.json and the index's keys itself before the weights download
+  (about 360 GB), then the space (weights + about 119 GB out). `convert-run` (halogenctl starts it
+  as `halogen-flash-convert.service` under halogen's user manager, detached, Nice 10, idle I/O)
+  downloads the shards into `flash/.convert/<name>/source`, checks HF's sha256, runs `convert
+  --profile v2 --threads N` and `verify` into `flash/.convert/<name>/out/<name>` (emptied first,
+  never resumed), each in its own transient unit (`sandboxed`: `PrivateNetwork`,
+  `RestrictAddressFamilies=none`, read-only system and models, writable only the work folder,
+  `/srv/configs`, halogen's home and `/run/user/970` hidden, `BindsTo` the job; `unshare --net` was
+  not enough, since a socket of the user manager reaches out), then `mv -T -n` to `flash/<name>`,
+  writes `halos.info` (`checkpoint=model.hgn`, `converted_with`), runs Halogen's verify, and
+  deletes the source unless `--keep-source`. Progress is `du` of the staging folder every 10 minutes (its payload files are
+  written at preplanned offsets, and the image has no `script` for its pty-only progress display).
+  No full-size conversion has run anywhere yet; no CPU timing exists.
 
 ## Lessons already learned
 

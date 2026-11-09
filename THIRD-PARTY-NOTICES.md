@@ -54,6 +54,12 @@ the USB drive and are not installed on the machine.
 Both the OS image and the ISO are aggregates of separately licensed programs. Source for
 Fedora packages is available from [Fedora](https://src.fedoraproject.org/).
 
+## Converter in the OS image
+
+| Component | License |
+|---|---|
+| [bf16-to-hgn](https://github.com/Quat3rnion/bf16-to-hgn) (`/usr/libexec/halogen/bf16-to-hgn`, built unmodified from the commit in `versions.env`) | MIT or Apache-2.0; its vendored trellis encoder (`native/`) Apache-2.0 only. Texts in `/usr/share/licenses/bf16-to-hgn/` |
+
 ## Build tools
 
 These build the images and are not included in them.

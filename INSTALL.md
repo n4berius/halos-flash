@@ -126,7 +126,15 @@ it on; each needs a reboot.
   before. If that file is changed or removed, `halosctl` refuses to switch and says how to put
   halOS's copy back (`sudo cp /usr/etc/containers/policy.json /etc/containers/policy.json`).
 - `bootc switch` by hand needs `--enforce-container-sigpolicy`, or the machine stops checking.
-  `halosctl` always passes it.
+  `halosctl` always passes it. `sudo halosctl version` says whether updates are checked, and so
+  does the SSH login message when they aren't.
+- The selftest's `signature-files` line compares the policy, the registry setting and halOS's
+  public key with the image's own copies in `/usr/etc`, and warns about a policy file in root's
+  home, which would replace the system one.
+- If the name you follow is ever pointed back at an older build, `halosctl upgrade` says so and
+  doesn't reboot by itself, so you can look first. (Other channels and the other edition are
+  built at other times, so `switch` and `npu` don't compare.)
+- `halosctl` also refuses to switch if `/etc/pki/containers/halos-flash.pub` isn't the image's copy.
 
 To build an ISO yourself, see [BUILDING.md](BUILDING.md).
 
@@ -482,6 +490,42 @@ What `flash pull` does:
 Downloads and checks are read from disk while Halogen keeps serving, which can slow long
 prompts a little until they finish.
 
+#### Converting full-precision weights
+
+Many models are published only in full precision (BF16 `.safetensors`), the format they were
+trained in, not as a Halogen `.hgn`. For **Qwen3.8 Flash Next** weights, halOS can convert them
+on the machine with [bf16-to-hgn](https://github.com/Quat3rnion/bf16-to-hgn), a third-party tool
+(MIT or Apache-2.0) built into the image from a pinned version:
+
+```bash
+sudo halogenctl flash convert someone/Some-Flash-BF16 --revision <commit> --as mine
+sudo halogenctl flash convert-logs       # follow it (Ctrl-C stops following, not the conversion)
+sudo halogenctl flash convert-stop       # stop it; add the name to delete the downloaded weights too
+sudo halogenctl flash check mine         # then judge it, before serving it
+```
+
+- **Checked before the big download.** It downloads the repository's small files first and
+  refuses anything but Qwen3.8 Flash Next, and weights without an MTP head or vision tower: the
+  converter uses the repository's own and puts nothing official in their place. Then it checks
+  there is room for the weights (about 360 GB) and the result (about 119 GB).
+- **Runs on its own.** After you confirm, the download, the conversion and the checks run as a
+  service, so closing the terminal doesn't stop them. A stopped download resumes; a stopped
+  conversion starts over.
+- **Takes long.** The conversion runs on the CPU with low priority, and takes many hours, likely a
+  day or more. Parts of it use several cores (`--threads`, by default half the cores, at most 16).
+  No full-size conversion has been timed yet, and how much it slows a serving Halogen hasn't been
+  measured.
+- **Checked twice.** bf16-to-hgn's own `verify` checks every value it wrote against the weights,
+  then Halogen's `verify` checks the result, as for `flash pull`. The converter runs in a sandbox
+  with no network, unable to see your settings, keys or token, and able to write only its own
+  work folder. The result appears under `/srv/models/flash/<name>` only once both checks passed.
+- **The weights are deleted** afterwards, to free the 360 GB. `--keep-source` keeps them in
+  `/srv/models/flash/.convert/<name>/source`.
+- **Judge it before serving it.** A conversion's quality hasn't been measured by anyone: run
+  `flash check` and compare its numbers with the official checkpoint's before `flash use`. Halogen
+  hasn't served a converted checkpoint yet either, so switch to it while you can watch, and go
+  back with `sudo halogenctl flash use official` if it doesn't start.
+
 Things to know:
 
 - **Quality is yours to judge.** `verify` proves the file is well formed, not that its answers
@@ -615,12 +659,35 @@ system starts, so its own network settings apply. The TPM still unlocks the disk
 can: SSH is the way in when it can't. If ssh ever says this host key changed, don't type the
 passphrase: someone else could be asking for it.
 
+`halosctl ssh-unlock` (and `setup`) also keeps the fingerprints of these keys and the early-boot
+host key on the encrypted disk. If the copies on the EFI partition ever change without you, the
+selftest's `ssh-unlock` line and `sudo halosctl ssh-unlock` warn. Then whoever changed them had
+the disk and could have copied the host key, so set it up afresh: `sudo halosctl ssh-unlock off`,
+then `on`. That makes a new early-boot host key; replace its `known_hosts` line on your computer.
+A machine set up by the installer records them at first-boot setup, or with
+`sudo halosctl ssh-unlock record`, which only ever makes a first record.
+
 What it can and can't protect: the keys and that host key are kept on the disk's small
 unencrypted EFI partition (only the machine's own disks are read, never a USB stick), because every
 halOS machine boots the same image. Your keys there are
 only public keys. But someone who can take the disk out can copy the host key, and then pretend
 to be this machine to catch the passphrase when you unlock. Every way of unlocking over the network
 has this weakness; the TPM section above has ways to make the machine harder to tamper with.
+
+### SSH logins with keys only
+
+Once your account logs in over SSH with a key, passwords can be turned off for SSH logins, so
+nobody on the network can try to guess one:
+
+```bash
+sudo halosctl ssh-passwords off
+```
+
+It refuses while your account has no key sshd would accept in `~/.ssh/authorized_keys` (add one
+from your computer with `ssh-copy-id`), and checks that sshd will really use the setting before
+applying it. The machine's own
+screen still takes the password. `sudo halosctl ssh-passwords on` allows passwords again.
+`sudo halosctl setup` offers it too, defaulting to no.
 
 ## If something goes wrong
 

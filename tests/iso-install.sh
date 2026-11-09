@@ -160,7 +160,10 @@ if [ -n "$luks" ]; then
   grep -q '^on, 1 key' "$out/ssh-unlock.txt" || { echo "the installer didn't set up unlocking over SSH" >&2; exit 1; }
   grep -q '^CHOICE both$' "$out/ssh-unlock.txt" || { echo "the installer's unlock choice wasn't kept" >&2; exit 1; }
   grep -q '^ADMINKEYS 1$' "$out/ssh-unlock.txt" || { echo "the admin user didn't get the key" >&2; exit 1; }
-  grep -q '^PASS ssh-unlock:' "$out/ssh-unlock.txt" || { echo "the selftest doesn't see unlocking over SSH" >&2; exit 1; }
+  # A new install has no record of the keys on the encrypted disk yet, so the selftest says so
+  # rather than PASS (sudo halosctl ssh-unlock record makes one).
+  grep -q '^INFO ssh-unlock: unlocks over SSH at boot (1 key' "$out/ssh-unlock.txt" || { echo "the selftest doesn't see unlocking over SSH" >&2; exit 1; }
+  grep -q '^Record: none on the encrypted disk yet' "$out/ssh-unlock.txt" || { echo "status doesn't say there is no record yet" >&2; exit 1; }
   # The known_hosts line halosctl prints, as people add it: under the unlock name (HostKeyAlias).
   sed -n 's/^ *known_hosts line: //p' "$out/ssh-unlock.txt" | tr -d '\r' | head -n 1 > "$out/known_hosts"
   grep -q '^halostest-unlock ssh-ed25519 ' "$out/known_hosts" || { echo "no known_hosts line for halostest-unlock" >&2; exit 1; }

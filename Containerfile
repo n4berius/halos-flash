@@ -1,5 +1,19 @@
 ARG FEDORA_BOOTC_IMAGE
 
+# bf16-to-hgn, built from its pinned commit on the same base, so its C++ and OpenMP libraries are
+# the ones the OS image has (libstdc++, libgomp). The compilers stay in this stage. /root links to
+# /var/roothome, which the base image lacks, and cargo keeps its downloads in ~/.cargo.
+FROM ${FEDORA_BOOTC_IMAGE} AS bf16-to-hgn
+ARG BF16_TO_HGN_COMMIT
+RUN set -eu; \
+    dnf -y --setopt=install_weak_deps=False install cargo rust gcc-c++ git-core; \
+    git clone -q https://github.com/Quat3rnion/bf16-to-hgn /src; \
+    cd /src; git checkout -q "$BF16_TO_HGN_COMMIT"; \
+    [ "$(git rev-parse HEAD)" = "$BF16_TO_HGN_COMMIT" ]; \
+    mkdir -p "$(realpath /root)"; \
+    cargo build --release --locked; \
+    ./target/release/bf16-to-hgn --version
+
 FROM ${FEDORA_BOOTC_IMAGE} AS os
 ARG HALOGEN_VARIANT
 ARG HALOGEN_IMAGE
@@ -34,6 +48,10 @@ RUN dnf -y --setopt=install_weak_deps=False install \
 COPY files/ /
 COPY variants/${HALOGEN_VARIANT}/ /
 COPY LICENSE THIRD-PARTY-NOTICES.md /usr/share/licenses/halos-flash/
+COPY --from=bf16-to-hgn /src/target/release/bf16-to-hgn /usr/libexec/halogen/bf16-to-hgn
+COPY --from=bf16-to-hgn /src/LICENSE-MIT /src/LICENSE-APACHE /usr/share/licenses/bf16-to-hgn/
+COPY --from=bf16-to-hgn /src/native/LICENSE /usr/share/licenses/bf16-to-hgn/native/LICENSE
+COPY --from=bf16-to-hgn /src/native/NOTICE /usr/share/licenses/bf16-to-hgn/native/NOTICE
 
 # Upstream's clock script and terms, unmodified and checked by hash.
 RUN set -eu; \
@@ -48,7 +66,9 @@ RUN set -eu; \
 
 # The halOS release (0.19.0-alpha.2, or 0.19.0-dev.<commit> for builds of main), for halosctl.
 ARG HALOS_RELEASE
+ARG BF16_TO_HGN_COMMIT
 RUN set -eu; \
+    /usr/libexec/halogen/bf16-to-hgn --version; \
     chmod 0755 /usr/bin/halosctl /usr/bin/halogenctl /usr/bin/halogen-enroll-tpm /usr/libexec/halogen/*; \
     find /etc/containers/systemd/users/970 -type f -exec sed -i \
       -e "s|@HALOGEN_IMAGE@|${HALOGEN_IMAGE}|g" -e "s|@HALOGEN_VERSION@|${HALOGEN_VERSION}|g" {} +; \
@@ -58,7 +78,8 @@ RUN set -eu; \
       echo "HALOGEN_VARIANT=${HALOGEN_VARIANT}"; \
       echo "HALOS_RELEASE=${HALOS_RELEASE}"; \
       echo "HALOGEN_WEIGHTS_REPO=${HALOGEN_WEIGHTS_REPO}"; \
-      echo "HALOGEN_WEIGHTS_REVISION=${HALOGEN_WEIGHTS_REVISION}"; } > /usr/share/halogen/release.env; \
+      echo "HALOGEN_WEIGHTS_REVISION=${HALOGEN_WEIGHTS_REVISION}"; \
+      echo "BF16_TO_HGN_COMMIT=${BF16_TO_HGN_COMMIT}"; } > /usr/share/halogen/release.env; \
     echo 'halogen:524288:65536' >> /etc/subuid; \
     echo 'halogen:524288:65536' >> /etc/subgid; \
     firewall-offline-cmd --add-service=halogen; \
