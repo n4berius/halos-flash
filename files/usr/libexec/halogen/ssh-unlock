@@ -11,19 +11,27 @@
 # The EFI partition is readable by anyone holding the disk, so it holds only public keys and the
 # early-boot host key, which is not the system's own.
 set -euo pipefail
+# Bytes, not characters: [[:print:]] is plain ASCII, so a key comment can't carry look-alike or
+# direction-changing characters onto root's terminal.
+export LC_ALL=C
 esp_type=c12a7328-f81f-11d2-ba4b-00a0c93ec93b
 die() { echo "ssh-unlock: $*" >&2; exit 1; }
 
 # One public key per line, as GitHub, GitLab and Codeberg serve them: no options, a known type, a
-# size OpenSSH accepts. Prints the key (type, blob, printable comment); fails otherwise.
+# size OpenSSH accepts. Prints the key (type, blob, and its comment cut to plain characters);
+# fails otherwise.
 check_line() {
-  local line="$1" bits
-  [[ "$line" =~ ^(ssh-ed25519|sk-ssh-ed25519@openssh\.com|ecdsa-sha2-nistp(256|384|521)|sk-ecdsa-sha2-nistp256@openssh\.com|ssh-rsa)\ [A-Za-z0-9+/]+={0,3}(\ [[:print:]]{0,200})?$ ]] || return 1
-  bits="$(ssh-keygen -l -f /dev/stdin <<< "$line" 2> /dev/null | awk '{print $1}')" || return 1
+  local line="$1" bits key comment
+  [[ "$line" =~ ^((ssh-ed25519|sk-ssh-ed25519@openssh\.com|ecdsa-sha2-nistp(256|384|521)|sk-ecdsa-sha2-nistp256@openssh\.com|ssh-rsa)\ [A-Za-z0-9+/]+={0,3})(\ (.*))?$ ]] || return 1
+  key="${BASH_REMATCH[1]}"
+  comment="$(printf '%s' "${BASH_REMATCH[5]:-}" | tr -cd 'A-Za-z0-9 ._@:,+=/-' | head -c 100)"
+  bits="$(ssh-keygen -l -f /dev/stdin <<< "$key" 2> /dev/null | awk '{print $1}')" || return 1
   [[ "$bits" =~ ^[0-9]+$ ]] || return 1
-  if [ "${line%% *}" = ssh-rsa ] && [ "$bits" -lt 2048 ]; then return 1; fi
-  printf '%s\n' "$line"
+  if [ "${key%% *}" = ssh-rsa ] && [ "$bits" -lt 2048 ]; then return 1; fi
+  printf '%s%s\n' "$key" "${comment:+ $comment}"
 }
+# What is shown on root's terminal: no control characters, even from a file someone changed.
+clean() { tr -d '\000-\010\013-\037\177-\377'; }
 check() {
   local line n=0 seen=" " blob good=0
   while IFS= read -r line || [ -n "$line" ]; do
@@ -41,21 +49,25 @@ describe() {
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     ssh-keygen -l -f /dev/stdin <<< "$line" | awk '{ t = $NF; $NF = ""; printf "  %s %s\n", t, $0 }'
-  done
+  done | clean
 }
 
 # The EFI partition, mounted read-write: where it is mounted already, or for this run in /run.
-esp=""; mounted_here=""
-cleanup() { [ -z "$mounted_here" ] || { umount "$mounted_here" && rmdir "$mounted_here"; }; }
+esp=""; mounted_here=""; remounted=""
+cleanup() {
+  [ -z "$remounted" ] || mount -o remount,ro "$esp" || true
+  [ -z "$mounted_here" ] || { umount "$mounted_here" && rmdir "$mounted_here"; }
+}
 trap cleanup EXIT
 find_esp() { # [ro]: only to read (status), so nothing is remounted or written
   local ro="${1:-}"
   if [ -n "${HALOS_ESP:-}" ]; then esp="$HALOS_ESP"; return; fi
-  local p t m devs=() mnt=()
-  while read -r p t m; do
-    [ "$t" = "$esp_type" ] || continue
+  local p t rm tran m devs=() mnt=()
+  # The machine's own disks, as the initramfs looks (not a USB stick's EFI partition).
+  while read -r p t rm tran m; do
+    [ "$t" = "$esp_type" ] && [ "$rm" = 0 ] && [ "$tran" != usb ] || continue
     devs+=("$p"); mnt+=("${m:-}")
-  done < <(lsblk -rno PATH,PARTTYPE,MOUNTPOINT)
+  done < <(lsblk -rno PATH,PARTTYPE,RM,TRAN,MOUNTPOINT)
   [ "${#devs[@]}" -gt 0 ] || die "no EFI system partition found"
   local i pick=""
   for i in "${!devs[@]}"; do [ "${mnt[$i]}" = /boot/efi ] && pick="$i"; done
@@ -68,6 +80,7 @@ find_esp() { # [ro]: only to read (status), so nothing is remounted or written
     # Read-only mounts happen (bootupd mounts it only when it needs to); write anyway.
     if [ -z "$ro" ] && ! findmnt -rno OPTIONS "$esp" | tr , '\n' | grep -qx rw; then
       mount -o remount,rw "$esp" || die "can't write to $esp"
+      remounted=1
     fi
   else
     mounted_here="$(mktemp -d /run/halos-esp.XXXXXX)"
@@ -83,7 +96,9 @@ case "$cmd" in
     case "$1" in github) host=github.com ;; gitlab) host=gitlab.com ;; codeberg) host=codeberg.org ;; *) die "unknown site: $1" ;; esac
     user="$2"
     [[ "$user" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] && [[ "$user" != *..* ]] || die "not a user name: $(printf '%s' "$user" | tr -cd '[:print:]' | head -c 64)"
-    if ! body="$(curl -fsSL --proto '=https' --tlsv1.2 --max-time 20 --max-filesize 200000 "https://$host/$user.keys" 2>&1)"; then
+    # The download runs as nobody: only its output is used.
+    drop=(); if [ "$(id -u)" = 0 ] && [ -z "${HALOS_FETCH_AS_ROOT:-}" ]; then drop=(setpriv --reuid=65534 --regid=65534 --clear-groups --); fi
+    if ! body="$("${drop[@]}" curl -fsSL --proto '=https' --tlsv1.2 --max-time 20 --max-filesize 200000 "https://$host/$user.keys" 2>&1)"; then
       die "could not get https://$host/$user.keys: $(printf '%s' "$body" | tr -cd '[:print:]' | tail -c 200)"
     fi
     printf '%s\n' "$body" | check || die "$user has no public keys on $host that can be used"
@@ -96,12 +111,14 @@ case "$cmd" in
     dir="$esp/halos/ssh-unlock"; mkdir -p "$dir"
     # Keep the early-boot host key across key changes, so clients keep trusting it.
     if [ ! -s "$dir/ssh_host_ed25519_key" ] || [ ! -s "$dir/ssh_host_ed25519_key.pub" ]; then
-      tmp="$(mktemp -d)"
-      ssh-keygen -q -t ed25519 -N '' -C halos-unlock -f "$tmp/key"
-      cp "$tmp/key" "$dir/ssh_host_ed25519_key.new" && mv -f "$dir/ssh_host_ed25519_key.new" "$dir/ssh_host_ed25519_key"
-      cp "$tmp/key.pub" "$dir/ssh_host_ed25519_key.pub.new" && mv -f "$dir/ssh_host_ed25519_key.pub.new" "$dir/ssh_host_ed25519_key.pub"
-      rm -rf "$tmp"
+      rm -f "$dir/new_host_key" "$dir/new_host_key.pub"
+      ssh-keygen -q -t ed25519 -N '' -C halos-unlock -f "$dir/new_host_key"
+      mv -f "$dir/new_host_key.pub" "$dir/ssh_host_ed25519_key.pub"
+      mv -f "$dir/new_host_key" "$dir/ssh_host_ed25519_key"
     fi
+    # The EFI partition's mount options decide who can read the private host key.
+    mode="$(stat -c %a "$dir/ssh_host_ed25519_key")"
+    case "$mode" in 600|700|400|500) ;; *) echo "warning: $dir/ssh_host_ed25519_key is readable by other users (mode $mode); mount the EFI partition with umask=0077" >&2 ;; esac
     # Each key may only answer the passphrase prompt (sshd's ForceCommand does the rest).
     while IFS= read -r k; do printf 'restrict,pty %s\n' "$k"; done <<< "$keys" > "$dir/authorized_keys.new"
     mv -f "$dir/authorized_keys.new" "$dir/authorized_keys"
@@ -119,10 +136,15 @@ case "$cmd" in
     if [ ! -s "$dir/authorized_keys" ] || [ ! -s "$dir/ssh_host_ed25519_key.pub" ]; then echo off; exit 0; fi
     n="$(grep -c . "$dir/authorized_keys" || true)"
     if [ "${1:-}" = --short ]; then echo "on $n"; exit 0; fi
+    host="$(hostname -s 2> /dev/null || hostname)"; host="$(printf '%s' "$host" | tr -cd 'A-Za-z0-9.-')"
     echo "on, $n key(s) may unlock:"
     sed 's/^restrict,pty //' "$dir/authorized_keys" | describe
     echo "Early-boot host key: $(ssh-keygen -l -f "$dir/ssh_host_ed25519_key.pub" | awk '{print $2}')"
-    echo "known_hosts line: $(hostname) $(cut -d' ' -f1,2 "$dir/ssh_host_ed25519_key.pub")"
+    # Its own name in ssh (HostKeyAlias): the early-boot key is then trusted only for unlocking,
+    # never for the running system, and ssh's UpdateHostKeys doesn't remove it.
+    echo "ssh config entry (in ~/.ssh/config on your computer; HostName: how you reach this machine):"
+    printf '  Host %s-unlock\n      HostName %s\n      User root\n      HostKeyAlias %s-unlock\n' "$host" "$host" "$host"
+    echo "known_hosts line: $host-unlock $(cut -d' ' -f1,2 "$dir/ssh_host_ed25519_key.pub" | clean)"
     ;;
   *) die "usage: ssh-unlock fetch|check|describe|install|remove|status" ;;
 esac

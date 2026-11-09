@@ -88,6 +88,8 @@ typed("{ echo RESULT-START; cat /proc/cmdline; dmesg | grep -i secure; bootctl s
       # ttyS0). QEMU's other ports don't fail like freyja's dead ttyS0, so the skip is checked there.
       "echo SERIALGETTY $(systemctl is-active serial-getty@ttyS0.service) "
       "$(systemctl show serial-getty@ttyS0.service -p ExecCondition --value | grep -c stty); "
+      # Unlock over SSH (#13): no early-boot network settings may stay in the running system.
+      "for f in /run/NetworkManager/system-connections/*; do [ -e \"$f\" ] && echo NMRUN $f; done; "
       "echo RESULT-END; } > /dev/ttyS0 2>&1\n")
 
 def wait_serial(marker, seconds):

@@ -152,10 +152,9 @@ if [ -n "$luks" ]; then
   cat "$out/ssh-unlock.txt"
   grep -q '^SSHU-RC=0' "$out/ssh-unlock.txt" || { echo "halosctl ssh-unlock on failed" >&2; exit 1; }
   grep -q '^PASS ssh-unlock:' "$out/ssh-unlock.txt" || { echo "the selftest doesn't see unlocking over SSH" >&2; exit 1; }
-  # The known_hosts line halosctl prints, for the address this test connects to.
-  hostkey="$(sed -n 's/^known_hosts line: [^ ]* //p' "$out/ssh-unlock.txt" | tr -d '\r' | head -n 1)"
-  [ -n "$hostkey" ] || { echo "no known_hosts line" >&2; exit 1; }
-  echo "[127.0.0.1]:2222 $hostkey" > "$out/known_hosts"
+  # The known_hosts line halosctl prints, as people add it: under the unlock name (HostKeyAlias).
+  sed -n 's/^ *known_hosts line: //p' "$out/ssh-unlock.txt" | tr -d '\r' | head -n 1 > "$out/known_hosts"
+  grep -q '^halostest-unlock ssh-ed25519 ' "$out/known_hosts" || { echo "no known_hosts line for halostest-unlock" >&2; exit 1; }
 
   echo "=== second boot: stale binding, so the passphrase is asked; answered over SSH; re-enroll ==="
   timeout 180 tail --pid="$pid" -f /dev/null || { echo "the VM did not power off after enrolling" >&2; exit 1; }
@@ -169,7 +168,8 @@ if [ -n "$luks" ]; then
     while [ "$SECONDS" -lt "$deadline" ]; do
       # The passphrase once the prompt is up; the session stays open until the unlock ends it.
       { sleep 3; printf 'halogentest\n'; sleep 30; } | timeout 60 ssh -tt -p 2222 -i "$out/unlock-key" -o BatchMode=yes \
-        -o UserKnownHostsFile="$out/known_hosts" -o StrictHostKeyChecking=yes -o ConnectTimeout=5 \
+        -o UserKnownHostsFile="$out/known_hosts" -o HostKeyAlias=halostest-unlock \
+        -o StrictHostKeyChecking=yes -o ConnectTimeout=5 \
         root@127.0.0.1 > "$out/ssh-session.log" 2>&1 || true
       if grep -qi 'passphrase' "$out/ssh-session.log"; then touch "$out/ssh-unlocked"; exit 0; fi
       sleep 5
@@ -180,6 +180,8 @@ if [ -n "$luks" ]; then
   wait "$sshpid" || true
   cat "$out/ssh-session.log" || true
   [ -e "$out/ssh-unlocked" ] || { echo "the disk was not unlocked over SSH" >&2; exit 1; }
+  # The early-boot network is gone once the system runs: its own NetworkManager settings apply.
+  if grep -q '^NMRUN ' "$out/report.txt"; then grep '^NMRUN ' "$out/report.txt" >&2; echo "the early-boot network settings stayed" >&2; exit 1; fi
   echo "unlock over SSH verified"
 
   echo "=== third boot: the TPM must unlock the disk ==="

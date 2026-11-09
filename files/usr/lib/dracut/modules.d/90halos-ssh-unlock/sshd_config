@@ -5,12 +5,15 @@ AuthorizedKeysFile /run/halos-ssh-unlock/authorized_keys
 AllowUsers root
 PermitRootLogin prohibit-password
 PubkeyAuthentication yes
+AuthenticationMethods publickey
 PasswordAuthentication no
 KbdInteractiveAuthentication no
 UsePAM no
-# Nothing but the passphrase prompt.
-ForceCommand /usr/bin/systemd-tty-ask-password-agent --query
+# Nothing but the passphrase prompt. --watch waits for it (the TPM may still be trying) and asks
+# again after a wrong passphrase; switch-root ends the session.
+ForceCommand /usr/bin/systemd-tty-ask-password-agent --watch
 PermitTTY yes
+DisableForwarding yes
 AllowTcpForwarding no
 AllowStreamLocalForwarding no
 AllowAgentForwarding no
@@ -19,7 +22,9 @@ PermitTunnel no
 PermitUserEnvironment no
 PermitUserRC no
 PrintMotd no
-LoginGraceTime 60
-MaxAuthTries 3
+# One machine on the network can't hold every slot.
+LoginGraceTime 20
+MaxAuthTries 6
 MaxSessions 1
-MaxStartups 3:50:10
+MaxStartups 4:50:10
+PerSourceMaxStartups 2

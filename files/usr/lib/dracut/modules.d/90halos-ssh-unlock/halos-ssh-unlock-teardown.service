@@ -1,0 +1,11 @@
+[Unit]
+Description=halOS: drop the early-boot network before the system starts
+DefaultDependencies=no
+# Runs after halos-ssh-unlock.service has stopped (a stop is ordered before a start).
+After=halos-ssh-unlock.service
+Before=initrd-switch-root.target initrd-switch-root.service
+ConditionPathExists=/run/halos-ssh-unlock/network
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/halos-ssh-unlock teardown

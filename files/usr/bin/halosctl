@@ -239,16 +239,16 @@ pick_keys() {
     ask "   Let these keys unlock the disk? [Y/n]" y && return 0
   done
 }
+# Saves the keys; fails (without stopping setup) when they can't be saved.
 ssh_unlock_on() {
-  printf '%s\n' "$1" | "$unlock" install || die "could not save the keys; nothing changed"
+  printf '%s\n' "$1" | "$unlock" install || { echo "   Couldn't save the keys; nothing changed." >&2; return 1; }
   record ssh-unlock off on
   "$unlock" status | sed 's/^/   /'
-  echo "   From the next boot, when the disk waits for its passphrase (the TPM couldn't unlock it, or"
-  echo "   there is none), run from a computer with one of these keys: ssh root@<this machine>, then"
-  echo "   type the passphrase. Wired network only, with DHCP. The early-boot server has its own host"
-  echo "   key: add the known_hosts line above once to ~/.ssh/known_hosts on that computer, starting"
-  echo "   with the name or address you connect to (several: separate them with commas), or ssh will"
-  echo "   warn that the host key changed."
+  echo "   On the computer you unlock from, add the entry above to ~/.ssh/config and the known_hosts"
+  echo "   line to ~/.ssh/known_hosts, once. The early-boot server has a host key of its own, and"
+  echo "   this keeps it apart from the running system's. From the next boot, when the disk waits"
+  echo "   for its passphrase (the TPM couldn't unlock it, or isn't used): ssh <name>-unlock, as"
+  echo "   above, then type the passphrase. Wired network only, with DHCP."
 }
 
 cmd="${1:-version}"; [ $# = 0 ] || shift
@@ -271,6 +271,7 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+[ "${#src[@]}" = 0 ] || [ "$cmd" = ssh-unlock ] || die "--github, --gitlab, --codeberg and --key go with ssh-unlock on"
 case "$cmd" in switch|npu|power|ssh-unlock) ;; *) [ "${#args[@]}" = 0 ] ;; esac || die "unexpected ${args[0]} (for an older release: halosctl rollback --to <version>)"
 
 case "$cmd" in
@@ -446,7 +447,7 @@ case "$cmd" in
         echo "These keys may unlock the disk over SSH, replacing any set before:"
         "$unlock" describe <<< "$keys"
         confirm "Turn on unlocking over SSH with them?"
-        ssh_unlock_on "$keys"
+        ssh_unlock_on "$keys" || exit 1
         ;;
       off)
         [ "$("$unlock" status --short)" != off ] || { echo "Unlocking over SSH is already off."; exit 0; }
@@ -498,7 +499,7 @@ case "$cmd" in
       if [ "$("$unlock" status --short 2> /dev/null || echo off)" != off ]; then
         echo "   It's set up already. To see or change it: sudo halosctl ssh-unlock"
       elif ask "   Set up unlocking over SSH? [Y/n]" y && pick_keys; then
-        ssh_unlock_on "$picked"
+        ssh_unlock_on "$picked" || echo "   Try again later: sudo halosctl ssh-unlock on"
       else echo "   Skipped. Later: sudo halosctl ssh-unlock on"; fi
     fi
 

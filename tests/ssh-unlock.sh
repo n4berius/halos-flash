@@ -11,7 +11,8 @@ if ! command -v ssh-keygen > /dev/null; then
 fi
 work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/bin" "$work/esp"
-export FAKE="$work" HALOS_ESP="$work/esp"
+# Tests run curl as the caller: the fake curl lives where nobody can't reach.
+export FAKE="$work" HALOS_ESP="$work/esp" HALOS_FETCH_AS_ROOT=1
 h="$repo/files/usr/libexec/halogen/ssh-unlock"
 ok() { echo "ok: $*"; }
 has() { grep -qE -- "$1" "$2" || { echo "expected '$1' in $2:" >&2; cat "$2" >&2; exit 1; }; }
@@ -27,6 +28,9 @@ k1="$(cat "$work/k1.pub")"; k2="$(cat "$work/k2.pub")"
 [ "$(wc -l < "$work/ok")" = 2 ] || { cat "$work/ok" "$work/err" >&2; echo "expected two keys" >&2; exit 1; }
 has '^ssh-ed25519 ' "$work/ok"; has '^ecdsa-sha2-nistp256 ' "$work/ok"; hasnt $'\r' "$work/ok"
 has 'line 3 is not a public key' "$work/err"; hasnt 'line (1|2|4|5) ' "$work/err"
+# A comment keeps only plain characters: no escape codes, no look-alike or direction characters.
+printf '%s\n' "$(cut -d' ' -f1,2 "$work/k1.pub") evil$(printf '\033[2J\xe2\x80\xae')name" | "$h" check > "$work/c"
+[ "$(cut -d' ' -f3- "$work/c")" = "evil2Jname" ] || { cat -v "$work/c" >&2; echo "a comment kept control characters" >&2; exit 1; }
 if printf 'garbage\n' | "$h" check > /dev/null 2>&1; then echo "check passed with no key" >&2; exit 1; fi
 "$h" describe < "$work/ok" > "$work/out"; has 'ED25519.*SHA256:.*me@laptop' "$work/out"; has 'ECDSA.*other' "$work/out"
 ok "only plain public keys are taken, each once; anything else is named and skipped"
@@ -44,6 +48,13 @@ cmp -s "$work/hostkey" "$d/ssh_host_ed25519_key.pub" || { echo "changing the key
 "$h" status > "$work/out"; has '^on, 1 key' "$work/out"; has 'other' "$work/out"; hasnt 'me@laptop' "$work/out"
 has '^known_hosts line: ' "$work/out"
 grep -qF " $(cut -d' ' -f1,2 "$work/hostkey")" "$work/out" || { echo "the known_hosts line lacks the host key" >&2; exit 1; }
+# The early-boot key gets a name of its own, so it is never trusted for the running system.
+host="$(hostname -s 2> /dev/null || hostname)"
+has "^known_hosts line: $host-unlock ssh-ed25519 " "$work/out"; has "^      HostKeyAlias $host-unlock$" "$work/out"
+# A changed file on the EFI partition can't put escape codes on root's terminal.
+printf 'restrict,pty %s x\033[31mred\n' "$k2" > "$d/authorized_keys"
+"$h" status > "$work/out"; if grep -q $'\033' "$work/out"; then echo "status printed an escape code" >&2; exit 1; fi
+echo "$k2" | "$h" install
 if echo garbage | "$h" install 2> /dev/null; then echo "installed no keys" >&2; exit 1; fi
 [ "$("$h" status --short)" = "on 1" ] || { echo "a failed install changed the keys" >&2; exit 1; }
 "$h" remove; [ "$("$h" status)" = off ]; [ ! -e "$work/esp/halos" ]
@@ -94,8 +105,10 @@ if "$ctl" ssh-unlock on --key 'not a key' --yes > "$work/out" 2>&1; then echo "t
 [ "$("$h" status --short)" = off ]
 "$ctl" ssh-unlock on --gitlab alice --key "$k1" --yes > "$work/out"
 [ "$("$h" status --short)" = "on 2" ] || { echo "duplicate keys from two sources were kept twice" >&2; "$h" status >&2; exit 1; }
-has 'known_hosts line' "$work/out"; has 'ssh root@' "$work/out"
+has 'known_hosts line' "$work/out"; has 'ssh <name>-unlock' "$work/out"
 has 'ssh-unlock +off -> on +\(by owner\)' "$work/history"
 "$ctl" ssh-unlock off --yes > "$work/out"; [ "$("$h" status --short)" = off ]; has 'ssh-unlock +on -> off' "$work/history"
 "$ctl" ssh-unlock off --yes > "$work/out"; has 'already off' "$work/out"
+if "$ctl" history --github alice > "$work/out" 2>&1; then echo "took --github outside ssh-unlock" >&2; exit 1; fi
+has 'go with ssh-unlock on' "$work/out"
 ok "halosctl ssh-unlock asks first, needs encryption and keys, merges sources, records changes and turns off"
