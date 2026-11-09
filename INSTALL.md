@@ -166,7 +166,26 @@ answered them all and said yes at the end.
    machine's own screen, never over SSH. Most people answer no and use `sudo`.
 5. **Admin user:** a name and a password. This is the account you log in with, locally and over
    SSH, and it can use `sudo`.
-6. It shows a summary and asks once more: **"Erase nvme0n1 and install halOS now?"**
+6. **How the disk unlocks at each boot** (only with encryption):
+   1. **TPM and SSH** (recommended, Enter): the machine unlocks itself; when it can't (after a
+      BIOS update, say), you type the passphrase from another computer over SSH.
+   2. **TPM only:** when the TPM can't, type the passphrase at the machine's keyboard.
+   3. **SSH only:** type the passphrase from another computer at every boot.
+   4. **Neither:** type the passphrase at the machine's keyboard at every boot.
+
+   The TPM itself is set up at the first boot, in
+   [first-boot setup](#6-first-boot-setup-then-let-the-first-boot-finish). For SSH, it asks
+   where your public keys are: **GitHub, GitLab or Codeberg** (type your user name; it needs a
+   network cable, with DHCP), or **type one key** (there's no clipboard at the machine's own
+   screen, so the account is the easier way). It names the account and shows each key it found,
+   and asks before using them. If an account has no keys, it says so and asks again, and
+   **back** returns to the unlock choice. Then it asks whether the same keys may also log the
+   admin user in over SSH (Enter: no).
+
+   The first boot still asks for the passphrase at the keyboard. `sudo halosctl setup` then sets
+   up the TPM and shows two lines to add on the computer you unlock from (see
+   [Unlock over SSH at boot](#unlock-over-ssh-at-boot)); from the next boot, SSH works.
+7. It shows a summary and asks once more: **"Erase nvme0n1 and install halOS now?"**
 
 The install copies the OS from the USB drive, so it needs no network, and takes a few minutes.
 The machine then restarts: remove the USB drive. If you forget and it boots the USB drive again,
@@ -217,7 +236,8 @@ It asks three things, and you can skip each one:
 
 1. **How the disk unlocks at boot.** With the TPM, there's no passphrase to type while Secure
    Boot and the BIOS stay the same; it runs `halogen-enroll-tpm` for you. Or keep typing the
-   passphrase at each boot. The TPM protects a disk taken out of the machine, not the machine
+   passphrase at each boot. Then it offers unlocking over SSH, unless it is set up already.
+   After a guided install, the answers you gave there are the defaults (Enter). The TPM protects a disk taken out of the machine, not the machine
    taken whole: see [what TPM unlock protects](#what-tpm-unlock-protects-and-what-it-doesnt).
 2. **A Hugging Face token.** Optional: it raises the download limits. Create a read token at
    [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens).

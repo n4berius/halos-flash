@@ -1,7 +1,7 @@
 """Log in at a VM console through the QEMU monitor and capture a report on serial.
 
 Usage: vm-login.py monitor.sock serial.log out-dir [plain|luks|luks-stale|luks-enroll|ssh-enroll|tpm]
-With HALOS_TEST_SSH_KEY set (a public key), luks-stale also turns on unlocking over SSH with it.
+With HALOS_TEST_SSH_UNLOCK=1, luks-stale also reports unlocking over SSH, which the installer set up.
   luks         type the disk passphrase, which must be asked for
   luks-stale   as luks, then enroll the TPM against a changed PCR 7 (as if the Secure Boot
                state later changed) and power off, leaving a binding that won't unlock
@@ -122,11 +122,15 @@ log = wait_serial("SELFTEST-RC=", 300)
 selftest = log.split("RESULT-END")[-1].split("SELFTEST-RC=")[0]
 (out / "selftest.txt").write_text(re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", selftest))
 
-ssh_key = os.environ.get("HALOS_TEST_SSH_KEY", "")
-if mode == "luks-stale" and ssh_key:
-    # Unlock over SSH (#13), as INSTALL.md shows it: the next boot asks over SSH too.
-    typed(f"halosctl ssh-unlock on --key '{ssh_key}' --yes > /tmp/sshu 2>&1; echo SSHU-RC=$? >> /tmp/sshu; "
-          "halogenctl selftest 2>&1 | grep ssh-unlock >> /tmp/sshu; cat /tmp/sshu > /dev/ttyS0; echo SSHU-END > /dev/ttyS0\n")
+if mode == "luks-stale" and os.environ.get("HALOS_TEST_SSH_UNLOCK"):
+    # Unlock over SSH (#13), set up by the installer (TPM and SSH): the next boot asks over SSH too.
+    typed("halosctl ssh-unlock > /tmp/sshu 2>&1; echo SSHU-RC=$? >> /tmp/sshu; "
+          "echo CHOICE $(/usr/libexec/halogen/ssh-unlock choice) >> /tmp/sshu; "
+          "echo ADMINKEYS $(grep -c halostest /var/home/admin/.ssh/authorized_keys) >> /tmp/sshu; "
+          "halogenctl selftest 2>&1 | grep ssh-unlock >> /tmp/sshu; "
+          # What the installer's save-unlock said (/var/log/anaconda keeps the %post output).
+          "grep -h halOS /var/log/anaconda/ks-script-*.log >> /tmp/sshu; "
+          "cat /tmp/sshu > /dev/ttyS0; echo SSHU-END > /dev/ttyS0\n")
     log = wait_serial("SSHU-END", 120)
     (out / "ssh-unlock.txt").write_text(log.split("SELFTEST-RC=")[-1].split("SSHU-END")[0])
 

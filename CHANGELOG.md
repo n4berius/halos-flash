@@ -10,6 +10,10 @@ promoted.
 
 ## Unreleased
 
+- The guided installer asks how an encrypted disk unlocks: TPM and SSH (recommended), TPM only,
+  SSH only, or the passphrase at the keyboard. For SSH it takes your public keys from GitHub,
+  GitLab or Codeberg, or a pasted key, and can let the same keys log the admin user in. First-boot
+  setup then defaults to that choice. (#13, #94)
 - Unlock the disk over SSH at boot (#13): when the TPM can't unlock it, type the passphrase from
   another computer with `ssh root@<machine>`. Turn it on with `sudo halosctl ssh-unlock on
   --github <user>` (or `--gitlab`, `--codeberg`, `--key`), or in `sudo halosctl setup`. The

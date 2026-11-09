@@ -11,7 +11,9 @@
 # holds a file "answers" with key=value lines: disk, confirm (the disk's name again, needed only
 # when it holds data), hostname, luks_passphrase (empty: no encryption), root_password (empty:
 # root locked), admin_user, admin_password, finish (poweroff, the default, or reboot),
-# allow_root_ssh (yes: the installer's own root SSH file, which the image overrides; test only).
+# allow_root_ssh (yes: the installer's own root SSH file, which the image overrides; test only),
+# unlock (both, tpm, ssh or none, the default; with encryption only), ssh_key (one public key, for
+# unlocking over SSH) and admin_ssh (yes: the same key logs the admin user in over SSH).
 # The file is read, never run. From any other entry such a volume is ignored, so a stick left
 # plugged in can never start a wipe.
 set -uo pipefail
@@ -52,7 +54,7 @@ if [ "${HALOS_UNATTENDED:-}" = 1 ]; then
     case "$line" in ''|'#'*) continue ;; esac
     key="${line%%=*}"; value="${line#*=}"
     case "$key" in
-      disk|confirm|hostname|luks_passphrase|root_password|admin_user|admin_password|finish|allow_root_ssh)
+      disk|confirm|hostname|luks_passphrase|root_password|admin_user|admin_password|finish|allow_root_ssh|unlock|ssh_key|admin_ssh)
         ans[$key]="$value" ;;
       *) stop "Unknown answer: $key" ;;
     esac
@@ -102,6 +104,48 @@ valid_user() {
   esac
   # Any other account or group the system already has (it has the installer's, and more).
   ! getent passwd "$1" >/dev/null && ! getent group "$1" >/dev/null
+}
+# Enter takes the default (y or n); anything but yes or no asks again.
+yn() { # prompt default
+  while :; do
+    ask "$1"
+    case "${REPLY,,}" in '') [ "$2" = y ]; return ;; y|yes) return 0 ;; n|no) return 1 ;; esac
+    say "Please answer yes or no."
+  done
+}
+# Unlocking over SSH (#13): keys are fetched and checked by the same helper halosctl uses.
+keys_tool="${HALOS_KEYS_TOOL:-/usr/libexec/halos/ssh-unlock}"
+unlock_dir="${HALOS_UNLOCK_DIR:-/tmp}"   # only for the fetch's error text
+unlock=none; keys=""; admin_keys=""; keys_from=""
+network_up() { command -v nm-online > /dev/null && nm-online -q -t 20 2> /dev/null; }
+# Where the keys are, until some are found and taken; 1 to go back to the unlock choice.
+pick_keys() {
+  local site got
+  while :; do
+    say "" "Where are your SSH public keys?" \
+        "  1) GitHub   2) GitLab   3) Codeberg   4) type or paste one key   5) back"
+    ask "Choose 1-5:"
+    case "$REPLY" in 1) site=github ;; 2) site=gitlab ;; 3) site=codeberg ;; 4) site=key ;; 5) return 1 ;; *) continue ;; esac
+    if [ "$site" = key ]; then
+      ask "The public key, on one line (such as ssh-ed25519 AAAA... you@computer):"
+      if ! got="$(printf '%s\n' "$REPLY" | "$keys_tool" check 2> /dev/null)"; then
+        say "That isn't a public key this can use. Try again, or pick another option."; continue
+      fi
+      from="the key you gave"
+    else
+      say "Checking the network..."
+      if ! network_up; then say "There is no network. Plug in a cable (DHCP) and pick the site again, or give a key instead."; continue; fi
+      ask "Your user name on $site:"
+      if ! got="$("$keys_tool" fetch "$site" "$REPLY" 2> "$unlock_dir/halos-fetch.err")"; then
+        say "$(tail -n 1 "$unlock_dir/halos-fetch.err" | sed 's/^ssh-unlock: //')" "Try another site or user name, or give a key."
+        continue
+      fi
+      # Named, so a mistyped user name that exists elsewhere is seen before its keys are taken.
+      from="$site user $(printf '%s' "$REPLY" | tr -cd 'A-Za-z0-9._-')"
+    fi
+    say "Keys of $from:"; "$keys_tool" describe <<< "$got"
+    if yn "Use these keys? [Y/n]" y; then keys="$got"; keys_from="$from"; return 0; fi
+  done
 }
 valid_host() { [[ "$1" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]]; }
 
@@ -204,6 +248,13 @@ if [ -n "$unattended" ]; then
   valid_user "$admin" || stop "The answers' admin user name isn't valid."
   valid_secret "$adminpw" 8 || stop "The answers' admin password isn't valid."
   case "$finish" in reboot|poweroff) ;; *) stop "finish must be reboot or poweroff." ;; esac
+  unlock="${ans[unlock]:-none}"
+  case "$unlock" in both|tpm|ssh|none) ;; *) stop "unlock must be both, tpm, ssh or none." ;; esac
+  [ -n "$luks" ] || [ "$unlock" = none ] || stop "unlock needs luks_passphrase."
+  if [ "$unlock" = both ] || [ "$unlock" = ssh ]; then
+    keys="$(printf '%s\n' "${ans[ssh_key]:-}" | "$keys_tool" check 2> /dev/null)" || stop "ssh_key isn't a public key this can use."
+  fi
+  [ "${ans[admin_ssh]:-}" != yes ] || admin_keys="$keys"
 else
   say ""
   while :; do
@@ -229,13 +280,33 @@ else
     say "Use lower-case letters, digits, - and _, starting with a letter, and not a system name such as root or halogen."
   done
   secret "Password for $admin (at least 8 characters)" 8; adminpw="$REPLY"
+  if [ -n "$luks" ]; then
+    while :; do
+      say "" "How should the encrypted disk unlock at each boot?" \
+          "  1) TPM and SSH (recommended): the machine unlocks itself. When it can't (after a BIOS" \
+          "     update, say), you type the passphrase from another computer over SSH." \
+          "  2) TPM only: the machine unlocks itself; when it can't, type the passphrase at its keyboard." \
+          "  3) SSH only: type the passphrase from another computer at every boot." \
+          "  4) Neither: type the passphrase at this machine's keyboard at every boot." \
+          "The TPM is set up at the first boot, with sudo halosctl setup. Without the TPM, the disk is" \
+          "locked whenever the machine is off or taken away (INSTALL.md, section 8)."
+      ask "Choose 1-4 [1]:" 1
+      case "$REPLY" in 1) unlock=both ;; 2) unlock=tpm ;; 3) unlock=ssh ;; 4) unlock=none ;; *) continue ;; esac
+      if [ "$unlock" = tpm ] || [ "$unlock" = none ]; then keys=""; break; fi
+      pick_keys && break
+    done
+    # No by default: the unlock keys only answer the passphrase prompt; an admin login is more.
+    if [ -n "$keys" ] && yn "Let the keys of $keys_from log $admin in over SSH too? [y/N]" n; then admin_keys="$keys"; fi
+  fi
   finish=reboot
   say "" "Ready to install:"
   describe "$disk"
   say "  Machine name: $hostname" \
       "  Encryption:   $([ -n "$luks" ] && echo "on (LUKS2)" || echo off)" \
       "  Root:         $([ -n "$rootpw" ] && echo "console login only" || echo locked)" \
-      "  Admin user:   $admin (sudo)"
+      "  Admin user:   $admin (sudo)$([ -n "$admin_keys" ] && echo ", SSH keys as below")" \
+      "  Unlock:       $(case "$unlock" in both) echo "TPM, and SSH when it can't" ;; tpm) echo TPM ;; ssh) echo SSH ;; *) [ -n "$luks" ] && echo "passphrase at the keyboard" || echo "nothing to unlock" ;; esac)"
+  [ -z "$keys" ] || { say "  SSH keys:"; "$keys_tool" describe <<< "$keys"; }
   yesno "Erase $disk and install halOS now?" || stop "Stopped at your request."
 fi
 
@@ -264,6 +335,11 @@ umask 077
     echo "rootpw --lock"
   fi
   echo "user --name=$admin --groups=wheel --iscrypted --password=$(q "$adminhash")"
+  # One line per key. pykickstart warns from the second on ("already been defined"), but Anaconda
+  # keeps them all; the warning is fatal only with inst.ksstrict, which halOS doesn't use.
+  while IFS= read -r k; do
+    [ -z "$k" ] || echo "sshkey --username=$admin $(q "$k")"
+  done <<< "$admin_keys"
   echo "ignoredisk --only-use=$disk"
   echo "zerombr"
   echo "clearpart --all --initlabel --disklabel=gpt --drives=$disk"
@@ -283,6 +359,16 @@ umask 077
   echo "logvol /var/srv/configs --vgname=halos --name=configs --fstype=xfs --size=$((1 * mib))"
   echo "logvol /var/srv/models  --vgname=halos --name=models  --fstype=xfs --size=1 --grow"
   echo "$finish"
+  # How an encrypted disk unlocks (#13): a %post of its own, with the choice and the keys in it,
+  # so nothing depends on files in /tmp surviving until then. The keys are checked public keys
+  # (plain characters only), so no line of them can end the here-document.
+  if [ -n "$luks" ]; then
+    echo "%post --nochroot --interpreter=/usr/bin/bash"
+    echo "/usr/libexec/halos/save-unlock $unlock $disk <<'HALOS_KEYS'"
+    [ -z "$keys" ] || printf '%s\n' "$keys"
+    echo "HALOS_KEYS"
+    echo "%end"
+  fi
 } > "$out" || stop "Could not write $out."
 say "" "Installing halOS on $disk. This takes a few minutes; the machine then $([ "$finish" = reboot ] && echo restarts || echo powers off)."
 exit 0

@@ -25,7 +25,20 @@ f umount 'true'
 f systemctl 'echo "systemctl $*" >> "$FAKE/log"'
 f getent '[ "$2" = sssd ]'
 f pvs 'cat "$FAKE/pvs" 2>/dev/null || true'
-export PATH="$work/bin:$PATH"
+# The key helper (files/usr/libexec/halogen/ssh-unlock, tested in tests/ssh-unlock.sh): keys are
+# lines starting "ssh-ed25519 "; codeberg user alice has one. nm-online says whether there's network.
+f ssh-unlock 'case "$1" in
+  check) grep "^ssh-ed25519 " || exit 1 ;;
+  fetch) [ "$3" = alice ] && echo "ssh-ed25519 AAAAalice alice@laptop" || { echo "ssh-unlock: $3 has no public keys on $2" >&2; exit 1; } ;;
+  describe) sed "s/^/  KEY /" ;;
+esac'
+f nm-online '[ -z "${FAKE_OFFLINE:-}" ]'
+export PATH="$work/bin:$PATH" HALOS_KEYS_TOOL="$work/bin/ssh-unlock" HALOS_UNLOCK_DIR="$work"
+# The unlock choice and keys plan-install hands on, in its own %post (#13): "choice" alone, then
+# the keys, one per line; nothing at all without encryption.
+handoff() {
+  sed -n "/^\/usr\/libexec\/halos\/save-unlock /,/^HALOS_KEYS\$/p" "$ks" | sed "s|^/usr/libexec/halos/save-unlock \([a-z]*\) [a-z0-9]* <<'HALOS_KEYS'\$|\1|; /^HALOS_KEYS\$/d"
+}
 plan="$repo/installer/guided/plan-install"
 ks="$work/plan.ks"
 ok() { echo "ok: $*"; }
@@ -73,6 +86,7 @@ got = {
   "disk": h.ignoredisk.onlyuse,
   "lvs": sorted((l.name, l.mountpoint, l.grow) for l in h.logvol.lvList),
   "vg": [v.vgname for v in h.volgroup.vgList],
+  "sshkey": [(k.username, k.key) for k in h.sshkey.sshUserList],
 }
 want = eval(sys.argv[2])
 for k, v in want.items():
@@ -88,7 +102,7 @@ TB=2000398934016; SMALL=256060514304; STICK=32017047552
 # One empty internal disk: one yes/no, then the questions. The USB stick (the installer) and a
 # small disk are never offered. The passphrase has a quote and spaces, which must survive.
 disks "$(disk nvme0n1 $TB nvme 'WD_BLACK SN850X')" "$(disk sdb $STICK usb 'Cruzer')" "$(disk sda $SMALL sata 'Old SSD')"
-typed yes '' yes "it's a secret" "it's a secret" no nab hunter2hunter2 hunter2hunter2 yes
+typed yes '' yes "it's a secret" "it's a secret" no nab hunter2hunter2 hunter2hunter2 4 yes
 [ "$rc" = 0 ] || { cat "$work/out" >&2; echo "guided install failed" >&2; exit 1; }
 expect "$work/out" '2TB  WD_BLACK SN850X  (empty)'
 if grep -q sdb "$work/out"; then echo "the USB stick was offered" >&2; exit 1; fi
@@ -107,7 +121,52 @@ parse "{'luks': [\"it's a secret\"], 'root': None, 'admin': [('nab', 'hunter2hun
   'vg': ['halos'], 'lvs': [('audit', '/var/log/audit', False), ('configs', '/var/srv/configs', False),
   ('home', '/home', False), ('log', '/var/log', False), ('models', '/var/srv/models', True),
   ('root', '/', False), ('var', '/var', False)]}"
+[ "$(handoff)" = none ] || { handoff >&2; echo "unlock: neither was not handed on" >&2; exit 1; }
 ok "one empty disk: a yes, the questions, fixed halos-* volumes, and the passphrase survives quoting"
+# No encryption: nothing to unlock, so no choice is handed on.
+typed yes '' no no nab hunter2hunter2 hunter2hunter2 yes
+[ "$rc" = 0 ] || { cat "$work/out" >&2; exit 1; }
+if grep -q save-unlock "$ks"; then echo "an unencrypted install handed on an unlock choice" >&2; exit 1; fi
+
+# How an encrypted disk unlocks (#13). TPM only: no keys. "back" from the keys returns to the choice.
+crypt=(yes '' yes secretpass secretpass no nab hunter2hunter2 hunter2hunter2)
+typed "${crypt[@]}" 7 1 5 2 yes
+[ "$rc" = 0 ] || { cat "$work/out" >&2; exit 1; }
+[ "$(handoff)" = tpm ] || { cat "$work/out" >&2; echo "TPM only was not handed on" >&2; exit 1; }
+expect "$work/out" '1) TPM and SSH (recommended)'; expect "$work/out" 'Unlock:       TPM'
+if grep -q sshkey "$ks"; then echo "an admin key without SSH" >&2; exit 1; fi
+# SSH only, a pasted key: a bad one asks again; the key also logs the admin in.
+typed "${crypt[@]}" 3 4 'not a key' 4 'ssh-ed25519 AAAApasted me@pc' '' maybe y yes
+[ "$rc" = 0 ] || { cat "$work/out" >&2; exit 1; }
+expect "$work/out" "That isn't a public key this can use"
+[ "$(handoff)" = "ssh
+ssh-ed25519 AAAApasted me@pc" ] || { handoff >&2; echo "the pasted key wasn't handed on" >&2; exit 1; }
+expect "$ks" "sshkey --username=nab 'ssh-ed25519 AAAApasted me@pc'"
+expect "$work/out" '  KEY ssh-ed25519 AAAApasted me@pc'; expect "$work/out" 'Please answer yes or no.'
+# Enter at the admin question is no: the keys only unlock.
+typed "${crypt[@]}" 3 4 'ssh-ed25519 AAAApasted me@pc' '' '' yes
+[ "$rc" = 0 ] || { cat "$work/out" >&2; exit 1; }
+if grep -q sshkey "$ks"; then echo "Enter gave the admin the keys" >&2; exit 1; fi
+# TPM and SSH (the default), keys from Codeberg: no network, then a user with none, then alice; not for the admin.
+FAKE_OFFLINE=1 typed "${crypt[@]}" '' 3 alice 5 4
+stopped || exit 1; expect "$work/out" 'There is no network'
+typed "${crypt[@]}" '' 3 bob 3 alice y n yes
+[ "$rc" = 0 ] || { cat "$work/out" >&2; exit 1; }
+expect "$work/out" 'bob has no public keys on codeberg'; expect "$work/out" 'Keys of codeberg user alice:'
+[ "$(handoff)" = "both
+ssh-ed25519 AAAAalice alice@laptop" ] || { handoff >&2; exit 1; }
+if grep -q sshkey "$ks"; then echo "the admin got keys after a no" >&2; exit 1; fi
+expect "$work/out" "Unlock:       TPM, and SSH when it can't"
+parse "{'luks': ['secretpass'], 'admin': [('nab', 'hunter2hunter2', ['wheel'])]}"
+# save-unlock, run by that %post: the choice and the keys reach the helper, which finds the ESP.
+f helper 'echo "esp=$HALOS_ESP choice=$HALOS_UNLOCK_CHOICE $1" > "$FAKE/saved"; cat >> "$FAKE/saved"'
+printf 'ssh-ed25519 AAAAx me\n' | HALOS_SAVE_ESP="$work/esp" HALOS_KEYS_TOOL="$work/bin/helper" ANA_INSTALL_PATH="$work/none" \
+  "$repo/installer/guided/save-unlock" both vda > "$work/out"
+if ! grep -qx "esp=$work/esp choice=both install-choice" "$work/saved" || ! grep -qx 'ssh-ed25519 AAAAx me' "$work/saved"; then cat "$work/saved" >&2; exit 1; fi
+grep -q 'unlock choice saved' "$work/out" || { cat "$work/out" >&2; exit 1; }
+# The disk it installs to is named in the handed-on line, so save-unlock can find its ESP.
+grep -q "^/usr/libexec/halos/save-unlock both nvme0n1 <<'HALOS_KEYS'\$" "$ks" || { cat "$ks" >&2; exit 1; }
+ok "an encrypted disk asks how it unlocks: TPM only, SSH with a pasted or fetched key, back, and the admin's keys; save-unlock hands them on"
 
 # Bad answers are asked again; root is enabled; no encryption.
 typed yes 'Bad_Name' freyja maybe no yes short --allow-ssh --allow-ssh root halogen sssd nab pw12345678 pw12345678 yes
@@ -182,6 +241,9 @@ root_password=$(touch $FAKE/pwned)
 admin_user=admin
 admin_password=adminsecret
 allow_root_ssh=yes
+unlock=both
+ssh_key=ssh-ed25519 AAAAtest halostest
+admin_ssh=yes
 A
 run < /dev/null
 [ "$rc" = 0 ] || { cat "$work/out" >&2; exit 1; }
@@ -189,7 +251,12 @@ run < /dev/null
 expect "$work/log" 'mount -o ro,nosuid,nodev,noexec /dev/vdb'
 expect "$ks" 'poweroff'
 expect "$ks" ' --allow-ssh'
-parse "{'luks': ['halogentest'], 'root': '\$(touch \$FAKE/pwned)', 'disk': ['vda']}"
+expect "$ks" "sshkey --username=admin 'ssh-ed25519 AAAAtest halostest'"
+if [ "$(handoff)" != "both
+ssh-ed25519 AAAAtest halostest" ]; then
+  echo "the unattended unlock answers weren't kept" >&2; exit 1
+fi
+parse "{'luks': ['halogentest'], 'root': '\$(touch \$FAKE/pwned)', 'disk': ['vda'], 'sshkey': [('admin', 'ssh-ed25519 AAAAtest halostest')]}"
 echo xfs > "$work/fs.vda"
 run < /dev/null
 stopped || { echo "a disk with data was erased without confirm" >&2; exit 1; }
@@ -208,4 +275,9 @@ echo 'evil=1' >> "$work/answers"
 run < /dev/null
 stopped || { echo "an unknown answer was accepted" >&2; exit 1; }
 if grep -q 'systemctl poweroff' "$work/log"; then echo "unattended stop powered off" >&2; exit 1; fi
+# Unlock answers: SSH needs a key, and unlocking needs encryption.
+sed -i 's/^ssh_key=.*/ssh_key=nonsense/' "$work/answers"; run < /dev/null
+stopped || { echo "a bad ssh_key was taken" >&2; exit 1; }
+sed -i 's/^ssh_key=.*/ssh_key=ssh-ed25519 AAAAtest halostest/; s/^luks_passphrase=.*/luks_passphrase=/' "$work/answers"; run < /dev/null
+stopped || { echo "unlock without encryption was taken" >&2; exit 1; }
 ok "unattended answers are read as data, and a disk with data needs confirm"

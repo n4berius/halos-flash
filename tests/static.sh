@@ -75,6 +75,11 @@ for ks in ("installer/guided/halos-guided.ks", "installer/anaconda/interactive-d
     k = open(ks).read()
     assert "%post --nochroot --interpreter=/usr/bin/bash\n" in k and 'mount --bind "$physical" "$root/sysroot"' in k \
         and 'chroot "$root" bootc switch --mutate-in-place --enforce-container-sigpolicy @TARGET_IMAGE@ ' in k, f"{ks} doesn't turn the signature check on"
+# The guided install hands plan-install's unlock choice and keys to the new system (#13).
+ci = open("Containerfile.installer").read()
+assert "COPY files/usr/libexec/halogen/ssh-unlock /usr/libexec/halos/ssh-unlock" in ci, "the installer lacks the key helper"
+assert "COPY installer/guided/save-unlock /usr/libexec/halos/save-unlock" in ci, "the installer lacks save-unlock"
+assert "/usr/libexec/halos/save-unlock $unlock $disk <<'HALOS_KEYS'" in open("installer/guided/plan-install").read(), "plan-install doesn't hand on the unlock choice"
 for wf in ("build", "release", "refresh"):
     w = open(f".github/workflows/{wf}.yml").read()
     assert "COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}" in w, f"{wf}.yml doesn't pass the signing key"

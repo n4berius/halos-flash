@@ -19,6 +19,12 @@ qemu-img create -f qcow2 "$out/disk.qcow2" "$disk_bytes" >/dev/null
 # Test-only passwords, in a throwaway VM. Each is different, so a leak can be told apart.
 luks=""
 [ "$variant" != npu ] || luks=halogentest
+# Unlock over SSH (#13): the installer takes this key (TPM and SSH), and the admin user gets it too.
+unlock=none; key=""
+if [ -n "$luks" ]; then
+  ssh-keygen -q -t ed25519 -N '' -C halostest -f "$out/unlock-key"
+  unlock=both; key="$(cat "$out/unlock-key.pub")"
+fi
 cat > "$out/answers/answers" <<S
 disk=vda
 hostname=halostest
@@ -28,6 +34,9 @@ admin_user=admin
 admin_password=adminsecret
 finish=poweroff
 allow_root_ssh=yes
+unlock=$unlock
+ssh_key=$key
+admin_ssh=yes
 S
 genisoimage -quiet -V HALOS_ANSWERS -o "$out/answers.iso" "$out/answers/answers"
 
@@ -55,11 +64,8 @@ python3 "$here/grub-pick.py" "$out/monitor.sock" "$out/install.log" || { kill "$
 wait "$install" || { echo "the install did not finish (see install.log)" >&2; exit 1; }
 echo "install finished"
 
-if [ -n "$luks" ]; then
-  # The key that unlocks over SSH; the first boot turns it on (vm-login.py).
-  ssh-keygen -q -t ed25519 -N '' -C halostest -f "$out/unlock-key"
-  HALOS_TEST_SSH_KEY="$(cat "$out/unlock-key.pub")"; export HALOS_TEST_SSH_KEY
-fi
+# vm-login.py reads the unlock state on the first boot.
+[ -z "$luks" ] || export HALOS_TEST_SSH_UNLOCK=1
 
 echo "=== first boot from disk ==="
 # No network: the fetch must not start a 125 GB download in CI.
@@ -150,7 +156,10 @@ echo "selftest verified"
 if [ -n "$luks" ]; then
   # First boot left a TPM binding for a Secure Boot state this machine no longer has.
   cat "$out/ssh-unlock.txt"
-  grep -q '^SSHU-RC=0' "$out/ssh-unlock.txt" || { echo "halosctl ssh-unlock on failed" >&2; exit 1; }
+  grep -q '^SSHU-RC=0' "$out/ssh-unlock.txt" || { echo "halosctl ssh-unlock failed" >&2; exit 1; }
+  grep -q '^on, 1 key' "$out/ssh-unlock.txt" || { echo "the installer didn't set up unlocking over SSH" >&2; exit 1; }
+  grep -q '^CHOICE both$' "$out/ssh-unlock.txt" || { echo "the installer's unlock choice wasn't kept" >&2; exit 1; }
+  grep -q '^ADMINKEYS 1$' "$out/ssh-unlock.txt" || { echo "the admin user didn't get the key" >&2; exit 1; }
   grep -q '^PASS ssh-unlock:' "$out/ssh-unlock.txt" || { echo "the selftest doesn't see unlocking over SSH" >&2; exit 1; }
   # The known_hosts line halosctl prints, as people add it: under the unlock name (HostKeyAlias).
   sed -n 's/^ *known_hosts line: //p' "$out/ssh-unlock.txt" | tr -d '\r' | head -n 1 > "$out/known_hosts"
