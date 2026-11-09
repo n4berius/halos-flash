@@ -364,7 +364,7 @@ umask 077
   # (plain characters only), so no line of them can end the here-document.
   if [ -n "$luks" ]; then
     echo "%post --nochroot --interpreter=/usr/bin/bash"
-    echo "/usr/libexec/halos/save-unlock $unlock <<'HALOS_KEYS'"
+    echo "/usr/libexec/halos/save-unlock $unlock $disk <<'HALOS_KEYS'"
     [ -z "$keys" ] || printf '%s\n' "$keys"
     echo "HALOS_KEYS"
     echo "%end"

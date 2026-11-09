@@ -79,7 +79,7 @@ for ks in ("installer/guided/halos-guided.ks", "installer/anaconda/interactive-d
 ci = open("Containerfile.installer").read()
 assert "COPY files/usr/libexec/halogen/ssh-unlock /usr/libexec/halos/ssh-unlock" in ci, "the installer lacks the key helper"
 assert "COPY installer/guided/save-unlock /usr/libexec/halos/save-unlock" in ci, "the installer lacks save-unlock"
-assert "/usr/libexec/halos/save-unlock $unlock <<'HALOS_KEYS'" in open("installer/guided/plan-install").read(), "plan-install doesn't hand on the unlock choice"
+assert "/usr/libexec/halos/save-unlock $unlock $disk <<'HALOS_KEYS'" in open("installer/guided/plan-install").read(), "plan-install doesn't hand on the unlock choice"
 for wf in ("build", "release", "refresh"):
     w = open(f".github/workflows/{wf}.yml").read()
     assert "COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}" in w, f"{wf}.yml doesn't pass the signing key"

@@ -37,7 +37,7 @@ export PATH="$work/bin:$PATH" HALOS_KEYS_TOOL="$work/bin/ssh-unlock" HALOS_UNLOC
 # The unlock choice and keys plan-install hands on, in its own %post (#13): "choice" alone, then
 # the keys, one per line; nothing at all without encryption.
 handoff() {
-  sed -n "/^\/usr\/libexec\/halos\/save-unlock /,/^HALOS_KEYS\$/p" "$ks" | sed "s|^/usr/libexec/halos/save-unlock \([a-z]*\) <<'HALOS_KEYS'\$|\1|; /^HALOS_KEYS\$/d"
+  sed -n "/^\/usr\/libexec\/halos\/save-unlock /,/^HALOS_KEYS\$/p" "$ks" | sed "s|^/usr/libexec/halos/save-unlock \([a-z]*\) [a-z0-9]* <<'HALOS_KEYS'\$|\1|; /^HALOS_KEYS\$/d"
 }
 plan="$repo/installer/guided/plan-install"
 ks="$work/plan.ks"
@@ -160,9 +160,12 @@ expect "$work/out" "Unlock:       TPM, and SSH when it can't"
 parse "{'luks': ['secretpass'], 'admin': [('nab', 'hunter2hunter2', ['wheel'])]}"
 # save-unlock, run by that %post: the choice and the keys reach the helper, which finds the ESP.
 f helper 'echo "esp=$HALOS_ESP choice=$HALOS_UNLOCK_CHOICE $1" > "$FAKE/saved"; cat >> "$FAKE/saved"'
-printf 'ssh-ed25519 AAAAx me\n' | HALOS_KEYS_TOOL="$work/bin/helper" ANA_INSTALL_PATH="$work/none" "$repo/installer/guided/save-unlock" both > "$work/out"
-if ! grep -qx 'esp= choice=both install-choice' "$work/saved" || ! grep -qx 'ssh-ed25519 AAAAx me' "$work/saved"; then cat "$work/saved" >&2; exit 1; fi
-grep -q 'unlock choice saved' "$work/out" || exit 1
+printf 'ssh-ed25519 AAAAx me\n' | HALOS_SAVE_ESP="$work/esp" HALOS_KEYS_TOOL="$work/bin/helper" ANA_INSTALL_PATH="$work/none" \
+  "$repo/installer/guided/save-unlock" both vda > "$work/out"
+if ! grep -qx "esp=$work/esp choice=both install-choice" "$work/saved" || ! grep -qx 'ssh-ed25519 AAAAx me' "$work/saved"; then cat "$work/saved" >&2; exit 1; fi
+grep -q 'unlock choice saved' "$work/out" || { cat "$work/out" >&2; exit 1; }
+# The disk it installs to is named in the handed-on line, so save-unlock can find its ESP.
+grep -q "^/usr/libexec/halos/save-unlock both nvme0n1 <<'HALOS_KEYS'\$" "$ks" || { cat "$ks" >&2; exit 1; }
 ok "an encrypted disk asks how it unlocks: TPM only, SSH with a pasted or fetched key, back, and the admin's keys; save-unlock hands them on"
 
 # Bad answers are asked again; root is enabled; no encryption.

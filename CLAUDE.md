@@ -226,9 +226,11 @@ name, but allows saying halOS runs Halogen.
   too (`sshkey --username=`). With encryption it writes a `%post --nochroot` into its own kickstart
   lines, with the choice and keys in a here-document, running `/usr/libexec/halos/save-unlock`
   (`installer/guided/save-unlock`); a static `%post` reading files `%pre` left in `/tmp` saved
-  nothing in the VM test. save-unlock runs the helper's `install-choice` with `HALOS_ESP` set to the
-  new system's mounted ESP (`$ANA_INSTALL_PATH/boot/efi` or `/mnt/sysimage/boot/efi`; otherwise the
-  helper looks), which installs the keys and writes `/halos/unlock-choice` there; its output is in
+  nothing in the VM test. save-unlock (`save-unlock <choice> <disk>`) runs the helper's `install-choice` with `HALOS_ESP`
+  set to the new system's ESP: at that point of Anaconda's bootc install neither
+  `$ANA_INSTALL_PATH/boot/efi` nor `/mnt/sysimage/boot/efi` is a mount point (VM test), so it finds
+  the EFI partition on the disk installed to (lsblk PARTTYPE, else `blkid -p`, since udev's database
+  may lag) and mounts it itself. The helper installs the keys and writes `/halos/unlock-choice`; its output is in
   the installed system's `/var/log/anaconda/ks-script-*.log`, which the VM test prints. `halosctl setup` reads it (`ssh-unlock choice`) for its defaults.
   Unattended answers: `unlock`, `ssh_key`, `admin_ssh`; the VM test installs with `unlock=both`
   and its key, so the first boot only reads the state.
