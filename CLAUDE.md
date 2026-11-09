@@ -370,7 +370,8 @@ and tracked on the owner's project board. [ROADMAP.md](ROADMAP.md) holds the ord
   first dropped from `options.allowed` and the templates; `render-config` drops it from an old
   `halogen.env`). Between source commits 8242b15 and d2f4286 only that entrypoint line, FLAGS.md's
   fork rows and image tags in examples changed: Quadlet, kernel arguments, host-setup, the Flash
-  checkpoints and weights revision stay. The image's `models.txt` (NPU hashes) wasn't compared.
+  checkpoints and weights revision stay. The image's `/opt/halogen/npu/models.txt` is byte-identical
+  to 0.20.0's (read from the layer, anonymously from ghcr.io), so no NPU program downloads again.
 - The ISO install test also runs when `versions.env` changes (#78), so every Halogen update PR
   gets the LUKS + TPM install in a VM, about 30 minutes for both editions.
 - Known upstream: bootc 1.17.1 rewrites `/etc/fstab` at every boot on Anaconda installs
