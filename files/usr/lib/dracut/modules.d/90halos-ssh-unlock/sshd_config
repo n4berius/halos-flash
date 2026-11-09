@@ -1,0 +1,25 @@
+# halOS: the initramfs SSH server, only for the disk passphrase (#13). Not the system's sshd.
+Port 22
+HostKey /run/halos-ssh-unlock/ssh_host_ed25519_key
+AuthorizedKeysFile /run/halos-ssh-unlock/authorized_keys
+AllowUsers root
+PermitRootLogin prohibit-password
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+UsePAM no
+# Nothing but the passphrase prompt.
+ForceCommand /usr/bin/systemd-tty-ask-password-agent --query
+PermitTTY yes
+AllowTcpForwarding no
+AllowStreamLocalForwarding no
+AllowAgentForwarding no
+X11Forwarding no
+PermitTunnel no
+PermitUserEnvironment no
+PermitUserRC no
+PrintMotd no
+LoginGraceTime 60
+MaxAuthTries 3
+MaxSessions 1
+MaxStartups 3:50:10

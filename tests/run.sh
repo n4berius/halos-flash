@@ -20,6 +20,7 @@ tests/bench.sh
 tests/selftest.sh
 tests/login-status.sh
 tests/halosctl.sh
+tests/ssh-unlock.sh
 tests/completion.sh
 tests/setup.sh
 tests/guided.sh

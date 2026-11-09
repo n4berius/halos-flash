@@ -10,6 +10,10 @@ promoted.
 
 ## Unreleased
 
+- Unlock the disk over SSH at boot (#13): when the TPM can't unlock it, type the passphrase from
+  another computer with `ssh root@<machine>`. Turn it on with `sudo halosctl ssh-unlock on
+  --github <user>` (or `--gitlab`, `--codeberg`, `--key`), or in `sudo halosctl setup`. The
+  selftest shows it as `ssh-unlock`. (#PR)
 - Machines take only images signed with halOS's key (#46). New installs check from the start;
   older ones turn the check on with their next `sudo halosctl upgrade` after this release, which
   says so and asks. Releases before `0.19.1-alpha.3` aren't signed, so `rollback --to` can't reach

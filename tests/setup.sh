@@ -15,8 +15,15 @@ f cryptsetup 'printf "Tokens:\n%s" "${FAKE_TOKENS:-}"'
 f halogen-enroll-tpm 'echo "enroll-tpm" >> "$FAKE/log"'
 f halogenctl 'echo "halogenctl $*" >> "$FAKE/log"'
 f nano 'echo "nano $* as=${FAKE_AS:-root}" >> "$FAKE/log"; echo "HALOGEN_KV_SLOTS=2" >> "$1"'
+# Unlock over SSH (#13): off until installed; codeberg user alice has one key.
+f ssh-unlock 'case "$1" in
+  status) if [ -s "$FAKE/installed" ]; then echo "on 1"; else echo off; fi ;;
+  fetch) [ "$3" = alice ] && echo "ssh-ed25519 AAAAtest alice" || { echo "no keys for $3" >&2; exit 1; } ;;
+  describe) echo "  (ED25519) 256 SHA256:test alice" ;;
+  install) cat > "$FAKE/installed"; echo "ssh-unlock install" >> "$FAKE/log" ;;
+esac'
 printf 'HALOGEN_VARIANT=no-npu\n' > "$work/release.env"
-export PATH="$work/bin:$PATH" HALOGEN_RELEASE_FILE="$work/release.env" HALOGEN_STATE_DIR="$work/state" HALOGEN_CONFIGS_DIR="$work/configs" HALOGEN_DEV="$work/dev"
+export PATH="$work/bin:$PATH" HALOS_SSH_UNLOCK="$work/bin/ssh-unlock" HALOS_HISTORY="$work/history" HALOGEN_RELEASE_FILE="$work/release.env" HALOGEN_STATE_DIR="$work/state" HALOGEN_CONFIGS_DIR="$work/configs" HALOGEN_DEV="$work/dev"
 ctl="$repo/files/usr/bin/halosctl"
 ok() { echo "ok: $*"; }
 # Answers the questions through a terminal, one line each.
@@ -24,13 +31,13 @@ answer() { printf '%s\n' "$@" > "$work/answers"; : > "$work/log"
   { sleep 1; cat "$work/answers"; } | script -qec "$ctl setup" /dev/null > "$work/out" 2>&1 || true; }
 
 touch "$work/state/setup-pending" "$work/dev/tpmrm0"
-answer No n n
+answer No n n n
 if grep -q enroll-tpm "$work/log"; then echo "'No' enrolled the TPM" >&2; exit 1; fi
 touch "$work/state/setup-pending"
-answer maybe Y n n
+answer maybe Y n n n
 grep -q 'Please answer y or n' "$work/out" || { cat "$work/out" >&2; echo "a wrong answer was not asked again" >&2; exit 1; }
 touch "$work/state/setup-pending"
-answer y n n
+answer y n n n
 grep -qx 'enroll-tpm' "$work/log" || { cat "$work/out" >&2; echo "TPM not enrolled" >&2; exit 1; }
 if grep -q 'halogenctl hf-token\|nano' "$work/log"; then echo "a declined step ran" >&2; exit 1; fi
 [ ! -e "$work/state/setup-pending" ] || { echo "setup didn't release the download" >&2; exit 1; }
@@ -39,13 +46,13 @@ grep -q 'first download' "$work/out" || exit 1
 ok "setup enrolls the TPM when asked, skips declined steps, and releases the first download as halogen"
 
 touch "$work/state/setup-pending"
-FAKE_TOKENS='  0: systemd-tpm2' answer y y
+FAKE_TOKENS='  0: systemd-tpm2' answer n y y
 grep -q 'unlocks with the TPM already' "$work/out" || { cat "$work/out" >&2; exit 1; }
 if grep -q enroll-tpm "$work/log"; then echo "enrolled again" >&2; exit 1; fi
 grep -qx 'halogenctl hf-token' "$work/log" || { echo "no token step" >&2; exit 1; }
 echo 'HALOGEN_FLASH_CTX=1' > "$work/configs/halogen.env"
 touch "$work/state/setup-pending"; : > "$work/log"
-FAKE_TOKENS='  0: systemd-tpm2' answer n y
+FAKE_TOKENS='  0: systemd-tpm2' answer n n y
 if ! grep -qE '^nano /tmp/.*/halogen.env as=root$' "$work/log"; then cat "$work/log" >&2; echo "the editor didn't run as root on a private copy" >&2; exit 1; fi
 if grep -q "nano $work/configs" "$work/log"; then echo "the editor opened halogen's file directly" >&2; exit 1; fi
 grep -qx 'HALOGEN_KV_SLOTS=2' "$work/configs/halogen.env" || { echo "the edit was not saved" >&2; exit 1; }
@@ -54,8 +61,22 @@ FAKE_LSBLK='' answer n n
 grep -q "isn't encrypted" "$work/out" || exit 1
 ok "setup knows an existing TPM binding and an unencrypted disk, and edits settings as halogen"
 
+# Unlock over SSH: a user with no keys asks again; a found key is shown, confirmed and installed.
+touch "$work/state/setup-pending"
+answer n y 3 bob 3 alice y n n
+grep -q 'no keys for bob' "$work/out" || { cat "$work/out" >&2; echo "a user without keys wasn't reported" >&2; exit 1; }
+grep -q 'SHA256:test alice' "$work/out" || { cat "$work/out" >&2; echo "the keys weren't shown" >&2; exit 1; }
+if ! grep -qx 'ssh-unlock install' "$work/log" || ! grep -qx 'ssh-ed25519 AAAAtest alice' "$work/installed"; then
+  cat "$work/out" >&2; echo "the keys weren't installed" >&2; exit 1
+fi
+touch "$work/state/setup-pending"
+answer n n n
+grep -q 'set up already' "$work/out" || { cat "$work/out" >&2; echo "an existing SSH unlock wasn't named" >&2; exit 1; }
+rm "$work/installed"
+ok "setup offers unlocking over SSH, asks again when an account has no keys, and installs the confirmed ones"
+
 # Run again later: nothing pending, so it offers a restart instead.
-answer n n n y
+answer n n n n y
 grep -qx 'halogenctl restart' "$work/log" || { cat "$work/out" >&2; echo "no restart offered" >&2; exit 1; }
 touch "$work/state/setup-pending"
 "$ctl" setup --skip < /dev/null > "$work/out" 2>&1

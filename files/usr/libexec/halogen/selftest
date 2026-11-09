@@ -152,6 +152,13 @@ else
       *) say WARN luks-tpm "$d has $tokens TPM bindings; run sudo halogen-enroll-tpm to keep one" ;;
     esac
   done
+  # Unlock over SSH at boot (#13), the way when the TPM can't.
+  st="$(run "${HALOS_SSH_UNLOCK:-/usr/libexec/halogen/ssh-unlock}" status --short | head -n 1)"
+  case "$st" in
+    "on "*) say PASS ssh-unlock "the disk can also be unlocked over SSH at boot (${st#on } key(s)); details: sudo halosctl ssh-unlock" ;;
+    off) say INFO ssh-unlock "not set up; to type the passphrase from another computer at boot: sudo halosctl ssh-unlock on" ;;
+    *) say WARN ssh-unlock "its state couldn't be read: $st" ;;
+  esac
 fi
 if [ -e "$dev/tpmrm0" ] || [ -e "$dev/tpm0" ]; then say PASS tpm "a TPM is present"
 else say INFO tpm "no TPM found"; fi

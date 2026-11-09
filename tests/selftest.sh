@@ -39,6 +39,7 @@ f bootc 'case "$*" in *json*) echo "{\"spec\":{\"image\":{\"image\":\"${FAKE_FOL
 f systemctl 'case "$*" in *--failed*) cat "$FAKE/failed" 2>/dev/null ;; *"show -p Job"*) echo "${FAKE_JOB:-}" ;;
   *halogen-fetch*) echo "${FAKE_FETCH:-inactive}" ;; *) echo "${FAKE_STATE:-active}" ;; esac'
 f fabric-clock 'exit 0'
+f ssh-unlock 'echo "${FAKE_SSHU:-on 2}"'
 # Group, owner and label as the real image sets them.
 f stat 'case "$2" in %G|%U) echo halogen ;; %C) case "$3" in *accel*) echo system_u:object_r:dri_device_t:s0 ;; *) echo system_u:object_r:container_file_t:s0 ;; esac ;; *) exec /usr/bin/stat "$@" ;; esac'
 f curl 'echo "curl $*" >> "$FAKE/curl.log"; case "$*" in *models*) echo "{\"data\":[{\"id\":\"halogen-qwen3.8-flash-next\"},{\"id\":\"qwen3.5-2b\"}]}" ;; *::1*) [ -n "${FAKE_NOIPV6:-}" ] && printf 000 || printf 200 ;; *) printf 200 ;; esac'
@@ -51,14 +52,14 @@ printf '8ef7ad828f7fa715cba0721a8ef9f9ab20d44e50\n' > "$work/models/.cache/huggi
 export PATH="$fake:$sysbin" HALOGEN_RELEASE_FILE="$work/release.env" HALOGEN_SYSFS="$work/sys" \
   HALOGEN_DEV="$work/dev" HALOGEN_CMDLINE="$work/cmdline" HALOGEN_MEMINFO="$work/meminfo" \
   HALOGEN_MODELS_DIR="$work/models" HALOGEN_CONFIGS_DIR="$work/configs" HALOGEN_CLOCK="$fake/fabric-clock" \
-  HALOS_POLICY="$repo/files/etc/containers/policy.json"
+  HALOS_POLICY="$repo/files/etc/containers/policy.json" HALOS_SSH_UNLOCK="$fake/ssh-unlock"
 selftest="$repo/files/usr/libexec/halogen/selftest"
 ok() { echo "ok: $*"; }
 expect() { grep -qE "$1" "$work/out" || { echo "expected '$1' in:" >&2; cat "$work/out" >&2; exit 1; }; }
 refuse() { if grep -qE "$1" "$work/out"; then echo "did not expect '$1' in:" >&2; cat "$work/out" >&2; exit 1; fi; }
 
 "$selftest" > "$work/out" 2>&1 || { cat "$work/out" >&2; echo "a healthy machine failed" >&2; exit 1; }
-for id in secure-boot image-signatures kernel-iommu memory selinux-denials firewall luks-tpm gpu-kfd npu-device npu-label \
+for id in secure-boot image-signatures ssh-unlock kernel-iommu memory selinux-denials firewall luks-tpm gpu-kfd npu-device npu-label \
   fabric-clock server preflight api-ipv4 api-ipv6 api-models npu-folder folder-LFM folder-flash; do
   expect "^PASS $id:"
 done
@@ -83,6 +84,11 @@ echo '{"default":[{"type":"insecureAcceptAnything"}]}' > "$work/policy.json"
 HALOS_POLICY="$work/policy.json" "$selftest" > "$work/out" 2>&1 || true
 expect '^WARN image-signatures:.*/usr/etc/containers/policy.json'
 ok "an install that doesn't check signatures yet, follows another image, or has a changed policy is a warning"
+FAKE_SSHU=off "$selftest" > "$work/out" 2>&1 || true
+expect '^INFO ssh-unlock: not set up.*halosctl ssh-unlock on'; refuse '^(WARN|FAIL) ssh-unlock'
+FAKE_SSHU='ssh-unlock: no EFI system partition found' "$selftest" > "$work/out" 2>&1 || true
+expect '^WARN ssh-unlock:.*no EFI system partition'
+ok "unlocking over SSH is shown when set up, offered when not, and a warning when unreadable"
 
 rm "$fake/mokutil" "$fake/amd-smi"
 "$selftest" > "$work/out" 2>&1 || true

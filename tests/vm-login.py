@@ -1,13 +1,15 @@
 """Log in at a VM console through the QEMU monitor and capture a report on serial.
 
-Usage: vm-login.py monitor.sock serial.log out-dir [plain|luks|luks-stale|luks-enroll|tpm]
+Usage: vm-login.py monitor.sock serial.log out-dir [plain|luks|luks-stale|luks-enroll|ssh-enroll|tpm]
+With HALOS_TEST_SSH_KEY set (a public key), luks-stale also turns on unlocking over SSH with it.
   luks         type the disk passphrase, which must be asked for
   luks-stale   as luks, then enroll the TPM against a changed PCR 7 (as if the Secure Boot
                state later changed) and power off, leaving a binding that won't unlock
   luks-enroll  as luks, then bind the disk to the TPM with halogen-enroll-tpm and power off
+  ssh-enroll   as luks-enroll, but the passphrase comes over SSH (tests/iso-install.sh), not typed
   tpm          fail if the passphrase is asked for: the TPM must unlock the disk by itself
 """
-import pathlib, re, socket, subprocess, sys, time
+import os, pathlib, re, socket, subprocess, sys, time
 
 sock_path, serial, out = sys.argv[1:4]
 mode = sys.argv[4] if len(sys.argv) > 4 and sys.argv[4] else "plain"
@@ -118,7 +120,15 @@ log = wait_serial("SELFTEST-RC=", 300)
 selftest = log.split("RESULT-END")[-1].split("SELFTEST-RC=")[0]
 (out / "selftest.txt").write_text(re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", selftest))
 
-if mode in ("luks-stale", "luks-enroll"):
+ssh_key = os.environ.get("HALOS_TEST_SSH_KEY", "")
+if mode == "luks-stale" and ssh_key:
+    # Unlock over SSH (#13), as INSTALL.md shows it: the next boot asks over SSH too.
+    typed(f"halosctl ssh-unlock on --key '{ssh_key}' --yes > /tmp/sshu 2>&1; echo SSHU-RC=$? >> /tmp/sshu; "
+          "halogenctl selftest 2>&1 | grep ssh-unlock >> /tmp/sshu; cat /tmp/sshu > /dev/ttyS0; echo SSHU-END > /dev/ttyS0\n")
+    log = wait_serial("SSHU-END", 120)
+    (out / "ssh-unlock.txt").write_text(log.split("SELFTEST-RC=")[-1].split("SSHU-END")[0])
+
+if mode in ("luks-stale", "luks-enroll", "ssh-enroll"):
     # Exactly what INSTALL.md tells people to run; PASSWORD answers the passphrase prompt.
     # For a stale binding, PCR 7 is first extended so the TPM records a value the next boot
     # won't reproduce, like a BIOS or Secure Boot change after enrolling.

@@ -186,6 +186,25 @@ name, but allows saying halOS runs Halogen.
   `insecure` turns it on at its next `halosctl upgrade` (a switch to the same name, which also
   fetches the newest image). Oldest key-signed release: `0.19.1-alpha.3`.
 
+- Unlock over SSH (#13): `files/usr/lib/dracut/modules.d/90halos-ssh-unlock` (added in
+  `dracut.conf.d/10-halogen-tpm2.conf`) puts sshd (with `sshd-session`/`sshd-auth`, its privsep
+  user and `/usr/share/empty.sshd`), NetworkManager (dracut's `network-manager`) and
+  `halos-ssh-unlock.service` (wanted by `initrd.target`, conflicts with `initrd-switch-root.target`)
+  in every initramfs. The image is the same for every machine, so the keys can't be built in: at
+  boot the service looks for the EFI system partition (partition type c12a7328-…), mounts it read-
+  only and copies `/halos/ssh-unlock/{authorized_keys,ssh_host_ed25519_key}` to `/run`. Without them
+  it exits, and no network or server starts. With them it runs `nm-initrd-generator -- ip=dhcp
+  rd.neednet=1`, starts `nm-initrd.service` and execs sshd on port 22 (`/etc/ssh/halos-unlock.conf`:
+  root only, keys only, `UsePAM no`, `ForceCommand systemd-tty-ask-password-agent --query`, no
+  forwarding). `nm-wait-online-initrd.service` is masked in the initramfs, so boot never waits for a
+  cable (its condition is the `neednet` file the generator writes, which would otherwise block the
+  initqueue for up to an hour); the Containerfile checks the mask and the binaries.
+  `/usr/libexec/halogen/ssh-unlock` (fetch from github.com/gitlab.com/codeberg.org `<user>.keys`,
+  check with ssh-keygen: plain keys only, no options, RSA at least 2048 bits, each once; install
+  with `restrict,pty`; keep the host key across key changes; status reads the ESP read-only) is
+  driven by `halosctl ssh-unlock on|off` and `setup`. The early-boot host key differs from the
+  system's, so `halosctl` prints a known_hosts line (OpenSSH accepts several keys per host).
+
 ## Lessons already learned
 
 - The initramfs must be built with `--no-hostonly` and the `crypt systemd-cryptsetup tpm2-tss
@@ -260,7 +279,7 @@ and tracked on the owner's project board. [ROADMAP.md](ROADMAP.md) holds the ord
   On edge since: the tokenizer fill-in for checkpoints that ship none (#88). The issues for #14, #15,
   #40 and #56 are closed. Freyja serves the official checkpoint or its own (Signal-3.8-Flash-Next-HGN-v2),
   swapped as needed, at the `performance` profile.
-- Next: unlock over SSH (#13), clevis/tang (#44), GGUF in `flash pull` (#61).
+- Next: the installer's unlock questions (#13, part 2), clevis/tang (#44), GGUF in `flash pull` (#61).
 - **Halogen 0.20.0** (stable since `v0.20.0`): 0.20.0 (ROCm 10.1 in its image, OvisOCR3 document parsing on the NPU as your
   own checkpoint, faster prefill, a strict-tool-call crash fixed; the Flash checkpoints and weights
   revision unchanged) is pinned by #78. Between source commits 47ceb43 and 8242b15, FLAGS.md,

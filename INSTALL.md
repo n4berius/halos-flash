@@ -548,6 +548,44 @@ encrypted, so someone who can open the case can change them and put the disk bac
 the passphrase at every boot keeps a stolen machine locked, and even that doesn't protect a
 machine someone tampered with before you typed it.
 
+### Unlock over SSH at boot
+
+When the disk waits for its passphrase (the TPM couldn't unlock it after a BIOS update, or you
+didn't set the TPM up), you can type the passphrase from another computer instead of at the
+machine's keyboard. Turn it on once with the public keys of your GitHub, GitLab or Codeberg
+account, or with a key you give:
+
+```bash
+sudo halosctl ssh-unlock on --github <your-user-name>
+```
+
+`--gitlab`, `--codeberg` and `--key 'ssh-ed25519 AAAA... you@computer'` work the same way, and can
+be combined. Without any of them it asks. `sudo halosctl setup` offers it too. It shows each key
+before using it, and replaces any keys set before. `sudo halosctl ssh-unlock` shows what is set
+up, and `sudo halosctl ssh-unlock off` turns it off.
+
+Then, whenever the machine waits for the passphrase:
+
+```bash
+ssh root@<the machine's name or address>
+```
+
+Type the passphrase, and the boot goes on (only `root`, only these keys, and nothing but the
+passphrase prompt; the network is wired, with DHCP). The TPM still unlocks the disk by itself
+when it can: SSH is the way in when it can't.
+
+The server that answers before the disk is unlocked has its own host key, not the system's.
+`halosctl ssh-unlock` prints a `known_hosts line`: add it once to `~/.ssh/known_hosts` on your
+computer, starting with the name or address you connect to (several: separate them with commas).
+Otherwise ssh warns that the host key changed when you connect to unlock. Don't accept a changed
+key you didn't expect: someone else could be asking for your passphrase.
+
+What it can and can't protect: the keys and that host key are kept on the disk's small
+unencrypted EFI partition, because every halOS machine boots the same image. Your keys there are
+only public keys. But someone who can take the disk out can copy the host key, and then pretend
+to be this machine to catch the passphrase when you unlock. Every way of unlocking over the network
+has this weakness; the TPM section above has ways to make the machine harder to tamper with.
+
 ## If something goes wrong
 
 | Symptom | Check |
