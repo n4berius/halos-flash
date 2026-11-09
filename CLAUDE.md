@@ -206,7 +206,8 @@ name, but allows saying halOS runs Halogen.
   checks the mask, the binaries and the shadow line. Before switch-root the teardown unit stops
   `nm-initrd`, deletes the generated connection, carrier-timeout and `neednet` files from `/run`
   and flushes the links, so the system's own profiles (static address, firewall zone) apply; the
-  VM test checks `/run/NetworkManager/system-connections` is empty afterwards.
+  VM test checks the generator's `default_connection.nmconnection` is gone afterwards (the
+  system's NetworkManager keeps its own runtime "Wired connection 1" and `lo` profiles there too).
   `/usr/libexec/halogen/ssh-unlock` (`LC_ALL=C`; fetch `<user>.keys` from github.com, gitlab.com or
   codeberg.org with curl run as nobody; check with ssh-keygen: plain keys, no options, RSA at least
   2048 bits, each once, comments cut to plain characters; install with `restrict,pty`, the host key

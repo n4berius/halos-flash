@@ -181,7 +181,10 @@ if [ -n "$luks" ]; then
   cat "$out/ssh-session.log" || true
   [ -e "$out/ssh-unlocked" ] || { echo "the disk was not unlocked over SSH" >&2; exit 1; }
   # The early-boot network is gone once the system runs: its own NetworkManager settings apply.
-  if grep -q '^NMRUN ' "$out/report.txt"; then grep '^NMRUN ' "$out/report.txt" >&2; echo "the early-boot network settings stayed" >&2; exit 1; fi
+  # The system keeps its own runtime profiles there too ("Wired connection 1", lo); only the
+  # generator's default_connection is the early boot's.
+  grep '^NMRUN ' "$out/report.txt" || true
+  if grep -q '^NMRUN .*/default_connection\.nmconnection' "$out/report.txt"; then echo "the early-boot network settings stayed" >&2; exit 1; fi
   echo "unlock over SSH verified"
 
   echo "=== third boot: the TPM must unlock the disk ==="
