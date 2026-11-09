@@ -5,7 +5,8 @@
 # HALOS_ANSWERS instead of typed. The NPU edition installs on LUKS to a 512 GB disk, no-NPU without
 # LUKS to a 2 TB one, so both encrypted and plain installs and both ends of the sizing are tested.
 # The VM has an emulated TPM: the LUKS install is bound to it with halogen-enroll-tpm, then
-# rebooted to prove the disk unlocks with no passphrase.
+# rebooted to prove the disk unlocks with no passphrase. Before that, the stale binding's boot
+# asks for the passphrase, which this test answers over SSH (unlock over SSH, #13).
 set -euo pipefail
 iso="$1"; target="$2"; out="$3"; variant="$4"; mkdir -p "$out/answers"
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -53,6 +54,12 @@ install=$!
 python3 "$here/grub-pick.py" "$out/monitor.sock" "$out/install.log" || { kill "$install"; exit 1; }
 wait "$install" || { echo "the install did not finish (see install.log)" >&2; exit 1; }
 echo "install finished"
+
+if [ -n "$luks" ]; then
+  # The key that unlocks over SSH; the first boot turns it on (vm-login.py).
+  ssh-keygen -q -t ed25519 -N '' -C halostest -f "$out/unlock-key"
+  HALOS_TEST_SSH_KEY="$(cat "$out/unlock-key.pub")"; export HALOS_TEST_SSH_KEY
+fi
 
 echo "=== first boot from disk ==="
 # No network: the fetch must not start a 125 GB download in CI.
@@ -142,11 +149,43 @@ echo "selftest verified"
 
 if [ -n "$luks" ]; then
   # First boot left a TPM binding for a Secure Boot state this machine no longer has.
-  echo "=== second boot: stale binding, so the passphrase is asked; re-enroll ==="
+  cat "$out/ssh-unlock.txt"
+  grep -q '^SSHU-RC=0' "$out/ssh-unlock.txt" || { echo "halosctl ssh-unlock on failed" >&2; exit 1; }
+  grep -q '^PASS ssh-unlock:' "$out/ssh-unlock.txt" || { echo "the selftest doesn't see unlocking over SSH" >&2; exit 1; }
+  # The known_hosts line halosctl prints, as people add it: under the unlock name (HostKeyAlias).
+  sed -n 's/^ *known_hosts line: //p' "$out/ssh-unlock.txt" | tr -d '\r' | head -n 1 > "$out/known_hosts"
+  grep -q '^halostest-unlock ssh-ed25519 ' "$out/known_hosts" || { echo "no known_hosts line for halostest-unlock" >&2; exit 1; }
+
+  echo "=== second boot: stale binding, so the passphrase is asked; answered over SSH; re-enroll ==="
   timeout 180 tail --pid="$pid" -f /dev/null || { echo "the VM did not power off after enrolling" >&2; exit 1; }
-  vm -nic none -serial "file:$out/secondboot.log" &
+  # Network for the initramfs's SSH server only: restrict=on lets nothing out of the VM.
+  vm -nic "user,restrict=on,hostfwd=tcp:127.0.0.1:2222-:22" -serial "file:$out/secondboot.log" &
   pid=$!
-  python3 "$here/vm-login.py" "$out/monitor.sock" "$out/secondboot.log" "$out" luks-enroll
+  # As a person would: ssh in, type the passphrase. Until the prompt is there, the server isn't up
+  # yet or has nothing to ask; it counts only once the passphrase prompt was answered.
+  (
+    deadline=$((SECONDS + 600))
+    while [ "$SECONDS" -lt "$deadline" ]; do
+      # The passphrase once the prompt is up; the session stays open until the unlock ends it.
+      { sleep 3; printf 'halogentest\n'; sleep 30; } | timeout 60 ssh -tt -p 2222 -i "$out/unlock-key" -o BatchMode=yes \
+        -o UserKnownHostsFile="$out/known_hosts" -o HostKeyAlias=halostest-unlock \
+        -o StrictHostKeyChecking=yes -o ConnectTimeout=5 \
+        root@127.0.0.1 > "$out/ssh-session.log" 2>&1 || true
+      if grep -qi 'passphrase' "$out/ssh-session.log"; then touch "$out/ssh-unlocked"; exit 0; fi
+      sleep 5
+    done
+  ) &
+  sshpid=$!
+  python3 "$here/vm-login.py" "$out/monitor.sock" "$out/secondboot.log" "$out" ssh-enroll
+  wait "$sshpid" || true
+  cat "$out/ssh-session.log" || true
+  [ -e "$out/ssh-unlocked" ] || { echo "the disk was not unlocked over SSH" >&2; exit 1; }
+  # The early-boot network is gone once the system runs: its own NetworkManager settings apply.
+  # The system keeps its own runtime profiles there too ("Wired connection 1", lo); only the
+  # generator's default_connection is the early boot's.
+  grep '^NMRUN ' "$out/report.txt" || true
+  if grep -q '^NMRUN .*/default_connection\.nmconnection' "$out/report.txt"; then echo "the early-boot network settings stayed" >&2; exit 1; fi
+  echo "unlock over SSH verified"
 
   echo "=== third boot: the TPM must unlock the disk ==="
   timeout 180 tail --pid="$pid" -f /dev/null || { echo "the VM did not power off after re-enrolling" >&2; exit 1; }

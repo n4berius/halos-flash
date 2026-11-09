@@ -79,9 +79,14 @@ RUN set -eu; \
     env DRACUT_NO_XATTR=1 dracut --no-hostonly -f "$img" "$kver"; \
     contents="$(lsinitrd "$img")"; \
     echo "$contents" | grep -E 'cryptsetup|bin/lvm|tpm2' | awk '{print $NF}' | sort -u; \
-    for want in '/systemd-cryptsetup$' '/systemd-cryptsetup-generator$' 'libcryptsetup' 'bin/lvm$'; do \
+    for want in '/systemd-cryptsetup$' '/systemd-cryptsetup-generator$' 'libcryptsetup' 'bin/lvm$' \
+                '/halos-ssh-unlock$' 'bin/sshd$' '/sshd-session$' '/sshd-auth$' '/nm-initrd-generator$' 'fs/fat/vfat'; do \
       echo "$contents" | awk '{print $NF}' | grep -qE "$want" || { echo "initramfs is missing $want" >&2; exit 1; }; \
-    done
+    done; \
+    case "$contents" in *'nm-wait-online-initrd.service -> /dev/null'*) ;; \
+      *) echo "the initramfs could wait for the network at boot (halos-ssh-unlock)" >&2; exit 1 ;; esac; \
+    lsinitrd -f etc/shadow "$img" | grep -q '^root:' \
+      || { echo "the initramfs has no shadow line for root, so its sshd would refuse root" >&2; exit 1; }
 
 # The base image's own OSTree copy of its files, which still holds everything removed above.
 # A flattened image does not use it; Fedora's rechunker drops it the same way.

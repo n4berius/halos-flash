@@ -548,6 +548,60 @@ encrypted, so someone who can open the case can change them and put the disk bac
 the passphrase at every boot keeps a stolen machine locked, and even that doesn't protect a
 machine someone tampered with before you typed it.
 
+### Unlock over SSH at boot
+
+When the disk waits for its passphrase (the TPM couldn't unlock it after a BIOS update, or you
+didn't set the TPM up), you can type the passphrase from another computer instead of at the
+machine's keyboard. Turn it on once with the public keys of your GitHub, GitLab or Codeberg
+account, or with a key you give:
+
+```bash
+sudo halosctl ssh-unlock on --github <your-user-name>
+```
+
+`--gitlab`, `--codeberg` and `--key 'ssh-ed25519 AAAA... you@computer'` work the same way, and can
+be combined. Without any of them it asks. `sudo halosctl setup` offers it too. It shows each key
+before using it, and replaces any keys set before. `sudo halosctl ssh-unlock` shows what is set
+up, and `sudo halosctl ssh-unlock off` turns it off.
+
+`halosctl ssh-unlock` then prints two things for the computer you unlock from. Add both once:
+
+- an entry for `~/.ssh/config`. Set its `HostName` to how you reach the machine (its name or
+  address):
+
+  ```
+  Host freyja-unlock
+      HostName freyja
+      User root
+      HostKeyAlias freyja-unlock
+  ```
+
+- a `known_hosts line` for `~/.ssh/known_hosts`, starting with `freyja-unlock`.
+
+The server that answers before the disk is unlocked has its own host key, not the system's. Under
+its own name, your computer trusts that key only for unlocking, never for the running system,
+and `ssh freyja` stays as it was.
+
+Then, whenever the machine waits for the passphrase:
+
+```bash
+ssh freyja-unlock
+```
+
+Type the passphrase, and the boot goes on. A wrong one is asked again; if you connect while the TPM
+is still trying, the prompt appears when it gives up. Only `root` gets in, only with these keys,
+and only to the passphrase prompt; the network is wired, with DHCP, and is dropped before the
+system starts, so its own network settings apply. The TPM still unlocks the disk by itself when it
+can: SSH is the way in when it can't. If ssh ever says this host key changed, don't type the
+passphrase: someone else could be asking for it.
+
+What it can and can't protect: the keys and that host key are kept on the disk's small
+unencrypted EFI partition (only the machine's own disks are read, never a USB stick), because every
+halOS machine boots the same image. Your keys there are
+only public keys. But someone who can take the disk out can copy the host key, and then pretend
+to be this machine to catch the passphrase when you unlock. Every way of unlocking over the network
+has this weakness; the TPM section above has ways to make the machine harder to tamper with.
+
 ## If something goes wrong
 
 | Symptom | Check |

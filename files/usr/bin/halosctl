@@ -20,6 +20,7 @@ usage: halosctl version
        halosctl power [low-power|balanced|performance]
        halosctl history
        halosctl setup [--skip]
+       halosctl ssh-unlock [on [--github|--gitlab|--codeberg <user>]... [--key '<public key>'] | off] [--yes]
 
 Channels: alpha, beta and rc are test releases; release (stable) is for production; edge is
 every change to main. Each channel also gets newer releases of the more stable ones.
@@ -29,10 +30,21 @@ Changes apply at the next reboot, which stops Halogen. --reboot does it at once.
 power is the firmware's power profile, and applies at once and at every boot: performance (the
 default) lets the chip draw the most power, so Halogen runs fastest; balanced and low-power draw
 less, run cooler and quieter, and serve slower. Without a name it shows the profile.
+ssh-unlock on lets the keys of your GitHub, GitLab or Codeberg account (or a key you give) unlock
+an encrypted disk over SSH at boot, when the TPM can't; off turns it off; alone it shows the state.
 U
 }
 
 die() { echo "halosctl: $*" >&2; exit 1; }
+# y or n in any case; Enter takes the default; anything else asks again.
+ask() {
+  local a
+  while :; do
+    read -rp "$1 " a || return 1
+    case "${a,,}" in y|yes) return 0 ;; n|no) return 1 ;; '') [ "$2" = y ]; return ;; esac
+    echo "   Please answer y or n."
+  done
+}
 case "${1:-}" in help|-h|--help) usage; exit 0 ;; esac
 [ "$(id -u)" = 0 ] || die "run it with sudo"
 
@@ -192,15 +204,65 @@ switch_to() {
   finish
 }
 
+# Unlock over SSH (#13): /usr/libexec/halogen/ssh-unlock keeps the keys on the EFI partition.
+unlock="${HALOS_SSH_UNLOCK:-/usr/libexec/halogen/ssh-unlock}"
+encrypted() { lsblk -rno FSTYPE 2> /dev/null | grep -qx crypto_LUKS; }
+# The keys named on the command line, checked.
+keys_from_args() {
+  local i out all=""
+  for ((i = 0; i < ${#src[@]}; i += 2)); do
+    if [ "${src[i]}" = key ]; then
+      out="$(printf '%s\n' "${src[i+1]}" | "$unlock" check)" || die "--key: not a public key this can use"
+    else out="$("$unlock" fetch "${src[i]}" "${src[i+1]}")" || exit 1; fi
+    all+="$out"$'\n'
+  done
+  printf '%s' "$all"
+}
+# Asks where the keys are until some are found and taken, or the person skips. Keys in $picked.
+pick_keys() {
+  local c site user k
+  picked=""
+  while :; do
+    echo "   Where are your SSH public keys? 1) GitHub  2) GitLab  3) Codeberg  4) paste one key  5) skip"
+    read -rp "   Choose 1-5: " c || return 1
+    case "$c" in 1) site=github ;; 2) site=gitlab ;; 3) site=codeberg ;; 4) site=key ;; 5) return 1 ;; *) continue ;; esac
+    if [ "$site" = key ]; then
+      read -rp "   Paste the public key (one line, such as ssh-ed25519 AAAA... you@computer): " k || return 1
+      if ! picked="$(printf '%s\n' "$k" | "$unlock" check 2> /dev/null)"; then
+        echo "   That isn't a public key this can use. Try again, or pick another option."; continue
+      fi
+    else
+      read -rp "   User name on $site: " user || return 1
+      picked="$("$unlock" fetch "$site" "$user")" || { echo "   Try another site or user name, or paste a key."; continue; }
+    fi
+    echo "   Keys found:"; "$unlock" describe <<< "$picked"
+    ask "   Let these keys unlock the disk? [Y/n]" y && return 0
+  done
+}
+# Saves the keys; fails (without stopping setup) when they can't be saved.
+ssh_unlock_on() {
+  printf '%s\n' "$1" | "$unlock" install || { echo "   Couldn't save the keys; nothing changed." >&2; return 1; }
+  record ssh-unlock off on
+  "$unlock" status | sed 's/^/   /'
+  echo "   On the computer you unlock from, add the entry above to ~/.ssh/config and the known_hosts"
+  echo "   line to ~/.ssh/known_hosts, once. The early-boot server has a host key of its own, and"
+  echo "   this keeps it apart from the running system's. From the next boot, when the disk waits"
+  echo "   for its passphrase (the TPM couldn't unlock it, or isn't used): ssh <name>-unlock, as"
+  echo "   above, then type the passphrase. Wired network only, with DHCP."
+}
+
 cmd="${1:-version}"; [ $# = 0 ] || shift
-case "$cmd" in history|setup|power) ;; *) load ;; esac
-args=()
+case "$cmd" in history|setup|power|ssh-unlock) ;; *) load ;; esac
+args=(); src=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --yes|-y) yes=1 ;;
     --reboot) reboot=1 ;;
     --check) check=1 ;;
     --skip) skip=1 ;;
+    # Where ssh-unlock on takes its keys: pairs of (site or "key", user or key text).
+    --github|--gitlab|--codeberg|--key)
+      [ $# -ge 2 ] || die "$1 needs a value"; src+=("${1#--}" "$2"); shift ;;
     --to) [ $# -ge 2 ] || die "--to needs a version, such as 0.19.0-alpha.1"; to="$2"; shift ;;
     -h|--help) usage; exit 0 ;;
     -*) usage >&2; exit 2 ;;
@@ -209,7 +271,8 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-case "$cmd" in switch|npu|power) ;; *) [ "${#args[@]}" = 0 ] ;; esac || die "unexpected ${args[0]} (for an older release: halosctl rollback --to <version>)"
+[ "${#src[@]}" = 0 ] || [ "$cmd" = ssh-unlock ] || die "--github, --gitlab, --codeberg and --key go with ssh-unlock on"
+case "$cmd" in switch|npu|power|ssh-unlock) ;; *) [ "${#args[@]}" = 0 ] ;; esac || die "unexpected ${args[0]} (for an older release: halosctl rollback --to <version>)"
 
 case "$cmd" in
   version)
@@ -368,6 +431,34 @@ case "$cmd" in
     echo "Power profile: $want, now and at every boot. Halogen keeps running; no restart needed."
     [ "$want" = performance ] || echo "Halogen serves slower at $want than at performance (sudo halogenctl bench measures it)."
     ;;
+  ssh-unlock)
+    [ "${#args[@]}" -le 1 ] || die "ssh-unlock on, off, or nothing for its state"
+    [ "${#src[@]}" = 0 ] || [ "${args[0]:-}" = on ] || die "--github, --gitlab, --codeberg and --key go with ssh-unlock on"
+    case "${args[0]:-}" in
+      ''|status) "$unlock" status ;;
+      on)
+        encrypted || die "the disk isn't encrypted, so there is nothing to unlock"
+        if [ "${#src[@]}" -gt 0 ]; then keys="$(keys_from_args)"
+        else
+          [ -t 0 ] || die "name the keys (--github <user>, --gitlab <user>, --codeberg <user>, --key '<public key>'), or run it in a terminal"
+          pick_keys || { echo "Nothing changed."; exit 1; }
+          keys="$picked"
+        fi
+        echo "These keys may unlock the disk over SSH, replacing any set before:"
+        "$unlock" describe <<< "$keys"
+        confirm "Turn on unlocking over SSH with them?"
+        ssh_unlock_on "$keys" || exit 1
+        ;;
+      off)
+        [ "$("$unlock" status --short)" != off ] || { echo "Unlocking over SSH is already off."; exit 0; }
+        confirm "Turn off unlocking over SSH?"
+        "$unlock" remove
+        record ssh-unlock on off
+        echo "Off: from the next boot, no SSH server runs before the disk is unlocked."
+        ;;
+      *) die "ssh-unlock on, off, or nothing for its state" ;;
+    esac
+    ;;
   history)
     if [ -s "$history" ]; then cat "$history"; else echo "No changes recorded yet. Changes made with halosctl are listed here."; fi
     ;;
@@ -389,15 +480,6 @@ case "$cmd" in
       exit 0
     fi
     [ -t 0 ] || die "setup asks questions, so run it in a terminal (or: sudo halosctl setup --skip)"
-    # y or n in any case; Enter takes the default; anything else asks again.
-    ask() {
-      local a
-      while :; do
-        read -rp "$1 " a || return 1
-        case "${a,,}" in y|yes) return 0 ;; n|no) return 1 ;; '') [ "$2" = y ]; return ;; esac
-        echo "   Please answer y or n."
-      done
-    }
     echo "halOS setup. Each step can be skipped; run sudo halosctl setup again any time."
 
     echo; echo "1. How the disk unlocks at boot"
@@ -411,6 +493,15 @@ case "$cmd" in
          ask "   Unlock with the TPM, so no passphrase is needed while Secure Boot and the BIOS stay the same? [Y/n]" y; then
       halogen-enroll-tpm || echo "   That didn't work; the passphrase still unlocks the disk. Try again later: sudo halogen-enroll-tpm"
     else echo "   Kept: you type the passphrase at each boot."; fi
+    if [ -n "$crypt" ]; then
+      echo "   Unlocking over SSH: when the TPM can't unlock the disk (after a BIOS update, say), or on a"
+      echo "   machine without one, you type the passphrase from another computer instead of at a keyboard."
+      if [ "$("$unlock" status --short 2> /dev/null || echo off)" != off ]; then
+        echo "   It's set up already. To see or change it: sudo halosctl ssh-unlock"
+      elif ask "   Set up unlocking over SSH? [Y/n]" y && pick_keys; then
+        ssh_unlock_on "$picked" || echo "   Try again later: sudo halosctl ssh-unlock on"
+      else echo "   Skipped. Later: sudo halosctl ssh-unlock on"; fi
+    fi
 
     echo; echo "2. Hugging Face token (optional: higher download limits, and access to gated repositories)"
     echo "   It stays on this machine, in /srv/configs, and is never printed."

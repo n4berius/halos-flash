@@ -1,0 +1,12 @@
+[Unit]
+Description=halOS: SSH server to unlock the disk
+DefaultDependencies=no
+Wants=systemd-udev-trigger.service
+After=systemd-udev-trigger.service
+# Gone before the real system starts its own sshd and network.
+Conflicts=initrd-switch-root.target shutdown.target emergency.target
+Before=initrd-switch-root.target shutdown.target
+
+[Service]
+Type=simple
+ExecStart=/usr/libexec/halos-ssh-unlock

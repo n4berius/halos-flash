@@ -186,6 +186,39 @@ name, but allows saying halOS runs Halogen.
   `insecure` turns it on at its next `halosctl upgrade` (a switch to the same name, which also
   fetches the newest image). Oldest key-signed release: `0.19.1-alpha.3`.
 
+- Unlock over SSH (#13): `files/usr/lib/dracut/modules.d/90halos-ssh-unlock` (added in
+  `dracut.conf.d/10-halogen-tpm2.conf`) puts sshd (with `sshd-session`/`sshd-auth`, its privsep
+  user and `/usr/share/empty.sshd`), `halos-ssh-unlock.service` (wanted by `initrd.target`,
+  conflicts with `initrd-switch-root.target`) and `halos-ssh-unlock-teardown.service` in every
+  initramfs. dracut's `network-manager`, `dbus` and network modules were already there. The image is
+  the same for every machine, so keys can't be built in: at boot the service looks for an EFI
+  system partition (type c12a7328-…) on a non-removable, non-USB disk (`{1..30}`, not `seq`, which
+  the initramfs lacks), mounts it read-only and copies `/halos/ssh-unlock/{authorized_keys,
+  ssh_host_ed25519_key}` to `/run`. Without them it exits: no network, no server. With them it runs
+  `nm-initrd-generator -- ip=dhcp rd.neednet=1`, writes `/run/NetworkManager/initrd/neednet` itself
+  (the generator doesn't; dracut's `nm-lib.sh` does only for kernel arguments, and
+  `nm-initrd.service` needs it), starts `nm-initrd.service` and execs sshd on port 22
+  (`/etc/ssh/halos-unlock.conf`: root only, `AuthenticationMethods publickey`, `UsePAM no`,
+  `DisableForwarding`, `PerSourceMaxStartups 2`, `ForceCommand systemd-tty-ask-password-agent
+  --watch`, which waits for the prompt and asks again after a wrong passphrase). Root needs a
+  shadow line (`root:*`): without one nss-systemd reports `!*` and sshd refuses a locked account.
+  `nm-wait-online-initrd.service` is masked, so boot never waits for a cable; the Containerfile
+  checks the mask, the binaries and the shadow line. Before switch-root the teardown unit stops
+  `nm-initrd`, deletes the generated connection, carrier-timeout and `neednet` files from `/run`
+  and flushes the links, so the system's own profiles (static address, firewall zone) apply; the
+  VM test checks the generator's `default_connection.nmconnection` is gone afterwards (the
+  system's NetworkManager keeps its own runtime "Wired connection 1" and `lo` profiles there too).
+  `/usr/libexec/halogen/ssh-unlock` (`LC_ALL=C`; fetch `<user>.keys` from github.com, gitlab.com or
+  codeberg.org with curl run as nobody; check with ssh-keygen: plain keys, no options, RSA at least
+  2048 bits, each once, comments cut to plain characters; install with `restrict,pty`, the host key
+  kept across key changes, a remount back to read-only, a warning if the private key's mode isn't
+  private; status reads the ESP read-only and drops control characters) is driven by `halosctl
+  ssh-unlock on|off` and `setup` (where a failure doesn't stop setup). The early-boot host key is
+  trusted under its own name: `halosctl` prints an ssh config entry with `HostKeyAlias
+  <host>-unlock` and a known_hosts line for that name. A second key under the system's own name
+  would be deleted by OpenSSH's default `UpdateHostKeys` at the next normal login, and would let
+  the early-boot key pass for the running system.
+
 ## Lessons already learned
 
 - The initramfs must be built with `--no-hostonly` and the `crypt systemd-cryptsetup tpm2-tss
@@ -260,7 +293,7 @@ and tracked on the owner's project board. [ROADMAP.md](ROADMAP.md) holds the ord
   On edge since: the tokenizer fill-in for checkpoints that ship none (#88). The issues for #14, #15,
   #40 and #56 are closed. Freyja serves the official checkpoint or its own (Signal-3.8-Flash-Next-HGN-v2),
   swapped as needed, at the `performance` profile.
-- Next: unlock over SSH (#13), clevis/tang (#44), GGUF in `flash pull` (#61).
+- Next: the installer's unlock questions (#13, part 2), clevis/tang (#44), GGUF in `flash pull` (#61).
 - **Halogen 0.20.0** (stable since `v0.20.0`): 0.20.0 (ROCm 10.1 in its image, OvisOCR3 document parsing on the NPU as your
   own checkpoint, faster prefill, a strict-tool-call crash fixed; the Flash checkpoints and weights
   revision unchanged) is pinned by #78. Between source commits 47ceb43 and 8242b15, FLAGS.md,
