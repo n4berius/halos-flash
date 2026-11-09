@@ -246,11 +246,14 @@ name, but allows saying halOS runs Halogen.
   convert-prepare` checks config.json and the index's keys itself before the weights download
   (about 360 GB), then the space (weights + about 119 GB out). `convert-run` (halogenctl starts it
   as `halogen-flash-convert.service` under halogen's user manager, detached, Nice 10, idle I/O)
-  downloads the shards into `flash/.convert/<name>/source`, checks HF's sha256, removes stale
-  `.bf16-to-hgn-*` staging (never resumed), runs `convert --profile v2 --threads N` and `verify`
-  under `unshare --user --map-current-user --net` (no network), writes `halos.info`
-  (`checkpoint=model.hgn`, `converted_with`), runs Halogen's verify, and deletes the source unless
-  `--keep-source`. Progress is `du` of the staging folder every 10 minutes (its payload files are
+  downloads the shards into `flash/.convert/<name>/source`, checks HF's sha256, runs `convert
+  --profile v2 --threads N` and `verify` into `flash/.convert/<name>/out/<name>` (emptied first,
+  never resumed), each in its own transient unit (`sandboxed`: `PrivateNetwork`,
+  `RestrictAddressFamilies=none`, read-only system and models, writable only the work folder,
+  `/srv/configs`, halogen's home and `/run/user/970` hidden, `BindsTo` the job; `unshare --net` was
+  not enough, since a socket of the user manager reaches out), then `mv -T -n` to `flash/<name>`,
+  writes `halos.info` (`checkpoint=model.hgn`, `converted_with`), runs Halogen's verify, and
+  deletes the source unless `--keep-source`. Progress is `du` of the staging folder every 10 minutes (its payload files are
   written at preplanned offsets, and the image has no `script` for its pty-only progress display).
   No full-size conversion has run anywhere yet; no CPU timing exists.
 

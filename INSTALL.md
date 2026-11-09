@@ -507,8 +507,9 @@ sudo halogenctl flash check mine         # then judge it, before serving it
   16), with low priority, and takes many hours, likely a day or more. No full-size conversion has
   been timed yet. Halogen keeps serving meanwhile, more slowly, since both use the same memory.
 - **Checked twice.** bf16-to-hgn's own `verify` checks every value it wrote against the weights,
-  then Halogen's `verify` checks the result, as for `flash pull`. The converter runs with no
-  network.
+  then Halogen's `verify` checks the result, as for `flash pull`. The converter runs in a sandbox
+  with no network, unable to see your settings, keys or token, and able to write only its own
+  work folder. The result appears under `/srv/models/flash/<name>` only once both checks passed.
 - **The weights are deleted** afterwards, to free the 360 GB. `--keep-source` keeps them in
   `/srv/models/flash/.convert/<name>/source`.
 - **Judge it before serving it.** A conversion's quality hasn't been measured by anyone: run

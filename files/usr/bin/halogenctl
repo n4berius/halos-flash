@@ -298,7 +298,7 @@ case "${1:-status}" in
         fi
         unit reset-failed halogen-flash-convert.service > /dev/null 2>&1 || true
         systemd-run --machine=halogen@.host --user --unit=halogen-flash-convert --collect --quiet \
-          -p Nice=10 -p IOSchedulingClass=idle -p CPUWeight=20 \
+          -p Nice=10 -p IOSchedulingClass=idle -p CPUWeight=20 -p OOMScoreAdjust=800 \
           /usr/libexec/halogen/flash-checkpoint convert-run "$name" "${run_args[@]}" || exit 1
         echo "Started. Follow it: sudo halogenctl flash convert-logs   Stop it: sudo halogenctl flash convert-stop"
         ;;
@@ -309,6 +309,10 @@ case "${1:-status}" in
         if [ "$(unit is-active halogen-flash-convert.service 2> /dev/null)" = active ]; then
           unit stop halogen-flash-convert.service && echo "Stopped the conversion. Started again, it resumes the download; the conversion itself starts over."
         else echo "No conversion is running."; fi
+        if [ -z "$name" ]; then
+          left="$(as_owner find "$models/flash/.convert" -mindepth 1 -maxdepth 1 -type d -printf '%f ' 2> /dev/null || true)"
+          [ -z "$left" ] || echo "Downloaded weights still on disk, for: $left(delete them with: sudo halogenctl flash convert-stop <name>)"
+        fi
         if [ -n "$name" ]; then
           valid "$name" || { echo "usage: halogenctl flash convert-stop [<name>]" >&2; exit 2; }
           dir="$models/flash/.convert/$name"

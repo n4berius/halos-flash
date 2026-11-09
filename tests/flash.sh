@@ -292,7 +292,7 @@ if FAKE_PPL_FAIL=/models/qwen38-flash-next-v2.hgn "$tool" check mine > "$work/ou
 ok "flash check reuses the reference and text, refuses a wrong text, an unverified checkpoint and bad names, and keeps no half results"
 
 # Converting full-precision weights (halogenctl flash convert): a fake bf16-to-hgn that writes the
-# layout the real one publishes, and an unshare that records how the converter was run.
+# layout the real one publishes, and a systemd-run that records the sandbox it was run in.
 cat > "$work/bin/b2h" <<'S'
 #!/bin/bash
 echo "b2h $*" >> "$FAKE/b2h.log"
@@ -307,13 +307,13 @@ case "$cmd" in
   verify) echo '{"ok": true}' ;;
 esac
 S
-cat > "$work/bin/unshare" <<'S'
+cat > "$work/bin/sdrun" <<'S'
 #!/bin/bash
-echo "unshare $*" >> "$FAKE/unshare.log"
-while [ $# -gt 0 ] && [ "$1" != -- ]; do shift; done; shift; exec "$@"
+echo "systemd-run $*" >> "$FAKE/sdrun.log"
+while [ $# -gt 0 ]; do case "$1" in -p) shift 2 ;; -*) shift ;; *) break ;; esac; done; exec "$@"
 S
-chmod +x "$work/bin/b2h" "$work/bin/unshare"
-export HALOS_BF16_TO_HGN="$work/bin/b2h" HALOS_CONVERT_OUT_BYTES=1000
+chmod +x "$work/bin/b2h" "$work/bin/sdrun"
+export HALOS_BF16_TO_HGN="$work/bin/b2h" HALOS_SYSTEMD_RUN="$work/bin/sdrun" HALOS_CONVERT_OUT_BYTES=1000
 bf16_repo() { # mtp vision: whether the index lists them
   rm -rf "$work/repo"; mkdir -p "$work/repo"
   put config.json '{"architectures": ["Qwen4ExpForConditionalGeneration"], "model_type": "qwen4_exp"}'
@@ -325,7 +325,7 @@ bf16_repo() { # mtp vision: whether the index lists them
   put model-00001-of-00002.safetensors weights1; put model-00002-of-00002.safetensors weights2; put README.md hi
 }
 prepare() { listing > "$work/listing"; : > "$work/hf.log"; "$tool" convert-prepare "$@" > "$work/out" 2>&1; }
-run() { listing > "$work/listing"; : > "$work/hf.log"; : > "$work/verify.log"; : > "$work/b2h.log"; : > "$work/unshare.log"; "$tool" convert-run "$@" > "$work/out" 2>&1; }
+run() { listing > "$work/listing"; : > "$work/hf.log"; : > "$work/verify.log"; : > "$work/b2h.log"; : > "$work/sdrun.log"; "$tool" convert-run "$@" > "$work/out" 2>&1; }
 
 bf16_repo 1 1
 prepare someone/Flash-BF16 --as conv || fail "a good convert-prepare failed"
@@ -363,9 +363,15 @@ run conv --threads 3 || fail "a good conversion failed"
 out="$work/models/flash/conv"
 { [ "$(cat "$out/model.hgn")" = converted ] && [ -f "$out/qwen38-flash-next-vision.hgn" ]; } || fail "no output"
 grep -q "hf $commit model-00001-of-00002.safetensors model-00002-of-00002.safetensors" "$work/hf.log" || fail "weights not fetched at the commit"
-grep -q 'convert --source .* --output .*/flash/conv --profile v2 --threads 3' "$work/b2h.log" || fail "converter args: $(cat "$work/b2h.log")"
+grep -q 'convert --source .* --output .*/flash/.convert/conv/out/conv --profile v2 --threads 3' "$work/b2h.log" || fail "converter args: $(cat "$work/b2h.log")"
 grep -q '^b2h verify' "$work/b2h.log" || fail "bf16-to-hgn's verify didn't run"
-[ "$(grep -c -- '--net' "$work/unshare.log")" = 2 ] || fail "the converter ran with network"
+# Both runs in their own unit: no network, no sockets (the user manager's would reach out), the
+# settings and halogen's home hidden, only the work folder writable.
+[ "$(grep -c -- '-p PrivateNetwork=yes -p RestrictAddressFamilies=none' "$work/sdrun.log")" = 2 ] || fail "the converter ran with network: $(cat "$work/sdrun.log")"
+grep -q -- '-p InaccessiblePaths=-[^ ]*configs -' "$work/sdrun.log" || fail "the settings were visible: $(cat "$work/sdrun.log")"
+grep -q -- "-p ReadWritePaths=$(readlink -f "$work/models/flash/.convert/conv") " "$work/sdrun.log" || fail "wrong writable folder"
+grep -q -- '-p BindsTo=halogen-flash-convert.service' "$work/sdrun.log" || fail "the sandbox outlives the job"
+[ ! -e "$work/models/flash/.convert/conv/out" ] || fail "the staging folder stayed"
 { [ "$(info conv checkpoint)" = model.hgn ] && [ "$(info conv verified)" = pass ] && [ "$(info conv commit)" = "$commit" ]; } || fail "halos.info: $(cat "$out/halos.info")"
 info conv converted_with | grep -q '^bf16-to-hgn ' || fail "no converted_with"
 grep -q 'model.hgn' "$work/verify.log" || fail "Halogen's verify skipped model.hgn"
