@@ -1,0 +1,5 @@
+# halOS images are signed with cosign (#46). containers/image finds the signatures beside the
+# image in the registry (the .sig tag) only when told to look there.
+docker:
+  ghcr.io/n4berius/halos-flash:
+    use-sigstore-attachments: true

@@ -52,6 +52,19 @@ field() {
 describe() { local r v; r="$(field "$1" ref)"; v="$(field "$1" version)"; [ -n "$r" ] && echo "$r${v:+ ($v)}"; }
 
 booted_ref() { field booted ref; }
+# bootc checks images against containers-policy.json only when the machine's image spec asks it to
+# (#46): "containerPolicy", set by --enforce-container-sigpolicy. Installs from before it are
+# "insecure" until one switch with the flag; upgrade does that once.
+verified() { [ "$(status | jq -r '.spec.image.signature // "" | if type == "string" then . else "other" end')" = containerPolicy ]; }
+policy="${HALOS_POLICY:-/etc/containers/policy.json}"
+# The shipped policy: nothing is accepted by default, halOS's images only with halOS's signature.
+# bootc refuses --enforce-container-sigpolicy when the default accepts anything; say why first.
+need_policy() {
+  jq -e '.default == [{"type": "reject"}] and
+    any(.transports.docker["ghcr.io/n4berius/halos-flash"][]?; .type == "sigstoreSigned")' "$policy" > /dev/null 2>&1 \
+    || die "$policy doesn't require halOS's signature, so bootc would refuse to check it. Restore halOS's copy: sudo cp /usr/etc/containers/policy.json /etc/containers/policy.json"
+}
+sig_flag=--enforce-container-sigpolicy
 repo() {
   local r; r="$(booted_ref)"; r="${r%@*}"; r="${r%:*}"
   case "$r" in */halos-flash) echo "$r" ;; *) echo "$repo_default" ;; esac
@@ -116,7 +129,7 @@ record() {
     "${SUDO_USER:-root}" >> "$history"
 }
 
-yes=0; sfx=""; reboot=0; check=0; skip=0; to=""
+yes=0; sfx=""; reboot=0; check=0; skip=0; to=""; question=""
 confirm() {
   [ "$yes" = 1 ] && return 0
   [ -t 0 ] || die "nothing changed: add --yes to confirm without a terminal"
@@ -155,7 +168,8 @@ switch_to() {
   edition="${rest%% *}"; release="${rest#* }"
   [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || die "the registry gave no usable digest for $target"
   # The tag names an edition; the image's label must agree, when it has one.
-  case "$target" in *-no-npu) want=no-npu ;; esac
+  # A digest names one exact build already chosen (upgrade's first signed switch): it keeps its edition.
+  case "$target" in *@sha256:*) want="$edition" ;; *-no-npu) want=no-npu ;; esac
   case "$edition" in
     npu|no-npu) [ "$edition" = "$want" ] || die "$target is the $edition edition in the registry, not $want; nothing changed" ;;
   esac
@@ -163,8 +177,12 @@ switch_to() {
   echo "Now:   $from"
   [ -z "$(field staged ref)" ] || echo "Staged for the next boot, and replaced by this: $(describe staged)"
   echo "After: $target ($release)"
-  confirm "Switch to it?"
-  if [ -n "$pin" ]; then bootc switch "$(repo)@$digest"; else bootc switch "$target"; fi
+  need_policy
+  confirm "${question:-Switch to it?}"
+  [ -z "$pin" ] || target="$(repo)@$digest"
+  if ! bootc switch "$sig_flag" "$target"; then
+    die "bootc did not switch; nothing changed. If it says the image was rejected, that image isn't signed with halOS's key: this machine takes only signed images, and releases before 0.19.1-alpha.3 aren't signed."
+  fi
   load
   staged="$(describe staged || echo "$target ($release)")"
   if [ -n "$(field staged digest)" ] && [ "$(field staged digest)" != "$digest" ]; then
@@ -208,6 +226,19 @@ case "$cmd" in
     echo "Rollback:  $(describe rollback || echo "none")"
     ;;
   upgrade)
+    if ! verified; then
+      # Once per machine: an upgrade with the signature check on is a switch to the same image name
+      # with --enforce-container-sigpolicy. It fetches the newest image of that name, so it is also
+      # the upgrade. An image pinned by digest stays the same build.
+      ref="$(field "$(next_dep)" ref)"; name="${ref%@*}"; name="${name%:*}"
+      echo "This machine doesn't check halOS's signature on its updates yet. This upgrade turns it on:"
+      echo "from then on it takes only images signed with halOS's key."
+      if [ "$check" = 1 ]; then echo "Check skipped; turn it on with: sudo halosctl upgrade"; exit 0; fi
+      question="Download the newest image of this name and check its signature from now on?"
+      switch_to upgrade "$(repo)${ref#"$name"}"
+      exit 0
+    fi
+    need_policy
     [ -n "$(channel)" ] || echo "Note: this machine is pinned to one release, so an upgrade finds nothing newer. To follow new releases: sudo halosctl switch <channel>"
     if ! found="$(bootc upgrade --check 2>&1)"; then printf '%s\n' "$found" >&2; die "bootc could not check for updates"; fi
     printf '%s\n' "$found"

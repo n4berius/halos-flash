@@ -17,25 +17,31 @@ case "$1" in
              if [ -n "${FAKE_NO_UPDATE:-}" ]; then echo "No changes in: docker://x"; else echo "Update available"; fi; exit 0; fi
            [ ! -f "$FAKE/next.json" ] || cp "$FAKE/next.json" "$FAKE/status.json" ;;
   # Stages what the registry has under that name: FAKE_PUSHED_DIGEST when it moved meanwhile.
-  switch) jq --arg r "$2" --arg d "${FAKE_PUSHED_DIGEST:-sha256:fefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefe}" ".status.staged = {image: {image: {image: \$r},
+  # Every switch must ask for the signature check (#46), and the staged spec then has it.
+  switch) [ "$2" = --enforce-container-sigpolicy ] || { echo "switch without the signature check" >&2; exit 3; }
+          [ -z "${FAKE_REJECT:-}" ] || { echo "error: Source image rejected: A signature was required, but no signature exists" >&2; exit 1; }
+          jq --arg r "$3" --arg d "${FAKE_PUSHED_DIGEST:-sha256:fefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefe}" ".status.staged = {image: {image: {image: \$r},
             version: \"0.19.0-beta.1\", imageDigest: \$d, timestamp: \"2026-11-06T00:00:00Z\"}}" \
-            "$FAKE/status.json" > "$FAKE/s.tmp" && mv "$FAKE/s.tmp" "$FAKE/status.json" ;;
+            "$FAKE/status.json" | jq ".spec.image.signature = \"containerPolicy\"" > "$FAKE/s.tmp" && mv "$FAKE/s.tmp" "$FAKE/status.json" ;;
 esac'
 # skopeo inspect: "<digest> <edition label> <release>" for a tag; for a digest (the staged image)
 # just its edition label, FAKE_STAGED_EDITION, or an error when that is unset.
 f skopeo 'echo "skopeo $*" >> "$FAKE/log"; ref="${*: -1}"; ed=npu; case "$ref" in *-no-npu) ed=no-npu ;; esac
 case "$ref" in
-  *@sha256:*) [ -z "${FAKE_STAGED_FAILS:-}" ] || { echo "Error: network unreachable" >&2; exit 1; }; echo "${FAKE_STAGED_EDITION:-}" ;;
+  *@sha256:*) [ -z "${FAKE_STAGED_FAILS:-}" ] || { echo "Error: network unreachable" >&2; exit 1; }
+    case "$*" in *"{{.Digest}}"*) printf "%s %s 0.19.0-beta.1\n" "${ref#*@}" "${FAKE_STAGED_EDITION:-}" ;; *) echo "${FAKE_STAGED_EDITION:-}" ;; esac ;;
   *:beta|*:stable-no-npu|*:0.19.0-alpha.1|*:beta-no-npu|*:0.19.0-alpha.1-no-npu|*:0.19.0-no-npu|*:0.19.0-beta.1) printf "%s %s 0.19.0-beta.1%s\n" "sha256:fefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefe" "${FAKE_EDITION-$ed}" "${FAKE_LABEL_TAIL:-}" ;;
   *:edge) echo "Error: reading manifest edge: 403 Forbidden" >&2; exit 1 ;;
   *) echo "Error: manifest unknown" >&2; exit 1 ;; esac'
 f systemctl 'echo "systemctl $*" >> "$FAKE/log"; case "$*" in *is-active*) echo "${FAKE_FETCH:-inactive}" ;; esac'
 dep() { printf '{"image":{"image":{"image":"%s","transport":"registry"},"version":"%s","timestamp":"2026-11-05T16:58:48Z","imageDigest":"%s"}}' "$@"; }
-host() { printf '{"status":{"booted":%s,"staged":%s,"rollback":%s,"rollbackQueued":%s}}' "$1" "${2:-null}" "${3:-null}" "${4:-false}"; }
+# The image spec's signature mode: containerPolicy once the check is on, insecure on installs from before.
+host() { printf '{"spec":{"image":{"signature":"%s"}},"status":{"booted":%s,"staged":%s,"rollback":%s,"rollbackQueued":%s}}' \
+  "${FAKE_SIG:-containerPolicy}" "$1" "${2:-null}" "${3:-null}" "${4:-false}"; }
 host "$(dep ghcr.io/n4berius/halos-flash:0.19.0-alpha.1 0.19.0 sha256:aaa)" null \
   "$(dep ghcr.io/n4berius/halogen-flash-bootc:0.18.23-alpha.2 0.18.23 sha256:old)" > "$work/status.json"
 printf 'HALOGEN_IMAGE=img@sha256:1\nHALOGEN_VERSION=0.19.0\nHALOGEN_VARIANT=npu\n' > "$work/release.env"
-export PATH="$work/bin:$PATH" HALOGEN_RELEASE_FILE="$work/release.env" HALOS_HISTORY="$work/history" SUDO_USER=owner
+export PATH="$work/bin:$PATH" HALOS_POLICY="$repo/files/etc/containers/policy.json" HALOGEN_RELEASE_FILE="$work/release.env" HALOS_HISTORY="$work/history" SUDO_USER=owner
 # The release workflow sets HALOS_RELEASE for its build; halosctl must read only the image's file.
 export HALOS_RELEASE=v9.9.9-from-outside HALOGEN_VARIANT=from-outside
 ctl="$repo/files/usr/bin/halosctl"
@@ -95,7 +101,7 @@ ok "help needs no root, bootc status is read once, extra words are refused, upgr
 ok "it needs root, a confirmation, a known channel and an image that exists, and shows registry errors"
 
 "$ctl" switch beta --yes > "$work/out"
-has '^bootc switch ghcr.io/n4berius/halos-flash:beta$' "$work/log"
+has '^bootc switch --enforce-container-sigpolicy ghcr.io/n4berius/halos-flash:beta$' "$work/log"
 has 'next reboot' "$work/out"; hasnt 'systemctl reboot' "$work/log"
 has 'switch +ghcr.io/n4berius/halos-flash:0.19.0-alpha.1 \(0.19.0\) -> ghcr.io/n4berius/halos-flash:beta \(0.19.0-beta.1\) +\(by owner\)' "$work/history"
 host "$(dep ghcr.io/n4berius/halos-flash:0.19.0-alpha.1 0.19.0 sha256:aaa)" null \
@@ -109,7 +115,7 @@ ok "switch beta stages the beta image, records it, and waits for a reboot; a mov
 
 sed -i 's/=npu/=no-npu/' "$work/release.env"
 "$ctl" switch release --yes --reboot > "$work/out"
-has '^bootc switch ghcr.io/n4berius/halos-flash:stable-no-npu$' "$work/log"; has '^systemctl reboot$' "$work/log"
+has '^bootc switch --enforce-container-sigpolicy ghcr.io/n4berius/halos-flash:stable-no-npu$' "$work/log"; has '^systemctl reboot$' "$work/log"
 : > "$work/log"
 cp "$work/base.json" "$work/status.json"
 FAKE_FETCH=activating "$ctl" switch release --yes --reboot > "$work/out"
@@ -132,7 +138,7 @@ host "$(dep ghcr.io/n4berius/halos-flash:0.19.0-alpha.1 0.19.0 sha256:aaa)" \
 has 'drops the update staged for the next boot: ghcr.io/n4berius/halos-flash:beta' "$work/out"
 has '^bootc rollback$' "$work/log"; has 'rollback .*-> ghcr.io/n4berius/halogen-flash-bootc:0.18.23-alpha.2' "$work/history"
 "$ctl" rollback --to 0.19.0-alpha.1 --yes > "$work/out"
-has '^bootc switch ghcr.io/n4berius/halos-flash@sha256:fefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefe$' "$work/log"; has 'pins' "$work/out"
+has '^bootc switch --enforce-container-sigpolicy ghcr.io/n4berius/halos-flash@sha256:fefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefe$' "$work/log"; has 'pins' "$work/out"
 host "$(dep ghcr.io/n4berius/halos-flash:0.19.0-alpha.1 0.19.0 sha256:aaa)" > "$work/status.json"
 if "$ctl" rollback --yes > "$work/out" 2>&1; then echo "rolled back to nothing" >&2; exit 1; fi
 has 'no previous image' "$work/out"
@@ -152,12 +158,49 @@ has 'upgrade .*:beta \(0.19.0-beta.1\) -> ghcr.io/n4berius/halos-flash:beta \(0.
 : > "$work/log"; "$ctl" upgrade --yes > "$work/out"; has 'No new update' "$work/out"
 "$ctl" history > "$work/out"; [ "$(wc -l < "$work/out")" = 6 ] || { echo "an unchanged upgrade was recorded" >&2; exit 1; }
 host "$(dep ghcr.io/n4berius/halogen-flash-bootc:0.18.23-alpha.2 0.18.23 sha256:old)" > "$work/status.json"
-"$ctl" switch beta --yes > /dev/null; has '^bootc switch ghcr.io/n4berius/halos-flash:beta$' "$work/log"
+"$ctl" switch beta --yes > /dev/null; has '^bootc switch --enforce-container-sigpolicy ghcr.io/n4berius/halos-flash:beta$' "$work/log"
 host "$(dep ghcr.io/n4berius/halos-flash:beta 0.19.0-beta.2 sha256:new)" > "$work/status.json"
 host "$(dep ghcr.io/n4berius/halos-flash:beta 0.19.0-beta.2 sha256:new)" \
   "$(dep ghcr.io/n4berius/halos-flash:beta 0.19.0-beta.1 sha256:bbb | sed 's/2026-11-05T16/2026-11-01T16/')" > "$work/next.json"
 "$ctl" upgrade --yes > "$work/out"; has 'Warning: the staged image was built before' "$work/out"
 ok "upgrade stages the channel's newest release and records it; history lists every change; an old-name install switches to halos-flash"
+
+# Signatures (#46): an install from before the check has an "insecure" spec. Its first upgrade is a
+# switch to the same name with the check on, which also fetches the newest image of that name.
+: > "$work/log"
+FAKE_SIG=insecure host "$(dep ghcr.io/n4berius/halos-flash:beta-no-npu 0.19.0-beta.1 sha256:bbb)" > "$work/status.json"
+"$ctl" upgrade --check > "$work/out"; has "doesn't check halOS's signature" "$work/out"; hasnt 'bootc (switch|upgrade)' "$work/log"
+if "$ctl" upgrade < /dev/null > "$work/out" 2>&1; then echo "turned the check on without confirming" >&2; exit 1; fi
+hasnt 'bootc switch' "$work/log"
+FAKE_STAGED_EDITION=no-npu "$ctl" upgrade --yes > "$work/out"
+has '^bootc switch --enforce-container-sigpolicy ghcr.io/n4berius/halos-flash:beta-no-npu$' "$work/log"; hasnt 'bootc upgrade' "$work/log"
+has 'upgrade .*:beta-no-npu \(0.19.0-beta.1\) -> ghcr.io/n4berius/halos-flash:beta-no-npu' "$work/history"
+: > "$work/log"; FAKE_NO_UPDATE=1 "$ctl" upgrade --yes > "$work/out"; has 'already staged' "$work/out"; hasnt 'bootc switch' "$work/log"
+# With a change staged (here npu off), the check goes on for what boots next, not what runs.
+: > "$work/log"
+FAKE_SIG=insecure host "$(dep ghcr.io/n4berius/halos-flash:beta 0.19.0-beta.1 sha256:bbb)" \
+  "$(dep ghcr.io/n4berius/halos-flash:beta-no-npu 0.19.0-beta.1 sha256:ccc)" > "$work/status.json"
+"$ctl" upgrade --yes > "$work/out"
+has '^bootc switch --enforce-container-sigpolicy ghcr.io/n4berius/halos-flash:beta-no-npu$' "$work/log"
+# Pinned by digest, here a no-NPU build: the same build, now checked, whatever its edition.
+FAKE_SIG=insecure host "$(dep ghcr.io/n4berius/halos-flash@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd 0.19.0-beta.1 sha256:ddd)" > "$work/status.json"
+FAKE_STAGED_EDITION=no-npu "$ctl" upgrade --yes > "$work/out" || { cat "$work/out" >&2; exit 1; }
+has '^bootc switch --enforce-container-sigpolicy ghcr.io/n4berius/halos-flash@sha256:d{64}$' "$work/log"
+# A removed or changed policy: bootc would refuse; halosctl says how to restore it, and changes nothing.
+host "$(dep ghcr.io/n4berius/halos-flash:stable 0.20.0 sha256:aaa)" > "$work/status.json"
+: > "$work/log"; echo '{"default":[{"type":"insecureAcceptAnything"}]}' > "$work/policy.json"
+for cmd in "switch beta" "upgrade"; do
+  # shellcheck disable=SC2086 # two words on purpose
+  if HALOS_POLICY="$work/policy.json" "$ctl" $cmd --yes > "$work/out" 2>&1; then echo "$cmd ran without the policy" >&2; exit 1; fi
+  has '/usr/etc/containers/policy.json' "$work/out"
+done
+hasnt 'bootc (switch|upgrade$)' "$work/log"
+# An unsigned image is refused by bootc: say why, and record nothing.
+lines="$(wc -l < "$work/history")"
+if FAKE_REJECT=1 "$ctl" rollback --to 0.19.0-alpha.1 --yes > "$work/out" 2>&1; then echo "an unsigned image was taken" >&2; exit 1; fi
+has "isn't signed with halOS's key" "$work/out"; has '0.19.1-alpha.3' "$work/out"
+[ "$(wc -l < "$work/history")" = "$lines" ] || { echo "a refused switch was recorded" >&2; exit 1; }
+ok "every switch asks bootc to check signatures; the first upgrade turns the check on (by tag or digest); a missing policy or an unsigned image is explained"
 
 # npu on|off: the other edition on the same channel, or the same exact release (pinned by digest).
 mkdir -p "$work/sys/bus/pci/devices/0000:c5:00.1"
@@ -165,12 +208,12 @@ export HALOGEN_SYS="$work/sys"
 host "$(dep ghcr.io/n4berius/halos-flash:beta 0.19.0-beta.1 sha256:bbb)" > "$work/status.json"
 : > "$work/log"
 "$ctl" npu off --yes > "$work/out"
-has '^bootc switch ghcr.io/n4berius/halos-flash:beta-no-npu$' "$work/log"
+has '^bootc switch --enforce-container-sigpolicy ghcr.io/n4berius/halos-flash:beta-no-npu$' "$work/log"
 has 'stay in /srv/models' "$work/out"; has 'npu-off .*:beta \(0.19.0-beta.1\) -> ghcr.io/n4berius/halos-flash:beta-no-npu' "$work/history"
 "$ctl" npu off --yes > "$work/out"; has 'Already the no-npu edition at the next boot' "$work/out"
 # A channel switch while npu off is staged keeps the no-NPU edition.
 : > "$work/log"; "$ctl" switch release --yes > /dev/null
-has '^bootc switch ghcr.io/n4berius/halos-flash:stable-no-npu$' "$work/log"
+has '^bootc switch --enforce-container-sigpolicy ghcr.io/n4berius/halos-flash:stable-no-npu$' "$work/log"
 host "$(dep ghcr.io/n4berius/halos-flash:beta 0.19.0-beta.1 sha256:bbb)" > "$work/status.json"
 "$ctl" npu on --yes > "$work/out"; has 'Already the npu edition\.' "$work/out"
 if "$ctl" npu sideways --yes > "$work/out" 2>&1; then echo "took npu sideways" >&2; exit 1; fi
@@ -178,7 +221,7 @@ if "$ctl" npu --yes > "$work/out" 2>&1; then echo "took npu with no word" >&2; e
 host "$(dep ghcr.io/n4berius/halos-flash:0.19.0-alpha.1 0.19.0 sha256:aaa)" > "$work/status.json"
 : > "$work/log"; "$ctl" npu off --yes > "$work/out"
 has 'skopeo .*docker://ghcr.io/n4berius/halos-flash:0.19.0-alpha.1-no-npu' "$work/log"
-has '^bootc switch ghcr.io/n4berius/halos-flash@sha256:fefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefe$' "$work/log"
+has '^bootc switch --enforce-container-sigpolicy ghcr.io/n4berius/halos-flash@sha256:fefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefe$' "$work/log"
 # On a pinned machine npu off stages a digest, whose edition can't be read back: npu on, switch
 # and rollback --to must refuse rather than guess (the IOMMU could stay off against the ask).
 for again in "npu on" "npu off" "switch beta" "rollback --to 0.19.0-alpha.1"; do
@@ -193,11 +236,11 @@ cp "$work/status.json" "$work/pinned.json"
 FAKE_STAGED_EDITION=no-npu "$ctl" npu off --yes > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
 has 'Already the no-npu edition at the next boot' "$work/out"; hasnt 'bootc switch' "$work/log"
 FAKE_STAGED_EDITION=no-npu "$ctl" switch beta --yes > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
-has '^bootc switch ghcr.io/n4berius/halos-flash:beta-no-npu$' "$work/log"
+has '^bootc switch --enforce-container-sigpolicy ghcr.io/n4berius/halos-flash:beta-no-npu$' "$work/log"
 cp "$work/pinned.json" "$work/status.json"; : > "$work/log"
 FAKE_STAGED_EDITION=no-npu "$ctl" npu on --yes > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
 # The staged build's own release (its version label), which the fake bootc gives every switch.
-has 'skopeo .*docker://ghcr.io/n4berius/halos-flash:0.19.0-beta.1 *$' "$work/log"; has '^bootc switch ghcr.io/n4berius/halos-flash@sha256:' "$work/log"
+has 'skopeo .*docker://ghcr.io/n4berius/halos-flash:0.19.0-beta.1 *$' "$work/log"; has '^bootc switch --enforce-container-sigpolicy ghcr.io/n4berius/halos-flash@sha256:' "$work/log"
 cp "$work/pinned.json" "$work/status.json"
 # A staged rollback --to to another release keeps that release when the edition changes.
 host "$(dep ghcr.io/n4berius/halos-flash:0.19.1-alpha.3 0.19.1-alpha.3 sha256:aaa)" \
@@ -215,7 +258,7 @@ host "$(dep ghcr.io/n4berius/halos-flash:beta 0.19.0-beta.1 sha256:bbb)" > "$wor
 if FAKE_EDITION=npu "$ctl" npu off --yes > "$work/out" 2>&1; then echo "switched to an image labelled the wrong edition" >&2; exit 1; fi
 has 'is the npu edition in the registry, not no-npu' "$work/out"; hasnt 'bootc switch' "$work/log"
 FAKE_EDITION='' "$ctl" npu off --yes > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
-has '^bootc switch ghcr.io/n4berius/halos-flash:beta-no-npu$' "$work/log"; has 'After: .*\(0\.19\.0-beta\.1\)' "$work/out"
+has '^bootc switch --enforce-container-sigpolicy ghcr.io/n4berius/halos-flash:beta-no-npu$' "$work/log"; has 'After: .*\(0\.19\.0-beta\.1\)' "$work/out"
 cp "$work/pinned.json" "$work/status.json"
 host "$(dep ghcr.io/n4berius/halos-flash:beta 0.19.0-beta.1 sha256:bbb)" "$(dep ghcr.io/n4berius/halos-flash:beta 0.19.0-beta.2 sha256:ccc)" > "$work/status.json"
 "$ctl" npu off --yes > "$work/out"; has 'Staged for the next boot, and replaced by this: ghcr.io/n4berius/halos-flash:beta \(0.19.0-beta.2\)' "$work/out"
@@ -230,7 +273,7 @@ sed -i 's/^HALOS_RELEASE=.*/HALOS_RELEASE=0.19.0-alpha.1/' "$work/release.env"
 sed -i 's/=npu/=no-npu/' "$work/release.env"
 host "$(dep ghcr.io/n4berius/halos-flash:beta-no-npu 0.19.0-beta.1 sha256:bbb)" > "$work/status.json"
 : > "$work/log"; "$ctl" npu on --yes > "$work/out"
-has '^bootc switch ghcr.io/n4berius/halos-flash:beta$' "$work/log"; has 'shows no AMD NPU' "$work/out"
+has '^bootc switch --enforce-container-sigpolicy ghcr.io/n4berius/halos-flash:beta$' "$work/log"; has 'shows no AMD NPU' "$work/out"
 printf '0x1022\n' > "$work/sys/bus/pci/devices/0000:c5:00.1/vendor"; printf '0x17f0\n' > "$work/sys/bus/pci/devices/0000:c5:00.1/device"
 host "$(dep ghcr.io/n4berius/halos-flash:beta-no-npu 0.19.0-beta.1 sha256:bbb)" > "$work/status.json"
 "$ctl" npu on --yes > "$work/out"; hasnt 'shows no AMD NPU' "$work/out"
@@ -238,7 +281,7 @@ sed -i 's/=no-npu/=npu/' "$work/release.env"
 # A plain version tag keeps moving; a queued rollback must boot first.
 host "$(dep ghcr.io/n4berius/halos-flash:0.19.0 0.19.0 sha256:aaa)" > "$work/status.json"
 : > "$work/log"; "$ctl" npu off --yes > /dev/null
-has '^bootc switch ghcr.io/n4berius/halos-flash:0.19.0-no-npu$' "$work/log"
+has '^bootc switch --enforce-container-sigpolicy ghcr.io/n4berius/halos-flash:0.19.0-no-npu$' "$work/log"
 host "$(dep ghcr.io/n4berius/halos-flash:beta 0.19.0-beta.1 sha256:bbb)" null \
   "$(dep ghcr.io/n4berius/halos-flash:alpha 0.19.0-alpha.1 sha256:aaa)" true > "$work/status.json"
 : > "$work/log"

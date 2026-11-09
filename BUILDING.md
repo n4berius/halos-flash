@@ -97,6 +97,12 @@ sudo bootc switch ghcr.io/<you>/halos-flash:0.19.0
 sudo systemctl reboot
 ```
 
+halOS's signature policy covers only `ghcr.io/n4berius/halos-flash`, so your image is taken
+without a signature check, and the selftest's `image-signatures` line warns about it. To have
+machines check your own key, add a `sigstoreSigned` entry for your image to
+`files/etc/containers/policy.json` and a `use-sigstore-attachments` entry to
+`files/etc/containers/registries.d/` (as halOS's), and sign with `scripts/sign-image.sh`.
+
 ## Where to make changes
 
 | To change | Edit |

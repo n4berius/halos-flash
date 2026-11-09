@@ -111,6 +111,7 @@ cat "$out/selftest.txt"
 selftest_has() { grep -qE "^$1" "$out/selftest.txt" || { echo "selftest: expected '$1'" >&2; exit 1; }; }
 selftest_has 'Summary: '
 selftest_has 'PASS secure-boot:'
+selftest_has 'PASS image-signatures:'   # the installer's %post turned bootc's signature check on (#46)
 selftest_has 'PASS kernel-amdgpu.gttsize:'
 selftest_has 'PASS kernel-iommu:'
 selftest_has 'PASS firewall:'

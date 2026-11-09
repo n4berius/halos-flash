@@ -22,16 +22,14 @@ guided installer. Done on the way: first-boot setup and the "API ready" line (#4
 installer (#42), a full security audit (#69), the benchmark (#15), `flash check` (#56),
 `halosctl npu on|off` (#40) and tab completion (#14).
 
-On edge, for the next release: the tokenizer fix for checkpoints that ship no vocabulary (#88).
+On edge, for the next release: the tokenizer fix for checkpoints that ship no vocabulary (#88), and
+machines refuse unsigned images (#46, phase 2, #91).
 
 ## Next
 
-1. **Machines refuse unsigned images** (#46, phase 2). Images are signed with halOS's own key
-   since #65. Next, machines check that signature, once every channel points to a key-signed
-   image. Until then it protects nothing.
-2. Unlock the disk over SSH at boot (#13).
-3. Unlock the disk from a tang server on the network (#44).
-4. GGUF repositories in `flash pull` (#61).
+1. Unlock the disk over SSH at boot (#13).
+2. Unlock the disk from a tang server on the network (#44).
+3. GGUF repositories in `flash pull` (#61).
 
 ## Always
 
