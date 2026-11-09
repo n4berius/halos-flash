@@ -241,32 +241,27 @@ name, but allows saying halOS runs Halogen.
 Open issues are the source of truth, prioritised with the `priority: high/medium/low` labels
 and tracked on the owner's project board. [ROADMAP.md](ROADMAP.md) holds the order and
 [CHANGELOG.md](CHANGELOG.md) what each release changed. When this file was last updated (after
-`v0.20.0-beta.1`):
+`v0.20.0`):
 
-- Released: `v0.20.0-beta.1` (2026-11-08), promoted from `v0.20.0-alpha.3` (the same code as
-  alpha.2 plus #85's notes): Halogen 0.20.0 (#78), the freyja fixes (#81), the selftest's bootc
-  SELinux fix (#82), `halosctl power` (#83) and its unit's sandbox (#84). It passed freyja's checks
-  (selftest, power profile, fabric clock in bench). `v0.19.1-alpha.6` was the last release on
-  0.19.1. Next: one real guided install from the beta's ISO, a soak test, then rc. Freyja serves
-  `swift-15fn-heretic-coder` with `flash use`, at the `performance` profile.
-- Before RC: machines refuse unsigned images (#46 phase 2b; ships once every channel points to a
-  key-signed image). Done: first-boot setup and "API ready" (#43), the guided installer (#42, one
-  real install still to do), the full `security-auditor` pass (#69).
-- Built for stable and run on freyja: benchmark (#15), `flash check` (#56), `halosctl npu on|off`
-  (#40). Tab completion (#14) is still to try there.
-- **Stable waits for Halogen 0.20** (owner decision): halOS is aligned with 0.20.0 first, then
-  released as stable. 0.20.0 (ROCm 10.1 in its image, OvisOCR3 document parsing on the NPU as your
+- Released: `v0.20.0` (2026-11-09), the first stable on Halogen 0.20.0, promoted from `rc.2`
+  (built from main at #87; `rc.1` was beta.1 unchanged). It passed freyja's checks (selftest, bench,
+  `flash check`, `npu off`/`on`, tab completion, restarts, OvisOCR3 `model pull`), and freyja was
+  reinstalled with the guided installer (#42), which wiped `/srv`, so its settings were set again.
+  On edge since: the tokenizer fill-in for checkpoints that ship none (#88). The issues for #14, #15,
+  #40 and #56 are closed. Freyja serves the official checkpoint or its own (Signal-3.8-Flash-Next-HGN-v2),
+  swapped as needed, at the `performance` profile.
+- Next: machines refuse unsigned images (#46 phase 2b; ships once every channel points to a
+  key-signed image), then unlock over SSH (#13), clevis/tang (#44), GGUF in `flash pull` (#61).
+- **Halogen 0.20.0** (stable since `v0.20.0`): 0.20.0 (ROCm 10.1 in its image, OvisOCR3 document parsing on the NPU as your
   own checkpoint, faster prefill, a strict-tool-call crash fixed; the Flash checkpoints and weights
-  revision unchanged) is pinned by #78 (in `v0.20.0-beta.1`). Between source commits 47ceb43 and 8242b15, FLAGS.md,
+  revision unchanged) is pinned by #78. Between source commits 47ceb43 and 8242b15, FLAGS.md,
   `deploy/entrypoint.sh` and host-setup's requirements are unchanged (only image tags in examples),
   so `options.allowed`, `halogen.env.default`, the Quadlet and kernel arguments stay as they are.
   OvisOCR3 (`ATH-MaaS/OvisOCR3`, 1.7 GB safetensors) goes through `model pull` into `custom` (the
-  probe's base, almost certainly `ovisocr3` by the image's `models.txt` and the probe binary, isn't
-  LFM or decider; freyja confirms; its NPU programs in `models.txt` have no pinned revision, like
+  probe's base is `ovisocr3`, confirmed on freyja, not LFM or decider; its NPU programs in `models.txt` have no pinned revision, like
   `halogen-spotter-0.6b`, so an upstream push to them breaks the fetch's hash check), served as
   `OvisOCR3` from `/models/custom/OvisOCR3`; INSTALL mentions `HALOGEN_WEIGHTS_LOCK=1` (already
-  allowed) beside it. 0.20.0 runs on freyja (beta.1); still to do: rc, then stable.
-- After stable: unlock over SSH (#13), clevis/tang (#44), GGUF in `flash pull` (#61).
+  allowed) beside it.
 - The ISO install test also runs when `versions.env` changes (#78), so every Halogen update PR
   gets the LUKS + TPM install in a VM, about 30 minutes for both editions.
 - Known upstream: bootc 1.17.1 rewrites `/etc/fstab` at every boot on Anaconda installs
