@@ -319,7 +319,7 @@ bf16_repo() { # mtp vision: whether the index lists them
   put config.json '{"architectures": ["Qwen4ExpForConditionalGeneration"], "model_type": "qwen4_exp"}'
   local keys='"model.layers.0.mlp.gate.weight": "model-00001-of-00002.safetensors"'
   [ "$1" != 1 ] || keys+=', "mtp.layers.0.mlp.gate.weight": "model-00002-of-00002.safetensors"'
-  [ "$2" != 1 ] || keys+=', "visual.blocks.0.attn.qkv.weight": "model-00002-of-00002.safetensors"'
+  [ "$2" != 1 ] || keys+=', "model.visual.blocks.0.attn.qkv.weight": "model-00002-of-00002.safetensors"'
   put model.safetensors.index.json "{\"weight_map\": {$keys}}"
   for f in tokenizer.json tokenizer_config.json chat_template.jinja merges.txt generation_config.json; do put "$f" "{\"$f\": 1}"; done
   put model-00001-of-00002.safetensors weights1; put model-00002-of-00002.safetensors weights2; put README.md hi
@@ -337,6 +337,11 @@ grep -q "hf $commit model.safetensors.index.json config.json" "$work/hf.log" || 
 prepare someone/Flash-BF16 --as conv2 || fail "a second prepare failed"
 grep -q '^download=' "$work/out" || fail "no sizes"
 rm -rf "$work/models/flash/.convert/conv2"
+# Another repository under the same name starts from nothing: no tokenizer file of the first.
+echo stale > "$src/vocab.json"
+prepare someone/Other-Flash-BF16 --as conv || fail "a prepare of another repo failed"
+[ ! -e "$src/vocab.json" ] || fail "a file of another repository stayed in the source"
+prepare someone/Flash-BF16 --as conv > /dev/null || fail "prepare again failed"
 ok "convert-prepare fetches only the small files, at the exact commit, and says what the conversion needs"
 
 for case in "0 1:MTP head" "1 0:vision tower"; do
@@ -348,6 +353,13 @@ done
 bf16_repo 1 1; put config.json '{"architectures": ["LlamaForCausalLM"], "model_type": "llama"}'
 if prepare someone/Llama --as llama; then fail "another model was taken"; fi
 grep -q "isn't Qwen3.8 Flash Next weights (model_type llama)" "$work/out" || fail "wrong message for another model"
+# The index names the weights: a file it doesn't name is ignored, one the repository lacks refused.
+bf16_repo 1 1; put extra.safetensors junk; put sub/other.safetensors junk
+prepare someone/Flash-BF16 --as extra || fail "unrelated safetensors files refused: $(cat "$work/out")"
+grep -qx 'download=.*' "$work/out"; rm -rf "$work/models/flash/.convert/extra"
+rm "$work/repo/model-00002-of-00002.safetensors"
+if prepare someone/Flash-BF16 --as gone; then fail "a shard the repository lacks was taken"; fi
+grep -q "names model-00002-of-00002.safetensors, which the repository doesn't have" "$work/out" || fail "missing shard not named"
 bf16_repo 1 1; rm "$work/repo/chat_template.jinja"
 if prepare someone/Flash-BF16 --as noasset; then fail "a repo without chat_template.jinja was taken"; fi
 grep -q 'lacks chat_template.jinja' "$work/out" || fail "missing asset not named"

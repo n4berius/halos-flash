@@ -28,7 +28,7 @@ machines refuse unsigned images (#46, phase 2, #91).
 ## Next
 
 The second stable release aims at the first three: machines refuse unsigned images (#46, done in
-#91 and #96), unlocking over SSH (#13, done in #93 and #94), and converting full-precision weights.
+#91; hardening in #96), unlocking over SSH (#13, done in #93 and #94), and converting full-precision weights.
 
 1. Convert full-precision (BF16 safetensors) checkpoints to `.hgn` on the machine (#97):
    `halogenctl flash convert`, with [bf16-to-hgn](https://github.com/Quat3rnion/bf16-to-hgn). It

@@ -278,7 +278,7 @@ case "${1:-status}" in
         run_args=(); prep_args=()
         while [ $# -gt 0 ]; do
           case "$1" in
-            --threads) [ $# -ge 2 ] || { echo "--threads needs a number" >&2; exit 2; }; run_args+=("$1" "$2"); shift 2 ;;
+            --threads) if ! [[ "${2:-}" =~ ^[0-9]{1,2}$ ]] || [ "$2" -lt 1 ] || [ "$2" -gt 64 ]; then echo "--threads takes 1 to 64" >&2; exit 2; fi; run_args+=("$1" "$2"); shift 2 ;;
             --keep-source) run_args+=("$1"); shift ;;
             *) prep_args+=("$1"); shift ;;
           esac

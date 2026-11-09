@@ -1,7 +1,8 @@
 ARG FEDORA_BOOTC_IMAGE
 
 # bf16-to-hgn, built from its pinned commit on the same base, so its C++ and OpenMP libraries are
-# the ones the OS image has (libstdc++, libgomp). The compilers stay in this stage.
+# the ones the OS image has (libstdc++, libgomp). The compilers stay in this stage. /root links to
+# /var/roothome, which the base image lacks, and cargo keeps its downloads in ~/.cargo.
 FROM ${FEDORA_BOOTC_IMAGE} AS bf16-to-hgn
 ARG BF16_TO_HGN_COMMIT
 RUN set -eu; \
@@ -9,6 +10,7 @@ RUN set -eu; \
     git clone -q https://github.com/Quat3rnion/bf16-to-hgn /src; \
     cd /src; git checkout -q "$BF16_TO_HGN_COMMIT"; \
     [ "$(git rev-parse HEAD)" = "$BF16_TO_HGN_COMMIT" ]; \
+    mkdir -p "$(realpath /root)"; \
     cargo build --release --locked; \
     ./target/release/bf16-to-hgn --version
 

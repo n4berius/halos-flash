@@ -503,9 +503,10 @@ sudo halogenctl flash check mine         # then judge it, before serving it
 - **Runs on its own.** After you confirm, the download, the conversion and the checks run as a
   service, so closing the terminal doesn't stop them. A stopped download resumes; a stopped
   conversion starts over.
-- **Takes long.** The conversion runs on the CPU (`--threads`, by default half the cores, at most
-  16), with low priority, and takes many hours, likely a day or more. No full-size conversion has
-  been timed yet. Halogen keeps serving meanwhile, more slowly, since both use the same memory.
+- **Takes long.** The conversion runs on the CPU with low priority, and takes many hours, likely a
+  day or more. Parts of it use several cores (`--threads`, by default half the cores, at most 16).
+  No full-size conversion has been timed yet, and how much it slows a serving Halogen hasn't been
+  measured.
 - **Checked twice.** bf16-to-hgn's own `verify` checks every value it wrote against the weights,
   then Halogen's `verify` checks the result, as for `flash pull`. The converter runs in a sandbox
   with no network, unable to see your settings, keys or token, and able to write only its own
@@ -513,7 +514,9 @@ sudo halogenctl flash check mine         # then judge it, before serving it
 - **The weights are deleted** afterwards, to free the 360 GB. `--keep-source` keeps them in
   `/srv/models/flash/.convert/<name>/source`.
 - **Judge it before serving it.** A conversion's quality hasn't been measured by anyone: run
-  `flash check` and compare its numbers with the official checkpoint's before `flash use`.
+  `flash check` and compare its numbers with the official checkpoint's before `flash use`. Halogen
+  hasn't served a converted checkpoint yet either, so switch to it while you can watch, and go
+  back with `sudo halogenctl flash use official` if it doesn't start.
 
 Things to know:
 

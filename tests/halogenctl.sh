@@ -280,6 +280,11 @@ grep -q '700.0 GiB of weights' "$work/out" && grep -q 'convert-logs' "$work/out"
 : > "$work/log"
 if FAKE_PREP_FAILS=1 "$ctl" flash convert someone/Llama --yes > "$work/out" 2>&1; then echo "a refused model started" >&2; exit 1; fi
 if grep -q 'unit=halogen-flash-convert' "$work/log"; then echo "started after a refusal" >&2; exit 1; fi
+: > "$work/log"
+for t in abc 0 99; do
+  if "$ctl" flash convert someone/Flash-BF16 --threads "$t" --yes > "$work/out" 2>&1; then echo "took --threads $t" >&2; exit 1; fi
+done
+if grep -q 'convert-prepare\|unit=halogen-flash-convert' "$work/log"; then echo "a bad --threads got past the start" >&2; exit 1; fi
 if FAKE_CONV=active "$ctl" flash convert someone/Flash-BF16 --yes > "$work/out" 2>&1; then echo "a second conversion started" >&2; exit 1; fi
 grep -q 'already running' "$work/out"
 FAKE_CONV=active "$ctl" flash convert-stop > "$work/out"; grep -q 'stop halogen-flash-convert.service' "$work/log"

@@ -241,7 +241,7 @@ name, but allows saying halOS runs Halogen.
   `cargo build --release --locked`, CPU only, about a minute) and copied to
   `/usr/libexec/halogen/bf16-to-hgn` with its licenses; `release.env` records the commit. Its HF
   input must be complete Qwen3.8 Flash Next (`model_type` `qwen4_exp`,
-  `Qwen4ExpForConditionalGeneration`, `mtp.*` and `visual.*` tensors, config/tokenizer/
+  `Qwen4ExpForConditionalGeneration`, `mtp.*` and `model.visual.*` tensors (HF names; shards are those the index names), config/tokenizer/
   chat_template/merges/generation_config); it reads every shard's header, so `flash-checkpoint
   convert-prepare` checks config.json and the index's keys itself before the weights download
   (about 360 GB), then the space (weights + about 119 GB out). `convert-run` (halogenctl starts it
