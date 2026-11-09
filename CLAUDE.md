@@ -235,7 +235,7 @@ name, but allows saying halOS runs Halogen.
   Unattended answers: `unlock`, `ssh_key`, `admin_ssh`; the VM test installs with `unlock=both`
   and its key, so the first boot only reads the state.
 
-- Converting full-precision weights (`halogenctl flash convert`, #PR): bf16-to-hgn
+- Converting full-precision weights (`halogenctl flash convert`, #97): bf16-to-hgn
   (Quat3rnion, MIT/Apache-2.0, `native/` Apache-2.0) is built in the Containerfile's
   `bf16-to-hgn` stage from `BF16_TO_HGN_COMMIT` (same Fedora base, so libstdc++/libgomp match;
   `cargo build --release --locked`, CPU only, about a minute) and copied to

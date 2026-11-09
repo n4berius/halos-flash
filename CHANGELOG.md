@@ -14,7 +14,7 @@ promoted.
   Next weights into your own Flash checkpoint on the machine, with bf16-to-hgn (built into the
   image, CPU only). It checks the model before the 360 GB download, runs as its own service (many
   hours, likely a day or more), checks the result twice and deletes the downloaded weights
-  (`--keep-source` keeps them). `convert-logs` follows it, `convert-stop` stops it. (#PR)
+  (`--keep-source` keeps them). `convert-logs` follows it, `convert-stop` stops it. (#97)
 - The guided installer asks how an encrypted disk unlocks: TPM and SSH (recommended), TPM only,
   SSH only, or the passphrase at the keyboard. For SSH it takes your public keys from GitHub,
   GitLab or Codeberg, or a pasted key, and can let the same keys log the admin user in. First-boot
