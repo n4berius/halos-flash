@@ -8,6 +8,8 @@
 # Run in a workflow job with `id-token: write`.
 # Usage: scripts/sign-image.sh <pushed repo:tag> [other tags of the same image to check ...]
 #        scripts/sign-image.sh --verify <repo:tag> ...   (check only, sign nothing)
+#        scripts/sign-image.sh --fetch   (only download and check cosign, before anything is
+#                                         pushed, so a download failure leaves no unsigned image)
 # The first ref gives the digest; one signature covers every tag pointing at it, so sign the
 # exact tag first and move channel tags only after, then check them with --verify.
 set -euo pipefail
@@ -23,17 +25,22 @@ bFysLUF3azuwIUBhmbvNzPERgxn9rDNbraHldK+i4aBedqF6TFkK7l+1vg==
 -----END PUBLIC KEY-----'
 
 verify_only=0; [ "${1:-}" != --verify ] || { verify_only=1; shift; }
-[ $# -ge 1 ] || { echo "usage: sign-image.sh [--verify] <repo:tag> [repo:tag ...]" >&2; exit 2; }
+fetch_only=0; [ "${1:-}" != --fetch ] || { fetch_only=1; shift; }
+[ $# -ge 1 ] || [ "$fetch_only" = 1 ] || { echo "usage: sign-image.sh [--verify] <repo:tag> [repo:tag ...] | --fetch" >&2; exit 2; }
+
+bin="${RUNNER_TEMP:-/tmp}/cosign-$COSIGN_VERSION"
+# GitHub's download servers sometimes answer 504 for a minute or two (the stable refresh of
+# 2026-11-09 failed on four in seven seconds), so retry for up to about five minutes.
+[ -f "$bin" ] || curl -fsSL --retry 8 --retry-max-time 300 -o "$bin" "https://github.com/sigstore/cosign/releases/download/$COSIGN_VERSION/cosign-linux-amd64"
+# Checked every time, not only after a download: earlier steps share this folder.
+echo "$COSIGN_SHA256  $bin" | sha256sum -c --quiet - || { rm -f "$bin"; exit 1; }
+[ "$fetch_only" = 0 ] || exit 0
 
 # Before anything is signed: without the key, stop now rather than leave a half-signed image.
 if [ "$verify_only" = 0 ] && { [ -z "${COSIGN_PRIVATE_KEY:-}" ] || [ -z "${COSIGN_PASSWORD:-}" ]; }; then
   echo "COSIGN_PRIVATE_KEY and COSIGN_PASSWORD are not set (repository secrets)" >&2; exit 1
 fi
 
-bin="${RUNNER_TEMP:-/tmp}/cosign-$COSIGN_VERSION"
-[ -f "$bin" ] || curl -fsSL --retry 3 -o "$bin" "https://github.com/sigstore/cosign/releases/download/$COSIGN_VERSION/cosign-linux-amd64"
-# Checked every time, not only after a download: earlier steps share this folder.
-echo "$COSIGN_SHA256  $bin" | sha256sum -c --quiet - || { rm -f "$bin"; exit 1; }
 chmod +x "$bin"
 cosign() { "$bin" "$@"; }
 # cosign reads Docker's credentials file, not podman's.
