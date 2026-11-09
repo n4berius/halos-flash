@@ -126,7 +126,13 @@ it on; each needs a reboot.
   before. If that file is changed or removed, `halosctl` refuses to switch and says how to put
   halOS's copy back (`sudo cp /usr/etc/containers/policy.json /etc/containers/policy.json`).
 - `bootc switch` by hand needs `--enforce-container-sigpolicy`, or the machine stops checking.
-  `halosctl` always passes it.
+  `halosctl` always passes it. `sudo halosctl version` says whether updates are checked, and so
+  does the SSH login message when they aren't.
+- The selftest's `signature-files` line compares the policy, the registry setting and halOS's
+  public key with the image's own copies in `/usr/etc`, and warns about a policy file in root's
+  home, which would replace the system one.
+- If a channel is ever pointed back at an older build, `halosctl switch` and `npu` say so before
+  the reboot (`upgrade` already did).
 
 To build an ISO yourself, see [BUILDING.md](BUILDING.md).
 
@@ -615,12 +621,31 @@ system starts, so its own network settings apply. The TPM still unlocks the disk
 can: SSH is the way in when it can't. If ssh ever says this host key changed, don't type the
 passphrase: someone else could be asking for it.
 
+`halosctl ssh-unlock` (and `setup`) also keeps the fingerprints of these keys and the host key on
+the encrypted disk. If the copies on the EFI partition ever change without you, the selftest's
+`ssh-unlock` line and `sudo halosctl ssh-unlock` warn. A machine set up by the installer records
+them at first-boot setup, or with `sudo halosctl ssh-unlock record`.
+
 What it can and can't protect: the keys and that host key are kept on the disk's small
 unencrypted EFI partition (only the machine's own disks are read, never a USB stick), because every
 halOS machine boots the same image. Your keys there are
 only public keys. But someone who can take the disk out can copy the host key, and then pretend
 to be this machine to catch the passphrase when you unlock. Every way of unlocking over the network
 has this weakness; the TPM section above has ways to make the machine harder to tamper with.
+
+### SSH logins with keys only
+
+Once your account logs in over SSH with a key, passwords can be turned off for SSH logins, so
+nobody on the network can try to guess one:
+
+```bash
+sudo halosctl ssh-passwords off
+```
+
+It refuses while your account has no key in `~/.ssh/authorized_keys` (add one from your computer
+with `ssh-copy-id`), and checks the setting with `sshd -t` before applying it. The machine's own
+screen still takes the password. `sudo halosctl ssh-passwords on` allows passwords again.
+`sudo halosctl setup` offers it too, defaulting to no.
 
 ## If something goes wrong
 

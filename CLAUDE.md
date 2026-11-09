@@ -235,6 +235,20 @@ name, but allows saying halOS runs Halogen.
   Unattended answers: `unlock`, `ssh_key`, `admin_ssh`; the VM test installs with `unlock=both`
   and its key, so the first boot only reads the state.
 
+- Hardening (#PR): `need_policy` also requires the rule's `keyPath`; `halosctl version` prints
+  `Signatures:` (login-status shows only the "not checked" line in the motd); `switch_to` warns
+  when the staged build is older (not for `rollback --to`); the selftest's `signature-files`
+  compares `/etc/{containers/policy.json,containers/registries.d/halos-flash.yaml,
+  pki/containers/halos-flash.pub}` with `/usr/etc` and warns about
+  `/root/.config/containers/policy.json`. SSH unlock: `ssh-unlock record` keeps sha256 of the ESP's
+  `authorized_keys` and host public key in `/var/lib/halos/ssh-unlock.sums` (`on` records,
+  `setup` records an installer's keys, `remove` drops it); `verify` returns 0/1/2 (match, differ,
+  none) for the selftest. `halosctl ssh-passwords on|off` writes or removes
+  `/etc/ssh/sshd_config.d/20-halos-keys-only.conf` (`PasswordAuthentication no`,
+  `KbdInteractiveAuthentication no`; sshd takes the first value, so 20 beats Fedora's 50), only when
+  `$SUDO_USER` has a key, checked with `sshd -t`. A second signing key isn't shipped: it needs a
+  key pair the owner makes offline (RELEASING.md).
+
 ## Lessons already learned
 
 - The initramfs must be built with `--no-hostonly` and the `crypt systemd-cryptsetup tpm2-tss

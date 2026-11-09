@@ -10,6 +10,8 @@
 #   ssh-unlock install-choice   the installer's: HALOS_UNLOCK_CHOICE (both, tpm, ssh, none) kept for
 #                           halosctl setup, and the keys on stdin installed when there are any
 #   ssh-unlock choice       the choice made at install, or nothing
+#   ssh-unlock record       keep the fingerprints of the keys and the host key on the encrypted disk
+#   ssh-unlock verify       0: the EFI partition still matches that record, 1: it doesn't, 2: no record
 #   ssh-unlock status [--short]
 # The EFI partition is readable by anyone holding the disk, so it holds only public keys and the
 # early-boot host key, which is not the system's own.
@@ -57,6 +59,10 @@ describe() {
 
 # The EFI partition, mounted read-write: where it is mounted already, or for this run in /run.
 esp=""; mounted_here=""; remounted=""
+# The EFI partition can be changed by anyone holding the disk; the record lives on the encrypted
+# root, so a swapped key or host key is noticed (security audit, #13).
+record="${HALOS_UNLOCK_RECORD:-/var/lib/halos/ssh-unlock.sums}"
+sums() { (cd "$esp/halos/ssh-unlock" && sha256sum authorized_keys ssh_host_ed25519_key.pub); }
 cleanup() {
   [ -z "$remounted" ] || mount -o remount,ro "$esp" || true
   [ -z "$mounted_here" ] || { umount "$mounted_here" && rmdir "$mounted_here"; }
@@ -145,8 +151,21 @@ case "$cmd" in
     c="$(head -c 8 "$esp/halos/unlock-choice" 2> /dev/null | tr -cd '[:lower:]')" || true
     case "$c" in both|tpm|ssh|none) echo "$c" ;; esac
     ;;
+  record)
+    find_esp ro
+    [ -s "$esp/halos/ssh-unlock/authorized_keys" ] || die "unlocking over SSH isn't set up"
+    mkdir -p "$(dirname "$record")"
+    sums > "$record.new" && mv -f "$record.new" "$record"
+    ;;
+  verify)
+    find_esp ro
+    [ -s "$record" ] || exit 2
+    [ -s "$esp/halos/ssh-unlock/authorized_keys" ] || exit 1
+    [ "$(sums 2> /dev/null)" = "$(cat "$record")" ]
+    ;;
   remove)
     find_esp
+    rm -f "$record"
     rm -rf "$esp/halos/ssh-unlock" "$esp/halos/unlock-choice"
     rmdir "$esp/halos" 2> /dev/null || true
     sync
@@ -161,11 +180,15 @@ case "$cmd" in
     echo "on, $n key(s) may unlock:"
     sed 's/^restrict,pty //' "$dir/authorized_keys" | describe
     echo "Early-boot host key: $(ssh-keygen -l -f "$dir/ssh_host_ed25519_key.pub" | awk '{print $2}')"
+    if [ ! -s "$record" ]; then echo "Record: none on the encrypted disk yet (sudo halosctl ssh-unlock record)"
+    elif [ "$(sums 2> /dev/null)" = "$(cat "$record")" ]; then echo "Record: the keys and host key match the one on the encrypted disk"
+    else echo "WARNING: the keys or host key on the EFI partition differ from the record on the encrypted disk."
+      echo "If you didn't change them, someone with the disk may have. Check the keys above, then set them again: sudo halosctl ssh-unlock on"; fi
     # Its own name in ssh (HostKeyAlias): the early-boot key is then trusted only for unlocking,
     # never for the running system, and ssh's UpdateHostKeys doesn't remove it.
     echo "ssh config entry (in ~/.ssh/config on your computer; HostName: how you reach this machine):"
     printf '  Host %s-unlock\n      HostName %s\n      User root\n      HostKeyAlias %s-unlock\n' "$host" "$host" "$host"
     echo "known_hosts line: $host-unlock $(cut -d' ' -f1,2 "$dir/ssh_host_ed25519_key.pub" | clean)"
     ;;
-  *) die "usage: ssh-unlock fetch|check|describe|install|install-choice|choice|remove|status" ;;
+  *) die "usage: ssh-unlock fetch|check|describe|install|install-choice|choice|record|verify|remove|status" ;;
 esac

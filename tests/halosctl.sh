@@ -21,7 +21,7 @@ case "$1" in
   switch) [ "$2" = --enforce-container-sigpolicy ] || { echo "switch without the signature check" >&2; exit 3; }
           [ -z "${FAKE_REJECT:-}" ] || { echo "error: Source image rejected: A signature was required, but no signature exists" >&2; exit 1; }
           jq --arg r "$3" --arg d "${FAKE_PUSHED_DIGEST:-sha256:fefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefe}" ".status.staged = {image: {image: {image: \$r},
-            version: \"0.19.0-beta.1\", imageDigest: \$d, timestamp: \"2026-11-06T00:00:00Z\"}}" \
+            version: \"0.19.0-beta.1\", imageDigest: \$d, timestamp: \"${FAKE_STAGED_TS:-2026-11-06T00:00:00Z}\"}}" \
             "$FAKE/status.json" | jq ".spec.image.signature = \"containerPolicy\"" > "$FAKE/s.tmp" && mv "$FAKE/s.tmp" "$FAKE/status.json" ;;
 esac'
 # skopeo inspect: "<digest> <edition label> <release>" for a tag; for a digest (the staged image)
@@ -200,7 +200,18 @@ lines="$(wc -l < "$work/history")"
 if FAKE_REJECT=1 "$ctl" rollback --to 0.19.0-alpha.1 --yes > "$work/out" 2>&1; then echo "an unsigned image was taken" >&2; exit 1; fi
 has "isn't signed with halOS's key" "$work/out"; has '0.19.1-alpha.3' "$work/out"
 [ "$(wc -l < "$work/history")" = "$lines" ] || { echo "a refused switch was recorded" >&2; exit 1; }
-ok "every switch asks bootc to check signatures; the first upgrade turns the check on (by tag or digest); a missing policy or an unsigned image is explained"
+"$ctl" version > "$work/out"; has '^Signatures: checked' "$work/out"
+FAKE_SIG=insecure host "$(dep ghcr.io/n4berius/halos-flash:stable 0.20.0 sha256:aaa)" > "$work/status.json"
+"$ctl" version > "$work/out"; has '^Signatures: not checked yet' "$work/out"
+# A policy whose rule names another key file is refused too.
+jq '.transports.docker["ghcr.io/n4berius/halos-flash"][0].keyPath = "/tmp/other.pub"' "$repo/files/etc/containers/policy.json" > "$work/policy.json"
+host "$(dep ghcr.io/n4berius/halos-flash:stable 0.20.0 sha256:aaa)" > "$work/status.json"
+if HALOS_POLICY="$work/policy.json" "$ctl" switch beta --yes > "$work/out" 2>&1; then echo "took a policy with another key" >&2; exit 1; fi
+# A channel pointed back at an older build is named before the reboot; rollback --to isn't.
+FAKE_STAGED_TS=2026-10-01T00:00:00Z "$ctl" switch beta --yes > "$work/out"; has 'built before the one running' "$work/out"
+host "$(dep ghcr.io/n4berius/halos-flash:stable 0.20.0 sha256:aaa)" > "$work/status.json"
+FAKE_STAGED_TS=2026-10-01T00:00:00Z "$ctl" rollback --to 0.19.0-beta.1 --yes > "$work/out"; hasnt 'built before' "$work/out"
+ok "every switch asks bootc to check signatures; the first upgrade turns the check on (by tag or digest); a missing or changed policy or an unsigned image is explained; version says whether updates are checked; an older build is named"
 
 # npu on|off: the other edition on the same channel, or the same exact release (pinned by digest).
 mkdir -p "$work/sys/bus/pci/devices/0000:c5:00.1"
@@ -321,3 +332,23 @@ rm "$acpi/platform_profile"; "$HALOS_PLATFORM_PROFILE" apply
 if "$ctl" power > "$work/out" 2>&1; then echo "showed a profile on a machine without one" >&2; exit 1; fi
 has 'offers no power profile' "$work/out"
 ok "power shows, saves and sets the firmware profile at once, refuses one the firmware lacks, and boot applies the choice or performance"
+
+# ssh-passwords (#94 audit): keys-only SSH logins, never without the admin's own key, checked by
+# sshd -t before the reload.
+mkdir -p "$work/home/owner/.ssh" "$work/sshd.d"
+export HALOS_SSHD_DROPIN="$work/sshd.d/20-halos-keys-only.conf"
+f getent 'case "$1 $2" in "passwd owner") echo "owner:x:1000:1000::$FAKE/home/owner:/bin/bash" ;; *) exit 2 ;; esac'
+f sshd 'echo "sshd $*" >> "$FAKE/log"; [ -z "${FAKE_SSHD_BAD:-}" ]'
+: > "$work/log"
+"$ctl" ssh-passwords > "$work/out"; has 'keys or passwords' "$work/out"
+if "$ctl" ssh-passwords off --yes > "$work/out" 2>&1; then echo "turned passwords off without a key" >&2; exit 1; fi
+has 'could lock you out' "$work/out"; [ ! -e "$HALOS_SSHD_DROPIN" ]
+echo "ssh-ed25519 AAAAkey owner@laptop" > "$work/home/owner/.ssh/authorized_keys"
+if FAKE_SSHD_BAD=1 "$ctl" ssh-passwords off --yes > "$work/out" 2>&1; then echo "kept a config sshd refused" >&2; exit 1; fi
+[ ! -e "$HALOS_SSHD_DROPIN" ] || { echo "a refused config stayed" >&2; exit 1; }
+"$ctl" ssh-passwords off --yes > "$work/out"
+grep -qx 'PasswordAuthentication no' "$HALOS_SSHD_DROPIN"; has 'try-reload-or-restart sshd' "$work/log"
+has 'ssh-passwords +on -> off +\(by owner\)' "$work/history"
+"$ctl" ssh-passwords > "$work/out"; has 'keys only' "$work/out"
+"$ctl" ssh-passwords on --yes > "$work/out"; [ ! -e "$HALOS_SSHD_DROPIN" ]; has 'ssh-passwords +off -> on' "$work/history"
+ok "ssh-passwords off needs the admin's key and a config sshd accepts; on undoes it; both are recorded"

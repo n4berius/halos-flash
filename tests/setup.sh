@@ -19,6 +19,8 @@ f nano 'echo "nano $* as=${FAKE_AS:-root}" >> "$FAKE/log"; echo "HALOGEN_KV_SLOT
 f ssh-unlock 'case "$1" in
   status) if [ -s "$FAKE/installed" ]; then echo "on 1"; else echo off; fi ;;
   choice) echo "${FAKE_CHOICE:-}" ;;
+  verify) [ -s "$FAKE/recorded" ] || exit 2 ;;
+  record) echo recorded > "$FAKE/recorded"; echo "ssh-unlock record" >> "$FAKE/log" ;;
   fetch) [ "$3" = alice ] && echo "ssh-ed25519 AAAAtest alice" || { echo "no keys for $3" >&2; exit 1; } ;;
   describe) echo "  (ED25519) 256 SHA256:test alice" ;;
   install) cat > "$FAKE/installed"; echo "ssh-unlock install" >> "$FAKE/log" ;;
@@ -70,9 +72,10 @@ grep -q 'SHA256:test alice' "$work/out" || { cat "$work/out" >&2; echo "the keys
 if ! grep -qx 'ssh-unlock install' "$work/log" || ! grep -qx 'ssh-ed25519 AAAAtest alice' "$work/installed"; then
   cat "$work/out" >&2; echo "the keys weren't installed" >&2; exit 1
 fi
-touch "$work/state/setup-pending"
+touch "$work/state/setup-pending"; rm -f "$work/recorded"
 answer n n n
 grep -q 'set up already' "$work/out" || { cat "$work/out" >&2; echo "an existing SSH unlock wasn't named" >&2; exit 1; }
+grep -qx 'ssh-unlock record' "$work/log" || { echo "setup didn't record the installer's keys" >&2; exit 1; }
 rm "$work/installed"
 # The installer's choice sets the defaults: SSH only means Enter declines the TPM.
 touch "$work/state/setup-pending"

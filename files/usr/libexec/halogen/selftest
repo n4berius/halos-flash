@@ -69,6 +69,20 @@ if have bootc && have jq; then
     say WARN image-signatures "this machine follows an image that isn't halOS's ($(printf '%s' "$followed" | head -c 80)), so no signature is checked"
   else say WARN image-signatures "updates aren't checked for halOS's signature yet (bootc: ${sig:-unknown}); the next sudo halosctl upgrade turns it on"; fi
 else say SKIP image-signatures "bootc or jq is not installed"; fi
+# The files the check depends on are halOS's own: /etc is changeable, /usr/etc holds the image's
+# copies. A policy in root's home would take the place of the system one for bootc's pulls.
+etc="${HALOS_ETC:-/etc}"; usretc="${HALOS_USR_ETC:-/usr/etc}"
+changed=""
+for f in containers/policy.json containers/registries.d/halos-flash.yaml pki/containers/halos-flash.pub; do
+  [ -e "$usretc/$f" ] || continue
+  cmp -s "$etc/$f" "$usretc/$f" || changed+=" /etc/$f"
+done
+rootpolicy="${HALOS_ROOT_POLICY:-/root/.config/containers/policy.json}"
+if [ -n "$changed" ]; then
+  say WARN signature-files "changed from halOS's copy:$changed (restore each with: sudo cp /usr/etc/<path> /etc/<path>)"
+elif [ -e "$rootpolicy" ]; then
+  say WARN signature-files "$rootpolicy replaces the system's signature policy for root; remove it unless you meant it"
+else say PASS signature-files "the signature policy, registry settings and halOS's key are the image's own"; fi
 
 line="$(cat "$cmdline")"
 for want in amdgpu.gttsize=126976 ttm.pages_limit=32505856; do
@@ -155,7 +169,13 @@ else
   # Unlock over SSH at boot (#13), the way when the TPM can't.
   st="$(run "${HALOS_SSH_UNLOCK:-/usr/libexec/halogen/ssh-unlock}" status --short | head -n 1)"
   case "$st" in
-    "on "*) say PASS ssh-unlock "the disk can also be unlocked over SSH at boot (${st#on } key(s)); details: sudo halosctl ssh-unlock" ;;
+    "on "*)
+      rc=0; run "${HALOS_SSH_UNLOCK:-/usr/libexec/halogen/ssh-unlock}" verify > /dev/null || rc=$?
+      case "$rc" in
+        0) say PASS ssh-unlock "the disk can also be unlocked over SSH at boot (${st#on } key(s), as recorded); details: sudo halosctl ssh-unlock" ;;
+        2) say INFO ssh-unlock "unlocks over SSH at boot (${st#on } key(s)); keep their fingerprints to notice a change: sudo halosctl ssh-unlock record" ;;
+        *) say WARN ssh-unlock "the SSH unlock keys or host key on the EFI partition differ from the record on the encrypted disk; check: sudo halosctl ssh-unlock" ;;
+      esac ;;
     off) say INFO ssh-unlock "not set up; to type the passphrase from another computer at boot: sudo halosctl ssh-unlock on" ;;
     *) say WARN ssh-unlock "its state couldn't be read: $st" ;;
   esac

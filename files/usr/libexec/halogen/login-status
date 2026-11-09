@@ -74,7 +74,7 @@ fi
 # every 10 minutes because it asks bootc, and the free space for models.
 version="$state_dir/version"
 if [ ! -e "$version" ] || [ -n "$(find "$version" -mmin +10 2>/dev/null)" ]; then
-  { halosctl version 2>/dev/null || true; } | grep -E '^(Channel|Halogen|Next boot|Rollback):' > "$version.new"
+  { halosctl version 2>/dev/null || true; } | grep -E '^(Channel|Halogen|Next boot|Rollback):|^Signatures: not' > "$version.new"
   mv -f "$version.new" "$version"
 fi
 free="$(df --output=avail --block-size=1G "$models" 2>/dev/null | tail -n 1 | tr -d ' ')"

@@ -20,7 +20,8 @@ usage: halosctl version
        halosctl power [low-power|balanced|performance]
        halosctl history
        halosctl setup [--skip]
-       halosctl ssh-unlock [on [--github|--gitlab|--codeberg <user>]... [--key '<public key>'] | off] [--yes]
+       halosctl ssh-unlock [on [--github|--gitlab|--codeberg <user>]... [--key '<public key>'] | off | record] [--yes]
+       halosctl ssh-passwords [on|off] [--yes]
 
 Channels: alpha, beta and rc are test releases; release (stable) is for production; edge is
 every change to main. Each channel also gets newer releases of the more stable ones.
@@ -32,6 +33,8 @@ default) lets the chip draw the most power, so Halogen runs fastest; balanced an
 less, run cooler and quieter, and serve slower. Without a name it shows the profile.
 ssh-unlock on lets the keys of your GitHub, GitLab or Codeberg account (or a key you give) unlock
 an encrypted disk over SSH at boot, when the TPM can't; off turns it off; alone it shows the state.
+ssh-passwords off allows SSH logins only with keys (your account needs one first); on allows
+passwords again. The console login always takes the password.
 U
 }
 
@@ -73,7 +76,8 @@ policy="${HALOS_POLICY:-/etc/containers/policy.json}"
 # bootc refuses --enforce-container-sigpolicy when the default accepts anything; say why first.
 need_policy() {
   jq -e '.default == [{"type": "reject"}] and
-    any(.transports.docker["ghcr.io/n4berius/halos-flash"][]?; .type == "sigstoreSigned")' "$policy" > /dev/null 2>&1 \
+    any(.transports.docker["ghcr.io/n4berius/halos-flash"][]?; .type == "sigstoreSigned" and
+      .keyPath == "/etc/pki/containers/halos-flash.pub")' "$policy" > /dev/null 2>&1 \
     || die "$policy doesn't require halOS's signature, so bootc would refuse to check it. Restore halOS's copy: sudo cp /usr/etc/containers/policy.json /etc/containers/policy.json"
 }
 sig_flag=--enforce-container-sigpolicy
@@ -200,6 +204,12 @@ switch_to() {
   if [ -n "$(field staged digest)" ] && [ "$(field staged digest)" != "$digest" ]; then
     echo "Note: the image changed in the registry just now; staged instead: $staged"
   fi
+  # A tag pointed back at an older build (by someone with access to the registry but not the
+  # key, or a mistake): say so before the reboot. rollback --to goes back on purpose.
+  if [ "$what" != rollback ] && [[ "$(field staged timestamp)" < "$(field booted timestamp)" ]]; then
+    echo "Warning: the staged image was built before the one running ($(field staged timestamp) vs $(field booted timestamp))."
+    echo "Check with sudo halosctl version before rebooting; sudo bootc rollback undoes the staging."
+  fi
   record "$what" "$from" "$staged"
   finish
 }
@@ -242,6 +252,7 @@ pick_keys() {
 # Saves the keys; fails (without stopping setup) when they can't be saved.
 ssh_unlock_on() {
   printf '%s\n' "$1" | "$unlock" install || { echo "   Couldn't save the keys; nothing changed." >&2; return 1; }
+  "$unlock" record || echo "   Couldn't keep their fingerprints on the encrypted disk; sudo halosctl ssh-unlock record tries again." >&2
   record ssh-unlock off on
   "$unlock" status | sed 's/^/   /'
   ssh_unlock_howto
@@ -254,8 +265,28 @@ ssh_unlock_howto() {
   echo "   above, then type the passphrase. Wired network only, with DHCP."
 }
 
+# SSH logins with keys only (security audit, #94): a drop-in ahead of Fedora's own (sshd takes the
+# first value it reads), checked with sshd -t before sshd reloads.
+keys_only="${HALOS_SSHD_DROPIN:-/etc/ssh/sshd_config.d/20-halos-keys-only.conf}"
+passwords_off() { [ -e "$keys_only" ]; }
+# The admin running this has a key to log in with, so turning passwords off can't lock them out.
+admin_has_key() {
+  local home
+  [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ] || return 1
+  home="$(getent passwd "$SUDO_USER" | cut -d: -f6)"
+  [ -n "$home" ] && grep -qE '^(ssh-|ecdsa-|sk-)' "$home/.ssh/authorized_keys" 2> /dev/null
+}
+set_passwords() { # on|off
+  if [ "$1" = off ]; then
+    printf '%s\n' "# halOS: SSH logins with keys only; sudo halosctl ssh-passwords on allows passwords again." \
+      "PasswordAuthentication no" "KbdInteractiveAuthentication no" > "$keys_only.new" && mv -f "$keys_only.new" "$keys_only"
+    if ! sshd -t > /dev/null 2>&1; then rm -f "$keys_only"; die "sshd refused the change; nothing changed"; fi
+  else rm -f "$keys_only"; fi
+  systemctl try-reload-or-restart sshd.service || true
+}
+
 cmd="${1:-version}"; [ $# = 0 ] || shift
-case "$cmd" in history|setup|power|ssh-unlock) ;; *) load ;; esac
+case "$cmd" in history|setup|power|ssh-unlock|ssh-passwords) ;; *) load ;; esac
 args=(); src=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -275,7 +306,7 @@ while [ $# -gt 0 ]; do
 done
 
 [ "${#src[@]}" = 0 ] || [ "$cmd" = ssh-unlock ] || die "--github, --gitlab, --codeberg and --key go with ssh-unlock on"
-case "$cmd" in switch|npu|power|ssh-unlock) ;; *) [ "${#args[@]}" = 0 ] ;; esac || die "unexpected ${args[0]} (for an older release: halosctl rollback --to <version>)"
+case "$cmd" in switch|npu|power|ssh-unlock|ssh-passwords) ;; *) [ "${#args[@]}" = 0 ] ;; esac || die "unexpected ${args[0]} (for an older release: halosctl rollback --to <version>)"
 
 case "$cmd" in
   version)
@@ -290,6 +321,8 @@ case "$cmd" in
     if queued; then echo "Next boot: $(describe rollback) (rollback queued)"
     else echo "Next boot: $(describe staged || echo "no change staged")"; fi
     echo "Rollback:  $(describe rollback || echo "none")"
+    if verified; then echo "Signatures: checked on every update (halOS's key)"
+    else echo "Signatures: not checked yet; sudo halosctl upgrade turns it on"; fi
     ;;
   upgrade)
     if ! verified; then
@@ -435,10 +468,16 @@ case "$cmd" in
     [ "$want" = performance ] || echo "Halogen serves slower at $want than at performance (sudo halogenctl bench measures it)."
     ;;
   ssh-unlock)
-    [ "${#args[@]}" -le 1 ] || die "ssh-unlock on, off, or nothing for its state"
+    [ "${#args[@]}" -le 1 ] || die "ssh-unlock on, off, record, or nothing for its state"
     [ "${#src[@]}" = 0 ] || [ "${args[0]:-}" = on ] || die "--github, --gitlab, --codeberg and --key go with ssh-unlock on"
     case "${args[0]:-}" in
       ''|status) "$unlock" status ;;
+      record)
+        [ "$("$unlock" status --short)" != off ] || die "unlocking over SSH isn't set up"
+        "$unlock" status | sed 's/^/   /'
+        confirm "Keep these keys' and host key's fingerprints on the encrypted disk, to notice if they change?"
+        "$unlock" record
+        echo "Recorded. The selftest and sudo halosctl ssh-unlock now warn if they change." ;;
       on)
         encrypted || die "the disk isn't encrypted, so there is nothing to unlock"
         if [ "${#src[@]}" -gt 0 ]; then keys="$(keys_from_args)"
@@ -459,7 +498,28 @@ case "$cmd" in
         record ssh-unlock on off
         echo "Off: from the next boot, no SSH server runs before the disk is unlocked."
         ;;
-      *) die "ssh-unlock on, off, or nothing for its state" ;;
+      *) die "ssh-unlock on, off, record, or nothing for its state" ;;
+    esac
+    ;;
+  ssh-passwords)
+    [ "${#args[@]}" -le 1 ] || die "ssh-passwords on, off, or nothing for its state"
+    case "${args[0]:-}" in
+      '')
+        if passwords_off; then echo "SSH logins: keys only. Passwords again: sudo halosctl ssh-passwords on"
+        else echo "SSH logins: keys or passwords. Keys only: sudo halosctl ssh-passwords off"; fi ;;
+      off)
+        if passwords_off; then echo "Passwords are already off for SSH logins."; exit 0; fi
+        admin_has_key || die "your account (${SUDO_USER:-root}) has no SSH key in ~/.ssh/authorized_keys, so turning passwords off could lock you out. Add your key first (ssh-copy-id from your computer)"
+        echo "SSH logins will need a key; passwords keep working at the machine's own screen."
+        confirm "Turn off passwords for SSH logins?"
+        set_passwords off; record ssh-passwords on off
+        echo "Done: SSH logins now need a key." ;;
+      on)
+        passwords_off || { echo "Passwords are already allowed for SSH logins."; exit 0; }
+        confirm "Allow passwords for SSH logins again?"
+        set_passwords on; record ssh-passwords off on
+        echo "Done: SSH logins take passwords again." ;;
+      *) die "ssh-passwords on, off, or nothing for its state" ;;
     esac
     ;;
   history)
@@ -512,12 +572,22 @@ case "$cmd" in
       echo "   Unlocking over SSH: when the TPM can't unlock the disk (after a BIOS update, say), or on a"
       echo "   machine without one, you type the passphrase from another computer instead of at a keyboard."
       if [ "$("$unlock" status --short 2> /dev/null || echo off)" != off ]; then
+        # Set up by the installer: keep the fingerprints now, from the first boot.
+        rc=0; "$unlock" verify 2> /dev/null || rc=$?
+        if [ "$rc" = 2 ]; then "$unlock" record 2> /dev/null || true; fi
         echo "   It's set up already (sudo halosctl ssh-unlock changes it):"
         "$unlock" status | sed 's/^/   /'
         ssh_unlock_howto
       elif ask "   Set up unlocking over SSH? $ssh_yn" "$ssh_default" && pick_keys; then
         ssh_unlock_on "$picked" || echo "   Try again later: sudo halosctl ssh-unlock on"
       else echo "   Skipped. Later: sudo halosctl ssh-unlock on"; fi
+    fi
+
+    if ! passwords_off && admin_has_key; then
+      echo "   Your account logs in over SSH with a key. Passwords could be turned off for SSH logins, so"
+      echo "   nobody can guess one (the machine's own screen still takes it)."
+      if ask "   Allow only keys for SSH logins? [y/N]" n; then set_passwords off && record ssh-passwords on off && echo "   Done."
+      else echo "   Kept. Later: sudo halosctl ssh-passwords off"; fi
     fi
 
     echo; echo "2. Hugging Face token (optional: higher download limits, and access to gated repositories)"

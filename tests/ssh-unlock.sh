@@ -12,7 +12,7 @@ fi
 work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/bin" "$work/esp"
 # Tests run curl as the caller: the fake curl lives where nobody can't reach.
-export FAKE="$work" HALOS_ESP="$work/esp" HALOS_FETCH_AS_ROOT=1
+export FAKE="$work" HALOS_ESP="$work/esp" HALOS_FETCH_AS_ROOT=1 HALOS_UNLOCK_RECORD="$work/record/ssh-unlock.sums"
 h="$repo/files/usr/libexec/halogen/ssh-unlock"
 ok() { echo "ok: $*"; }
 has() { grep -qE -- "$1" "$2" || { echo "expected '$1' in $2:" >&2; cat "$2" >&2; exit 1; }; }
@@ -57,7 +57,17 @@ printf 'restrict,pty %s x\033[31mred\n' "$k2" > "$d/authorized_keys"
 echo "$k2" | "$h" install
 if echo garbage | "$h" install 2> /dev/null; then echo "installed no keys" >&2; exit 1; fi
 [ "$("$h" status --short)" = "on 1" ] || { echo "a failed install changed the keys" >&2; exit 1; }
+# The record on the encrypted disk: none, then kept, then a swapped key is noticed.
+rc=0; "$h" verify || rc=$?; [ "$rc" = 2 ] || { echo "verify without a record gave $rc" >&2; exit 1; }
+"$h" status > "$work/out"; has '^Record: none' "$work/out"
+"$h" record; "$h" verify || { echo "verify failed right after record" >&2; exit 1; }
+"$h" status > "$work/out"; has '^Record: the keys and host key match' "$work/out"
+cp "$d/authorized_keys" "$work/ak"; echo "restrict,pty $k1" >> "$d/authorized_keys"
+if "$h" verify; then echo "an added key wasn't noticed" >&2; exit 1; fi
+"$h" status > "$work/out"; has '^WARNING: the keys or host key' "$work/out"
+cp "$work/ak" "$d/authorized_keys"; "$h" verify
 "$h" remove; [ "$("$h" status)" = off ]; [ ! -e "$work/esp/halos" ]
+[ ! -e "$work/record/ssh-unlock.sums" ] || { echo "remove kept the record" >&2; exit 1; }
 # The installer's choice (#13): kept for halosctl setup; SSH needs keys; only the four words.
 HALOS_UNLOCK_CHOICE=both "$h" install-choice < "$work/ok"
 if [ "$("$h" choice)" != both ] || [ "$("$h" status --short)" != "on 2" ]; then echo "install-choice both" >&2; exit 1; fi
@@ -116,6 +126,7 @@ if "$ctl" ssh-unlock on --key 'not a key' --yes > "$work/out" 2>&1; then echo "t
 [ "$("$h" status --short)" = "on 2" ] || { echo "duplicate keys from two sources were kept twice" >&2; "$h" status >&2; exit 1; }
 has 'known_hosts line' "$work/out"; has 'ssh <name>-unlock' "$work/out"
 has 'ssh-unlock +off -> on +\(by owner\)' "$work/history"
+"$h" verify || { echo "ssh-unlock on didn't record the keys" >&2; exit 1; }
 "$ctl" ssh-unlock off --yes > "$work/out"; [ "$("$h" status --short)" = off ]; has 'ssh-unlock +on -> off' "$work/history"
 "$ctl" ssh-unlock off --yes > "$work/out"; has 'already off' "$work/out"
 if "$ctl" history --github alice > "$work/out" 2>&1; then echo "took --github outside ssh-unlock" >&2; exit 1; fi

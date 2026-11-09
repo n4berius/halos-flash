@@ -10,6 +10,16 @@ promoted.
 
 ## Unreleased
 
+- Hardening from the security reviews of #91, #93 and #94 (#PR):
+  - `halosctl version` says whether updates are signature-checked, and the SSH login message warns
+    when they aren't; the selftest's new `signature-files` line warns if the policy, registry
+    setting or halOS's key differ from the image's copies, or root has a policy of its own.
+  - `halosctl switch` and `npu on|off` warn before the reboot when a channel points to an older
+    build.
+  - SSH unlock keeps the keys' and host key's fingerprints on the encrypted disk; the selftest and
+    `halosctl ssh-unlock` warn when the EFI partition's copies change.
+  - `sudo halosctl ssh-passwords off` allows SSH logins with keys only, once your account has a
+    key; setup offers it.
 - The guided installer asks how an encrypted disk unlocks: TPM and SSH (recommended), TPM only,
   SSH only, or the passphrase at the keyboard. For SSH it takes your public keys from GitHub,
   GitLab or Codeberg, or a pasted key, and can let the same keys log the admin user in. First-boot
