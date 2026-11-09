@@ -7,6 +7,9 @@
 #   ssh-unlock describe     public keys on stdin, one line each: type, size, fingerprint, comment
 #   ssh-unlock install      public keys on stdin become the ones allowed to unlock
 #   ssh-unlock remove       turn it off
+#   ssh-unlock install-choice   the installer's: HALOS_UNLOCK_CHOICE (both, tpm, ssh, none) kept for
+#                           halosctl setup, and the keys on stdin installed when there are any
+#   ssh-unlock choice       the choice made at install, or nothing
 #   ssh-unlock status [--short]
 # The EFI partition is readable by anyone holding the disk, so it holds only public keys and the
 # early-boot host key, which is not the system's own.
@@ -125,6 +128,22 @@ case "$cmd" in
     while IFS= read -r k; do printf 'restrict,pty %s\n' "$k"; done <<< "$keys" > "$dir/authorized_keys.new"
     mv -f "$dir/authorized_keys.new" "$dir/authorized_keys"
     sync -f "$dir/authorized_keys" 2> /dev/null || sync
+    ;;
+  install-choice)
+    choice="${HALOS_UNLOCK_CHOICE:-}"
+    case "$choice" in both|tpm|ssh|none) ;; *) die "unknown unlock choice: $(printf '%s' "$choice" | clean | head -c 20)" ;; esac
+    keys="$(check 2> /dev/null || true)"
+    case "$choice" in both|ssh) [ -n "$keys" ] || die "no keys for unlocking over SSH" ;; esac
+    if [ -n "$keys" ]; then printf '%s\n' "$keys" | "$0" install; fi
+    find_esp
+    mkdir -p "$esp/halos"
+    printf '%s\n' "$choice" > "$esp/halos/unlock-choice.new" && mv -f "$esp/halos/unlock-choice.new" "$esp/halos/unlock-choice"
+    sync
+    ;;
+  choice)
+    find_esp ro
+    c="$(head -c 8 "$esp/halos/unlock-choice" 2> /dev/null | tr -cd '[:lower:]')" || true
+    case "$c" in both|tpm|ssh|none) echo "$c" ;; esac
     ;;
   remove)
     find_esp

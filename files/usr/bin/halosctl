@@ -483,6 +483,17 @@ case "$cmd" in
     echo "halOS setup. Each step can be skipped; run sudo halosctl setup again any time."
 
     echo; echo "1. How the disk unlocks at boot"
+    # The guided installer keeps the choice made there (#13); it sets the defaults below.
+    chosen="$("$unlock" choice 2> /dev/null || true)"
+    tpm_yn="[Y/n]"; tpm_default=y; ssh_yn="[Y/n]"; ssh_default=y
+    case "$chosen" in ssh|none) tpm_yn="[y/N]"; tpm_default=n ;; esac
+    case "$chosen" in tpm|none) ssh_yn="[y/N]"; ssh_default=n ;; esac
+    case "$chosen" in
+      both) echo "   At install you chose: the TPM, and SSH when it can't." ;;
+      tpm) echo "   At install you chose: the TPM." ;;
+      ssh) echo "   At install you chose: SSH, not the TPM." ;;
+      none) echo "   At install you chose: the passphrase at the keyboard." ;;
+    esac
     crypt="$(lsblk -rno PATH,FSTYPE 2>/dev/null | awk '$2 == "crypto_LUKS" { print $1 }')"
     if [ -z "$crypt" ]; then echo "   The disk isn't encrypted, so there is nothing to unlock."
     elif [ ! -e "${HALOGEN_DEV:-/dev}/tpmrm0" ] && [ ! -e "${HALOGEN_DEV:-/dev}/tpm0" ]; then echo "   No TPM found: you type the passphrase at each boot."
@@ -490,7 +501,7 @@ case "$cmd" in
       echo "   It unlocks with the TPM already. After a BIOS or Secure Boot change: sudo halogen-enroll-tpm"
     elif echo "   With the TPM this machine unlocks its own disk: that protects a disk taken out of it, not" \
               "the machine taken whole (INSTALL.md, section 8)." && \
-         ask "   Unlock with the TPM, so no passphrase is needed while Secure Boot and the BIOS stay the same? [Y/n]" y; then
+         ask "   Unlock with the TPM, so no passphrase is needed while Secure Boot and the BIOS stay the same? $tpm_yn" "$tpm_default"; then
       halogen-enroll-tpm || echo "   That didn't work; the passphrase still unlocks the disk. Try again later: sudo halogen-enroll-tpm"
     else echo "   Kept: you type the passphrase at each boot."; fi
     if [ -n "$crypt" ]; then
@@ -498,7 +509,7 @@ case "$cmd" in
       echo "   machine without one, you type the passphrase from another computer instead of at a keyboard."
       if [ "$("$unlock" status --short 2> /dev/null || echo off)" != off ]; then
         echo "   It's set up already. To see or change it: sudo halosctl ssh-unlock"
-      elif ask "   Set up unlocking over SSH? [Y/n]" y && pick_keys; then
+      elif ask "   Set up unlocking over SSH? $ssh_yn" "$ssh_default" && pick_keys; then
         ssh_unlock_on "$picked" || echo "   Try again later: sudo halosctl ssh-unlock on"
       else echo "   Skipped. Later: sudo halosctl ssh-unlock on"; fi
     fi

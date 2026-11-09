@@ -58,7 +58,16 @@ echo "$k2" | "$h" install
 if echo garbage | "$h" install 2> /dev/null; then echo "installed no keys" >&2; exit 1; fi
 [ "$("$h" status --short)" = "on 1" ] || { echo "a failed install changed the keys" >&2; exit 1; }
 "$h" remove; [ "$("$h" status)" = off ]; [ ! -e "$work/esp/halos" ]
-ok "install restricts the keys to the passphrase prompt and keeps the host key; remove turns it off"
+# The installer's choice (#13): kept for halosctl setup; SSH needs keys; only the four words.
+HALOS_UNLOCK_CHOICE=both "$h" install-choice < "$work/ok"
+if [ "$("$h" choice)" != both ] || [ "$("$h" status --short)" != "on 2" ]; then echo "install-choice both" >&2; exit 1; fi
+"$h" remove; [ "$("$h" status)" = off ]
+HALOS_UNLOCK_CHOICE=tpm "$h" install-choice < /dev/null; [ "$("$h" choice)" = tpm ] && [ "$("$h" status)" = off ]
+if HALOS_UNLOCK_CHOICE=ssh "$h" install-choice < /dev/null 2> /dev/null; then echo "SSH without keys was taken" >&2; exit 1; fi
+if HALOS_UNLOCK_CHOICE='x;y' "$h" install-choice < /dev/null 2> /dev/null; then echo "a bad choice was taken" >&2; exit 1; fi
+printf 'evil\033[2J\n' > "$work/esp/halos/unlock-choice"; [ -z "$("$h" choice)" ] || { echo "a bad choice was read" >&2; exit 1; }
+rm -rf "$work/esp/halos"
+ok "install restricts the keys to the passphrase prompt and keeps the host key; remove turns it off; the installer's choice is kept"
 
 # fetch: https only, from the three sites; a user with none, or no such user, says so.
 cat > "$work/bin/curl" <<'C'

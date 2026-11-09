@@ -18,6 +18,7 @@ f nano 'echo "nano $* as=${FAKE_AS:-root}" >> "$FAKE/log"; echo "HALOGEN_KV_SLOT
 # Unlock over SSH (#13): off until installed; codeberg user alice has one key.
 f ssh-unlock 'case "$1" in
   status) if [ -s "$FAKE/installed" ]; then echo "on 1"; else echo off; fi ;;
+  choice) echo "${FAKE_CHOICE:-}" ;;
   fetch) [ "$3" = alice ] && echo "ssh-ed25519 AAAAtest alice" || { echo "no keys for $3" >&2; exit 1; } ;;
   describe) echo "  (ED25519) 256 SHA256:test alice" ;;
   install) cat > "$FAKE/installed"; echo "ssh-unlock install" >> "$FAKE/log" ;;
@@ -73,7 +74,15 @@ touch "$work/state/setup-pending"
 answer n n n
 grep -q 'set up already' "$work/out" || { cat "$work/out" >&2; echo "an existing SSH unlock wasn't named" >&2; exit 1; }
 rm "$work/installed"
-ok "setup offers unlocking over SSH, asks again when an account has no keys, and installs the confirmed ones"
+# The installer's choice sets the defaults: SSH only means Enter declines the TPM.
+touch "$work/state/setup-pending"
+FAKE_CHOICE=ssh answer '' n n n
+grep -q 'At install you chose: SSH' "$work/out" || { cat "$work/out" >&2; exit 1; }
+if grep -q enroll-tpm "$work/log"; then echo "Enter enrolled the TPM after choosing SSH only" >&2; exit 1; fi
+touch "$work/state/setup-pending"
+FAKE_CHOICE=both answer '' n n n
+grep -qx enroll-tpm "$work/log" || { cat "$work/out" >&2; echo "Enter didn't enroll the TPM after choosing it" >&2; exit 1; }
+ok "setup offers unlocking over SSH, asks again when an account has no keys, installs the confirmed ones, and defaults to the installer's choice"
 
 # Run again later: nothing pending, so it offers a restart instead.
 answer n n n n y

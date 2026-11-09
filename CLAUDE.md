@@ -219,6 +219,18 @@ name, but allows saying halOS runs Halogen.
   would be deleted by OpenSSH's default `UpdateHostKeys` at the next normal login, and would let
   the early-boot key pass for the running system.
 
+  The guided installer (part 2): after the admin user, with encryption, `plan-install` asks
+  both/tpm/ssh/none (Enter: both) and, for SSH, GitHub/GitLab/Codeberg (`nm-online` first) or a
+  pasted key, through the same helper copied into the installer image as
+  `/usr/libexec/halos/ssh-unlock`; "back" returns to the choice; the keys can go on the admin user
+  too (`sshkey --username=`). It writes `/tmp/halos-unlock-choice` and `/tmp/halos-unlock-keys`
+  (600); the guided kickstart's second `%post --nochroot` runs the helper's `install-choice` with
+  `HALOS_ESP` set to the new system's mounted ESP (`$ANA_INSTALL_PATH/boot/efi` or
+  `/mnt/sysimage/boot/efi`; otherwise the helper looks), which installs the keys and writes
+  `/halos/unlock-choice` there. `halosctl setup` reads it (`ssh-unlock choice`) for its defaults.
+  Unattended answers: `unlock`, `ssh_key`, `admin_ssh`; the VM test installs with `unlock=both`
+  and its key, so the first boot only reads the state.
+
 ## Lessons already learned
 
 - The initramfs must be built with `--no-hostonly` and the `crypt systemd-cryptsetup tpm2-tss
@@ -293,7 +305,7 @@ and tracked on the owner's project board. [ROADMAP.md](ROADMAP.md) holds the ord
   On edge since: the tokenizer fill-in for checkpoints that ship none (#88). The issues for #14, #15,
   #40 and #56 are closed. Freyja serves the official checkpoint or its own (Signal-3.8-Flash-Next-HGN-v2),
   swapped as needed, at the `performance` profile.
-- Next: the installer's unlock questions (#13, part 2), clevis/tang (#44), GGUF in `flash pull` (#61).
+- Next: clevis/tang (#44), GGUF in `flash pull` (#61).
 - **Halogen 0.20.0** (stable since `v0.20.0`): 0.20.0 (ROCm 10.1 in its image, OvisOCR3 document parsing on the NPU as your
   own checkpoint, faster prefill, a strict-tool-call crash fixed; the Flash checkpoints and weights
   revision unchanged) is pinned by #78. Between source commits 47ceb43 and 8242b15, FLAGS.md,
