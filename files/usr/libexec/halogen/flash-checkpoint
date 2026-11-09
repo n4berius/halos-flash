@@ -47,10 +47,32 @@ offline() {
 info_get() { sed -n "s/^$2=//p" "$1" 2>/dev/null | tail -n 1; }
 
 # verify every .hgn of a checkpoint folder with Halogen's verify, and record the answer.
+# Halogen reads tokenizer/tokenizer.json beside the checkpoint and won't start without it. Some
+# repositories ship only a chat template and settings there (Signal-3.8-Flash-Next-HGN-v2 does):
+# the vocabulary files then come from the official tokenizer, the model's own, and the
+# repository's chat template and settings stay. A folder with none at all gets the official one.
+fill_tokenizer() {
+  local dir="$1" f added=""
+  [ ! -L "$dir/tokenizer" ] || return 1
+  [ ! -f "$dir/tokenizer/tokenizer.json" ] || return 0
+  [ -f "$models/tokenizer/tokenizer.json" ] || return 1
+  if [ ! -d "$dir/tokenizer" ]; then cp -r "$models/tokenizer" "$dir/tokenizer" || return 1; return 0; fi
+  for f in tokenizer.json vocab.json merges.txt; do
+    if [ -f "$models/tokenizer/$f" ] && [ ! -e "$dir/tokenizer/$f" ] && [ ! -L "$dir/tokenizer/$f" ]; then
+      cp "$models/tokenizer/$f" "$dir/tokenizer/$f" || return 1
+      added+=" $f"
+    fi
+  done
+  echo "Its tokenizer/ has no tokenizer.json, so the official vocabulary was added ($added ); its own chat template and settings stay."
+}
+
 verify_dir() {
   local name="$1" dir="$models/flash/$1" info="$models/flash/$1/halos.info" f result=pass checked=0
   # A link could point at a file that changes after it was checked, so links are never checked.
   if [ -L "$dir" ] || [ -L "$info" ]; then echo "$dir holds links; pull it again." >&2; return 1; fi
+  if ! fill_tokenizer "$dir" || [ ! -f "$dir/tokenizer/tokenizer.json" ]; then
+    echo "$dir/tokenizer has no tokenizer.json, which Halogen needs to start." >&2; result=fail
+  fi
   for f in "$dir"/*.hgn; do
     [ -e "$f" ] || [ -L "$f" ] || continue
     if [ -L "$f" ] || [ ! -f "$f" ]; then echo "$(basename "$f") is not a plain file." >&2; result=fail; continue; fi

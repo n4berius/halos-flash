@@ -116,6 +116,22 @@ reset_repo; rm -r "$work/repo/tokenizer"
 pull someone/No-Tokenizer --as no-tok || fail "pull failed"
 { grep -q official "$work/models/flash/no-tok/tokenizer/tokenizer.json" && [ ! -L "$work/models/flash/no-tok/tokenizer" ]; } || fail "official tokenizer not copied"
 ok "a repository without a tokenizer gets a copy of the official one"
+# A tokenizer/ with only a chat template and settings (Signal-3.8-Flash-Next-HGN-v2) gets the
+# official vocabulary; its own chat template stays. A checkpoint pulled before the fix is filled
+# in by verify.
+reset_repo; rm "$work/repo/tokenizer/tokenizer.json"; put tokenizer/tokenizer_config.json '{"own": 1}'
+pull someone/Half-Tokenizer --as half > "$work/out" 2>&1 || { cat "$work/out" >&2; fail "pull failed"; }
+d="$work/models/flash/half/tokenizer"
+{ grep -q official "$d/tokenizer.json" && grep -q own "$d/tokenizer_config.json" && [ -f "$d/chat_template.jinja" ]; } || fail "the vocabulary wasn't added, or the repository's own files were replaced"
+grep -q 'official vocabulary was added' "$work/out" || fail "the pull didn't say it added the vocabulary"
+[ "$(info half verified)" = pass ] || fail "a filled-in tokenizer didn't pass"
+rm "$d/tokenizer.json"; "$tool" verify half > "$work/out" 2>&1 || { cat "$work/out" >&2; fail "verify didn't fill in the tokenizer"; }
+grep -q official "$d/tokenizer.json" || fail "verify didn't add the vocabulary"
+mv "$work/models/tokenizer/tokenizer.json" "$work/tok.bak"; rm "$d/tokenizer.json"
+if "$tool" verify half > "$work/out" 2>&1; then fail "a checkpoint with no tokenizer.json passed"; fi
+[ "$(info half verified)" = fail ] || fail "it wasn't recorded as failed, so flash use would switch to it"
+mv "$work/tok.bak" "$work/models/tokenizer/tokenizer.json"
+ok "a tokenizer without tokenizer.json gets the official vocabulary, and one still without it fails verify"
 
 reset_repo
 if FAKE_CORRUPT=model.hgn pull someone/Corrupt --as corrupt; then fail "a file with the wrong hash was accepted"; fi
