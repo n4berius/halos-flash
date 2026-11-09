@@ -64,6 +64,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "$GH_TOKEN" | podman login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          # cosign first: a failed download must stop the run before anything is pushed.
+          scripts/sign-image.sh --fetch
           edge="$(scripts/image-ref.sh | sed 's/:[^:]*$//'):edge$([ "$HALOGEN_VARIANT" = npu ] || echo -no-npu)"
           podman push "$(scripts/image-ref.sh)" "$edge"
           echo "EDGE_IMAGE=$edge" >> "$GITHUB_ENV"

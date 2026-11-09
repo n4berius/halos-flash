@@ -75,6 +75,8 @@ jobs:
           # to an unsigned image; the signature is per digest, so it covers the channel tags too.
           image="$(scripts/image-ref.sh)"; base="${image%:*}"
           suffix=""; [ "$HALOGEN_VARIANT" = npu ] || suffix="-no-npu"
+          # cosign first: a failed download must stop the run before anything is pushed.
+          bash "$RUNNER_TEMP/sign-image.sh" --fetch
           podman push "$image"
           { echo "IMAGE=$image"; echo "CHANNELS=$channels"; } >> "$GITHUB_ENV"
       - name: Sign
