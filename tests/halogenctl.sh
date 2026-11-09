@@ -261,3 +261,31 @@ grep -q 'halogen.service - x' "$work/out" || { cat "$work/out" >&2; echo "status
 printf 'key\033[2J\n' > "$work/configs/api-key"
 [ "$("$ctl" api-key)" = 'key[2J' ] || { echo "api-key printed a control character" >&2; exit 1; }
 ok "status and api-key print no control characters the halogen user could have planted"
+
+# flash convert: the checks run now, as halogen; the long part starts as its own unit and returns.
+f systemd-run 'echo "systemd-run $*" >> "$FAKE/log"; case "$*" in
+  *convert-prepare*) [ -z "${FAKE_PREP_FAILS:-}" ] || { echo "isn'"'"'t Qwen3.8 Flash Next weights"; exit 1; }
+    echo "Looking up..."; echo "name=conv"; echo "download=700.0 GiB"; echo "result=about 119.2 GiB" ;;
+esac'
+f systemctl 'echo "systemctl $*" >> "$FAKE/log"; case "$*" in *"is-active halogen-flash-convert.service"*) echo "${FAKE_CONV:-inactive}" ;; esac'
+: > "$work/log"
+if "$ctl" flash convert someone/Flash-BF16 < /dev/null > "$work/out" 2>&1; then echo "started without confirming" >&2; exit 1; fi
+grep -q 'add --yes' "$work/out"; if grep -q 'unit=halogen-flash-convert' "$work/log"; then echo "started anyway" >&2; exit 1; fi
+"$ctl" flash convert someone/Flash-BF16 --as conv --threads 4 --keep-source --yes > "$work/out" 2>&1
+grep -q 'convert-prepare someone/Flash-BF16 --as conv' "$work/log" || { cat "$work/log" >&2; exit 1; }
+grep -q -- '--unit=halogen-flash-convert .*-p Nice=10 .*flash-checkpoint convert-run conv --threads 4 --keep-source' "$work/log" \
+  || { cat "$work/log" >&2; echo "the conversion wasn't started as its own unit with the options" >&2; exit 1; }
+if grep -q 'unit=halogen-flash-convert.*--wait' "$work/log"; then echo "the conversion holds the terminal" >&2; exit 1; fi
+grep -q '700.0 GiB of weights' "$work/out" && grep -q 'convert-logs' "$work/out"
+: > "$work/log"
+if FAKE_PREP_FAILS=1 "$ctl" flash convert someone/Llama --yes > "$work/out" 2>&1; then echo "a refused model started" >&2; exit 1; fi
+if grep -q 'unit=halogen-flash-convert' "$work/log"; then echo "started after a refusal" >&2; exit 1; fi
+: > "$work/log"
+for t in abc 0 99; do
+  if "$ctl" flash convert someone/Flash-BF16 --threads "$t" --yes > "$work/out" 2>&1; then echo "took --threads $t" >&2; exit 1; fi
+done
+if grep -q 'convert-prepare\|unit=halogen-flash-convert' "$work/log"; then echo "a bad --threads got past the start" >&2; exit 1; fi
+if FAKE_CONV=active "$ctl" flash convert someone/Flash-BF16 --yes > "$work/out" 2>&1; then echo "a second conversion started" >&2; exit 1; fi
+grep -q 'already running' "$work/out"
+FAKE_CONV=active "$ctl" flash convert-stop > "$work/out"; grep -q 'stop halogen-flash-convert.service' "$work/log"
+ok "flash convert checks first, asks, starts one conversion as its own unit and returns; convert-stop stops it"
