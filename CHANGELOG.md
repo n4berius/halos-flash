@@ -14,10 +14,11 @@ promoted.
   - `halosctl version` says whether updates are signature-checked, and the SSH login message warns
     when they aren't; the selftest's new `signature-files` line warns if the policy, registry
     setting or halOS's key differ from the image's copies, or root has a policy of its own.
-  - `halosctl switch` and `npu on|off` warn before the reboot when a channel points to an older
-    build.
-  - SSH unlock keeps the keys' and host key's fingerprints on the encrypted disk; the selftest and
-    `halosctl ssh-unlock` warn when the EFI partition's copies change.
+  - `halosctl upgrade` doesn't reboot by itself when the name it follows points to an older build,
+    and switching refuses a changed halOS public key file.
+  - SSH unlock keeps the keys' and early-boot host key's fingerprints on the encrypted disk; the
+    selftest and `halosctl ssh-unlock` warn when the EFI partition's copies change, and setting
+    them up again then makes a new host key.
   - `sudo halosctl ssh-passwords off` allows SSH logins with keys only, once your account has a
     key; setup offers it.
 - The guided installer asks how an encrypted disk unlocks: TPM and SSH (recommended), TPM only,

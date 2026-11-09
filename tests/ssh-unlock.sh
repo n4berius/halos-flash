@@ -66,6 +66,15 @@ cp "$d/authorized_keys" "$work/ak"; echo "restrict,pty $k1" >> "$d/authorized_ke
 if "$h" verify; then echo "an added key wasn't noticed" >&2; exit 1; fi
 "$h" status > "$work/out"; has '^WARNING: the keys or host key' "$work/out"
 cp "$work/ak" "$d/authorized_keys"; "$h" verify
+# The private host key, which boot serves, counts too; a record that no longer matches is kept,
+# and install (sudo halosctl ssh-unlock on) then makes a new host key.
+cp "$d/ssh_host_ed25519_key" "$work/hk"; echo "# tampered" >> "$d/ssh_host_ed25519_key"
+if "$h" verify; then echo "a changed private host key wasn't noticed" >&2; exit 1; fi
+if "$h" record 2> /dev/null; then echo "record overwrote a record that no longer matches" >&2; exit 1; fi
+old_pub="$(cat "$d/ssh_host_ed25519_key.pub")"
+echo "$k2" | "$h" install 2> "$work/err"; has 'host key is replaced' "$work/err"
+[ "$(cat "$d/ssh_host_ed25519_key.pub")" != "$old_pub" ] || { echo "kept a host key that had changed" >&2; exit 1; }
+HALOS_RECORD_REPLACE=1 "$h" record; "$h" verify
 "$h" remove; [ "$("$h" status)" = off ]; [ ! -e "$work/esp/halos" ]
 [ ! -e "$work/record/ssh-unlock.sums" ] || { echo "remove kept the record" >&2; exit 1; }
 # The installer's choice (#13): kept for halosctl setup; SSH needs keys; only the four words.

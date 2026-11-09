@@ -62,7 +62,14 @@ esp=""; mounted_here=""; remounted=""
 # The EFI partition can be changed by anyone holding the disk; the record lives on the encrypted
 # root, so a swapped key or host key is noticed (security audit, #13).
 record="${HALOS_UNLOCK_RECORD:-/var/lib/halos/ssh-unlock.sums}"
-sums() { (cd "$esp/halos/ssh-unlock" && sha256sum authorized_keys ssh_host_ed25519_key.pub); }
+# The private host key is what boot serves (the .pub is never read there), so it is hashed too.
+sums() { (cd "$esp/halos/ssh-unlock" && sha256sum authorized_keys ssh_host_ed25519_key ssh_host_ed25519_key.pub); }
+# 0: matches the record, 1: differs (or is gone), 2: no record.
+compare() {
+  [ -s "$record" ] || return 2
+  [ -s "$esp/halos/ssh-unlock/authorized_keys" ] || return 1
+  [ "$(sums 2> /dev/null)" = "$(cat "$record")" ]
+}
 cleanup() {
   [ -z "$remounted" ] || mount -o remount,ro "$esp" || true
   [ -z "$mounted_here" ] || { umount "$mounted_here" && rmdir "$mounted_here"; }
@@ -120,6 +127,13 @@ case "$cmd" in
     keys="$(check)" || die "no usable public keys given"
     find_esp
     dir="$esp/halos/ssh-unlock"; mkdir -p "$dir"
+    # Changed since it was recorded: whoever changed it had the disk, and could have copied the
+    # private host key, so a new one is made (the known_hosts line changes with it).
+    rc=0; [ ! -s "$dir/authorized_keys" ] || compare || rc=$?
+    if [ "$rc" = 1 ]; then
+      echo "The keys on the EFI partition changed since they were recorded, so the early-boot host key is replaced." >&2
+      rm -f "$dir/ssh_host_ed25519_key" "$dir/ssh_host_ed25519_key.pub"
+    fi
     # Keep the early-boot host key across key changes, so clients keep trusting it.
     if [ ! -s "$dir/ssh_host_ed25519_key" ] || [ ! -s "$dir/ssh_host_ed25519_key.pub" ]; then
       rm -f "$dir/new_host_key" "$dir/new_host_key.pub"
@@ -154,14 +168,18 @@ case "$cmd" in
   record)
     find_esp ro
     [ -s "$esp/halos/ssh-unlock/authorized_keys" ] || die "unlocking over SSH isn't set up"
+    # Only a first record: one that no longer matches is evidence, never overwritten here
+    # (install, after sudo halosctl ssh-unlock on, records the new state itself).
+    rc=0; compare || rc=$?
+    [ "$rc" != 0 ] || exit 0
+    [ "$rc" = 2 ] || [ -n "${HALOS_RECORD_REPLACE:-}" ] || die "the keys on the EFI partition differ from the record; set them up afresh with sudo halosctl ssh-unlock off, then on (that also makes a new host key)"
     mkdir -p "$(dirname "$record")"
+    umask 077
     sums > "$record.new" && mv -f "$record.new" "$record"
     ;;
   verify)
     find_esp ro
-    [ -s "$record" ] || exit 2
-    [ -s "$esp/halos/ssh-unlock/authorized_keys" ] || exit 1
-    [ "$(sums 2> /dev/null)" = "$(cat "$record")" ]
+    compare
     ;;
   remove)
     find_esp
@@ -183,7 +201,9 @@ case "$cmd" in
     if [ ! -s "$record" ]; then echo "Record: none on the encrypted disk yet (sudo halosctl ssh-unlock record)"
     elif [ "$(sums 2> /dev/null)" = "$(cat "$record")" ]; then echo "Record: the keys and host key match the one on the encrypted disk"
     else echo "WARNING: the keys or host key on the EFI partition differ from the record on the encrypted disk."
-      echo "If you didn't change them, someone with the disk may have. Check the keys above, then set them again: sudo halosctl ssh-unlock on"; fi
+      echo "Someone with the disk may have changed them, and could have copied the host key. Set them up"
+      echo "afresh: sudo halosctl ssh-unlock off, then on. That makes a new early-boot host key: replace its"
+      echo "known_hosts line on your computer."; fi
     # Its own name in ssh (HostKeyAlias): the early-boot key is then trusted only for unlocking,
     # never for the running system, and ssh's UpdateHostKeys doesn't remove it.
     echo "ssh config entry (in ~/.ssh/config on your computer; HostName: how you reach this machine):"

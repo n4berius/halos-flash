@@ -97,6 +97,8 @@ expect '^WARN signature-files: changed .*/etc/pki/containers/halos-flash.pub'
 /usr/bin/cp "$work/usretc/pki/containers/halos-flash.pub" "$work/etc/pki/containers/"; echo '{}' > "$work/root-policy.json"
 "$selftest" > "$work/out" 2>&1 || true
 expect '^WARN signature-files: .*root-policy.json replaces'; rm "$work/root-policy.json"
+HALOS_USR_ETC="$work/none" "$selftest" > "$work/out" 2>&1 || true; expect '^SKIP signature-files:'
+FAKE_VERIFY=124 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN ssh-unlock: reading the EFI partition took too long'
 ok "an install that doesn't check signatures yet, follows another image, has a changed policy, key or registry file, or a root policy is a warning"
 FAKE_SSHU=off "$selftest" > "$work/out" 2>&1 || true
 expect '^INFO ssh-unlock: not set up.*halosctl ssh-unlock on'; refuse '^(WARN|FAIL) ssh-unlock'

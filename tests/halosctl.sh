@@ -207,10 +207,21 @@ FAKE_SIG=insecure host "$(dep ghcr.io/n4berius/halos-flash:stable 0.20.0 sha256:
 jq '.transports.docker["ghcr.io/n4berius/halos-flash"][0].keyPath = "/tmp/other.pub"' "$repo/files/etc/containers/policy.json" > "$work/policy.json"
 host "$(dep ghcr.io/n4berius/halos-flash:stable 0.20.0 sha256:aaa)" > "$work/status.json"
 if HALOS_POLICY="$work/policy.json" "$ctl" switch beta --yes > "$work/out" 2>&1; then echo "took a policy with another key" >&2; exit 1; fi
-# A channel pointed back at an older build is named before the reboot; rollback --to isn't.
-FAKE_STAGED_TS=2026-10-01T00:00:00Z "$ctl" switch beta --yes > "$work/out"; has 'built before the one running' "$work/out"
+# An older build under the same name (the first signed upgrade) is named, and --reboot waits for
+# a look; another channel or rollback --to being older is normal.
+FAKE_STAGED_TS=2026-10-01T00:00:00Z "$ctl" switch beta --yes > "$work/out"; hasnt 'built before' "$work/out"
 host "$(dep ghcr.io/n4berius/halos-flash:stable 0.20.0 sha256:aaa)" > "$work/status.json"
 FAKE_STAGED_TS=2026-10-01T00:00:00Z "$ctl" rollback --to 0.19.0-beta.1 --yes > "$work/out"; hasnt 'built before' "$work/out"
+FAKE_SIG=insecure host "$(dep ghcr.io/n4berius/halos-flash:beta 0.20.0 sha256:aaa)" > "$work/status.json"; : > "$work/log"
+FAKE_STAGED_TS=2026-10-01T00:00:00Z "$ctl" upgrade --yes --reboot > "$work/out"; has 'built before the one running' "$work/out"
+hasnt 'systemctl reboot' "$work/log"
+# A replaced public key file is refused too, when the image's copy is there to compare with.
+host "$(dep ghcr.io/n4berius/halos-flash:stable 0.20.0 sha256:aaa)" > "$work/status.json"
+echo other > "$work/key.pub"
+if HALOS_KEY="$work/key.pub" HALOS_IMAGE_KEY="$repo/files/etc/pki/containers/halos-flash.pub" "$ctl" switch beta --yes > "$work/out" 2>&1; then
+  echo "took a replaced key file" >&2; exit 1
+fi
+has "isn't halOS's key" "$work/out"
 ok "every switch asks bootc to check signatures; the first upgrade turns the check on (by tag or digest); a missing or changed policy or an unsigned image is explained; version says whether updates are checked; an older build is named"
 
 # npu on|off: the other edition on the same channel, or the same exact release (pinned by digest).
@@ -338,7 +349,11 @@ ok "power shows, saves and sets the firmware profile at once, refuses one the fi
 mkdir -p "$work/home/owner/.ssh" "$work/sshd.d"
 export HALOS_SSHD_DROPIN="$work/sshd.d/20-halos-keys-only.conf"
 f getent 'case "$1 $2" in "passwd owner") echo "owner:x:1000:1000::$FAKE/home/owner:/bin/bash" ;; *) exit 2 ;; esac'
-f sshd 'echo "sshd $*" >> "$FAKE/log"; [ -z "${FAKE_SSHD_BAD:-}" ]'
+f sshd 'echo "sshd $*" >> "$FAKE/log"; [ -z "${FAKE_SSHD_BAD:-}" ] || exit 1
+  if [ "$1" = -T ]; then if [ -e "$HALOS_SSHD_DROPIN" ] && [ -z "${FAKE_EARLIER_YES:-}" ]; then echo "passwordauthentication no"; else echo "passwordauthentication yes"; fi; fi'
+f ssh-keygen 'grep -q "^ssh-ed25519 AAAA"'
+f runuser '[ "$1 $2 $3" = "-u owner --" ] || exit 9; shift 3; exec "$@"'
+chmod 755 "$work/home/owner" "$work/home/owner/.ssh"
 : > "$work/log"
 "$ctl" ssh-passwords > "$work/out"; has 'keys or passwords' "$work/out"
 if "$ctl" ssh-passwords off --yes > "$work/out" 2>&1; then echo "turned passwords off without a key" >&2; exit 1; fi
@@ -346,6 +361,13 @@ has 'could lock you out' "$work/out"; [ ! -e "$HALOS_SSHD_DROPIN" ]
 echo "ssh-ed25519 AAAAkey owner@laptop" > "$work/home/owner/.ssh/authorized_keys"
 if FAKE_SSHD_BAD=1 "$ctl" ssh-passwords off --yes > "$work/out" 2>&1; then echo "kept a config sshd refused" >&2; exit 1; fi
 [ ! -e "$HALOS_SSHD_DROPIN" ] || { echo "a refused config stayed" >&2; exit 1; }
+# A setting sshd reads first wins over ours: refused, nothing kept.
+if FAKE_EARLIER_YES=1 "$ctl" ssh-passwords off --yes > "$work/out" 2>&1; then echo "kept a setting sshd doesn't use" >&2; exit 1; fi
+[ ! -e "$HALOS_SSHD_DROPIN" ] || exit 1
+# A .ssh others can write to: sshd would ignore the key, so it counts as none.
+chmod 777 "$work/home/owner/.ssh"
+if "$ctl" ssh-passwords off --yes > /dev/null 2>&1; then echo "took a key sshd would ignore" >&2; exit 1; fi
+chmod 755 "$work/home/owner/.ssh"
 "$ctl" ssh-passwords off --yes > "$work/out"
 grep -qx 'PasswordAuthentication no' "$HALOS_SSHD_DROPIN"; has 'try-reload-or-restart sshd' "$work/log"
 has 'ssh-passwords +on -> off +\(by owner\)' "$work/history"

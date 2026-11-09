@@ -131,8 +131,10 @@ it on; each needs a reboot.
 - The selftest's `signature-files` line compares the policy, the registry setting and halOS's
   public key with the image's own copies in `/usr/etc`, and warns about a policy file in root's
   home, which would replace the system one.
-- If a channel is ever pointed back at an older build, `halosctl switch` and `npu` say so before
-  the reboot (`upgrade` already did).
+- If the name you follow is ever pointed back at an older build, `halosctl upgrade` says so and
+  doesn't reboot by itself, so you can look first. (Other channels and the other edition are
+  built at other times, so `switch` and `npu` don't compare.)
+- `halosctl` also refuses to switch if `/etc/pki/containers/halos-flash.pub` isn't the image's copy.
 
 To build an ISO yourself, see [BUILDING.md](BUILDING.md).
 
@@ -621,10 +623,13 @@ system starts, so its own network settings apply. The TPM still unlocks the disk
 can: SSH is the way in when it can't. If ssh ever says this host key changed, don't type the
 passphrase: someone else could be asking for it.
 
-`halosctl ssh-unlock` (and `setup`) also keeps the fingerprints of these keys and the host key on
-the encrypted disk. If the copies on the EFI partition ever change without you, the selftest's
-`ssh-unlock` line and `sudo halosctl ssh-unlock` warn. A machine set up by the installer records
-them at first-boot setup, or with `sudo halosctl ssh-unlock record`.
+`halosctl ssh-unlock` (and `setup`) also keeps the fingerprints of these keys and the early-boot
+host key on the encrypted disk. If the copies on the EFI partition ever change without you, the
+selftest's `ssh-unlock` line and `sudo halosctl ssh-unlock` warn. Then whoever changed them had
+the disk and could have copied the host key, so set it up afresh: `sudo halosctl ssh-unlock off`,
+then `on`. That makes a new early-boot host key; replace its `known_hosts` line on your computer.
+A machine set up by the installer records them at first-boot setup, or with
+`sudo halosctl ssh-unlock record`, which only ever makes a first record.
 
 What it can and can't protect: the keys and that host key are kept on the disk's small
 unencrypted EFI partition (only the machine's own disks are read, never a USB stick), because every
@@ -642,8 +647,9 @@ nobody on the network can try to guess one:
 sudo halosctl ssh-passwords off
 ```
 
-It refuses while your account has no key in `~/.ssh/authorized_keys` (add one from your computer
-with `ssh-copy-id`), and checks the setting with `sshd -t` before applying it. The machine's own
+It refuses while your account has no key sshd would accept in `~/.ssh/authorized_keys` (add one
+from your computer with `ssh-copy-id`), and checks that sshd will really use the setting before
+applying it. The machine's own
 screen still takes the password. `sudo halosctl ssh-passwords on` allows passwords again.
 `sudo halosctl setup` offers it too, defaulting to no.
 

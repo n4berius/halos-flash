@@ -79,6 +79,9 @@ need_policy() {
     any(.transports.docker["ghcr.io/n4berius/halos-flash"][]?; .type == "sigstoreSigned" and
       .keyPath == "/etc/pki/containers/halos-flash.pub")' "$policy" > /dev/null 2>&1 \
     || die "$policy doesn't require halOS's signature, so bootc would refuse to check it. Restore halOS's copy: sudo cp /usr/etc/containers/policy.json /etc/containers/policy.json"
+  local key="${HALOS_KEY:-/etc/pki/containers/halos-flash.pub}" image_key="${HALOS_IMAGE_KEY:-/usr/etc/pki/containers/halos-flash.pub}"
+  [ ! -e "$image_key" ] || cmp -s "$key" "$image_key" \
+    || die "$key isn't halOS's key. Restore it: sudo cp $image_key $key"
 }
 sig_flag=--enforce-container-sigpolicy
 repo() {
@@ -206,9 +209,12 @@ switch_to() {
   fi
   # A tag pointed back at an older build (by someone with access to the registry but not the
   # key, or a mistake): say so before the reboot. rollback --to goes back on purpose.
-  if [ "$what" != rollback ] && [[ "$(field staged timestamp)" < "$(field booted timestamp)" ]]; then
+  # Only for the same image name (the first signed upgrade): other channels and the other edition
+  # are built at other times, so an older build there is normal.
+  if [ "$what" = upgrade ] && [ -n "$(field staged timestamp)" ] && [[ "$(field staged timestamp)" < "$(field booted timestamp)" ]]; then
     echo "Warning: the staged image was built before the one running ($(field staged timestamp) vs $(field booted timestamp))."
-    echo "Check with sudo halosctl version before rebooting; sudo bootc rollback undoes the staging."
+    echo "Its channel may have moved back. Check with sudo halosctl version before rebooting; sudo bootc rollback undoes the staging."
+    reboot=0
   fi
   record "$what" "$from" "$staged"
   finish
@@ -252,7 +258,8 @@ pick_keys() {
 # Saves the keys; fails (without stopping setup) when they can't be saved.
 ssh_unlock_on() {
   printf '%s\n' "$1" | "$unlock" install || { echo "   Couldn't save the keys; nothing changed." >&2; return 1; }
-  "$unlock" record || echo "   Couldn't keep their fingerprints on the encrypted disk; sudo halosctl ssh-unlock record tries again." >&2
+  # The keys you just chose replace the record (install made a new host key if the old one had changed).
+  HALOS_RECORD_REPLACE=1 "$unlock" record || echo "   Couldn't keep their fingerprints on the encrypted disk; sudo halosctl ssh-unlock record tries again." >&2
   record ssh-unlock off on
   "$unlock" status | sed 's/^/   /'
   ssh_unlock_howto
@@ -271,18 +278,32 @@ keys_only="${HALOS_SSHD_DROPIN:-/etc/ssh/sshd_config.d/20-halos-keys-only.conf}"
 passwords_off() { [ -e "$keys_only" ]; }
 # The admin running this has a key to log in with, so turning passwords off can't lock them out.
 admin_has_key() {
-  local home
+  local home line key
   [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ] || return 1
   home="$(getent passwd "$SUDO_USER" | cut -d: -f6)"
-  [ -n "$home" ] && grep -qE '^(ssh-|ecdsa-|sk-)' "$home/.ssh/authorized_keys" 2> /dev/null
+  [ -n "$home" ] || return 1
+  # sshd ignores keys in a home or .ssh others can write to (StrictModes).
+  local d; for d in "$home" "$home/.ssh"; do
+    [ -d "$d" ] && [ ! -L "$d" ] || return 1
+    case "$(stat -c %A "$d")" in ?????w????|????????w?) return 1 ;; esac
+  done
+  # Read as that user, never following anything as root; a key OpenSSH still accepts.
+  while IFS= read -r line; do
+    key="$(grep -oE '(ssh-ed25519|sk-ssh-ed25519@openssh\.com|ecdsa-sha2-nistp[0-9]+|sk-ecdsa-sha2-nistp256@openssh\.com|ssh-rsa) [A-Za-z0-9+/]+={0,3}' <<< "$line" | head -n 1)"
+    [ -n "$key" ] && ssh-keygen -l -f /dev/stdin <<< "$key" > /dev/null 2>&1 && return 0
+  done < <(runuser -u "$SUDO_USER" -- cat "$home/.ssh/authorized_keys" 2> /dev/null)
+  return 1
 }
-set_passwords() { # on|off
+set_passwords() { # on|off; fails (without stopping setup) when sshd won't take it
   if [ "$1" = off ]; then
     printf '%s\n' "# halOS: SSH logins with keys only; sudo halosctl ssh-passwords on allows passwords again." \
-      "PasswordAuthentication no" "KbdInteractiveAuthentication no" > "$keys_only.new" && mv -f "$keys_only.new" "$keys_only"
-    if ! sshd -t > /dev/null 2>&1; then rm -f "$keys_only"; die "sshd refused the change; nothing changed"; fi
+      "PasswordAuthentication no" "KbdInteractiveAuthentication no" > "$keys_only.new" && mv -f "$keys_only.new" "$keys_only" || return 1
+    # The setting sshd will use: an earlier file could say yes, and the first value wins.
+    if ! sshd -t > /dev/null 2>&1 || ! sshd -T 2> /dev/null | grep -qx 'passwordauthentication no'; then
+      rm -f "$keys_only"; echo "sshd didn't take the change (another setting comes first?); nothing changed" >&2; return 1
+    fi
   else rm -f "$keys_only"; fi
-  systemctl try-reload-or-restart sshd.service || true
+  systemctl try-reload-or-restart sshd.service || { echo "sshd couldn't reload; the change applies at its next start" >&2; return 1; }
 }
 
 cmd="${1:-version}"; [ $# = 0 ] || shift
@@ -512,12 +533,14 @@ case "$cmd" in
         admin_has_key || die "your account (${SUDO_USER:-root}) has no SSH key in ~/.ssh/authorized_keys, so turning passwords off could lock you out. Add your key first (ssh-copy-id from your computer)"
         echo "SSH logins will need a key; passwords keep working at the machine's own screen."
         confirm "Turn off passwords for SSH logins?"
-        set_passwords off; record ssh-passwords on off
+        set_passwords off || exit 1
+        record ssh-passwords on off
         echo "Done: SSH logins now need a key." ;;
       on)
         passwords_off || { echo "Passwords are already allowed for SSH logins."; exit 0; }
         confirm "Allow passwords for SSH logins again?"
-        set_passwords on; record ssh-passwords off on
+        set_passwords on || exit 1
+        record ssh-passwords off on
         echo "Done: SSH logins take passwords again." ;;
       *) die "ssh-passwords on, off, or nothing for its state" ;;
     esac
@@ -574,7 +597,11 @@ case "$cmd" in
       if [ "$("$unlock" status --short 2> /dev/null || echo off)" != off ]; then
         # Set up by the installer: keep the fingerprints now, from the first boot.
         rc=0; "$unlock" verify 2> /dev/null || rc=$?
-        if [ "$rc" = 2 ]; then "$unlock" record 2> /dev/null || true; fi
+        if [ "$rc" = 2 ] && "$unlock" record 2> /dev/null; then
+          echo "   Recorded their fingerprints on the encrypted disk, to notice if they change."
+        elif [ "$rc" = 1 ]; then
+          echo "   WARNING: they differ from the record on the encrypted disk; see sudo halosctl ssh-unlock"
+        fi
         echo "   It's set up already (sudo halosctl ssh-unlock changes it):"
         "$unlock" status | sed 's/^/   /'
         ssh_unlock_howto
@@ -586,7 +613,8 @@ case "$cmd" in
     if ! passwords_off && admin_has_key; then
       echo "   Your account logs in over SSH with a key. Passwords could be turned off for SSH logins, so"
       echo "   nobody can guess one (the machine's own screen still takes it)."
-      if ask "   Allow only keys for SSH logins? [y/N]" n; then set_passwords off && record ssh-passwords on off && echo "   Done."
+      if ask "   Allow only keys for SSH logins? [y/N]" n; then
+        if set_passwords off; then record ssh-passwords on off; echo "   Done."; else echo "   Kept. Later: sudo halosctl ssh-passwords off"; fi
       else echo "   Kept. Later: sudo halosctl ssh-passwords off"; fi
     fi
 

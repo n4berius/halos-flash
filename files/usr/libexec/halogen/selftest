@@ -78,7 +78,9 @@ for f in containers/policy.json containers/registries.d/halos-flash.yaml pki/con
   cmp -s "$etc/$f" "$usretc/$f" || changed+=" /etc/$f"
 done
 rootpolicy="${HALOS_ROOT_POLICY:-/root/.config/containers/policy.json}"
-if [ -n "$changed" ]; then
+if [ ! -e "$usretc/containers/policy.json" ]; then
+  say SKIP signature-files "the image's copies in $usretc are missing, so there is nothing to compare with"
+elif [ -n "$changed" ]; then
   say WARN signature-files "changed from halOS's copy:$changed (restore each with: sudo cp /usr/etc/<path> /etc/<path>)"
 elif [ -e "$rootpolicy" ]; then
   say WARN signature-files "$rootpolicy replaces the system's signature policy for root; remove it unless you meant it"
@@ -173,6 +175,7 @@ else
       rc=0; run "${HALOS_SSH_UNLOCK:-/usr/libexec/halogen/ssh-unlock}" verify > /dev/null || rc=$?
       case "$rc" in
         0) say PASS ssh-unlock "the disk can also be unlocked over SSH at boot (${st#on } key(s), as recorded); details: sudo halosctl ssh-unlock" ;;
+        124) say WARN ssh-unlock "reading the EFI partition took too long; run it again" ;;
         2) say INFO ssh-unlock "unlocks over SSH at boot (${st#on } key(s)); keep their fingerprints to notice a change: sudo halosctl ssh-unlock record" ;;
         *) say WARN ssh-unlock "the SSH unlock keys or host key on the EFI partition differ from the record on the encrypted disk; check: sudo halosctl ssh-unlock" ;;
       esac ;;

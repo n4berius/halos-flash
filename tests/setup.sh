@@ -9,7 +9,12 @@ mkdir -p "$work/bin" "$work/state" "$work/configs" "$work/dev"
 export FAKE="$work"
 f() { printf '#!/bin/bash\n%s\n' "$2" > "$work/bin/$1"; chmod +x "$work/bin/$1"; }
 f id 'echo 0'
-f runuser 'echo "runuser $*" >> "$FAKE/log"; [ "$1 $2 $3" = "-u halogen --" ] || exit 9; shift 3; FAKE_AS=halogen exec "$@"'
+f runuser 'echo "runuser $*" >> "$FAKE/log"; case "$1 $2 $3" in "-u halogen --"|"-u owner --") ;; *) exit 9 ;; esac; u="$2"; shift 3; FAKE_AS=$u exec "$@"'
+# The admin running setup, with or without an SSH key; sshd always takes the keys-only file.
+f getent 'case "$1 $2" in "passwd owner") echo "owner:x:1000:1000::$FAKE/home/owner:/bin/bash" ;; *) exit 2 ;; esac'
+f sshd 'case "$1" in -T) echo "passwordauthentication no" ;; esac'
+f ssh-keygen 'grep -q "^ssh-ed25519 AAAA"'
+mkdir -p "$work/home/owner/.ssh" "$work/sshd.d"; chmod 755 "$work/home/owner" "$work/home/owner/.ssh"
 f lsblk 'printf "%s\n" "${FAKE_LSBLK-/dev/nvme0n1p3 crypto_LUKS}"'
 f cryptsetup 'printf "Tokens:\n%s" "${FAKE_TOKENS:-}"'
 f halogen-enroll-tpm 'echo "enroll-tpm" >> "$FAKE/log"'
@@ -26,7 +31,8 @@ f ssh-unlock 'case "$1" in
   install) cat > "$FAKE/installed"; echo "ssh-unlock install" >> "$FAKE/log" ;;
 esac'
 printf 'HALOGEN_VARIANT=no-npu\n' > "$work/release.env"
-export PATH="$work/bin:$PATH" HALOS_SSH_UNLOCK="$work/bin/ssh-unlock" HALOS_HISTORY="$work/history" HALOGEN_RELEASE_FILE="$work/release.env" HALOGEN_STATE_DIR="$work/state" HALOGEN_CONFIGS_DIR="$work/configs" HALOGEN_DEV="$work/dev"
+export PATH="$work/bin:$PATH" HALOS_SSH_UNLOCK="$work/bin/ssh-unlock" HALOS_HISTORY="$work/history" \
+  SUDO_USER=owner HALOS_SSHD_DROPIN="$work/sshd.d/20-halos-keys-only.conf" HALOGEN_RELEASE_FILE="$work/release.env" HALOGEN_STATE_DIR="$work/state" HALOGEN_CONFIGS_DIR="$work/configs" HALOGEN_DEV="$work/dev"
 ctl="$repo/files/usr/bin/halosctl"
 ok() { echo "ok: $*"; }
 # Answers the questions through a terminal, one line each.
@@ -87,7 +93,16 @@ FAKE_CHOICE=both answer '' n n n
 grep -qx enroll-tpm "$work/log" || { cat "$work/out" >&2; echo "Enter didn't enroll the TPM after choosing it" >&2; exit 1; }
 FAKE_CHOICE=none FAKE_LSBLK='' answer n n
 if grep -q 'At install you chose' "$work/out"; then echo "an unencrypted disk got an unlock choice line" >&2; exit 1; fi
-ok "setup offers unlocking over SSH, asks again when an account has no keys, installs the confirmed ones, and defaults to the installer's choice"
+# With a key, the admin is offered keys-only SSH logins: Enter keeps passwords, y turns them off.
+echo "ssh-ed25519 AAAAkey owner@laptop" > "$work/home/owner/.ssh/authorized_keys"
+FAKE_TOKENS='  0: systemd-tpm2' answer n '' n n
+grep -q 'Allow only keys for SSH logins' "$work/out" || { cat "$work/out" >&2; echo "keys-only wasn't offered" >&2; exit 1; }
+[ ! -e "$work/sshd.d/20-halos-keys-only.conf" ] || { echo "Enter turned passwords off" >&2; exit 1; }
+grep -qx 'halogenctl hf-token' "$work/log" && { echo "an answer shifted onto the token step" >&2; exit 1; }
+FAKE_TOKENS='  0: systemd-tpm2' answer n y n n
+grep -qx 'PasswordAuthentication no' "$work/sshd.d/20-halos-keys-only.conf" || { cat "$work/out" >&2; echo "y didn't turn passwords off" >&2; exit 1; }
+rm -f "$work/home/owner/.ssh/authorized_keys" "$work/sshd.d/20-halos-keys-only.conf"
+ok "setup offers unlocking over SSH, asks again when an account has no keys, installs the confirmed ones, defaults to the installer's choice, and offers keys-only logins to an admin with a key"
 
 # Run again later: nothing pending, so it offers a restart instead.
 answer n n n n y
