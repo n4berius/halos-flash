@@ -82,6 +82,8 @@ if grep -q enroll-tpm "$work/log"; then echo "Enter enrolled the TPM after choos
 touch "$work/state/setup-pending"
 FAKE_CHOICE=both answer '' n n n
 grep -qx enroll-tpm "$work/log" || { cat "$work/out" >&2; echo "Enter didn't enroll the TPM after choosing it" >&2; exit 1; }
+FAKE_CHOICE=none FAKE_LSBLK='' answer n n
+if grep -q 'At install you chose' "$work/out"; then echo "an unencrypted disk got an unlock choice line" >&2; exit 1; fi
 ok "setup offers unlocking over SSH, asks again when an account has no keys, installs the confirmed ones, and defaults to the installer's choice"
 
 # Run again later: nothing pending, so it offers a restart instead.

@@ -147,7 +147,7 @@ case "$cmd" in
     ;;
   remove)
     find_esp
-    rm -rf "$esp/halos/ssh-unlock"
+    rm -rf "$esp/halos/ssh-unlock" "$esp/halos/unlock-choice"
     rmdir "$esp/halos" 2> /dev/null || true
     sync
     ;;
@@ -167,5 +167,5 @@ case "$cmd" in
     printf '  Host %s-unlock\n      HostName %s\n      User root\n      HostKeyAlias %s-unlock\n' "$host" "$host" "$host"
     echo "known_hosts line: $host-unlock $(cut -d' ' -f1,2 "$dir/ssh_host_ed25519_key.pub" | clean)"
     ;;
-  *) die "usage: ssh-unlock fetch|check|describe|install|remove|status" ;;
+  *) die "usage: ssh-unlock fetch|check|describe|install|install-choice|choice|remove|status" ;;
 esac

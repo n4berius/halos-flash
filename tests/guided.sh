@@ -81,6 +81,7 @@ got = {
   "disk": h.ignoredisk.onlyuse,
   "lvs": sorted((l.name, l.mountpoint, l.grow) for l in h.logvol.lvList),
   "vg": [v.vgname for v in h.volgroup.vgList],
+  "sshkey": [(k.username, k.key) for k in h.sshkey.sshUserList],
 }
 want = eval(sys.argv[2])
 for k, v in want.items():
@@ -117,6 +118,10 @@ parse "{'luks': [\"it's a secret\"], 'root': None, 'admin': [('nab', 'hunter2hun
   ('root', '/', False), ('var', '/var', False)]}"
 if [ "$(cat "$work/halos-unlock-choice")" != none ] || [ -e "$work/halos-unlock-keys" ]; then echo "unlock: neither was not kept" >&2; exit 1; fi
 ok "one empty disk: a yes, the questions, fixed halos-* volumes, and the passphrase survives quoting"
+# No encryption: nothing to unlock, so no choice is handed on.
+typed yes '' no no nab hunter2hunter2 hunter2hunter2 yes
+[ "$rc" = 0 ] || { cat "$work/out" >&2; exit 1; }
+if [ -e "$work/halos-unlock-choice" ]; then echo "an unencrypted install handed on an unlock choice" >&2; exit 1; fi
 
 # How an encrypted disk unlocks (#13). TPM only: no keys. "back" from the keys returns to the choice.
 crypt=(yes '' yes secretpass secretpass no nab hunter2hunter2 hunter2hunter2)
@@ -126,20 +131,24 @@ if [ "$(cat "$work/halos-unlock-choice")" != tpm ] || [ -e "$work/halos-unlock-k
 expect "$work/out" '1) TPM and SSH (recommended)'; expect "$work/out" 'Unlock:       TPM'
 if grep -q sshkey "$ks"; then echo "an admin key without SSH" >&2; exit 1; fi
 # SSH only, a pasted key: a bad one asks again; the key also logs the admin in.
-typed "${crypt[@]}" 3 4 'not a key' 4 'ssh-ed25519 AAAApasted me@pc' '' '' yes
+typed "${crypt[@]}" 3 4 'not a key' 4 'ssh-ed25519 AAAApasted me@pc' '' maybe y yes
 [ "$rc" = 0 ] || { cat "$work/out" >&2; exit 1; }
 expect "$work/out" "That isn't a public key this can use"
 [ "$(cat "$work/halos-unlock-choice")" = ssh ] || exit 1
 grep -qx 'ssh-ed25519 AAAApasted me@pc' "$work/halos-unlock-keys" || { echo "the pasted key wasn't kept" >&2; exit 1; }
 expect "$ks" "sshkey --username=nab 'ssh-ed25519 AAAApasted me@pc'"
 [ "$(stat -c %a "$work/halos-unlock-keys")" = 600 ] || { echo "the keys file is readable by others" >&2; exit 1; }
-expect "$work/out" '  KEY ssh-ed25519 AAAApasted me@pc'
+expect "$work/out" '  KEY ssh-ed25519 AAAApasted me@pc'; expect "$work/out" 'Please answer yes or no.'
+# Enter at the admin question is no: the keys only unlock.
+typed "${crypt[@]}" 3 4 'ssh-ed25519 AAAApasted me@pc' '' '' yes
+[ "$rc" = 0 ] || { cat "$work/out" >&2; exit 1; }
+if grep -q sshkey "$ks"; then echo "Enter gave the admin the keys" >&2; exit 1; fi
 # TPM and SSH (the default), keys from Codeberg: no network, then a user with none, then alice; not for the admin.
 FAKE_OFFLINE=1 typed "${crypt[@]}" '' 3 alice 5 4
 stopped || exit 1; expect "$work/out" 'There is no network'
 typed "${crypt[@]}" '' 3 bob 3 alice y n yes
 [ "$rc" = 0 ] || { cat "$work/out" >&2; exit 1; }
-expect "$work/out" 'bob has no public keys on codeberg'
+expect "$work/out" 'bob has no public keys on codeberg'; expect "$work/out" 'Keys of codeberg user alice:'
 [ "$(cat "$work/halos-unlock-choice")" = both ] || exit 1
 grep -qx 'ssh-ed25519 AAAAalice alice@laptop' "$work/halos-unlock-keys" || exit 1
 if grep -q sshkey "$ks"; then echo "the admin got keys after a no" >&2; exit 1; fi
@@ -234,7 +243,7 @@ expect "$ks" "sshkey --username=admin 'ssh-ed25519 AAAAtest halostest'"
 if [ "$(cat "$work/halos-unlock-choice")" != both ] || ! grep -qx 'ssh-ed25519 AAAAtest halostest' "$work/halos-unlock-keys"; then
   echo "the unattended unlock answers weren't kept" >&2; exit 1
 fi
-parse "{'luks': ['halogentest'], 'root': '\$(touch \$FAKE/pwned)', 'disk': ['vda']}"
+parse "{'luks': ['halogentest'], 'root': '\$(touch \$FAKE/pwned)', 'disk': ['vda'], 'sshkey': [('admin', 'ssh-ed25519 AAAAtest halostest')]}"
 echo xfs > "$work/fs.vda"
 run < /dev/null
 stopped || { echo "a disk with data was erased without confirm" >&2; exit 1; }

@@ -105,35 +105,46 @@ valid_user() {
   # Any other account or group the system already has (it has the installer's, and more).
   ! getent passwd "$1" >/dev/null && ! getent group "$1" >/dev/null
 }
+# Enter takes the default (y or n); anything but yes or no asks again.
+yn() { # prompt default
+  while :; do
+    ask "$1"
+    case "${REPLY,,}" in '') [ "$2" = y ]; return ;; y|yes) return 0 ;; n|no) return 1 ;; esac
+    say "Please answer yes or no."
+  done
+}
 # Unlocking over SSH (#13): keys are fetched and checked by the same helper halosctl uses.
 keys_tool="${HALOS_KEYS_TOOL:-/usr/libexec/halos/ssh-unlock}"
 unlock_dir="${HALOS_UNLOCK_DIR:-/tmp}"
-unlock=none; keys=""; admin_keys=""
+unlock=none; keys=""; admin_keys=""; keys_from=""
 network_up() { command -v nm-online > /dev/null && nm-online -q -t 20 2> /dev/null; }
 # Where the keys are, until some are found and taken; 1 to go back to the unlock choice.
 pick_keys() {
   local site got
   while :; do
     say "" "Where are your SSH public keys?" \
-        "  1) GitHub   2) GitLab   3) Codeberg   4) paste one key   5) back"
+        "  1) GitHub   2) GitLab   3) Codeberg   4) type or paste one key   5) back"
     ask "Choose 1-5:"
     case "$REPLY" in 1) site=github ;; 2) site=gitlab ;; 3) site=codeberg ;; 4) site=key ;; 5) return 1 ;; *) continue ;; esac
     if [ "$site" = key ]; then
-      ask "Paste the public key (one line, such as ssh-ed25519 AAAA... you@computer):"
+      ask "The public key, on one line (such as ssh-ed25519 AAAA... you@computer):"
       if ! got="$(printf '%s\n' "$REPLY" | "$keys_tool" check 2> /dev/null)"; then
         say "That isn't a public key this can use. Try again, or pick another option."; continue
       fi
+      from="the key you gave"
     else
+      say "Checking the network..."
+      if ! network_up; then say "There is no network. Plug in a cable (DHCP) and pick the site again, or give a key instead."; continue; fi
       ask "Your user name on $site:"
-      if ! network_up; then say "There is no network. Plug in a cable (DHCP), or paste a key instead."; continue; fi
       if ! got="$("$keys_tool" fetch "$site" "$REPLY" 2> "$unlock_dir/halos-fetch.err")"; then
-        say "$(tail -n 1 "$unlock_dir/halos-fetch.err" | sed 's/^ssh-unlock: //')" "Try another site or user name, or paste a key."
+        say "$(tail -n 1 "$unlock_dir/halos-fetch.err" | sed 's/^ssh-unlock: //')" "Try another site or user name, or give a key."
         continue
       fi
+      # Named, so a mistyped user name that exists elsewhere is seen before its keys are taken.
+      from="$site user $(printf '%s' "$REPLY" | tr -cd 'A-Za-z0-9._-')"
     fi
-    say "Keys found:"; "$keys_tool" describe <<< "$got"
-    ask "Use these keys? [Y/n]"
-    case "${REPLY,,}" in ''|y|yes) keys="$got"; return 0 ;; esac
+    say "Keys of $from:"; "$keys_tool" describe <<< "$got"
+    if yn "Use these keys? [Y/n]" y; then keys="$got"; keys_from="$from"; return 0; fi
   done
 }
 valid_host() { [[ "$1" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]]; }
@@ -284,10 +295,8 @@ else
       if [ "$unlock" = tpm ] || [ "$unlock" = none ]; then keys=""; break; fi
       pick_keys && break
     done
-    if [ -n "$keys" ]; then
-      ask "Let these keys log $admin in over SSH too? [Y/n]"
-      case "${REPLY,,}" in ''|y|yes) admin_keys="$keys" ;; esac
-    fi
+    # No by default: the unlock keys only answer the passphrase prompt; an admin login is more.
+    if [ -n "$keys" ] && yn "Let the keys of $keys_from log $admin in over SSH too? [y/N]" n; then admin_keys="$keys"; fi
   fi
   finish=reboot
   say "" "Ready to install:"
@@ -326,6 +335,8 @@ umask 077
     echo "rootpw --lock"
   fi
   echo "user --name=$admin --groups=wheel --iscrypted --password=$(q "$adminhash")"
+  # One line per key. pykickstart warns from the second on ("already been defined"), but Anaconda
+  # keeps them all; the warning is fatal only with inst.ksstrict, which halOS doesn't use.
   while IFS= read -r k; do
     [ -z "$k" ] || echo "sshkey --username=$admin $(q "$k")"
   done <<< "$admin_keys"
@@ -349,8 +360,9 @@ umask 077
   echo "logvol /var/srv/models  --vgname=halos --name=models  --fstype=xfs --size=1 --grow"
   echo "$finish"
 } > "$out" || stop "Could not write $out."
-# For the kickstart's %post: how the disk unlocks, and the keys that may unlock it over SSH.
-printf '%s\n' "$unlock" > "$unlock_dir/halos-unlock-choice" || stop "Could not write the unlock choice."
+# For the kickstart's %post: how an encrypted disk unlocks, and the keys that may unlock it.
+rm -f "$unlock_dir/halos-unlock-choice" "$unlock_dir/halos-unlock-keys"
+if [ -n "$luks" ]; then printf '%s\n' "$unlock" > "$unlock_dir/halos-unlock-choice" || stop "Could not write the unlock choice."; fi
 if [ -n "$keys" ]; then printf '%s\n' "$keys" > "$unlock_dir/halos-unlock-keys" || stop "Could not write the keys."
 else rm -f "$unlock_dir/halos-unlock-keys"; fi
 say "" "Installing halOS on $disk. This takes a few minutes; the machine then $([ "$finish" = reboot ] && echo restarts || echo powers off)."

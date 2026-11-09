@@ -176,10 +176,15 @@ answered them all and said yes at the end.
    The TPM itself is set up at the first boot, in
    [first-boot setup](#6-first-boot-setup-then-let-the-first-boot-finish). For SSH, it asks
    where your public keys are: **GitHub, GitLab or Codeberg** (type your user name; it needs a
-   network cable, with DHCP), or **paste one key**. It shows each key it found and asks before
-   using them. If an account has no keys, it says so and asks again, and **back** returns to the
-   unlock choice. Then it asks whether the same keys may log the admin user in over SSH (Enter:
-   yes). How to unlock over SSH: [Unlock over SSH at boot](#unlock-over-ssh-at-boot).
+   network cable, with DHCP), or **type one key** (there's no clipboard at the machine's own
+   screen, so the account is the easier way). It names the account and shows each key it found,
+   and asks before using them. If an account has no keys, it says so and asks again, and
+   **back** returns to the unlock choice. Then it asks whether the same keys may also log the
+   admin user in over SSH (Enter: no).
+
+   The first boot still asks for the passphrase at the keyboard. `sudo halosctl setup` then sets
+   up the TPM and shows two lines to add on the computer you unlock from (see
+   [Unlock over SSH at boot](#unlock-over-ssh-at-boot)); from the next boot, SSH works.
 7. It shows a summary and asks once more: **"Erase nvme0n1 and install halOS now?"**
 
 The install copies the OS from the USB drive, so it needs no network, and takes a few minutes.

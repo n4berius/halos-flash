@@ -244,6 +244,9 @@ ssh_unlock_on() {
   printf '%s\n' "$1" | "$unlock" install || { echo "   Couldn't save the keys; nothing changed." >&2; return 1; }
   record ssh-unlock off on
   "$unlock" status | sed 's/^/   /'
+  ssh_unlock_howto
+}
+ssh_unlock_howto() {
   echo "   On the computer you unlock from, add the entry above to ~/.ssh/config and the known_hosts"
   echo "   line to ~/.ssh/known_hosts, once. The early-boot server has a host key of its own, and"
   echo "   this keeps it apart from the running system's. From the next boot, when the disk waits"
@@ -488,13 +491,14 @@ case "$cmd" in
     tpm_yn="[Y/n]"; tpm_default=y; ssh_yn="[Y/n]"; ssh_default=y
     case "$chosen" in ssh|none) tpm_yn="[y/N]"; tpm_default=n ;; esac
     case "$chosen" in tpm|none) ssh_yn="[y/N]"; ssh_default=n ;; esac
+    crypt="$(lsblk -rno PATH,FSTYPE 2>/dev/null | awk '$2 == "crypto_LUKS" { print $1 }')"
+    [ -n "$crypt" ] || chosen=""
     case "$chosen" in
       both) echo "   At install you chose: the TPM, and SSH when it can't." ;;
       tpm) echo "   At install you chose: the TPM." ;;
       ssh) echo "   At install you chose: SSH, not the TPM." ;;
       none) echo "   At install you chose: the passphrase at the keyboard." ;;
     esac
-    crypt="$(lsblk -rno PATH,FSTYPE 2>/dev/null | awk '$2 == "crypto_LUKS" { print $1 }')"
     if [ -z "$crypt" ]; then echo "   The disk isn't encrypted, so there is nothing to unlock."
     elif [ ! -e "${HALOGEN_DEV:-/dev}/tpmrm0" ] && [ ! -e "${HALOGEN_DEV:-/dev}/tpm0" ]; then echo "   No TPM found: you type the passphrase at each boot."
     elif [ "$(cryptsetup luksDump "$(head -n 1 <<< "$crypt")" 2>/dev/null | grep -cE '^[[:space:]]*[0-9]+: systemd-tpm2')" -gt 0 ]; then
@@ -508,7 +512,9 @@ case "$cmd" in
       echo "   Unlocking over SSH: when the TPM can't unlock the disk (after a BIOS update, say), or on a"
       echo "   machine without one, you type the passphrase from another computer instead of at a keyboard."
       if [ "$("$unlock" status --short 2> /dev/null || echo off)" != off ]; then
-        echo "   It's set up already. To see or change it: sudo halosctl ssh-unlock"
+        echo "   It's set up already (sudo halosctl ssh-unlock changes it):"
+        "$unlock" status | sed 's/^/   /'
+        ssh_unlock_howto
       elif ask "   Set up unlocking over SSH? $ssh_yn" "$ssh_default" && pick_keys; then
         ssh_unlock_on "$picked" || echo "   Try again later: sudo halosctl ssh-unlock on"
       else echo "   Skipped. Later: sudo halosctl ssh-unlock on"; fi
