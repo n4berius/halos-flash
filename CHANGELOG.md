@@ -10,6 +10,17 @@ promoted.
 
 ## Unreleased
 
+- Hardening from the security reviews of #91, #93 and #94 (#96):
+  - `halosctl version` says whether updates are signature-checked, and the SSH login message warns
+    when they aren't; the selftest's new `signature-files` line warns if the policy, registry
+    setting or halOS's key differ from the image's copies, or root has a policy of its own.
+  - `halosctl upgrade` doesn't reboot by itself when the name it follows points to an older build,
+    and switching refuses a changed halOS public key file.
+  - SSH unlock keeps the keys' and early-boot host key's fingerprints on the encrypted disk; the
+    selftest and `halosctl ssh-unlock` warn when the EFI partition's copies change, and setting
+    them up again then makes a new host key.
+  - `sudo halosctl ssh-passwords off` allows SSH logins with keys only, once your account has a
+    key; setup offers it.
 - `sudo halogenctl flash convert <repo>` converts full-precision (BF16 safetensors) Qwen3.8 Flash
   Next weights into your own Flash checkpoint on the machine, with bf16-to-hgn (built into the
   image, CPU only). It checks the model before the 360 GB download, runs as its own service (many

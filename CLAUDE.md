@@ -235,6 +235,27 @@ name, but allows saying halOS runs Halogen.
   Unattended answers: `unlock`, `ssh_key`, `admin_ssh`; the VM test installs with `unlock=both`
   and its key, so the first boot only reads the state.
 
+- Hardening (#96): `need_policy` also requires the rule's `keyPath`; `halosctl version` prints
+  `Signatures:` (login-status shows only the "not checked" line in the motd); `need_policy` also
+  `cmp`s the public key with `/usr/etc`'s copy when there; `switch_to` warns about an older staged
+  build only for `upgrade` (the first signed upgrade, same name; build times of other channels and
+  of the other edition, built in a parallel job, differ normally) and then drops `--reboot`; the
+  selftest's `signature-files` (SKIP without `/usr/etc` copies)
+  compares `/etc/{containers/policy.json,containers/registries.d/halos-flash.yaml,
+  pki/containers/halos-flash.pub}` with `/usr/etc` and warns about
+  `/root/.config/containers/policy.json`. SSH unlock: `ssh-unlock record` keeps sha256 of the ESP's
+  `authorized_keys` and the host key, private (what boot serves) and public, in
+  `/var/lib/halos/ssh-unlock.sums`; `record` only makes a first record (`on` replaces it with
+  `HALOS_RECORD_REPLACE=1`, after `install` made a new host key if the ESP had changed since the
+  record); `setup` records an installer's keys and says so; `remove` drops it; `verify` returns
+  0/1/2 (match, differ, none) for the selftest. `halosctl ssh-passwords on|off` writes or removes
+  `/etc/ssh/sshd_config.d/20-halos-keys-only.conf` (`PasswordAuthentication no`,
+  `KbdInteractiveAuthentication no`; sshd takes the first value, so 20 beats Fedora's 50), only when
+  `$SUDO_USER` has a key sshd accepts (read as that user, checked with ssh-keygen; home and .ssh not
+  group/world-writable), checked with `sshd -t` and `sshd -T` (the setting sshd will use); in
+  setup a failure doesn't stop setup. A second signing key isn't shipped: it needs a
+  key pair the owner makes offline (RELEASING.md).
+
 - Converting full-precision weights (`halogenctl flash convert`, #97): bf16-to-hgn
   (Quat3rnion, MIT/Apache-2.0, `native/` Apache-2.0) is built in the Containerfile's
   `bf16-to-hgn` stage from `BF16_TO_HGN_COMMIT` (same Fedora base, so libstdc++/libgomp match;
