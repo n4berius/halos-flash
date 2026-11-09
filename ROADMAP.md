@@ -23,18 +23,13 @@ installer (#42), a full security audit (#69), the benchmark (#15), `flash check`
 `halosctl npu on|off` (#40) and tab completion (#14).
 
 On edge, for the next release: the tokenizer fix for checkpoints that ship no vocabulary (#88), and
-machines refuse unsigned images (#46, phase 2, #PR).
+machines refuse unsigned images (#46, phase 2, #91).
 
 ## Next
 
-The second stable release aims at the first three.
-
 1. Unlock the disk over SSH at boot (#13).
-2. Convert full-precision (BF16 safetensors) checkpoints to `.hgn` on the machine, so `flash pull`
-   can take a repository's own weights. [bf16-to-hgn](https://github.com/Quat3rnion/bf16-to-hgn)
-   does it for Qwen3.8 Flash Next only; Qwen4 and Qwen4 Flash Next come when we get there.
-3. Unlock the disk from a tang server on the network (#44).
-4. GGUF repositories in `flash pull` (#61).
+2. Unlock the disk from a tang server on the network (#44).
+3. GGUF repositories in `flash pull` (#61).
 
 ## Always
 

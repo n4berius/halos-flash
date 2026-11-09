@@ -176,6 +176,12 @@ FAKE_STAGED_EDITION=no-npu "$ctl" upgrade --yes > "$work/out"
 has '^bootc switch --enforce-container-sigpolicy ghcr.io/n4berius/halos-flash:beta-no-npu$' "$work/log"; hasnt 'bootc upgrade' "$work/log"
 has 'upgrade .*:beta-no-npu \(0.19.0-beta.1\) -> ghcr.io/n4berius/halos-flash:beta-no-npu' "$work/history"
 : > "$work/log"; FAKE_NO_UPDATE=1 "$ctl" upgrade --yes > "$work/out"; has 'already staged' "$work/out"; hasnt 'bootc switch' "$work/log"
+# With a change staged (here npu off), the check goes on for what boots next, not what runs.
+: > "$work/log"
+FAKE_SIG=insecure host "$(dep ghcr.io/n4berius/halos-flash:beta 0.19.0-beta.1 sha256:bbb)" \
+  "$(dep ghcr.io/n4berius/halos-flash:beta-no-npu 0.19.0-beta.1 sha256:ccc)" > "$work/status.json"
+"$ctl" upgrade --yes > "$work/out"
+has '^bootc switch --enforce-container-sigpolicy ghcr.io/n4berius/halos-flash:beta-no-npu$' "$work/log"
 # Pinned by digest, here a no-NPU build: the same build, now checked, whatever its edition.
 FAKE_SIG=insecure host "$(dep ghcr.io/n4berius/halos-flash@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd 0.19.0-beta.1 sha256:ddd)" > "$work/status.json"
 FAKE_STAGED_EDITION=no-npu "$ctl" upgrade --yes > "$work/out" || { cat "$work/out" >&2; exit 1; }

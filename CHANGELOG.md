@@ -14,7 +14,7 @@ promoted.
   older ones turn the check on with their next `sudo halosctl upgrade` after this release, which
   says so and asks. Releases before `0.19.1-alpha.3` aren't signed, so `rollback --to` can't reach
   them. Images from other registries (Halogen's own, your own podman containers) are taken as
-  before. The selftest reports it as `image-signatures`. (#PR)
+  before. The selftest reports it as `image-signatures`. (#91)
 - Building images: the signing tool is downloaded before anything is pushed, and its download
   retries for up to five minutes. A GitHub outage during the weekly stable refresh had left the
   `0.20.0` tag pointing to an unsigned rebuild. (#90)

@@ -179,8 +179,10 @@ name, but allows saying halOS runs Halogen.
   key for `ghcr.io/n4berius/halos-flash` (`matchRepository`, so tags and digests both pass), and
   accepts every other registry and local storage through the transports' `""` scopes, as before.
   `registries.d/halos-flash.yaml` turns on `use-sigstore-attachments`, without which no signature
-  is found. Every `bootc switch` in halosctl passes the flag; the installers' `%post` runs `bootc
-  switch --mutate-in-place --enforce-container-sigpolicy`; an install whose spec is still
+  is found. Every `bootc switch` in halosctl passes the flag; the installers' `%post --nochroot` binds the
+  disk's top level (`/mnt/sysimage`) onto the new system's `/sysroot` (Anaconda's bootc install,
+  unlike its OSTree one, doesn't) and runs `bootc switch --mutate-in-place
+  --enforce-container-sigpolicy` chrooted there; an install whose spec is still
   `insecure` turns it on at its next `halosctl upgrade` (a switch to the same name, which also
   fetches the newest image). Oldest key-signed release: `0.19.1-alpha.3`.
 
@@ -258,10 +260,7 @@ and tracked on the owner's project board. [ROADMAP.md](ROADMAP.md) holds the ord
   On edge since: the tokenizer fill-in for checkpoints that ship none (#88). The issues for #14, #15,
   #40 and #56 are closed. Freyja serves the official checkpoint or its own (Signal-3.8-Flash-Next-HGN-v2),
   swapped as needed, at the `performance` profile.
-- Next, for the second stable release: unlock over SSH (#13), then BF16 safetensors to `.hgn`
-  on the machine with the third-party Quat3rnion/bf16-to-hgn (Qwen3.8 Flash Next only; Qwen4 later;
-  it substitutes nothing, so the repo must carry the MTP head, vision tower and table). Then
-  clevis/tang (#44), GGUF in `flash pull` (#61).
+- Next: unlock over SSH (#13), clevis/tang (#44), GGUF in `flash pull` (#61).
 - **Halogen 0.20.0** (stable since `v0.20.0`): 0.20.0 (ROCm 10.1 in its image, OvisOCR3 document parsing on the NPU as your
   own checkpoint, faster prefill, a strict-tool-call crash fixed; the Flash checkpoints and weights
   revision unchanged) is pinned by #78. Between source commits 47ceb43 and 8242b15, FLAGS.md,

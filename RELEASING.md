@@ -79,15 +79,16 @@ right away and fails if either is missing:
   `main` and `v*` tags may use (and in the owner's password manager); the public key is [`files/etc/pki/containers/halos-flash.pub`](files/etc/pki/containers/halos-flash.pub),
   in every image at `/etc/pki/containers/halos-flash.pub`.
 
-Keep the private key and its password backed up. Once machines enforce signatures, they accept
+Keep the private key and its password backed up. Machines enforce signatures (#46): they accept
 only images signed with the key they already have, so changing the key needs a bridge release
 signed with **both** the old and the new key and carrying both public keys. Machines upgrade to it
 with the old key and trust the new one from then on. If the old key is lost, no such bridge can be
 made, and each machine needs its policy changed by hand (or a reinstall) to move to a new key.
 
 If the key **leaked**, don't bridge: a release signed with it is exactly what an attacker could
-forge. Make a new pair and replace both secrets at once, then on each machine install the new
-public key and policy by hand (instructions will come with the release that enforces signatures).
+forge. Make a new pair and replace both secrets at once, ship the new public key in the image, and
+on each machine put it in place by hand before the next upgrade:
+`sudo cp halos-flash.pub /etc/pki/containers/halos-flash.pub`, then `sudo halosctl upgrade`.
 
 To check an image yourself with the key, with cosign installed:
 
@@ -103,8 +104,8 @@ cosign verify ghcr.io/n4berius/halos-flash:beta \
   --certificate-identity-regexp '^https://github\.com/n4berius/halos-flash/\.github/workflows/(build|release|refresh)\.yml@refs/(heads/main|tags/v.+)$'
 ```
 
-Machines don't check signatures yet. That comes in a later release (#46), once every channel
-points to an image signed with the key.
+Machines check the key's signature on every update; INSTALL.md, "Signed images", explains it for
+owners.
 
 ## Move to a new Halogen version
 

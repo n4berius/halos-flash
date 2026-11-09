@@ -35,7 +35,7 @@ f lsblk 'echo "/dev/nvme0n1p3 crypto_LUKS"'
 f cryptsetup 'printf "Tokens:\n  0: systemd-tpm2\n"'
 f amd-smi 'if [ -n "${FAKE_NOGPU:-}" ]; then echo "ERROR:root:Unable to detect any GPU devices"; exit 255; fi; printf "GPU: 0\n    BDF: 0000:c3:00.0\n"'
 f systemd-run 'case "$*" in *render-config*) printf "%s\n" "${FAKE_RENDER:-HALOGEN_CHECKPOINT=/models/qwen38-flash-next-v2.hgn}" ;; *) echo "preflight: ok" ;; esac'
-f bootc 'case "$*" in *json*) echo "{\"spec\":{\"image\":{\"signature\":\"${FAKE_SIG:-containerPolicy}\"}}}" ;; *) echo "Booted image: ghcr.io/n4berius/halos-flash:9.9.9" ;; esac'
+f bootc 'case "$*" in *json*) echo "{\"spec\":{\"image\":{\"image\":\"${FAKE_FOLLOWS:-ghcr.io/n4berius/halos-flash:stable}\",\"signature\":\"${FAKE_SIG:-containerPolicy}\"}}}" ;; *) echo "Booted image: ghcr.io/n4berius/halos-flash:9.9.9" ;; esac'
 f systemctl 'case "$*" in *--failed*) cat "$FAKE/failed" 2>/dev/null ;; *"show -p Job"*) echo "${FAKE_JOB:-}" ;;
   *halogen-fetch*) echo "${FAKE_FETCH:-inactive}" ;; *) echo "${FAKE_STATE:-active}" ;; esac'
 f fabric-clock 'exit 0'
@@ -77,10 +77,12 @@ ok "the API key and HF token never appear in the report or on a command line"
 
 FAKE_SIG=insecure "$selftest" > "$work/out" 2>&1 || true
 expect "^WARN image-signatures: updates aren't checked.*halosctl upgrade"
+FAKE_FOLLOWS=ghcr.io/someone/halos-flash:stable "$selftest" > "$work/out" 2>&1 || true
+expect "^WARN image-signatures: this machine follows an image that isn't halOS's"
 echo '{"default":[{"type":"insecureAcceptAnything"}]}' > "$work/policy.json"
 HALOS_POLICY="$work/policy.json" "$selftest" > "$work/out" 2>&1 || true
 expect '^WARN image-signatures:.*/usr/etc/containers/policy.json'
-ok "an install that doesn't check signatures yet, or a changed policy, is a warning"
+ok "an install that doesn't check signatures yet, follows another image, or has a changed policy is a warning"
 
 rm "$fake/mokutil" "$fake/amd-smi"
 "$selftest" > "$work/out" 2>&1 || true

@@ -72,7 +72,9 @@ assert set(pol["transports"]["docker"]) == {"ghcr.io/n4berius/halos-flash", ""},
 reg = yaml.safe_load(open("files/etc/containers/registries.d/halos-flash.yaml"))
 assert reg["docker"]["ghcr.io/n4berius/halos-flash"]["use-sigstore-attachments"] is True, "machines wouldn't find the signatures"
 for ks in ("installer/guided/halos-guided.ks", "installer/anaconda/interactive-defaults.ks"):
-    assert "\nbootc switch --mutate-in-place --enforce-container-sigpolicy @TARGET_IMAGE@\n%end" in open(ks).read(), f"{ks} doesn't turn the signature check on"
+    k = open(ks).read()
+    assert "%post --nochroot --interpreter=/usr/bin/bash\n" in k and 'mount --bind "$physical" "$root/sysroot"' in k \
+        and 'chroot "$root" bootc switch --mutate-in-place --enforce-container-sigpolicy @TARGET_IMAGE@ ' in k, f"{ks} doesn't turn the signature check on"
 for wf in ("build", "release", "refresh"):
     w = open(f".github/workflows/{wf}.yml").read()
     assert "COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}" in w, f"{wf}.yml doesn't pass the signing key"
@@ -165,6 +167,8 @@ fi
 # Every bootc switch halosctl runs asks bootc to check the signature (#46).
 switches="$(grep -E '\bbootc switch\b' files/usr/bin/halosctl | grep -v '^ *#')"
 # shellcheck disable=SC2016 # the literal text in halosctl
-if [ -z "$switches" ] || grep -vF 'bootc switch "$sig_flag"' <<< "$switches" | grep -q .; then
+unflagged="$(grep -cvF 'bootc switch "$sig_flag"' <<< "$switches" || true)"
+if [ -z "$switches" ] || [ "$unflagged" != 0 ] \
+  || ! grep -qx 'sig_flag=--enforce-container-sigpolicy' files/usr/bin/halosctl; then
   echo "halosctl has a bootc switch without --enforce-container-sigpolicy" >&2; exit 1
 fi

@@ -57,10 +57,16 @@ else say SKIP secure-boot "mokutil is not installed"; fi
 # policy requires halOS's key. Installs from before turn it on with their next halosctl upgrade.
 policy="${HALOS_POLICY:-/etc/containers/policy.json}"
 if have bootc && have jq; then
-  sig="$(run bootc status --format=json --format-version=1 | jq -r '.spec.image.signature // "" | if type == "string" then . else "other" end' 2>/dev/null)"
+  # stderr apart: a bootc warning would break the JSON.
+  spec="$(timeout "${HALOGEN_SELFTEST_TIMEOUT:-20}" bootc status --format=json --format-version=1 2>/dev/null < /dev/null |
+    jq -r '.spec.image // {} | "\(.signature // "" | if type == "string" then . else "other" end) \(.image // "")"' 2>/dev/null)"
+  sig="${spec%% *}"; followed="${spec#* }"
   if ! jq -e '.default == [{"type": "reject"}] and any(.transports.docker["ghcr.io/n4berius/halos-flash"][]?; .type == "sigstoreSigned")' "$policy" > /dev/null 2>&1; then
     say WARN image-signatures "$policy doesn't require halOS's signature; restore it: sudo cp /usr/etc/containers/policy.json /etc/containers/policy.json"
-  elif [ "$sig" = containerPolicy ]; then say PASS image-signatures "updates are taken only when signed with halOS's key"
+  elif [ "$sig" = containerPolicy ] && [[ "$followed" =~ ^ghcr\.io/n4berius/halos-flash[:@] ]]; then
+    say PASS image-signatures "updates are taken only when signed with halOS's key"
+  elif [ "$sig" = containerPolicy ]; then
+    say WARN image-signatures "this machine follows an image that isn't halOS's ($(printf '%s' "$followed" | head -c 80)), so no signature is checked"
   else say WARN image-signatures "updates aren't checked for halOS's signature yet (bootc: ${sig:-unknown}); the next sudo halosctl upgrade turns it on"; fi
 else say SKIP image-signatures "bootc or jq is not installed"; fi
 

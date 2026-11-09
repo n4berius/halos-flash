@@ -177,8 +177,8 @@ switch_to() {
   echo "Now:   $from"
   [ -z "$(field staged ref)" ] || echo "Staged for the next boot, and replaced by this: $(describe staged)"
   echo "After: $target ($release)"
-  confirm "${question:-Switch to it?}"
   need_policy
+  confirm "${question:-Switch to it?}"
   [ -z "$pin" ] || target="$(repo)@$digest"
   if ! bootc switch "$sig_flag" "$target"; then
     die "bootc did not switch; nothing changed. If it says the image was rejected, that image isn't signed with halOS's key: this machine takes only signed images, and releases before 0.19.1-alpha.3 aren't signed."
