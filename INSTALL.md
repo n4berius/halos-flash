@@ -482,6 +482,42 @@ What `flash pull` does:
 Downloads and checks are read from disk while Halogen keeps serving, which can slow long
 prompts a little until they finish.
 
+#### Converting full-precision weights
+
+Many models are published only in full precision (BF16 `.safetensors`), the format they were
+trained in, not as a Halogen `.hgn`. For **Qwen3.8 Flash Next** weights, halOS can convert them
+on the machine with [bf16-to-hgn](https://github.com/Quat3rnion/bf16-to-hgn), a third-party tool
+(MIT or Apache-2.0) built into the image from a pinned version:
+
+```bash
+sudo halogenctl flash convert someone/Some-Flash-BF16 --revision <commit> --as mine
+sudo halogenctl flash convert-logs       # follow it (Ctrl-C stops following, not the conversion)
+sudo halogenctl flash convert-stop       # stop it; add the name to delete the downloaded weights too
+sudo halogenctl flash check mine         # then judge it, before serving it
+```
+
+- **Checked before the big download.** It downloads the repository's small files first and
+  refuses anything but Qwen3.8 Flash Next, and weights without an MTP head or vision tower: the
+  converter uses the repository's own and puts nothing official in their place. Then it checks
+  there is room for the weights (about 360 GB) and the result (about 119 GB).
+- **Runs on its own.** After you confirm, the download, the conversion and the checks run as a
+  service, so closing the terminal doesn't stop them. A stopped download resumes; a stopped
+  conversion starts over.
+- **Takes long.** The conversion runs on the CPU with low priority, and takes many hours, likely a
+  day or more. Parts of it use several cores (`--threads`, by default half the cores, at most 16).
+  No full-size conversion has been timed yet, and how much it slows a serving Halogen hasn't been
+  measured.
+- **Checked twice.** bf16-to-hgn's own `verify` checks every value it wrote against the weights,
+  then Halogen's `verify` checks the result, as for `flash pull`. The converter runs in a sandbox
+  with no network, unable to see your settings, keys or token, and able to write only its own
+  work folder. The result appears under `/srv/models/flash/<name>` only once both checks passed.
+- **The weights are deleted** afterwards, to free the 360 GB. `--keep-source` keeps them in
+  `/srv/models/flash/.convert/<name>/source`.
+- **Judge it before serving it.** A conversion's quality hasn't been measured by anyone: run
+  `flash check` and compare its numbers with the official checkpoint's before `flash use`. Halogen
+  hasn't served a converted checkpoint yet either, so switch to it while you can watch, and go
+  back with `sudo halogenctl flash use official` if it doesn't start.
+
 Things to know:
 
 - **Quality is yours to judge.** `verify` proves the file is well formed, not that its answers
