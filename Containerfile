@@ -14,6 +14,33 @@ RUN set -eu; \
     cargo build --release --locked; \
     ./target/release/bf16-to-hgn --version
 
+# halogen-dashboard (Quaternion's live page of Halogen's load), built from its pinned commit: the
+# web page first (the binary embeds it), then the collector. Node and Rust stay in this stage.
+# Also gathers the licences of what the binary carries: the embedded web page's font (IBM Plex
+# Sans, SIL OFL 1.1), uPlot and Svelte, and the Rust crates it is built from.
+FROM ${FEDORA_BOOTC_IMAGE} AS dashboard
+ARG HALOGEN_DASHBOARD_COMMIT
+RUN set -eu; \
+    dnf -y --setopt=install_weak_deps=False install cargo rust gcc nodejs pnpm git-core jq; \
+    git clone -q https://github.com/Quat3rnion/halogen-dashboard /src; \
+    cd /src; git checkout -q "$HALOGEN_DASHBOARD_COMMIT"; \
+    [ "$(git rev-parse HEAD)" = "$HALOGEN_DASHBOARD_COMMIT" ]; \
+    mkdir -p "$(realpath /root)"; \
+    (cd web && pnpm install --frozen-lockfile && pnpm build); \
+    cargo build --release --locked --bin halogen-dashboard; \
+    ./target/release/halogen-dashboard --version; \
+    lic=/out/licenses; mkdir -p "$lic/web"; \
+    cp LICENSE-MIT LICENSE-APACHE "$lic/"; \
+    for p in @fontsource-variable/ibm-plex-sans uplot svelte; do \
+      f="$(find "web/node_modules/$p/" -maxdepth 1 -iname 'licen[cs]e*' | head -n 1)"; \
+      [ -n "$f" ] || { echo "no licence file for $p" >&2; exit 1; }; \
+      cp "$f" "$lic/web/$(echo "$p" | tr / _ | tr -d @)-LICENSE"; \
+    done; \
+    { echo "Rust crates halogen-dashboard is built from (name, version, licence), from Cargo.lock at $HALOGEN_DASHBOARD_COMMIT."; \
+      echo "Their licence texts are at https://crates.io/crates/<name>/<version>."; echo; \
+      cargo metadata --format-version 1 --locked | jq -r '.packages[] | select(.name != "halogen-dashboard") | "\(.name) \(.version) \(.license // "see crates.io")"' | sort -u; \
+    } > "$lic/crates.txt"
+
 FROM ${FEDORA_BOOTC_IMAGE} AS os
 ARG HALOGEN_VARIANT
 ARG HALOGEN_IMAGE
@@ -52,6 +79,8 @@ COPY --from=bf16-to-hgn /src/target/release/bf16-to-hgn /usr/libexec/halogen/bf1
 COPY --from=bf16-to-hgn /src/LICENSE-MIT /src/LICENSE-APACHE /usr/share/licenses/bf16-to-hgn/
 COPY --from=bf16-to-hgn /src/native/LICENSE /usr/share/licenses/bf16-to-hgn/native/LICENSE
 COPY --from=bf16-to-hgn /src/native/NOTICE /usr/share/licenses/bf16-to-hgn/native/NOTICE
+COPY --from=dashboard /src/target/release/halogen-dashboard /usr/libexec/halogen/halogen-dashboard
+COPY --from=dashboard /out/licenses/ /usr/share/licenses/halogen-dashboard/
 
 # Upstream's clock script and terms, unmodified and checked by hash.
 RUN set -eu; \
@@ -67,8 +96,10 @@ RUN set -eu; \
 # The halOS release (0.19.0-alpha.2, or 0.19.0-dev.<commit> for builds of main), for halosctl.
 ARG HALOS_RELEASE
 ARG BF16_TO_HGN_COMMIT
+ARG HALOGEN_DASHBOARD_COMMIT
 RUN set -eu; \
     /usr/libexec/halogen/bf16-to-hgn --version; \
+    /usr/libexec/halogen/halogen-dashboard --version; \
     chmod 0755 /usr/bin/halosctl /usr/bin/halogenctl /usr/bin/halogen-enroll-tpm /usr/libexec/halogen/*; \
     find /etc/containers/systemd/users/970 -type f -exec sed -i \
       -e "s|@HALOGEN_IMAGE@|${HALOGEN_IMAGE}|g" -e "s|@HALOGEN_VERSION@|${HALOGEN_VERSION}|g" {} +; \
@@ -79,11 +110,14 @@ RUN set -eu; \
       echo "HALOS_RELEASE=${HALOS_RELEASE}"; \
       echo "HALOGEN_WEIGHTS_REPO=${HALOGEN_WEIGHTS_REPO}"; \
       echo "HALOGEN_WEIGHTS_REVISION=${HALOGEN_WEIGHTS_REVISION}"; \
-      echo "BF16_TO_HGN_COMMIT=${BF16_TO_HGN_COMMIT}"; } > /usr/share/halogen/release.env; \
+      echo "BF16_TO_HGN_COMMIT=${BF16_TO_HGN_COMMIT}"; \
+      echo "HALOGEN_DASHBOARD_COMMIT=${HALOGEN_DASHBOARD_COMMIT}"; } > /usr/share/halogen/release.env; \
     echo 'halogen:524288:65536' >> /etc/subuid; \
     echo 'halogen:524288:65536' >> /etc/subgid; \
     firewall-offline-cmd --add-service=halogen; \
+    firewall-offline-cmd --add-service=halos-dashboard; \
     systemctl enable firewalld.service halogen-prepare.service halos-status.timer halos-platform-profile.service; \
+    systemctl enable halos-dashboard.service; \
     if [ "$HALOGEN_VARIANT" = npu ]; then \
       systemctl enable halogen-fabric-clock.service; \
     else \

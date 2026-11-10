@@ -1,0 +1,16 @@
+#!/bin/bash
+# halos-dashboard.service's ExecStartPre (as root, "+"): hands the dashboard Halogen's API key.
+# The key file is in halogen's folder, so it is read as the halogen user (setpriv), never by root:
+# a link planted there can't make root read another file. Only the first key and only printable
+# characters are kept, then it goes to the dashboard's own runtime folder, readable by it alone.
+set -euo pipefail
+configs="${HALOGEN_CONFIGS_DIR:-/srv/configs}"
+dir="${RUNTIME_DIRECTORY:?run by halos-dashboard.service}"
+uid="$(id -u halogen)"; gid="$(id -g halogen)"
+key="$(setpriv --reuid="$uid" --regid="$gid" --clear-groups -- head -c 1024 "$configs/api-key" 2> /dev/null \
+  | head -n 1 | cut -d, -f1 | tr -cd '[:graph:]')" || true
+[ -n "$key" ] || { echo "dashboard-key: no API key in $configs/api-key yet (made at first boot); trying again later" >&2; exit 1; }
+umask 077
+printf '%s' "$key" > "$dir/api-key.new"
+chown --reference="$dir" "$dir/api-key.new"
+mv -f "$dir/api-key.new" "$dir/api-key"

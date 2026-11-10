@@ -35,7 +35,7 @@ name, but allows saying halOS runs Halogen.
 
 | Path | What it is |
 |---|---|
-| `versions.env` | Every pinned input: Fedora base, Halogen version, digest and source commit, upstream file hashes, weights repo and revision, ISO builder, bf16-to-hgn commit |
+| `versions.env` | Every pinned input: Fedora base, Halogen version, digest and source commit, upstream file hashes, weights repo and revision, ISO builder, bf16-to-hgn and halogen-dashboard commits |
 | `Containerfile` | The OS image. XRT is not in it: Halogen's image carries its own since 0.19.1 |
 | `Containerfile.installer`, `installer/` | The live installer image, Anaconda defaults (storage layout for custom partitioning), branding and boot menu. `installer/guided/`: the guided install's kickstart and `plan-install` (#42) |
 | `files/` | Copied into both editions: systemd units, `halosctl`, `halogenctl`, `halogen-enroll-tpm` (bash completion for all three in `usr/share/bash-completion/completions/`; `tests/completion.sh` fails when a tool gains a top-level command, or a `flash`/`model` subcommand, its completion doesn't offer; checkpoint folder names are written by halogen and its containers, so they are never passed to `compgen -W`, which expands `$(...)`: only plain names, matched by hand), `/usr/libexec/halogen/*` (`flash-checkpoint` and `model-pull` download your own checkpoints) |
@@ -277,6 +277,25 @@ name, but allows saying halOS runs Halogen.
   deletes the source unless `--keep-source`. Progress is `du` of the staging folder every 10 minutes (its payload files are
   written at preplanned offsets, and the image has no `script` for its pty-only progress display).
   No full-size conversion has run anywhere yet; no CPU timing exists.
+
+- Dashboard (#PR): Quaternion's [halogen-dashboard](https://github.com/Quat3rnion/halogen-dashboard)
+  (MIT/Apache-2.0; Rust collector + Svelte page embedded with rust-embed), built in the
+  Containerfile's `dashboard` stage from `HALOGEN_DASHBOARD_COMMIT` with Fedora's rust (1.99), nodejs
+  22 and pnpm 10 (reads its v9 lockfile; upstream says pnpm 11), `--bin halogen-dashboard` only (not
+  `fake-halogen`), into `/usr/libexec/halogen/halogen-dashboard`. Licences in
+  `/usr/share/licenses/halogen-dashboard/`: its own, `web/` (IBM Plex Sans OFL 1.1, uPlot, Svelte, the
+  bundled parts) and `crates.txt` (`cargo metadata`). `halos-dashboard.service` (enabled, firewalld
+  service `halos-dashboard`, 8790/tcp open by default, no login, GET routes only): `DynamicUser`,
+  `StateDirectory=halos-dashboard` (SQLite: raw samples 48 h, one-minute rollups and events 30 d),
+  `MemoryMax=256M` (measured 12 MB RSS against the simulator), `HALOGEN_URL=http://127.0.0.1:8731`
+  (the binary's defaults are upstream's LAN address and 0.0.0.0). `/metrics`, `/cache` and
+  `/v1/models` need the API key, so `ExecStartPre=+dashboard-key` reads `/srv/configs/api-key` as
+  halogen with `setpriv` (never `LoadCredential`/`EnvironmentFile`, which PID 1 would read as root
+  through a link halogen could plant), keeps the first key's printable characters in the runtime
+  folder (0600, the dynamic user's), and `dashboard-run` exports it as `HALOGEN_API_KEY`. Its ADR
+  0001: it must be Halogen's only `/metrics` reader (two gauges reset per read); nothing in halOS reads
+  `/metrics` (`halogen-bench.py` doesn't). `halosctl dashboard [on|off]` enables/disables the unit and
+  the firewall service together; the selftest says PASS when `/healthz` answers, INFO when off.
 
 ## Lessons already learned
 

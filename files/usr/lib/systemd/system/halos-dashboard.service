@@ -1,0 +1,57 @@
+[Unit]
+Description=halOS dashboard: Halogen's load and health on port 8790
+Documentation=https://github.com/Quat3rnion/halogen-dashboard
+# The API key exists once halogen-prepare made it (first boot).
+After=network.target halogen-prepare.service
+StartLimitIntervalSec=0
+
+[Service]
+# Reads the API key as the halogen user, never as root (dashboard-key); the dashboard itself runs
+# as a user of its own, with no access to Halogen's files, models or tokens.
+ExecStartPre=+/usr/libexec/halogen/dashboard-key
+ExecStart=/usr/libexec/halogen/dashboard-run
+Environment=HALOGEN_URL=http://127.0.0.1:8731
+Environment=HALOGEN_DASHBOARD_LISTEN=0.0.0.0:8790
+Environment=HALOGEN_DASHBOARD_DB=/var/lib/halos-dashboard/halogen-dashboard.sqlite
+Environment=RUST_LOG=warn
+Restart=on-failure
+RestartSec=30
+DynamicUser=yes
+StateDirectory=halos-dashboard
+RuntimeDirectory=halos-dashboard
+RuntimeDirectoryMode=0700
+UMask=0077
+# One request a second to Halogen and a small SQLite file (30 days of minute summaries).
+MemoryHigh=192M
+MemoryMax=256M
+CPUWeight=20
+Nice=5
+IOSchedulingClass=idle
+CapabilityBoundingSet=
+AmbientCapabilities=
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateIPC=yes
+ProtectHostname=yes
+ProtectClock=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+
+[Install]
+WantedBy=multi-user.target
