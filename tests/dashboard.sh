@@ -24,7 +24,8 @@ ok "the key is read as halogen, cut to the first key's printable characters, and
 
 rm "$work/configs/api-key" "$work/run/api-key"
 if "$key" 2> "$work/err"; then fail "no key passed"; fi
-grep -q 'no API key' "$work/err" && [ ! -e "$work/run/api-key" ] || fail "a missing key left a file or no message"
+grep -q 'no API key' "$work/err" || fail "a missing key gave no message"
+[ ! -e "$work/run/api-key" ] || fail "a missing key left a file"
 : > "$work/configs/api-key"
 if "$key" 2> /dev/null; then fail "an empty key passed"; fi
 ok "a missing or empty key fails, so the unit tries again later"
