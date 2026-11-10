@@ -214,7 +214,12 @@ if [ -n "$luks" ]; then
   echo "TPM unlock verified"
   cat "$out/selftest.txt"
   grep -q '^PASS luks-tpm:' "$out/selftest.txt" || { echo "selftest did not see the TPM unlock" >&2; exit 1; }
-  # Anaconda writes ro for / without bootc's marker, so bootc creates its fstab edit unit at every
-  # boot; ours must skip it (bootc-dev/bootc#2592).
-  grep -qi "skipped due to 'exec-condition'" "$out/report.txt" || { echo "bootc-fstab-edit still rewrote fstab" >&2; exit 1; }
+  # Anaconda writes ro for / without bootc's marker, so bootc 1.17.1 creates its fstab edit unit at
+  # every boot; ours must skip it (bootc-dev/bootc#2592). What counts is that fstab is never
+  # rewritten: the unit skipped or never made (some base images don't make it), and no marker.
+  if grep -qiE '(Finished|Started|Starting).*bootc-fstab-edit|Updated by bootc-fstab-edit' "$out/report.txt" \
+    || ! grep -q '^FSTABMARK 0' "$out/report.txt"; then
+    echo "bootc-fstab-edit still rewrote fstab" >&2; exit 1
+  fi
+  grep -qi "skipped due to 'exec-condition'" "$out/report.txt" || echo "note: bootc-fstab-edit wasn't made at this boot; fstab unchanged"
 fi
