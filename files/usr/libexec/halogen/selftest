@@ -282,6 +282,14 @@ if have curl; then
   fi
 fi
 
+# --- Dashboard (halos-dashboard.service, Quaternion's halogen-dashboard on port 8790)
+if have systemctl && have curl; then
+  if [ "$(run systemctl is-enabled halos-dashboard.service)" != enabled ]; then
+    say INFO dashboard "off; a live page of Halogen's load on port 8790: sudo halosctl dashboard on"
+  elif [ "$(curl -sS -m 5 -o /dev/null -w '%{http_code}' http://127.0.0.1:8790/healthz 2>/dev/null)" = 200 ]; then
+    say PASS dashboard "answers on port 8790 (state and address: sudo halosctl dashboard)"
+  else say WARN dashboard "halos-dashboard.service doesn't answer on port 8790: sudo journalctl -u halos-dashboard"; fi
+fi
 # --- Model folders
 old="$(find "$models/npu" -mindepth 1 -maxdepth 1 -type d -regex '.*/[0-9]+\.[0-9]+\.[0-9]+' -printf '%f ' 2>/dev/null)"
 if [ "$npu" != 1 ] || [ ! -d "$models/npu" ]; then :

@@ -190,6 +190,11 @@ sudo halogenctl flash list   # the official Flash checkpoint and your own; flash
 [Your own NPU checkpoints](INSTALL.md#your-own-npu-checkpoints) and [your own Flash
 checkpoint](INSTALL.md#your-own-flash-checkpoint) explain `model` and `flash`.
 
+A live dashboard of Halogen's load and health (speed, slots, queue, KV pool, prompt cache, NPU,
+30 days of charts) is at `http://<host>:8790`: [halogen-dashboard](https://github.com/Quat3rnion/halogen-dashboard)
+by Quaternion, built in. It has no login and only reads; `sudo halosctl dashboard off` turns it
+off ([details](INSTALL.md#the-dashboard)).
+
 The machine's screen shows Halogen's state above the login prompt (downloading, starting, or
 `ready` with the address), and the SSH login message shows it too, with the release, channel and
 any staged update. The first time Halogen answers after a boot, logged-in users get a notice.
@@ -272,6 +277,8 @@ Peonist, LLC, and the project may be renamed.
 
 This project's own files are under the [MIT license](LICENSE). That license does not cover
 Halogen, model weights, or the other components in the images. They keep their own terms,
-listed in [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md). Halogen's
+listed in [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md). halOS builds in two tools by Quaternion
+([Quat3rnion](https://github.com/Quat3rnion)): [halogen-dashboard](https://github.com/Quat3rnion/halogen-dashboard)
+and [bf16-to-hgn](https://github.com/Quat3rnion/bf16-to-hgn), both MIT or Apache-2.0. Thank you. Halogen's
 [EULA](https://github.com/peonist-ai/halogen-flash-server/blob/main/LICENSE.md) applies to
 Halogen.

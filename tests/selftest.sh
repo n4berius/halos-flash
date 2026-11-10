@@ -37,12 +37,13 @@ f amd-smi 'if [ -n "${FAKE_NOGPU:-}" ]; then echo "ERROR:root:Unable to detect a
 f systemd-run 'case "$*" in *render-config*) printf "%s\n" "${FAKE_RENDER:-HALOGEN_CHECKPOINT=/models/qwen38-flash-next-v2.hgn}" ;; *) echo "preflight: ok" ;; esac'
 f bootc 'case "$*" in *json*) echo "{\"spec\":{\"image\":{\"image\":\"${FAKE_FOLLOWS:-ghcr.io/n4berius/halos-flash:stable}\",\"signature\":\"${FAKE_SIG:-containerPolicy}\"}}}" ;; *) echo "Booted image: ghcr.io/n4berius/halos-flash:9.9.9" ;; esac'
 f systemctl 'case "$*" in *--failed*) cat "$FAKE/failed" 2>/dev/null ;; *"show -p Job"*) echo "${FAKE_JOB:-}" ;;
+  *"is-enabled halos-dashboard"*) echo "${FAKE_DASH:-enabled}" ;;
   *halogen-fetch*) echo "${FAKE_FETCH:-inactive}" ;; *) echo "${FAKE_STATE:-active}" ;; esac'
 f fabric-clock 'exit 0'
 f ssh-unlock 'case "$1" in verify) exit "${FAKE_VERIFY:-0}" ;; *) echo "${FAKE_SSHU:-on 2}" ;; esac'
 # Group, owner and label as the real image sets them.
 f stat 'case "$2" in %G|%U) echo halogen ;; %C) case "$3" in *accel*) echo system_u:object_r:dri_device_t:s0 ;; *) echo system_u:object_r:container_file_t:s0 ;; esac ;; *) exec /usr/bin/stat "$@" ;; esac'
-f curl 'echo "curl $*" >> "$FAKE/curl.log"; case "$*" in *models*) echo "{\"data\":[{\"id\":\"halogen-qwen3.8-flash-next\"},{\"id\":\"qwen3.5-2b\"}]}" ;; *::1*) [ -n "${FAKE_NOIPV6:-}" ] && printf 000 || printf 200 ;; *) printf 200 ;; esac'
+f curl 'echo "curl $*" >> "$FAKE/curl.log"; case "$*" in *8790/healthz*) printf "${FAKE_DASH_CODE:-200}" ;; *models*) echo "{\"data\":[{\"id\":\"halogen-qwen3.8-flash-next\"},{\"id\":\"qwen3.5-2b\"}]}" ;; *::1*) [ -n "${FAKE_NOIPV6:-}" ] && printf 000 || printf 200 ;; *) printf 200 ;; esac'
 echo "halogen" > "$work/services"
 # Files halogen owns are read through runuser (security audit P2/P7); log it, then run the command.
 f runuser 'echo "runuser $*" >> "$FAKE/runuser.log"; [ "$1 $2 $3" = "-u halogen --" ] || exit 9; shift 3; exec "$@"'
@@ -68,11 +69,14 @@ refuse() { if grep -qE "$1" "$work/out"; then echo "did not expect '$1' in:" >&2
 
 "$selftest" > "$work/out" 2>&1 || { cat "$work/out" >&2; echo "a healthy machine failed" >&2; exit 1; }
 for id in secure-boot image-signatures signature-files ssh-unlock kernel-iommu memory selinux-denials firewall luks-tpm gpu-kfd npu-device npu-label \
-  fabric-clock server preflight api-ipv4 api-ipv6 api-models npu-folder folder-LFM folder-flash; do
+  fabric-clock server preflight api-ipv4 api-ipv6 api-models dashboard npu-folder folder-LFM folder-flash; do
   expect "^PASS $id:"
 done
 expect '^Summary: [0-9]+ passed, 0 warnings, 0 failed'
 expect 'serving: halogen-qwen3.8-flash-next qwen3.5-2b'
+FAKE_DASH=disabled "$selftest" > "$work/out" 2>&1 || true; expect '^INFO dashboard: off; .*halosctl dashboard on'
+FAKE_DASH_CODE=000 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN dashboard: .*journalctl -u halos-dashboard'
+"$selftest" > "$work/out" 2>&1 || true
 expect '^INFO weights: downloaded from weights commit 8ef7ad828f7f'
 if ! { grep -q "runuser -u halogen -- cat $work/configs/api-key" "$work/runuser.log" &&
        grep -q "runuser -u halogen -- head -n 1 $work/models/.cache" "$work/runuser.log"; }; then

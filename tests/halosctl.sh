@@ -374,3 +374,31 @@ has 'ssh-passwords +on -> off +\(by owner\)' "$work/history"
 "$ctl" ssh-passwords > "$work/out"; has 'keys only' "$work/out"
 "$ctl" ssh-passwords on --yes > "$work/out"; [ ! -e "$HALOS_SSHD_DROPIN" ]; has 'ssh-passwords +off -> on' "$work/history"
 ok "ssh-passwords off needs the admin's key and a config sshd accepts; on undoes it; both are recorded"
+
+# dashboard: the service only. Its port stays as the image sets it (open), so halosctl never makes
+# the firewall's zone file a local change that later images couldn't update.
+f systemctl 'echo "systemctl $*" >> "$FAKE/log"; d="$FAKE/dash-on"
+  case "$*" in *"is-enabled halos-dashboard"*) [ -e "$d" ] && echo enabled || echo disabled ;;
+    *"is-active halos-dashboard"*) [ -e "$d" ] && echo active || echo inactive ;;
+    *"enable --now halos-dashboard"*) [ -z "${FAKE_DASH_FAIL:-}" ] || exit 1; touch "$d" ;;
+    *"disable --now halos-dashboard"*) rm -f "$d" ;; *is-active*) echo "${FAKE_FETCH:-inactive}" ;; esac'
+f firewall-cmd 'echo "firewall-cmd $*" >> "$FAKE/log"; exit 252'
+f hostname 'echo "192.0.2.7 fd00::7"'
+: > "$work/log"; "$ctl" dashboard > "$work/out"; has '^Dashboard: off' "$work/out"
+"$ctl" dashboard on > "$work/out"; has 'http://192.0.2.7:8790' "$work/out"; has 'no login' "$work/out"
+has 'enable --now halos-dashboard.service' "$work/log"; has 'dashboard +off -> on +\(by owner\)' "$work/history"
+"$ctl" dashboard > "$work/out"; has '^Dashboard: on \(active\), at http://192.0.2.7:8790' "$work/out"
+"$ctl" dashboard on > "$work/out"; has 'already on' "$work/out"
+[ "$(grep -cE 'dashboard +off -> on' "$work/history")" = 1 ] || { echo "a second on was recorded" >&2; exit 1; }
+"$ctl" dashboard off > "$work/out"; has 'nothing answers on port 8790' "$work/out"; [ ! -e "$work/dash-on" ]
+has 'dashboard +on -> off' "$work/history"
+"$ctl" dashboard off > "$work/out"; has 'already off' "$work/out"
+hasnt 'firewall-cmd' "$work/log"
+if FAKE_DASH_FAIL=1 "$ctl" dashboard on > "$work/out" 2>&1; then echo "a failed start passed" >&2; exit 1; fi
+has "didn't start" "$work/out"
+for bad in "on off" "maybe" "on --reboot" "on --yes"; do
+  # shellcheck disable=SC2086 # the words are the arguments
+  if "$ctl" dashboard $bad > /dev/null 2>&1; then echo "took dashboard $bad" >&2; exit 1; fi
+done
+if FAKE_UID=1000 "$ctl" dashboard on > /dev/null 2>&1; then echo "ran without root" >&2; exit 1; fi
+ok "dashboard on/off starts or stops it without touching the firewall, records changes, and shows the address"

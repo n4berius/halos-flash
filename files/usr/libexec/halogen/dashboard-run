@@ -1,0 +1,8 @@
+#!/bin/bash
+# halos-dashboard.service's ExecStart: Quaternion's halogen-dashboard with Halogen's API key, which
+# dashboard-key left in the runtime folder. The key goes through the environment, which only this
+# process (and root) can read, as the program takes it (HALOGEN_API_KEY).
+set -euo pipefail
+HALOGEN_API_KEY="$(cat "${RUNTIME_DIRECTORY:?run by halos-dashboard.service}/api-key")"
+export HALOGEN_API_KEY
+exec "${HALOS_DASHBOARD_BIN:-/usr/libexec/halogen/halogen-dashboard}"

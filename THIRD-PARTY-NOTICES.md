@@ -58,7 +58,21 @@ Fedora packages is available from [Fedora](https://src.fedoraproject.org/).
 
 | Component | License |
 |---|---|
-| [bf16-to-hgn](https://github.com/Quat3rnion/bf16-to-hgn) (`/usr/libexec/halogen/bf16-to-hgn`, built unmodified from the commit in `versions.env`) | MIT or Apache-2.0; its vendored trellis encoder (`native/`) Apache-2.0 only. Texts in `/usr/share/licenses/bf16-to-hgn/` |
+| [bf16-to-hgn](https://github.com/Quat3rnion/bf16-to-hgn) by Quaternion (`/usr/libexec/halogen/bf16-to-hgn`, built unmodified from the commit in `versions.env`) | MIT or Apache-2.0; its vendored trellis encoder (`native/`) Apache-2.0 only. Texts in `/usr/share/licenses/bf16-to-hgn/` |
+
+## Dashboard in the OS image
+
+halOS's dashboard (`halos-dashboard.service`, port 8790) is
+[halogen-dashboard](https://github.com/Quat3rnion/halogen-dashboard) by Quaternion, built unmodified
+from the commit in `versions.env`. Thank you to its author. Its web page is built into the program,
+so the program also carries the parts below.
+
+| Component | License |
+|---|---|
+| [halogen-dashboard](https://github.com/Quat3rnion/halogen-dashboard) (`/usr/libexec/halogen/halogen-dashboard`) | MIT or Apache-2.0. Texts in `/usr/share/licenses/halogen-dashboard/` |
+| [IBM Plex Sans](https://github.com/IBM/plex) (variable font, via [Fontsource](https://fontsource.org/)), in the web page | SIL Open Font License 1.1. Text in `/usr/share/licenses/halogen-dashboard/web/` |
+| [uPlot](https://github.com/leeoniya/uPlot) (charts) and [Svelte](https://svelte.dev/) with the two small parts its runtime uses ([clsx](https://github.com/lukeed/clsx), [esm-env](https://github.com/benmccann/esm-env)), in the web page | MIT. Texts in `/usr/share/licenses/halogen-dashboard/web/` |
+| The Rust crates it is built from (axum, tokio, rusqlite with SQLite, reqwest, rustls and others) | Each crate's own license, mostly MIT or Apache-2.0 (SQLite is public domain). The list with versions and licenses is `/usr/share/licenses/halogen-dashboard/crates.txt` |
 
 ## Build tools
 

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<service>
+  <short>halOS dashboard</short>
+  <description>Live page of Halogen's load and health (halogen-dashboard, read-only)</description>
+  <port protocol="tcp" port="8790"/>
+</service>

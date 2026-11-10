@@ -22,6 +22,7 @@ usage: halosctl version
        halosctl setup [--skip]
        halosctl ssh-unlock [on [--github|--gitlab|--codeberg <user>]... [--key '<public key>'] | off | record] [--yes]
        halosctl ssh-passwords [on|off] [--yes]
+       halosctl dashboard [on|off]
 
 Channels: alpha, beta and rc are test releases; release (stable) is for production; edge is
 every change to main. Each channel also gets newer releases of the more stable ones.
@@ -35,6 +36,8 @@ ssh-unlock on lets the keys of your GitHub, GitLab or Codeberg account (or a key
 an encrypted disk over SSH at boot, when the TPM can't; off turns it off; alone it shows the state.
 ssh-passwords off allows SSH logins only with keys (your account needs one first); on allows
 passwords again. The console login always takes the password.
+dashboard is a live web page of Halogen's load and health on port 8790 (Quaternion's
+halogen-dashboard), open to your network and without a login; off stops it.
 U
 }
 
@@ -307,7 +310,7 @@ set_passwords() { # on|off; fails (without stopping setup) when sshd won't take 
 }
 
 cmd="${1:-version}"; [ $# = 0 ] || shift
-case "$cmd" in history|setup|power|ssh-unlock|ssh-passwords) ;; *) load ;; esac
+case "$cmd" in history|setup|power|ssh-unlock|ssh-passwords|dashboard) ;; *) load ;; esac
 args=(); src=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -327,7 +330,7 @@ while [ $# -gt 0 ]; do
 done
 
 [ "${#src[@]}" = 0 ] || [ "$cmd" = ssh-unlock ] || die "--github, --gitlab, --codeberg and --key go with ssh-unlock on"
-case "$cmd" in switch|npu|power|ssh-unlock|ssh-passwords) ;; *) [ "${#args[@]}" = 0 ] ;; esac || die "unexpected ${args[0]} (for an older release: halosctl rollback --to <version>)"
+case "$cmd" in switch|npu|power|ssh-unlock|ssh-passwords|dashboard) ;; *) [ "${#args[@]}" = 0 ] ;; esac || die "unexpected ${args[0]} (for an older release: halosctl rollback --to <version>)"
 
 case "$cmd" in
   version)
@@ -543,6 +546,30 @@ case "$cmd" in
         record ssh-passwords off on
         echo "Done: SSH logins take passwords again." ;;
       *) die "ssh-passwords on, off, or nothing for its state" ;;
+    esac
+    ;;
+  dashboard)
+    [ "${#args[@]}" -le 1 ] || die "dashboard on, off, or nothing for its state"
+    if [ "$reboot$yes$check$skip" != 0000 ] || [ -n "$to" ]; then die "dashboard takes no options"; fi
+    unit=halos-dashboard.service
+    dash_on() { [ "$(systemctl is-enabled "$unit" 2> /dev/null)" = enabled ]; }
+    dash_url() { local ip; ip="$(hostname -I 2> /dev/null | awk '{print $1}')"; echo "http://${ip:-<this machine>}:8790"; }
+    case "${args[0]:-}" in
+      '')
+        if dash_on; then echo "Dashboard: on ($(systemctl is-active "$unit" 2> /dev/null)), at $(dash_url). Off: sudo halosctl dashboard off"
+        else echo "Dashboard: off. On: sudo halosctl dashboard on"; fi ;;
+      on)
+        dash_on && [ "$(systemctl is-active "$unit" 2> /dev/null)" = active ] && { echo "The dashboard is already on, at $(dash_url)."; exit 0; }
+        systemctl enable --now "$unit" || die "the dashboard didn't start: sudo journalctl -u $unit"
+        record dashboard off on
+        echo "Dashboard on: $(dash_url) (no login: anyone on your network can view it, nobody can change anything)." ;;
+      off)
+        dash_on || [ "$(systemctl is-active "$unit" 2> /dev/null)" = active ] || { echo "The dashboard is already off."; exit 0; }
+        systemctl disable --now "$unit" || die "the dashboard didn't stop: sudo systemctl status $unit"
+        record dashboard on off
+        echo "Dashboard off: nothing answers on port 8790 now, and it stays off after reboots."
+        echo "Its history stays in /var/lib/halos-dashboard for when it's on again." ;;
+      *) die "dashboard on, off, or nothing for its state" ;;
     esac
     ;;
   history)

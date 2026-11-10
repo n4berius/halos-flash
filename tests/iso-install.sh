@@ -128,6 +128,9 @@ selftest_has 'PASS image-signatures:'   # the installer's %post turned bootc's s
 selftest_has 'PASS kernel-amdgpu.gttsize:'
 selftest_has 'PASS kernel-iommu:'
 selftest_has 'PASS firewall:'
+# The dashboard (halos-dashboard.service) runs sandboxed, its start found a key to hand over, and it
+# answers on 8790, though Halogen itself isn't up in the VM (so the key itself isn't tried).
+selftest_has 'PASS dashboard:'
 selftest_has 'PASS prepare:'
 selftest_has '(PASS|SKIP) power-profile:'   # QEMU likely has no ACPI platform profile
 selftest_has 'PASS folder-flash:'
@@ -211,7 +214,12 @@ if [ -n "$luks" ]; then
   echo "TPM unlock verified"
   cat "$out/selftest.txt"
   grep -q '^PASS luks-tpm:' "$out/selftest.txt" || { echo "selftest did not see the TPM unlock" >&2; exit 1; }
-  # Anaconda writes ro for / without bootc's marker, so bootc creates its fstab edit unit at every
-  # boot; ours must skip it (bootc-dev/bootc#2592).
-  grep -qi "skipped due to 'exec-condition'" "$out/report.txt" || { echo "bootc-fstab-edit still rewrote fstab" >&2; exit 1; }
+  # Anaconda writes ro for / without bootc's marker, so bootc 1.17.1 creates its fstab edit unit at
+  # every boot; ours must skip it (bootc-dev/bootc#2592). What counts is that fstab is never
+  # rewritten: the unit skipped or never made (some base images don't make it), and no marker.
+  if grep -qiE '(Finished|Started|Starting).*bootc-fstab-edit|Updated by bootc-fstab-edit' "$out/report.txt" \
+    || ! grep -q '^FSTABMARK 0' "$out/report.txt"; then
+    echo "bootc-fstab-edit still rewrote fstab" >&2; exit 1
+  fi
+  grep -qi "skipped due to 'exec-condition'" "$out/report.txt" || echo "note: bootc-fstab-edit wasn't made at this boot; fstab unchanged"
 fi
