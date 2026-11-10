@@ -50,8 +50,12 @@ RestrictSUIDSGID=yes
 LockPersonality=yes
 MemoryDenyWriteExecute=yes
 SystemCallArchitectures=native
+# Traced under load against the simulator: everything it calls is in @system-service; of the denied
+# groups only fchown, which SQLite calls just as root (it runs as its own user). A blocked call
+# fails with EPERM rather than killing it.
 SystemCallFilter=@system-service
 SystemCallFilter=~@privileged @resources
+SystemCallErrorNumber=EPERM
 
 [Install]
 WantedBy=multi-user.target

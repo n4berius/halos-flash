@@ -378,7 +378,7 @@ the prompt cache, the NPU, and charts from the last five minutes to the last 30 
 It is [halogen-dashboard](https://github.com/Quat3rnion/halogen-dashboard) by Quaternion, built
 into halOS unchanged (licences in `/usr/share/licenses/halogen-dashboard/`). It reads Halogen once a
 second with your API key, and keeps its history in `/var/lib/halos-dashboard` (48 hours in full,
-then one-minute summaries for 30 days: DBSIZE). It uses about 12 MB of memory and almost no CPU.
+then one-minute summaries for 30 days: about 430 MB once full). It uses about 12 MB of memory and almost no CPU.
 It runs as a user of its own, with no access to Halogen's files, models or tokens.
 
 - **No login.** Anyone who can reach port 8790 on your network can view it, but nobody can change
