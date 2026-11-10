@@ -17,7 +17,7 @@ promoted.
   also after upgrading, with no login: anyone on your network can view it, nobody can change
   anything. `sudo halosctl dashboard off` stops it, `on` brings it back. (#98)
 - The dashboard is locked down further: it answers only this machine and private networks (home,
-  office, Tailscale), uses at most one CPU core, writes no crash dumps, and its web page is built
+  office, Tailscale), uses at most one CPU core, writes no core files, and its web page is built
   without running packages' install scripts. (#99)
 - Halogen 0.20.1: follow-up turns start faster (the end of each reply is cached, on by default,
   about 0.4 GiB more RAM at 4 slots), a turn that ended inside its reasoning now gets its answer,

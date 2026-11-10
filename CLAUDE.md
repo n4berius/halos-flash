@@ -302,8 +302,10 @@ name, but allows saying halOS runs Halogen.
   104 MB, a crafted 1-second-step request at about 590 MB, which `MemoryMax=256M` turns into an OOM
   restart (Halogen unaffected). The selftest says PASS when `/healthz` answers, INFO when off.
   Hardening (#99, the audit's zero-cost ideas, agreed by the owner): `CPUQuota=100%`, `IPAddressDeny=any`
-  with `IPAddressAllow=localhost link-local 10/8 172.16/12 192.168/16 100.64/10 fc00::/7` (also
-  limits what it reaches: Halogen on localhost only), `LimitCORE=0` (a core would hold the key),
+  with `IPAddressAllow=localhost link-local 10/8 172.16/12 192.168/16 100.64/10 fc00::/7` (outgoing
+  traffic too, to the same ranges; it needs only Halogen on localhost; `fc00::/7` is moot while it
+  listens on 0.0.0.0), `LimitCORE=0` (no core file; systemd-coredump still journals the environment,
+  key included),
   `PrivateUsers=yes`, and `pnpm install --ignore-scripts` in the build stage (the page builds
   without them, checked on Fedora 45).
 
