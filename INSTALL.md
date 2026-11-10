@@ -386,6 +386,9 @@ It runs as a user of its own, with no access to Halogen's files, models or token
   when and how much the server is used. If you don't want that, turn it off:
   `sudo halosctl dashboard off` stops it (nothing answers on 8790 then); `on` turns it back on.
 - **On by default**, also on machines that upgrade to a release with it.
+- **Private networks only.** It answers this machine and private addresses only: 10.x, 172.16-31.x,
+  192.168.x, link-local, and 100.64.x (Tailscale). A computer on a public address, such as
+  through a port forward, gets no answer.
 - **Memory is capped at 256 MB**, so it can never take memory from Halogen. Its own 30-day view
   needs about 100 MB. A request crafted to read far more makes it restart after 30 seconds, and
   Halogen is unaffected.

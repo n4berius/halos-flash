@@ -16,6 +16,7 @@ RUN set -eu; \
 
 # halogen-dashboard (Quaternion's live page of Halogen's load), built from its pinned commit: the
 # web page first (the binary embeds it), then the collector. Node and Rust stay in this stage.
+# Packages' install scripts never run (--ignore-scripts): the page builds without them.
 # Also gathers the licences of what the binary carries: the embedded web page's font (IBM Plex
 # Sans, SIL OFL 1.1), uPlot, Svelte and the two small parts Svelte's runtime uses (clsx,
 # esm-env), and the Rust crates it is built from.
@@ -27,7 +28,7 @@ RUN set -eu; \
     cd /src; git checkout -q "$HALOGEN_DASHBOARD_COMMIT"; \
     [ "$(git rev-parse HEAD)" = "$HALOGEN_DASHBOARD_COMMIT" ]; \
     mkdir -p "$(realpath /root)"; \
-    (cd web && pnpm install --frozen-lockfile && pnpm build); \
+    (cd web && pnpm install --frozen-lockfile --ignore-scripts && pnpm build); \
     cargo build --release --locked --bin halogen-dashboard; \
     ./target/release/halogen-dashboard --version; \
     lic=/out/licenses; mkdir -p "$lic/web"; \

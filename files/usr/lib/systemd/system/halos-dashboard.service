@@ -25,6 +25,8 @@ UMask=0077
 MemoryHigh=192M
 MemoryMax=256M
 CPUWeight=20
+# At most one core, whatever a client on the network asks of it (it normally uses almost none).
+CPUQuota=100%
 Nice=5
 IOSchedulingClass=idle
 CapabilityBoundingSet=
@@ -44,6 +46,13 @@ ProtectControlGroups=yes
 ProtectProc=invisible
 ProcSubset=pid
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+# Only this machine and private networks reach it, and it reaches nothing else: home and office
+# ranges, link-local, and 100.64.0.0/10 (Tailscale and other carrier-grade NAT).
+IPAddressDeny=any
+IPAddressAllow=localhost link-local 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10 fc00::/7
+# No crash dump, which would hold its environment and so the API key.
+LimitCORE=0
+PrivateUsers=yes
 RestrictNamespaces=yes
 RestrictRealtime=yes
 RestrictSUIDSGID=yes
