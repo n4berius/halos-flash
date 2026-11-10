@@ -278,7 +278,7 @@ name, but allows saying halOS runs Halogen.
   written at preplanned offsets, and the image has no `script` for its pty-only progress display).
   No full-size conversion has run anywhere yet; no CPU timing exists.
 
-- Dashboard (#PR): Quaternion's [halogen-dashboard](https://github.com/Quat3rnion/halogen-dashboard)
+- Dashboard (#98): Quaternion's [halogen-dashboard](https://github.com/Quat3rnion/halogen-dashboard)
   (MIT/Apache-2.0; Rust collector + Svelte page embedded with rust-embed), built in the
   Containerfile's `dashboard` stage from `HALOGEN_DASHBOARD_COMMIT` with Fedora's rust (1.99), nodejs
   22 and pnpm 10 (reads its v9 lockfile; upstream says pnpm 11), `--bin halogen-dashboard` only (not
