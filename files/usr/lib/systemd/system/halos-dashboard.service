@@ -25,6 +25,8 @@ UMask=0077
 MemoryHigh=192M
 MemoryMax=256M
 CPUWeight=20
+# At most one core, whatever a client on the network asks of it (it normally uses almost none).
+CPUQuota=100%
 Nice=5
 IOSchedulingClass=idle
 CapabilityBoundingSet=
@@ -44,6 +46,15 @@ ProtectControlGroups=yes
 ProtectProc=invisible
 ProcSubset=pid
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+# Only this machine and private networks reach it, and it sends only to the same ranges (it needs
+# only Halogen on localhost): home and office ranges, link-local, and 100.64.0.0/10 (Tailscale and
+# other carrier-grade NAT). fc00::/7 is for an IPv6 listener; 0.0.0.0 is IPv4 only today.
+IPAddressDeny=any
+IPAddressAllow=localhost link-local 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10 fc00::/7
+# No core file, which would hold the API key. systemd-coredump still logs a crashed process's
+# environment, key included, to the journal (readable by root, wheel and adm).
+LimitCORE=0
+PrivateUsers=yes
 RestrictNamespaces=yes
 RestrictRealtime=yes
 RestrictSUIDSGID=yes

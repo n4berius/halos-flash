@@ -40,7 +40,8 @@ ok "dashboard-run starts the dashboard with the key"
 u="$repo/files/usr/lib/systemd/system/halos-dashboard.service"
 if grep -qE '^(LoadCredential|EnvironmentFile|ReadOnlyPaths|BindReadOnlyPaths)=.*(srv|configs)' "$u"; then fail "the unit reads halogen's folder as root"; fi
 for want in '^ExecStartPre=\+/usr/libexec/halogen/dashboard-key$' '^DynamicUser=yes$' '^Environment=HALOGEN_URL=http://127.0.0.1:8731$' \
-  '^Environment=HALOGEN_DASHBOARD_LISTEN=0.0.0.0:8790$' '^CapabilityBoundingSet=$' '^ProtectSystem=strict$' '^ProtectHome=yes$' '^MemoryMax='; do
+  '^Environment=HALOGEN_DASHBOARD_LISTEN=0.0.0.0:8790$' '^CapabilityBoundingSet=$' '^ProtectSystem=strict$' '^ProtectHome=yes$' '^MemoryMax=' \
+  '^CPUQuota=100%$' '^IPAddressDeny=any$' '^IPAddressAllow=localhost link-local 10\.0\.0\.0/8 172\.16\.0\.0/12 192\.168\.0\.0/16 100\.64\.0\.0/10 fc00::/7$' '^LimitCORE=0$' '^PrivateUsers=yes$'; do
   grep -qE "$want" "$u" || fail "the unit lacks $want"
 done
 grep -q 'port="8790"' "$repo/files/usr/lib/firewalld/services/halos-dashboard.xml" || fail "the firewall service isn't port 8790"
