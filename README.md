@@ -193,7 +193,7 @@ checkpoint](INSTALL.md#your-own-flash-checkpoint) explain `model` and `flash`.
 A live dashboard of Halogen's load and health (speed, slots, queue, KV pool, prompt cache, NPU,
 30 days of charts) is at `http://<host>:8790`: [halogen-dashboard](https://github.com/Quat3rnion/halogen-dashboard)
 by Quaternion, built in. It has no login and only reads; `sudo halosctl dashboard off` turns it
-off and closes the port ([details](INSTALL.md#the-dashboard)).
+off ([details](INSTALL.md#the-dashboard)).
 
 The machine's screen shows Halogen's state above the login prompt (downloading, starting, or
 `ready` with the address), and the SSH login message shows it too, with the release, channel and

@@ -10,7 +10,10 @@ uid="$(id -u halogen)"; gid="$(id -g halogen)"
 key="$(setpriv --reuid="$uid" --regid="$gid" --clear-groups -- head -c 1024 "$configs/api-key" 2> /dev/null \
   | head -n 1 | cut -d, -f1 | tr -cd '[:graph:]')" || true
 [ -n "$key" ] || { echo "dashboard-key: no API key in $configs/api-key yet (made at first boot); trying again later" >&2; exit 1; }
+# The folder is the dashboard's: a new file of our own (never a name it could have planted), and
+# nothing that follows a link.
 umask 077
-printf '%s' "$key" > "$dir/api-key.new"
-chown --reference="$dir" "$dir/api-key.new"
-mv -f "$dir/api-key.new" "$dir/api-key"
+tmp="$(mktemp "$dir/.api-key.XXXXXX")"
+printf '%s' "$key" > "$tmp"
+chown -h --reference="$dir" "$tmp"
+mv -fT "$tmp" "$dir/api-key"

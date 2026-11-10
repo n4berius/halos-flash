@@ -294,8 +294,13 @@ name, but allows saying halOS runs Halogen.
   through a link halogen could plant), keeps the first key's printable characters in the runtime
   folder (0600, the dynamic user's), and `dashboard-run` exports it as `HALOGEN_API_KEY`. Its ADR
   0001: it must be Halogen's only `/metrics` reader (two gauges reset per read); nothing in halOS reads
-  `/metrics` (`halogen-bench.py` doesn't). `halosctl dashboard [on|off]` enables/disables the unit and
-  the firewall service together; the selftest says PASS when `/healthz` answers, INFO when off.
+  `/metrics` (`halogen-bench.py` doesn't). `halosctl dashboard [on|off]` enables/disables the unit
+  only: the firewalld service stays as the image sets it (open), since `firewall-cmd --permanent`
+  would make the zone file a local change later images couldn't update; off means nothing listens.
+  `dashboard-key` writes through `mktemp` and `chown -h` (the runtime folder is the dynamic user's).
+  Upstream's `/api/series` keeps every row in range in memory: the page's 30-day view peaks at about
+  104 MB, a crafted 1-second-step request at about 590 MB, which `MemoryMax=256M` turns into an OOM
+  restart (Halogen unaffected). The selftest says PASS when `/healthz` answers, INFO when off.
 
 ## Lessons already learned
 

@@ -382,8 +382,13 @@ then one-minute summaries for 30 days: about 430 MB once full). It uses about 12
 It runs as a user of its own, with no access to Halogen's files, models or tokens.
 
 - **No login.** Anyone who can reach port 8790 on your network can view it, but nobody can change
-  anything through it, and it never shows your API key. If you don't want that, turn it off:
-  `sudo halosctl dashboard off` stops it and closes the port; `on` turns it back on.
+  anything through it, and it never shows your API key or anything sent to Halogen. It does show
+  when and how much the server is used. If you don't want that, turn it off:
+  `sudo halosctl dashboard off` stops it (nothing answers on 8790 then); `on` turns it back on.
+- **On by default**, also on machines that upgrade to a release with it.
+- **Memory is capped at 256 MB**, so it can never take memory from Halogen. Its own 30-day view
+  needs about 100 MB. A request crafted to read far more makes it restart after 30 seconds, and
+  Halogen is unaffected.
 - **Only one reader of `/metrics`.** Halogen resets two of its speed figures each time something
   reads `/metrics`, so the dashboard must be the only reader. Don't point Prometheus or a script at
   Halogen's `/metrics`; the dashboard serves its own copy at `http://<address>:8790/metrics`.

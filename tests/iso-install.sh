@@ -128,8 +128,8 @@ selftest_has 'PASS image-signatures:'   # the installer's %post turned bootc's s
 selftest_has 'PASS kernel-amdgpu.gttsize:'
 selftest_has 'PASS kernel-iommu:'
 selftest_has 'PASS firewall:'
-# The dashboard (halos-dashboard.service) runs sandboxed, got the API key, and answers on 8790,
-# though Halogen itself isn't up in the VM.
+# The dashboard (halos-dashboard.service) runs sandboxed, its start found a key to hand over, and it
+# answers on 8790, though Halogen itself isn't up in the VM (so the key itself isn't tried).
 selftest_has 'PASS dashboard:'
 selftest_has 'PASS prepare:'
 selftest_has '(PASS|SKIP) power-profile:'   # QEMU likely has no ACPI platform profile

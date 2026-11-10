@@ -71,7 +71,7 @@ so the program also carries the parts below.
 |---|---|
 | [halogen-dashboard](https://github.com/Quat3rnion/halogen-dashboard) (`/usr/libexec/halogen/halogen-dashboard`) | MIT or Apache-2.0. Texts in `/usr/share/licenses/halogen-dashboard/` |
 | [IBM Plex Sans](https://github.com/IBM/plex) (variable font, via [Fontsource](https://fontsource.org/)), in the web page | SIL Open Font License 1.1. Text in `/usr/share/licenses/halogen-dashboard/web/` |
-| [uPlot](https://github.com/leeoniya/uPlot) (charts) and [Svelte](https://svelte.dev/), in the web page | MIT. Texts in `/usr/share/licenses/halogen-dashboard/web/` |
+| [uPlot](https://github.com/leeoniya/uPlot) (charts) and [Svelte](https://svelte.dev/) with the two small parts its runtime uses ([clsx](https://github.com/lukeed/clsx), [esm-env](https://github.com/benmccann/esm-env)), in the web page | MIT. Texts in `/usr/share/licenses/halogen-dashboard/web/` |
 | The Rust crates it is built from (axum, tokio, rusqlite with SQLite, reqwest, rustls and others) | Each crate's own license, mostly MIT or Apache-2.0 (SQLite is public domain). The list with versions and licenses is `/usr/share/licenses/halogen-dashboard/crates.txt` |
 
 ## Build tools

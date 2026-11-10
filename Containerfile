@@ -17,7 +17,8 @@ RUN set -eu; \
 # halogen-dashboard (Quaternion's live page of Halogen's load), built from its pinned commit: the
 # web page first (the binary embeds it), then the collector. Node and Rust stay in this stage.
 # Also gathers the licences of what the binary carries: the embedded web page's font (IBM Plex
-# Sans, SIL OFL 1.1), uPlot and Svelte, and the Rust crates it is built from.
+# Sans, SIL OFL 1.1), uPlot, Svelte and the two small parts Svelte's runtime uses (clsx,
+# esm-env), and the Rust crates it is built from.
 FROM ${FEDORA_BOOTC_IMAGE} AS dashboard
 ARG HALOGEN_DASHBOARD_COMMIT
 RUN set -eu; \
@@ -31,15 +32,20 @@ RUN set -eu; \
     ./target/release/halogen-dashboard --version; \
     lic=/out/licenses; mkdir -p "$lic/web"; \
     cp LICENSE-MIT LICENSE-APACHE "$lic/"; \
-    for p in @fontsource-variable/ibm-plex-sans uplot svelte; do \
-      f="$(find "web/node_modules/$p/" -maxdepth 1 -iname 'licen[cs]e*' | head -n 1)"; \
+    svelte_deps="$(realpath web/node_modules/svelte)/.."; \
+    for p in @fontsource-variable/ibm-plex-sans uplot svelte clsx esm-env; do \
+      d="web/node_modules/$p"; case "$p" in clsx|esm-env) d="$svelte_deps/$p" ;; esac; \
+      f="$(find "$d/" -maxdepth 1 -iname 'licen[cs]e*' | head -n 1)"; \
       [ -n "$f" ] || { echo "no licence file for $p" >&2; exit 1; }; \
       cp "$f" "$lic/web/$(echo "$p" | tr / _ | tr -d @)-LICENSE"; \
     done; \
     { echo "Rust crates halogen-dashboard is built from (name, version, licence), from Cargo.lock at $HALOGEN_DASHBOARD_COMMIT."; \
       echo "Their licence texts are at https://crates.io/crates/<name>/<version>."; echo; \
-      cargo metadata --format-version 1 --locked | jq -r '.packages[] | select(.name != "halogen-dashboard") | "\(.name) \(.version) \(.license // "see crates.io")"' | sort -u; \
-    } > "$lic/crates.txt"
+      cargo metadata --format-version 1 --locked --filter-platform x86_64-unknown-linux-gnu \
+        | jq -r '.packages[] | select(.name != "halogen-dashboard") | "\(.name) \(.version) \(.license // "see crates.io")"' | sort -u; \
+    } > "$lic/crates.txt"; \
+    grep -q '^axum ' "$lic/crates.txt" && grep -q '^rusqlite ' "$lic/crates.txt" \
+      || { echo "the crate list is incomplete" >&2; exit 1; }
 
 FROM ${FEDORA_BOOTC_IMAGE} AS os
 ARG HALOGEN_VARIANT
