@@ -66,6 +66,7 @@ FROM ${FEDORA_BOOTC_IMAGE} AS caddy
 COPY src/caddy/ /src/caddy/
 RUN set -eu; \
     dnf -y --setopt=install_weak_deps=False install golang; \
+    mkdir -p "$(realpath /root)"; \
     cd /src/caddy; \
     export GOTOOLCHAIN=local GOFLAGS=-mod=readonly CGO_ENABLED=0 GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org; \
     go build -trimpath -ldflags='-s -w' -o /out/caddy .; \
