@@ -286,17 +286,15 @@ if [ -x "$https" ] && have curl; then
         say PASS https "on, self-signed; authority's fingerprint $(fact ca | cut -c1-23)… (sudo halosctl https)"
       else say WARN https "on (self-signed), but 127.0.0.1:$port doesn't answer with halOS's authority: sudo journalctl -u halos-proxy"; fi
       rm -f "$cafile"
-      # The certificate covers the addresses Caddy saw when it started; a new one needs a restart.
-      sites="$(sed -n 's/^HALOS_API_SITES=//p' "${HALOS_HTTPS_RUN:-/run/halos-https}/proxy.env" 2>/dev/null)"
-      missing=""
-      for a in $(hostname -I 2>/dev/null); do
-        [[ "$a" == *:* ]] && b="[$a]" || b="$a"
-        [[ "$sites" == *"https://$b:"* ]] || missing+="$a "
-      done
-      if [ -n "$missing" ]; then say WARN https-names "not covered by the certificate yet: ${missing% } (sudo systemctl restart halos-proxy)"; fi ;;
+      # The certificate covers the addresses Caddy saw when it started; halos-https-refresh.timer
+      # restarts it within a minute for a new one.
+      missing="$(run "$https" uncovered | paste -sd' ' -) "
+      if [ -n "${missing% }" ]; then say WARN https-names "not covered by the certificate yet: ${missing% } (halos-https-refresh.timer restarts Caddy within a minute; now: sudo systemctl restart halos-proxy)"; fi ;;
     custom)
       front=https; insecure=(-k)
-      if [ "$(fact expires)" != later ]; then
+      if [ "$(fact expires)" = ended ]; then
+        say FAIL https "your certificate ($(fact subject)) ended $(fact until), so apps refuse it: sudo halosctl https custom <new certificate> <key>"
+      elif [ "$(fact expires)" != later ]; then
         say WARN https "your certificate ($(fact subject)) expires $(fact until), within 14 days: sudo halosctl https custom <new certificate> <key>"
       elif code="$(curl -sS -k -m 5 -o /dev/null -w '%{http_code}' "https://127.0.0.1:$port/health" 2>/dev/null)" && [ "$code" != 000 ]; then
         say PASS https "on, with your certificate for $(fact subject), until $(fact until)"

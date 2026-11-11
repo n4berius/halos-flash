@@ -70,7 +70,7 @@ p="$repo/files/usr/lib/systemd/system/halos-proxy.service"; px="$repo/files/usr/
 cf="$px/Caddyfile"; sc="$px/sites.caddy"; cs="$px/Caddyfile.https"
 q="$repo/files/etc/containers/systemd/users/970/halogen.container"
 for want in '^ExecStart=/usr/libexec/halogen/caddy run --config \$\{HALOS_PROXY_CONFIG\} --adapter caddyfile$' '^DynamicUser=yes$' \
-  '^ExecStartPre=\+/usr/libexec/halogen/https env$' '^Environment=HALOS_PROXY_CONFIG=/run/halos-https/missing$' '^EnvironmentFile=-/run/halos-https/proxy.env$' \
+  '^ExecStartPre=\+/usr/libexec/halogen/https env$' '^After=network-online.target$' '^Wants=network-online.target$' '^Environment=HALOS_PROXY_CONFIG=/run/halos-https/missing$' '^EnvironmentFile=-/run/halos-https/proxy.env$' \
   '^CapabilityBoundingSet=$' '^NoNewPrivileges=yes$' '^ProtectSystem=strict$' '^PrivateUsers=yes$' '^MemoryMax=' '^LimitCORE=0$' \
   '^SocketBindAllow=tcp:8731$' '^SocketBindAllow=tcp:8732$' '^SocketBindDeny=any$' '^SystemCallFilter=@system-service$' '^EnvironmentFile=-/etc/halos/proxy.env$' '^Environment=GOMEMLIMIT=' '^ExecStartPre=/usr/libexec/halogen/caddy validate --config \$\{HALOS_PROXY_CONFIG\} --adapter caddyfile$'; do
   grep -qE "$want" "$p" || fail "halos-proxy.service lacks $want"

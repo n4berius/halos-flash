@@ -66,6 +66,7 @@ f https 'case "$1" in
       custom) echo "mode custom"; echo "subject CN=box.example"; echo "until Jan 1 2027"; echo "expires ${FAKE_EXPIRES:-later}" ;;
       *) echo "mode off" ;; esac ;;
   ca) [ "${FAKE_CA-x}" != none ] && echo "-----BEGIN CERTIFICATE-----" ;;
+  uncovered) [ -z "${FAKE_UNCOVERED:-}" ] || echo "$FAKE_UNCOVERED" ;;
   *) exit 1 ;; esac'
 f hostname 'echo "192.168.1.20 "'
 mkdir -p "$work/run-halos"; printf 'HALOS_API_SITES="https://localhost:8731, https://192.168.1.20:8731"\n' > "$work/run-halos/proxy.env"
@@ -104,10 +105,10 @@ ok "the selftest fails when Caddy (halos-proxy) isn't running"
 FAKE_HTTPS=self-signed "$selftest" > "$work/out" 2>&1 || true; expect '^PASS https: on, self-signed; authority.s fingerprint AB:CD:EF'
 refuse 'https-names'; expect '^PASS dashboard:'; grep -q 'curl .*-k .*https://127.0.0.1:8732/healthz' "$work/curl.log" || { echo "the dashboard check didn't use https" >&2; exit 1; }
 FAKE_HTTPS=self-signed FAKE_CA=none "$selftest" > "$work/out" 2>&1 || true; expect '^WARN https: .*hasn.t made its authority'
-printf 'HALOS_API_SITES="https://localhost:8731"\n' > "$work/run-halos/proxy.env"
-FAKE_HTTPS=self-signed "$selftest" > "$work/out" 2>&1 || true; expect '^WARN https-names: not covered by the certificate yet: 192.168.1.20'
+FAKE_HTTPS=self-signed FAKE_UNCOVERED=192.168.1.20 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN https-names: not covered by the certificate yet: 192.168.1.20'
 FAKE_HTTPS=custom "$selftest" > "$work/out" 2>&1 || true; expect '^PASS https: on, with your certificate for CN=box.example'
 FAKE_HTTPS=custom FAKE_EXPIRES=soon "$selftest" > "$work/out" 2>&1 || true; expect '^WARN https: your certificate .* within 14 days'
+FAKE_HTTPS=custom FAKE_EXPIRES=ended "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL https: your certificate .* ended'
 FAKE_HTTPS=invalid "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL https: .*isn.t off, self-signed or custom'
 ok "the selftest names the HTTPS mode, checks Caddy answers in it, and warns of a missing authority, an uncovered address or an ending certificate"
 "$selftest" > "$work/out" 2>&1 || true

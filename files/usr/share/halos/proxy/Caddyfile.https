@@ -2,7 +2,7 @@
 # Halogen's API port (8731) and the dashboard's (8732) over HTTPS, and a plain http:// request on
 # either port gets a redirect to https:// on the same port. The https helper chooses the
 # certificates and site addresses (HALOS_TLS, HALOS_API_SITES, HALOS_DASH_SITES) before Caddy
-# starts. Checked with `caddy validate` when the image is built.
+# starts. Adapted for both certificate kinds when the image is built.
 {
 	# No admin API, no saved copy of the configuration, no HTTP/3, and no listener on port 80: the
 	# redirect from http:// happens on the same port.

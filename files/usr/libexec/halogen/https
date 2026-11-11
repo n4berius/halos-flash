@@ -14,6 +14,10 @@
 #   https restore              puts the previous pair back (halosctl, when Caddy won't start)
 #   https ca                   the self-signed authority's root certificate (PEM), to trust it
 #   https describe             one line per fact, for halosctl and the selftest
+#   https refresh              halos-https-refresh.timer, every minute: in self-signed mode,
+#                              restarts Caddy when this machine has an address its certificates
+#                              don't cover yet (Caddy may start before DHCP or Tailscale, and
+#                              addresses change); otherwise does nothing
 #
 # /etc/halos/https.env is read as data, never sourced; a mode it doesn't know stops Caddy's start
 # rather than fall back to plain HTTP. Caddy's own state (the self-signed authority) belongs to its
@@ -43,14 +47,33 @@ mode() { # off, self-signed, custom, or invalid (a value it doesn't know)
 valid_name() {
   [[ "$1" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$ ]] || [[ "$1" =~ ^[0-9A-Fa-f:.]+$ && "$1" == *:* ]]
 }
+# This machine's addresses: global scope only, and not IPv6 privacy addresses, which change daily
+# and which no app is told to use.
+addrs() {
+  if command -v ip > /dev/null; then
+    ip -o addr show scope global 2> /dev/null | grep -v -e ' temporary' -e ' deprecated' -e ' tentative' \
+      | awk '{print $4}' | cut -d/ -f1
+  else
+    local a; for a in $(hostname -I 2> /dev/null || true); do echo "$a"; done
+  fi
+}
+# Addresses not yet among the sites Caddy started with (/run/halos-https/proxy.env).
+uncovered() {
+  local a b sites
+  sites="$(sed -n 's/^HALOS_API_SITES=//p' "$run/proxy.env" 2> /dev/null)"
+  while read -r a; do
+    valid_name "$a" || continue
+    if [[ "$a" == *:* ]]; then b="[$a]"; else b="$a"; fi
+    [[ "$sites" == *"https://$b:"* ]] || echo "$a"
+  done < <(addrs)
+}
 names() {
   local h n seen=" "
   h="$(hostname 2> /dev/null || true)"
   {
     echo localhost; echo 127.0.0.1; echo ::1
     if [ -n "$h" ]; then echo "$h"; echo "${h%%.*}"; echo "${h%%.*}.local"; fi
-    # This machine's addresses (hostname -I leaves out loopback and link-local).
-    for n in $(hostname -I 2> /dev/null || true); do echo "$n"; done
+    addrs
     for n in $(value HALOS_HTTPS_NAMES); do echo "$n"; done
   } | while read -r n; do
     valid_name "$n" || continue
@@ -122,6 +145,12 @@ case "${1:-}" in
     m="${2:-}"; shift 2 || true
     case "$m" in off|self-signed|custom) ;; *) die "set off|self-signed|custom [<name>...]" ;; esac
     for n in "$@"; do valid_name "$n" || die "not a host name or address: $n"; done
+    # self-signed with no names keeps the extra names set before; names given replace them.
+    if [ $# = 0 ]; then
+      keep="$(value HALOS_HTTPS_NAMES)"
+      # shellcheck disable=SC2086 # the saved names, one word each (no globbing: set -f)
+      set -- $keep
+    fi
     if [ "$m" = custom ]; then
       if [ ! -f "$certdir/cert.pem" ] || [ ! -f "$certdir/key.pem" ]; then die "no certificate installed yet"; fi
     fi
@@ -186,9 +215,19 @@ case "${1:-}" in
           echo "subject $(openssl x509 -in "$certdir/cert.pem" -noout -subject -nameopt RFC2253 2> /dev/null | cut -d= -f2-)"
           echo "until $(openssl x509 -in "$certdir/cert.pem" -noout -enddate 2> /dev/null | cut -d= -f2)"
           if openssl x509 -in "$certdir/cert.pem" -noout -checkend 1209600 > /dev/null 2>&1; then echo "expires later"
-          else echo "expires soon"; fi
+          elif openssl x509 -in "$certdir/cert.pem" -noout -checkend 0 > /dev/null 2>&1; then echo "expires soon"
+          else echo "expires ended"; fi
         else echo "subject none"; fi ;;
     esac
     ;;
-  *) die "mode, names, env, set, stage, commit, discard, restore, ca or describe" ;;
+  uncovered) uncovered ;;
+  refresh)
+    [ "$(mode)" = self-signed ] || exit 0
+    [ "$(systemctl is-active halos-proxy.service 2> /dev/null)" = active ] || exit 0
+    new="$(uncovered | paste -sd' ' -)"
+    [ -n "$new" ] || exit 0
+    echo "https: certificates for $new: restarting halos-proxy"
+    systemctl try-restart halos-proxy.service
+    ;;
+  *) die "mode, names, env, set, stage, commit, discard, restore, ca, describe, uncovered or refresh" ;;
 esac

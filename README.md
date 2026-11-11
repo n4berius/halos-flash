@@ -202,7 +202,8 @@ any staged update. The first time Halogen answers after a boot, logged-in users 
 `logs` and `fetch-logs` follow new lines in a terminal until you press Ctrl+C. Piped into
 `tail` or `grep`, or saved to a file, they print and stop.
 
-Clients use `http://<host>:8731/v1` with `Authorization: Bearer <api-key>`, on IPv4 and IPv6.
+Clients use `http://<host>:8731/v1`, or `https://` once `sudo halosctl https` turns it on, with
+`Authorization: Bearer <api-key>`, on IPv4 and IPv6.
 [Caddy](https://caddyserver.com) answers on 8731 and 8732 and passes requests on to Halogen and the
 dashboard, which listen on the machine only.
 

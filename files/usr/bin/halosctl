@@ -603,10 +603,14 @@ case "$cmd" in
             echo "  sudo halosctl https ca > halos-ca.crt, then add halos-ca.crt to the app or the system."
           fi
           echo "  Names and addresses covered: $(fact names)"
-          echo "  After the address changes, or for more names: sudo halosctl https self-signed <name>..." ;;
+          echo "  Other names (they replace the earlier ones; alone it keeps them): sudo halosctl https self-signed <name>..."
+          echo "  A new address of this machine is added within a minute, by restarting Caddy." ;;
         custom)
           echo "HTTPS: on, with your certificate for $(fact subject), valid until $(fact until)."
-          [ "$(fact expires)" = later ] || echo "  It expires within 14 days: sudo halosctl https custom <new certificate> <key>"
+          case "$(fact expires)" in
+            soon) echo "  It expires within 14 days: sudo halosctl https custom <new certificate> <key>" ;;
+            ended) echo "  It has ended, so apps refuse it: sudo halosctl https custom <new certificate> <key>" ;;
+          esac
           echo "  Apps use https://<the name on the certificate>:8731/v1." ;;
       esac
     }

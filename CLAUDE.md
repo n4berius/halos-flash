@@ -358,7 +358,9 @@ name, but allows saying halOS runs Halogen.
   `HALOS_PROXY_CONFIG` (`Caddyfile` or `Caddyfile.https`), `HALOS_TLS` (`internal|custom`, imported
   as `tls_<mode>` from `sites.caddy`) and quoted `HALOS_API_SITES`/`HALOS_DASH_SITES` (self-signed:
   `https://<name>:port` for localhost, 127.0.0.1, ::1, the host name, short name, `.local`, every
-  `hostname -I` address and the extra names, IPv6 bracketed, the dashboard IPv4 only; custom:
+  global address (`ip -o addr show scope global`, minus temporary/deprecated/tentative IPv6, else
+  `hostname -I`) and the extra names (`set self-signed` alone keeps them), IPv6 bracketed, the
+  dashboard IPv4 only; custom:
   `https://:port`). systemd re-reads `EnvironmentFile` for each command, so `caddy validate --config
   ${HALOS_PROXY_CONFIG}` and `run` see it. Custom: `stage <cert> <key>` reads each file once (1 MiB
   at most) into `/etc/halos/https/.pending/`, checks the copies (key matches, not expired, no
@@ -377,7 +379,10 @@ name, but allows saying halOS runs Halogen.
   as done before Caddy binds), else puts back `https.env` and with custom the previous certificate.
   The selftest's `https` (INFO off; FAIL invalid; PASS when `--cacert` the authority, or `-k` for
   custom, gets an answer; WARN within 14 days of a custom certificate's end) and `https-names` (an
-  address not in the sites: restart); its API-over-Caddy and dashboard checks use the mode's scheme
+  address not in the sites: `https uncovered`); `halos-https-refresh.timer` (every minute, root,
+  sandboxed) runs `https refresh`, which in self-signed mode try-restarts halos-proxy only when an
+  address isn't covered (Caddy now waits for `network-online.target`, but Tailscale and new leases
+  come later: code review found IP clients without SNI failed after a reboot); its API-over-Caddy and dashboard checks use the mode's scheme
   with `-k`; login-status and `halosctl dashboard` show `https://`. INSTALL advises trusting the
   authority per app, not system-wide (it isn't name-constrained). The VM test turns self-signed on,
   curls with the authority (Caddy's 503 note, Halogen being down), checks the 308, the selftest

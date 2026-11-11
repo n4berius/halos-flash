@@ -331,7 +331,8 @@ curl -H "Authorization: Bearer $(sudo halogenctl api-key)" http://127.0.0.1:8731
 ```
 
 The API should list the Flash model, plus the NPU models on that edition. Clients connect to
-`http://<host>:8731/v1` with the same key.
+`http://<host>:8731/v1` with the same key (`https://` once you turn [HTTPS](#https) on; then add
+`--cacert halos-ca.crt` to the curl above and use `https://`).
 
 Please confirm these on the first install:
 

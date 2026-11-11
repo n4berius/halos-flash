@@ -13,6 +13,18 @@ cat > "$work/bin/hostname" <<'S'
 case "${1:-}" in -I) echo "192.168.1.20 100.101.102.103 2001:db8::20 " ;; *) echo freyja.lan ;; esac
 S
 chmod +x "$work/bin/hostname"
+# ip -o addr show scope global: two global addresses, a privacy address and one being set up.
+cat > "$work/bin/ip" <<'S'
+#!/bin/bash
+cat <<'A'
+2: eth0    inet 192.168.1.20/24 brd 192.168.1.255 scope global dynamic noprefixroute eth0\       valid_lft 86000sec preferred_lft 86000sec
+3: tailscale0    inet 100.101.102.103/32 scope global tailscale0\       valid_lft forever preferred_lft forever
+2: eth0    inet6 2001:db8::20/64 scope global dynamic noprefixroute \       valid_lft 86000sec preferred_lft 14000sec
+2: eth0    inet6 2001:db8::abcd/64 scope global temporary dynamic \       valid_lft 86000sec preferred_lft 14000sec
+2: eth0    inet6 2001:db8::beef/64 scope global tentative dynamic \       valid_lft 86000sec preferred_lft 14000sec
+A
+S
+chmod +x "$work/bin/ip"
 export PATH="$work/bin:$PATH" HALOS_HTTPS_ETC="$work/etc" HALOS_HTTPS_RUN="$work/run" HALOS_PROXY_STATE="$work/state" \
   HALOS_PROXY_SHARE=/usr/share/halos/proxy RUNTIME_DIRECTORY="$work/rt"
 env_of() { cat "$work/run/proxy.env"; }
@@ -36,6 +48,7 @@ for n in localhost 127.0.0.1 ::1 freyja.lan freyja freyja.local 192.168.1.20 100
   grep -qxF "$n" "$work/names" || fail "names lacks $n: $(paste -sd' ' "$work/names")"
 done
 [ "$(grep -cxF 192.168.1.20 "$work/names")" = 1 ] || fail "a name is listed twice"
+if grep -qE 'abcd|beef' "$work/names"; then fail "a privacy or tentative IPv6 address was listed"; fi
 "$h" env
 grep -qx 'HALOS_PROXY_CONFIG=/usr/share/halos/proxy/Caddyfile.https' "$work/run/proxy.env" || fail "self-signed doesn't give Caddyfile.https"
 grep -qx 'HALOS_TLS=internal' "$work/run/proxy.env" || fail "self-signed doesn't use Caddy's authority"
@@ -47,6 +60,25 @@ grep -q 'https://192.168.1.20:8732' "$work/dash" || fail "the dashboard has no s
 if grep -q '\[' "$work/dash"; then fail "the dashboard (IPv4 only) got IPv6 sites"; fi
 [ "$(stat -c %a "$work/run/proxy.env")" = 644 ] || fail "proxy.env isn't 644"
 ok "self-signed covers this machine's names and addresses and the extra names, the dashboard on IPv4"
+
+# self-signed alone keeps the extra names; names given replace them.
+"$h" set self-signed; grep -qx 'HALOS_HTTPS_NAMES=tailscale-box freyja.example 192.168.1.20' "$work/etc/https.env" || fail "set without names dropped them"
+"$h" set self-signed other.example; grep -qx 'HALOS_HTTPS_NAMES=other.example' "$work/etc/https.env" || fail "names given didn't replace"
+"$h" set self-signed tailscale-box freyja.example 192.168.1.20
+# An address Caddy didn't start with is noticed, and refresh restarts Caddy only then.
+cat > "$work/bin/systemctl" <<'S'
+#!/bin/bash
+echo "systemctl $*" >> "$FAKE_LOG"; case "$*" in *is-active*) echo active ;; esac
+S
+chmod +x "$work/bin/systemctl"; export FAKE_LOG="$work/sysctl.log"; : > "$FAKE_LOG"
+"$h" env; [ -z "$("$h" uncovered)" ] || fail "uncovered addresses right after start: $("$h" uncovered)"
+"$h" refresh; if grep -q restart "$FAKE_LOG"; then fail "refresh restarted Caddy with nothing new"; fi
+sed -i 's|, https://100.101.102.103:8731||' "$work/run/proxy.env"
+[ "$("$h" uncovered)" = 100.101.102.103 ] || fail "a new address isn't noticed: $("$h" uncovered)"
+"$h" refresh > /dev/null; grep -q 'try-restart halos-proxy.service' "$FAKE_LOG" || fail "refresh didn't restart Caddy for a new address"
+: > "$FAKE_LOG"; "$h" set off; "$h" refresh; if grep -q restart "$FAKE_LOG"; then fail "refresh acted outside self-signed mode"; fi
+"$h" set self-signed tailscale-box freyja.example 192.168.1.20
+ok "self-signed alone keeps the extra names, and a new address gets Caddy restarted, only then"
 
 # Names that could break out of the Caddyfile are refused.
 # shellcheck disable=SC2016 # literal: a Caddy placeholder must not get through

@@ -408,6 +408,7 @@ ok "dashboard on/off starts or stops it without touching the firewall, records c
 export HALOS_HTTPS_HELPER="$repo/files/usr/libexec/halogen/https" HALOS_HTTPS_ETC="$work/etc-https" \
   HALOS_PROXY_STATE="$work/proxy-state"
 f hostname 'case "${1:-}" in -I) echo "192.0.2.7 fd00::7" ;; *) echo box ;; esac'
+f ip 'echo "2: eth0    inet 192.0.2.7/24 scope global eth0\\       valid_lft forever preferred_lft forever"'
 # FAKE_PROXY_FAIL=<mode>: Caddy's restart fails in that mode; FAKE_PROXY_DEAF=<name>: it starts
 # but never answers with that certificate in use (what systemctl alone can't see).
 f systemctl 'echo "systemctl $*" >> "$FAKE/log"

@@ -177,6 +177,7 @@ RUN set -eu; \
     systemctl enable firewalld.service halogen-prepare.service halos-status.timer halos-platform-profile.service; \
     systemctl enable halos-dashboard.service; \
     systemctl enable halos-proxy.service; \
+    systemctl enable halos-https-refresh.timer; \
     if [ "$HALOGEN_VARIANT" = npu ]; then \
       systemctl enable halogen-fabric-clock.service; \
     else \

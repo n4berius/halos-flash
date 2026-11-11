@@ -3,13 +3,17 @@ Description=halOS front door: Caddy on Halogen's API (8731) and the dashboard (8
 Documentation=https://caddyserver.com/docs/
 # Halogen and the dashboard listen on 127.0.0.1:18731 and :18732 only; every connection from the
 # network comes through here. It needs neither to start: until they answer, it says so (503).
-After=network.target
+# In self-signed HTTPS mode the certificates name this machine's addresses, so wait for the network
+# to have them; one that comes later (Tailscale, a new DHCP lease) is picked up by
+# halos-https-refresh.timer within a minute.
+Wants=network-online.target
+After=network-online.target
 StartLimitIntervalSec=0
 
 [Service]
 # HTTP or HTTPS (sudo halosctl https): as root, outside the sandbox, the https helper writes which
-# Caddyfile and sites to use into the runtime folder, and for your own certificate copies it there
-# for Caddy's user. Root reads only its own /etc/halos.
+# Caddyfile and sites to use into /run/halos-https, and for your own certificate copies it into the
+# runtime folder for Caddy's user. Root reads only its own /etc/halos.
 ExecStartPre=+/usr/libexec/halogen/https env
 # A bad setting (such as a mistyped range in /etc/halos/proxy.env) fails here once, with Caddy's
 # reason in the journal, instead of a silent restart loop.
