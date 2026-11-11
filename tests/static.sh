@@ -69,6 +69,18 @@ assert "COPY src/dashboard-nodump.c" in cf and "COPY --from=dashboard /out/dashb
   and "PR_SET_DUMPABLE, 0" in open("src/dashboard-nodump.c").read(), "the dashboard's not-dumpable library isn't built or shipped"
 assert "/usr/share/licenses/halogen-dashboard/" in cf and "ibm-plex-sans" in cf and "crates.txt" in cf, "halogen-dashboard's licences aren't shipped"
 notices = open("THIRD-PARTY-NOTICES.md").read()
+# Caddy (halos-proxy) is built from src/caddy's pinned modules, with its four DNS providers, and its
+# licences ship.
+gomod = open("src/caddy/go.mod").read()
+for m in ("github.com/caddyserver/caddy/v2", "github.com/caddy-dns/cloudflare", "github.com/caddy-dns/duckdns",
+          "github.com/caddy-dns/namecheap", "github.com/caddy-dns/porkbun"):
+    assert re.search(r"^\t" + re.escape(m) + r" v\d+\.\d+\.\d+$", gomod, re.M), f"{m} isn't pinned in src/caddy/go.mod"
+    assert m.replace("/v2", "") in open("src/caddy/main.go").read(), f"src/caddy/main.go doesn't link {m}"
+    assert m + " " in open("src/caddy/go.sum").read(), f"src/caddy/go.sum has no hash for {m}"
+assert "GOFLAGS=-mod=readonly" in cf and "COPY --from=caddy /out/caddy /usr/libexec/halogen/caddy" in cf \
+  and "COPY --from=caddy /out/licenses/ /usr/share/licenses/halos-caddy/" in cf, "Caddy isn't built from src/caddy or its licences don't ship"
+assert "caddy validate --config /usr/share/halos/proxy/Caddyfile" in cf and "systemctl enable halos-proxy.service" in cf, "the proxy isn't checked or enabled"
+assert "caddyserver/caddy" in notices and "halos-caddy/modules.txt" in notices, "THIRD-PARTY-NOTICES doesn't credit Caddy"
 assert "Quat3rnion/halogen-dashboard" in notices and "IBM Plex" in notices, "THIRD-PARTY-NOTICES doesn't credit halogen-dashboard and its font"
 assert '--build-arg "HALOGEN_DASHBOARD_COMMIT=$HALOGEN_DASHBOARD_COMMIT"' in open("scripts/build.sh").read(), "build.sh doesn't pass the dashboard pin"
 assert "--add-service=halos-dashboard" in cf and "halos-dashboard.service" in cf, "the dashboard isn't enabled with its port"

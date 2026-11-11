@@ -17,6 +17,10 @@ promoted.
   also after upgrading, with no login: anyone on your network can view it, nobody can change
   anything. `sudo halosctl dashboard off` stops it, `on` brings it back. (#98; port 8790 on edge
   until #103)
+- [Caddy](https://caddyserver.com) now answers on ports 8731 (API) and 8732 (dashboard) and passes
+  requests on to Halogen and the dashboard, which listen on the machine only: the first step to
+  HTTPS (#102). Nothing changes for apps: same address, same key, replies still stream. While
+  Halogen starts, the API answers with a short note instead of refusing the connection. (#PR)
 - The dashboard is locked down further: it answers only this machine and private networks (home,
   office, Tailscale), uses at most one CPU core, writes no core files, and its web page is built
   without running packages' install scripts. (#99)

@@ -57,10 +57,29 @@ ok "dashboard-run starts the dashboard not dumpable, with the key, and refuses w
 # The unit: never asks systemd (root) to read a file in halogen's folder; its own user; local Halogen.
 u="$repo/files/usr/lib/systemd/system/halos-dashboard.service"
 if grep -qE '^(LoadCredential|EnvironmentFile|ReadOnlyPaths|BindReadOnlyPaths)=.*(srv|configs)' "$u"; then fail "the unit reads halogen's folder as root"; fi
-for want in '^ExecStartPre=\+/usr/libexec/halogen/dashboard-key$' '^DynamicUser=yes$' '^Environment=HALOGEN_URL=http://127.0.0.1:8731$' \
-  '^Environment=HALOGEN_DASHBOARD_LISTEN=0.0.0.0:8732$' '^CapabilityBoundingSet=$' '^ProtectSystem=strict$' '^ProtectHome=yes$' '^MemoryMax=' \
-  '^CPUQuota=100%$' '^IPAddressDeny=any$' '^IPAddressAllow=localhost link-local 10\.0\.0\.0/8 172\.16\.0\.0/12 192\.168\.0\.0/16 100\.64\.0\.0/10 fc00::/7$' '^LimitCORE=0$' '^PrivateUsers=yes$' '^IPAccounting=yes$' '^SocketBindAllow=tcp:8732$' '^SocketBindDeny=any$'; do
+for want in '^ExecStartPre=\+/usr/libexec/halogen/dashboard-key$' '^DynamicUser=yes$' '^Environment=HALOGEN_URL=http://127.0.0.1:18731$' \
+  '^Environment=HALOGEN_DASHBOARD_LISTEN=127.0.0.1:18732$' '^CapabilityBoundingSet=$' '^ProtectSystem=strict$' '^ProtectHome=yes$' '^MemoryMax=' \
+  '^CPUQuota=100%$' '^IPAddressDeny=any$' '^IPAddressAllow=localhost$' '^LimitCORE=0$' '^PrivateUsers=yes$' '^IPAccounting=yes$' '^SocketBindAllow=tcp:18732$' '^SocketBindDeny=any$'; do
   grep -qE "$want" "$u" || fail "the unit lacks $want"
 done
 grep -q 'port="8732"' "$repo/files/usr/lib/firewalld/services/halos-dashboard.xml" || fail "the firewall service isn't port 8732"
-ok "the unit runs as its own user against the local Halogen, sandboxed, on port 8732"
+ok "the unit runs as its own user against the local Halogen, sandboxed, on 127.0.0.1:18732 behind Caddy"
+
+# Caddy (halos-proxy.service) in front: the only one listening to the network on 8731 and 8732.
+p="$repo/files/usr/lib/systemd/system/halos-proxy.service"; cf="$repo/files/usr/share/halos/proxy/Caddyfile"
+q="$repo/files/etc/containers/systemd/users/970/halogen.container"
+for want in '^ExecStart=/usr/libexec/halogen/caddy run --config /usr/share/halos/proxy/Caddyfile --adapter caddyfile$' '^DynamicUser=yes$' \
+  '^CapabilityBoundingSet=$' '^NoNewPrivileges=yes$' '^ProtectSystem=strict$' '^PrivateUsers=yes$' '^MemoryMax=' '^LimitCORE=0$' \
+  '^SocketBindAllow=tcp:8731$' '^SocketBindAllow=tcp:8732$' '^SocketBindDeny=any$' '^SystemCallFilter=@system-service$' '^EnvironmentFile=-/etc/halos/proxy.env$'; do
+  grep -qE "$want" "$p" || fail "halos-proxy.service lacks $want"
+done
+grep -qx 'PublishPort=127.0.0.1:18731:8731' "$q" || fail "Halogen is published beyond this machine"
+if grep -E '^PublishPort=' "$q" | grep -vqx 'PublishPort=127.0.0.1:18731:8731'; then fail "Halogen has another published port"; fi
+for want in '^	admin off$' '^	auto_https off$' '^http://:8731 \{$' '^http://:8732 \{$' '^	reverse_proxy 127\.0\.0\.1:18731 \{$' \
+  '^	reverse_proxy 127\.0\.0\.1:18732 \{$' '^		flush_interval -1$' \
+  '^	@outside not remote_ip 127\.0\.0\.0/8 ::1/128 10\.0\.0\.0/8 172\.16\.0\.0/12 192\.168\.0\.0/16 169\.254\.0\.0/16 fe80::/10 100\.64\.0\.0/10 fc00::/7 \{\$HALOS_DASHBOARD_ALLOW\}$' \
+  '^	abort @outside$'; do
+  grep -qE "$want" "$cf" || fail "the Caddyfile lacks $want"
+done
+if grep -qiE 'log_credentials|header_up -?Authorization' "$cf"; then fail "the Caddyfile would log or drop the API key"; fi
+ok "Caddy alone faces the network: Halogen and the dashboard on 127.0.0.1, the dashboard only for private networks"

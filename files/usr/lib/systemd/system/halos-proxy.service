@@ -1,0 +1,58 @@
+[Unit]
+Description=halOS front door: Caddy on Halogen's API (8731) and the dashboard (8732)
+Documentation=https://caddyserver.com/docs/
+# Halogen and the dashboard listen on 127.0.0.1:18731 and :18732 only; every connection from the
+# network comes through here. It needs neither to start: until they answer, it says so (503).
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+ExecStart=/usr/libexec/halogen/caddy run --config /usr/share/halos/proxy/Caddyfile --adapter caddyfile
+Environment=HOME=/var/lib/halos-proxy XDG_DATA_HOME=/var/lib/halos-proxy XDG_CONFIG_HOME=/var/lib/halos-proxy
+# Optional, root's: HALOS_DASHBOARD_ALLOW=<more address ranges> lets other networks see the dashboard.
+EnvironmentFile=-/etc/halos/proxy.env
+Restart=always
+RestartSec=2
+TimeoutStopSec=20
+DynamicUser=yes
+StateDirectory=halos-proxy
+StateDirectoryMode=0700
+UMask=0077
+LimitNOFILE=8192
+MemoryHigh=192M
+MemoryMax=256M
+LimitCORE=0
+CapabilityBoundingSet=
+AmbientCapabilities=
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateIPC=yes
+PrivateUsers=yes
+ProtectHostname=yes
+ProtectClock=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+# It may listen on these two ports only (connecting out needs no bind).
+SocketBindAllow=tcp:8731
+SocketBindAllow=tcp:8732
+SocketBindDeny=any
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

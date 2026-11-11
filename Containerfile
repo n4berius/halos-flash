@@ -57,6 +57,33 @@ RUN set -eu; \
     setpriv --reuid=65534 --regid=65534 --clear-groups cat /proc/self/environ > /dev/null; \
     ! LD_PRELOAD=/out/dashboard-nodump.so setpriv --reuid=65534 --regid=65534 --clear-groups cat /proc/self/environ > /dev/null 2>&1
 
+# Caddy, halOS's front door (halos-proxy.service): Halogen's API on 8731 and the dashboard on 8732,
+# over HTTP or HTTPS. Built from src/caddy, whose go.mod and go.sum pin every module by version and
+# hash, because Fedora's caddy package has no DNS providers for Let's Encrypt's DNS-01 challenge.
+# Also gathers the licence files of every module linked in, and their list.
+FROM ${FEDORA_BOOTC_IMAGE} AS caddy
+COPY src/caddy/ /src/caddy/
+RUN set -eu; \
+    dnf -y --setopt=install_weak_deps=False install golang; \
+    cd /src/caddy; \
+    export GOTOOLCHAIN=local GOFLAGS=-mod=readonly CGO_ENABLED=0; \
+    go build -trimpath -ldflags='-s -w' -o /out/caddy .; \
+    /out/caddy version; \
+    for p in cloudflare duckdns namecheap porkbun; do /out/caddy list-modules | grep -qx "dns.providers.$p"; done; \
+    lic=/out/licenses; mkdir -p "$lic/modules"; \
+    { echo "Go modules linked into halOS's Caddy (path, version), from src/caddy/go.sum."; \
+      echo "Each module's licence file, where it has one, is under modules/<path>/."; echo; } > "$lic/modules.txt"; \
+    go list -deps -f '{{with .Module}}{{if .Version}}{{.Path}} {{.Version}} {{.Dir}}{{end}}{{end}}' . | sort -u \
+      | while read -r m v d; do \
+          echo "$m $v" >> "$lic/modules.txt"; \
+          f="$(find "$d" -maxdepth 1 -type f \( -iname 'licen[cs]e*' -o -iname 'copying*' \) | sort | head -n 1)"; \
+          if [ -n "$f" ]; then mkdir -p "$lic/modules/$m"; cp "$f" "$lic/modules/$m/"; fi; \
+        done; \
+    for m in github.com/caddyserver/caddy/v2 github.com/caddy-dns/cloudflare github.com/caddy-dns/duckdns \
+      github.com/caddy-dns/namecheap github.com/caddy-dns/porkbun; do \
+      ls "$lic/modules/$m/"* > /dev/null || { echo "no licence file for $m" >&2; exit 1; }; \
+    done
+
 FROM ${FEDORA_BOOTC_IMAGE} AS os
 ARG HALOGEN_VARIANT
 ARG HALOGEN_IMAGE
@@ -98,6 +125,8 @@ COPY --from=bf16-to-hgn /src/native/NOTICE /usr/share/licenses/bf16-to-hgn/nativ
 COPY --from=dashboard /src/target/release/halogen-dashboard /usr/libexec/halogen/halogen-dashboard
 COPY --from=dashboard /out/licenses/ /usr/share/licenses/halogen-dashboard/
 COPY --from=dashboard /out/dashboard-nodump.so /usr/lib64/halos/dashboard-nodump.so
+COPY --from=caddy /out/caddy /usr/libexec/halogen/caddy
+COPY --from=caddy /out/licenses/ /usr/share/licenses/halos-caddy/
 
 # Upstream's clock script and terms, unmodified and checked by hash.
 RUN set -eu; \
@@ -118,6 +147,7 @@ RUN set -eu; \
     /usr/libexec/halogen/bf16-to-hgn --version; \
     /usr/libexec/halogen/halogen-dashboard --version; \
     [ -z "$(LD_PRELOAD=/usr/lib64/halos/dashboard-nodump.so /usr/bin/true 2>&1)" ]; \
+    HOME=/tmp XDG_DATA_HOME=/tmp XDG_CONFIG_HOME=/tmp /usr/libexec/halogen/caddy validate --config /usr/share/halos/proxy/Caddyfile --adapter caddyfile; \
     chmod 0755 /usr/bin/halosctl /usr/bin/halogenctl /usr/bin/halogen-enroll-tpm /usr/libexec/halogen/*; \
     find /etc/containers/systemd/users/970 -type f -exec sed -i \
       -e "s|@HALOGEN_IMAGE@|${HALOGEN_IMAGE}|g" -e "s|@HALOGEN_VERSION@|${HALOGEN_VERSION}|g" {} +; \
@@ -136,6 +166,7 @@ RUN set -eu; \
     firewall-offline-cmd --add-service=halos-dashboard; \
     systemctl enable firewalld.service halogen-prepare.service halos-status.timer halos-platform-profile.service; \
     systemctl enable halos-dashboard.service; \
+    systemctl enable halos-proxy.service; \
     if [ "$HALOGEN_VARIANT" = npu ]; then \
       systemctl enable halogen-fabric-clock.service; \
     else \

@@ -390,7 +390,7 @@ has 'enable --now halos-dashboard.service' "$work/log"; has 'dashboard +off -> o
 "$ctl" dashboard > "$work/out"; has '^Dashboard: on \(active\), at http://192.0.2.7:8732' "$work/out"
 "$ctl" dashboard on > "$work/out"; has 'already on' "$work/out"
 [ "$(grep -cE 'dashboard +off -> on' "$work/history")" = 1 ] || { echo "a second on was recorded" >&2; exit 1; }
-"$ctl" dashboard off > "$work/out"; has 'nothing answers on port 8732' "$work/out"; [ ! -e "$work/dash-on" ]
+"$ctl" dashboard off > "$work/out"; has 'port 8732 now says so' "$work/out"; [ ! -e "$work/dash-on" ]
 has 'dashboard +on -> off' "$work/history"
 "$ctl" dashboard off > "$work/out"; has 'already off' "$work/out"
 hasnt 'firewall-cmd' "$work/log"

@@ -260,6 +260,12 @@ if have systemd-run; then
        say FAIL preflight "$(printf '%s' "${why:-$(printf '%s\n' "$out" | tail -n 1)}" | cut -c1-200)" ;; esac
 fi
 
+# halos-proxy (Caddy) answers the network on 8731 and 8732; the API checks below go through it.
+if have systemctl; then
+  if [ "$(run systemctl is-active halos-proxy.service)" = active ]; then
+    say PASS proxy "Caddy answers on 8731 (API) and 8732 (dashboard)"
+  else say FAIL proxy "halos-proxy.service isn't running, so nothing answers on 8731 or 8732: sudo systemctl status halos-proxy"; fi
+fi
 health() { curl -sS -g -m 5 -o /dev/null -w '%{http_code}' "http://$1:$port/health" 2>/dev/null; }
 if have curl; then
   code="$(health 127.0.0.1)"
@@ -295,8 +301,8 @@ if have systemctl && have curl; then
     deny="$(run systemctl show -p IPAddressDeny --value halos-dashboard.service)"
     allow="$(run systemctl show -p IPAddressAllow --value halos-dashboard.service)"
     if [[ "$ipin" =~ ^[0-9]+$ ]] && [ "$ipin" != 0 ] && [ "$ipin" != 18446744073709551615 ] && [[ " $deny " == *" 0.0.0.0/0 "* ]]; then
-      say PASS dashboard-filter "the address filter is on; port 8732 answers only: ${allow:-nothing}"
-    else say WARN dashboard-filter "the address filter isn't active, so any address can reach port 8732; check the kernel's BPF support and any drop-in: systemctl cat halos-dashboard"; fi
+      say PASS dashboard-filter "the address filter is on; the dashboard takes connections only from: ${allow:-nothing}"
+    else say WARN dashboard-filter "the address filter isn't active, so the dashboard takes connections from anywhere; check the kernel's BPF support and any drop-in: systemctl cat halos-dashboard"; fi
     # Not dumpable (dashboard-nodump.so): the kernel then gives the process's /proc files to root.
     pid="$(run systemctl show -p MainPID --value halos-dashboard.service)"
     if [[ "$pid" =~ ^[1-9][0-9]*$ ]] && [ "$(stat -c %u "/proc/$pid/environ" 2>/dev/null)" = 0 ]; then

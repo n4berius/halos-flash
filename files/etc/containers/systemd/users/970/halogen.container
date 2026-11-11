@@ -10,8 +10,9 @@ StartLimitBurst=3
 Image=@HALOGEN_IMAGE@
 Pull=never
 ContainerName=halogen
-# IPv4 and IPv6. Halogen listens on both since 0.19.0.
-PublishPort=8731:8731
+# On this machine only: halos-proxy.service (Caddy) answers the network on 8731, over HTTP or
+# HTTPS, and passes requests on to here.
+PublishPort=127.0.0.1:18731:8731
 AddDevice=/dev/kfd
 AddDevice=/dev/dri
 Ulimit=memlock=-1:-1
