@@ -32,13 +32,26 @@ ok "a missing or empty key fails, so the unit tries again later"
 
 printf 'k3y' > "$work/run/api-key"
 f fake-dashboard 'echo "key=$HALOGEN_API_KEY url=$HALOGEN_URL preload=${LD_PRELOAD:-}"'
-: > "$work/nodump.so"
+cc -O2 -shared -fPIC -Wall -Wextra -Werror -o "$work/nodump.so" "$repo/src/dashboard-nodump.c" || fail "dashboard-nodump.c doesn't build"
+: > "$work/broken.so"
 [ "$(HALOGEN_URL=http://127.0.0.1:8731 HALOS_DASHBOARD_BIN="$work/bin/fake-dashboard" HALOS_DASHBOARD_NODUMP="$work/nodump.so" "$run")" \
   = "key=k3y url=http://127.0.0.1:8731 preload=$work/nodump.so" ] || fail "dashboard-run didn't hand over the key and the library"
-if HALOS_DASHBOARD_BIN="$work/bin/fake-dashboard" HALOS_DASHBOARD_NODUMP="$work/missing.so" "$run" > "$work/out" 2>&1; then
-  fail "dashboard-run started without its not-dumpable library"
+for lib in missing.so broken.so; do
+  if HALOS_DASHBOARD_BIN="$work/bin/fake-dashboard" HALOS_DASHBOARD_NODUMP="$work/$lib" "$run" > "$work/out" 2>&1; then
+    fail "dashboard-run started with $lib instead of its not-dumpable library"
+  fi
+done
+# The library really makes a process not dumpable: as an ordinary user, it can't read its own environ.
+if [ "$(id -u)" = 0 ] && [ -x /usr/bin/setpriv ]; then
+  install -m 0755 -d "$work/lib" && install -m 0644 "$work/nodump.so" "$work/lib/nodump.so"; chmod 0755 "$work"
+  /usr/bin/setpriv --reuid=65534 --regid=65534 --clear-groups cat /proc/self/environ > /dev/null 2>&1 || fail "the not-dumpable check itself is broken"
+  if LD_PRELOAD="$work/lib/nodump.so" /usr/bin/setpriv --reuid=65534 --regid=65534 --clear-groups cat /proc/self/environ > /dev/null 2>&1; then
+    fail "dashboard-nodump.so leaves the process dumpable"
+  fi
+elif /usr/bin/cat /proc/self/environ > /dev/null && LD_PRELOAD="$work/nodump.so" /usr/bin/cat /proc/self/environ > /dev/null 2>&1; then
+  fail "dashboard-nodump.so leaves the process dumpable"
 fi
-grep -q 'NODUMP-/usr/lib64/halos/dashboard-nodump.so}' "$run" || fail "dashboard-run doesn't preload the image's library by default"
+grep -q 'NODUMP:-/usr/lib64/halos/dashboard-nodump.so}' "$run" || fail "dashboard-run doesn't preload the image's library by default"
 ok "dashboard-run starts the dashboard not dumpable, with the key, and refuses without the library"
 
 # The unit: never asks systemd (root) to read a file in halogen's folder; its own user; local Halogen.

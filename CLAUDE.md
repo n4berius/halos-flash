@@ -313,10 +313,14 @@ name, but allows saying halOS runs Halogen.
   built with gcc in the dashboard stage: a constructor calling `prctl(PR_SET_DUMPABLE, 0)`, exit 70 if
   it fails; a wrapper can't, since execve makes a process dumpable again), so the kernel never hands
   a crash to systemd-coredump (which journals `COREDUMP_ENVIRON`, the key) and gives its `/proc` files
-  to root; dashboard-run refuses to start without it. `SocketBindAllow=tcp:8790` + `SocketBindDeny=any`.
-  `IPAccounting=yes` uses the same cgroup BPF as `IPAddressDeny`, which systemd silently skips without
-  it: the selftest's `dashboard-filter` passes only when `IPIngressBytes` is a number, and
-  `dashboard-nodump` when `/proc/<MainPID>/environ` belongs to uid 0.
+  to root; dashboard-run refuses to start unless the library loads (ld.so skips a broken one with a
+  warning), and the dashboard stage checks a nobody process with it can't read its own environ.
+  `SocketBindAllow=tcp:8790` + `SocketBindDeny=any` (skipped quietly without systemd's BPF framework
+  or libbpf; not checked by the selftest). `IPAccounting=yes` uses the same cgroup BPF program as
+  `IPAddressDeny`, which systemd skips quietly when it can't load or attach it: the selftest's
+  `dashboard-filter` passes only when `IPIngressBytes` is above 0 after its own curl and
+  `IPAddressDeny` holds `0.0.0.0/0`, and prints the allow list; `dashboard-nodump` passes when
+  `/proc/<MainPID>/environ` belongs to uid 0. `iso.yml` also runs for `src/**`.
 
 ## Lessons already learned
 

@@ -394,8 +394,8 @@ It runs as a user of its own, with no access to Halogen's files, models or token
   `sudo systemctl edit halos-dashboard`, as `[Service]` and `IPAddressAllow=<range>`.
 - **The API key stays out of crash reports.** The dashboard can't be dumped, so if it ever
   crashes, nothing it holds (the key included) lands on disk or in the system log. It may also
-  listen on port 8790 only. `sudo halogenctl selftest` checks both, and that the private-networks
-  rule is really active.
+  listen on port 8790 only. `sudo halogenctl selftest` checks the crash-report protection, and that
+  the private-networks rule is really active.
 - **Memory is capped at 256 MB**, so it can never take memory from Halogen. Its own 30-day view
   needs about 100 MB. A request crafted to read far more makes it restart after 30 seconds, and
   Halogen is unaffected.

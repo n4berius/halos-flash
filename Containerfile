@@ -52,7 +52,10 @@ RUN set -eu; \
 COPY src/dashboard-nodump.c /halos-src/
 RUN set -eu; \
     gcc -O2 -shared -fPIC -Wall -Wextra -Werror -o /out/dashboard-nodump.so /halos-src/dashboard-nodump.c; \
-    [ -z "$(LD_PRELOAD=/out/dashboard-nodump.so /usr/bin/true 2>&1)" ]
+    [ -z "$(LD_PRELOAD=/out/dashboard-nodump.so /usr/bin/true 2>&1)" ]; \
+    chmod 0755 /out; \
+    setpriv --reuid=65534 --regid=65534 --clear-groups cat /proc/self/environ > /dev/null; \
+    ! LD_PRELOAD=/out/dashboard-nodump.so setpriv --reuid=65534 --regid=65534 --clear-groups cat /proc/self/environ > /dev/null 2>&1
 
 FROM ${FEDORA_BOOTC_IMAGE} AS os
 ARG HALOGEN_VARIANT

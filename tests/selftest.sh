@@ -38,7 +38,8 @@ f systemd-run 'case "$*" in *render-config*) printf "%s\n" "${FAKE_RENDER:-HALOG
 f bootc 'case "$*" in *json*) echo "{\"spec\":{\"image\":{\"image\":\"${FAKE_FOLLOWS:-ghcr.io/n4berius/halos-flash:stable}\",\"signature\":\"${FAKE_SIG:-containerPolicy}\"}}}" ;; *) echo "Booted image: ghcr.io/n4berius/halos-flash:9.9.9" ;; esac'
 f systemctl 'case "$*" in *--failed*) cat "$FAKE/failed" 2>/dev/null ;; *"show -p Job"*) echo "${FAKE_JOB:-}" ;;
   *"is-enabled halos-dashboard"*) echo "${FAKE_DASH:-enabled}" ;;
-  *"IPIngressBytes --value halos-dashboard"*) echo "${FAKE_DASH_IPIN-1234}" ;; *"MainPID --value halos-dashboard"*) echo "${FAKE_DASH_PID-4242}" ;;
+  *"IPIngressBytes --value halos-dashboard"*) echo "${FAKE_DASH_IPIN-1234}" ;; *"IPAddressDeny --value halos-dashboard"*) echo "${FAKE_DASH_DENY-0.0.0.0/0 ::/0}" ;;
+  *"IPAddressAllow --value halos-dashboard"*) echo "127.0.0.0/8 ::1/128 10.0.0.0/8" ;; *"MainPID --value halos-dashboard"*) echo "${FAKE_DASH_PID-4242}" ;;
   *halogen-fetch*) echo "${FAKE_FETCH:-inactive}" ;; *) echo "${FAKE_STATE:-active}" ;; esac'
 f fabric-clock 'exit 0'
 f ssh-unlock 'case "$1" in verify) exit "${FAKE_VERIFY:-0}" ;; *) echo "${FAKE_SSHU:-on 2}" ;; esac'
@@ -78,9 +79,10 @@ expect 'serving: halogen-qwen3.8-flash-next qwen3.5-2b'
 FAKE_DASH=disabled "$selftest" > "$work/out" 2>&1 || true; expect '^INFO dashboard: off; .*halosctl dashboard on'
 FAKE_DASH_CODE=000 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN dashboard: .*journalctl -u halos-dashboard'
 refuse '^(PASS|WARN) dashboard-(filter|nodump)'
-for ipin in '' '[not set]' 18446744073709551615; do
+for ipin in '' 0 '[not set]' 18446744073709551615; do
   FAKE_DASH_IPIN="$ipin" "$selftest" > "$work/out" 2>&1 || true; expect '^WARN dashboard-filter: .*any address'
 done
+FAKE_DASH_DENY='' "$selftest" > "$work/out" 2>&1 || true; expect '^WARN dashboard-filter: .*any address'
 FAKE_DASH_DUMP_UID=61234 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN dashboard-nodump: .*dumpable'
 FAKE_DASH_PID=0 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN dashboard-nodump:'
 ok "the selftest checks the dashboard's address filter is on and that it isn't dumpable"

@@ -288,12 +288,15 @@ if have systemctl && have curl; then
     say INFO dashboard "off; a live page of Halogen's load on port 8790: sudo halosctl dashboard on"
   elif [ "$(curl -sS -m 5 -o /dev/null -w '%{http_code}' http://127.0.0.1:8790/healthz 2>/dev/null)" = 200 ]; then
     say PASS dashboard "answers on port 8790 (state and address: sudo halosctl dashboard)"
-    # The address filter and the IP counters use the same kernel feature; systemd starts the unit
-    # without both when the kernel lacks it, so numbers here mean the filter is on.
+    # The address filter and the IP counters are the same BPF program on its cgroup, which systemd
+    # skips quietly when it can't load or attach it. The curl above went through that cgroup, so an
+    # attached program has counted more than 0 bytes.
     ipin="$(run systemctl show -p IPIngressBytes --value halos-dashboard.service)"
-    if [[ "$ipin" =~ ^[0-9]+$ ]] && [ "$ipin" != 18446744073709551615 ]; then
-      say PASS dashboard-filter "only this machine and private networks can reach port 8790"
-    else say WARN dashboard-filter "the address filter isn't active, so any address can reach port 8790: sudo journalctl -u halos-dashboard"; fi
+    deny="$(run systemctl show -p IPAddressDeny --value halos-dashboard.service)"
+    allow="$(run systemctl show -p IPAddressAllow --value halos-dashboard.service)"
+    if [[ "$ipin" =~ ^[0-9]+$ ]] && [ "$ipin" != 0 ] && [ "$ipin" != 18446744073709551615 ] && [[ " $deny " == *" 0.0.0.0/0 "* ]]; then
+      say PASS dashboard-filter "the address filter is on; port 8790 answers only: ${allow:-nothing}"
+    else say WARN dashboard-filter "the address filter isn't active, so any address can reach port 8790; check the kernel's BPF support and any drop-in: systemctl cat halos-dashboard"; fi
     # Not dumpable (dashboard-nodump.so): the kernel then gives the process's /proc files to root.
     pid="$(run systemctl show -p MainPID --value halos-dashboard.service)"
     if [[ "$pid" =~ ^[1-9][0-9]*$ ]] && [ "$(stat -c %u "/proc/$pid/environ" 2>/dev/null)" = 0 ]; then
