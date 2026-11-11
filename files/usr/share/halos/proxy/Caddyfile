@@ -29,7 +29,9 @@ http://:8731 {
 		flush_interval -1
 	}
 	handle_errors 502 503 {
-		respond "Halogen isn't answering yet (starting, downloading or stopped): sudo halogenctl status" 503
+		header Content-Type application/json
+		header Retry-After 30
+		respond `{"error":{"type":"unavailable","message":"Halogen isn't answering yet (starting, downloading or stopped): sudo halogenctl status"}}` 503
 	}
 }
 
@@ -46,6 +48,7 @@ http://:8732 {
 		flush_interval -1
 	}
 	handle_errors 502 503 {
-		respond "The halOS dashboard is off or starting. Turn it on with: sudo halosctl dashboard on" 503
+		respond "The halOS dashboard is off or starting. Turn it on with: sudo halosctl dashboard on
+" 503
 	}
 }

@@ -15,7 +15,10 @@ promoted.
 - [Caddy](https://caddyserver.com) now answers on ports 8731 (API) and 8732 (dashboard) and passes
   requests on to Halogen and the dashboard, which listen on the machine only: the first step to
   HTTPS (#102). Nothing changes for apps: same address, same key, replies still stream. While
-  Halogen starts, the API answers with a short note instead of refusing the connection. (#PR)
+  Halogen starts, the API answers with a short note instead of refusing the connection. If you let
+  other networks see the dashboard with `systemctl edit halos-dashboard` (`IPAddressAllow=`), put
+  those ranges in `/etc/halos/proxy.env` as `HALOS_DASHBOARD_ALLOW=` instead: the old setting no
+  longer lets them in. (#PR)
 
 ## v0.20.1-alpha.2 (2026-11-11)
 

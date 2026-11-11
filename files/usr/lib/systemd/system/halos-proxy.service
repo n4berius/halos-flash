@@ -7,6 +7,9 @@ After=network.target
 StartLimitIntervalSec=0
 
 [Service]
+# A bad setting (such as a mistyped range in /etc/halos/proxy.env) fails here once, with Caddy's
+# reason in the journal, instead of a silent restart loop.
+ExecStartPre=/usr/libexec/halogen/caddy validate --config /usr/share/halos/proxy/Caddyfile --adapter caddyfile
 ExecStart=/usr/libexec/halogen/caddy run --config /usr/share/halos/proxy/Caddyfile --adapter caddyfile
 Environment=HOME=/var/lib/halos-proxy XDG_DATA_HOME=/var/lib/halos-proxy XDG_CONFIG_HOME=/var/lib/halos-proxy
 # Optional, root's: HALOS_DASHBOARD_ALLOW=<more address ranges> lets other networks see the dashboard.

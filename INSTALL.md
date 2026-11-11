@@ -394,12 +394,14 @@ It runs as a user of its own, with no access to Halogen's files, models or token
   gets no answer, unless something on your network passes it on (a reverse proxy, a tunnel or
   `tailscale serve`). Caddy applies this rule, on IPv4 (as before). If your network uses other addresses, browsers get
   no answer: add your ranges to `/etc/halos/proxy.env` as `HALOS_DASHBOARD_ALLOW=<range> <range>`,
-  then `sudo systemctl restart halos-proxy`. The dashboard itself takes connections only from this
+  then `sudo systemctl restart halos-proxy` and check it with `sudo systemctl status halos-proxy`:
+  a mistyped range stops Caddy, and with it the API, until it is fixed. The dashboard itself takes connections only from this
   machine.
 - **The API key stays out of crash reports.** The dashboard can't be dumped, so if it ever
   crashes, nothing it holds (the key included) lands on disk or in the system log. It may also
-  listen on its own local port only. `sudo halogenctl selftest` checks the crash-report protection, and that
-  the private-networks rule is really active.
+  listen on its own local port only, and takes connections only from this machine (Caddy).
+  `sudo halogenctl selftest` checks the crash-report protection, and that this address filter is
+  really active.
 - **Memory is capped at 256 MB**, so it can never take memory from Halogen. Its own 30-day view
   needs about 100 MB. A request crafted to read far more makes it restart after 30 seconds, and
   Halogen is unaffected.
@@ -418,13 +420,14 @@ another computer goes through Caddy. Today Caddy speaks plain HTTP; HTTPS is com
 ([#102](https://github.com/n4berius/halos-flash/issues/102)).
 
 - Replies stream through as Halogen sends them; Caddy adds no buffering.
-- While Halogen starts, downloads or is stopped, the API answers `503` with a short note instead of
-  refusing the connection.
+- While Halogen starts, downloads or is stopped, the API answers `503` with a short note (JSON, as
+  Halogen's own errors are) instead of refusing the connection.
 - Caddy writes one line per API request to the journal (`sudo journalctl -u halos-proxy`): the
   time, the client's address, the path and the status. It writes no request headers and no
   query string, so the API key never lands there, whichever way an app sends it.
 - Caddy runs as a user of its own with no access to your files, and with no admin interface.
-  `sudo halogenctl selftest` checks it runs (`proxy`).
+  `sudo halogenctl selftest` checks it answers (`proxy`); its other API checks and `halogenctl
+  bench` talk to Halogen directly, so their numbers are Halogen's own.
 - Halogen's own [docs](https://github.com/peonist-ai/halogen-flash-server/tree/main/docs) list no
   setting that depends on the client's address, so Halogen behaves the same behind Caddy.
 

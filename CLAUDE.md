@@ -341,9 +341,13 @@ name, but allows saying halOS runs Halogen.
   (HOME/XDG there), `GOMEMLIMIT=192MiB` under `MemoryMax=256M` (no `MemoryHigh`: Caddy's automemlimit
   would aim above it), no capabilities (ports above 1024), the dashboard's sandbox, `SocketBindAllow`
   8731 and 8732. Prototype (Fedora 45 container, as nobody): only TCP 8731/8732 listen (no 2019,
-  no :80, no UDP). `login-status` asks Halogen at 18731 directly (no access-log line every 30 s);
-  the selftest's API checks, `bench` and clients go through Caddy. Licences:
-  `/usr/share/licenses/halos-caddy/` (`modules.txt` from `go list -deps`, each module's licence file).
+  no :80, no UDP). `login-status`, `bench` and the selftest's `api-ipv4`/`api-models` ask Halogen at
+  18731 directly (Halogen's own numbers, no access-log lines, no TLS later); the selftest's `proxy`
+  curls 8731 (any HTTP code: Caddy answers) and `api-ipv6` goes through Caddy on `[::1]:8731`.
+  `ExecStartPre` runs `caddy validate`, so a bad `proxy.env` range fails once with a reason.
+  The 8731 503 note is JSON with `Retry-After`. Licences:
+  `/usr/share/licenses/halos-caddy/` (`modules.txt` from `go list -deps`, each module's licence and
+  NOTICE files, and Go's own `go-LICENSE` for the standard library).
 
 ## Lessons already learned
 

@@ -77,9 +77,11 @@ RUN set -eu; \
     go list -deps -f '{{with .Module}}{{if .Version}}{{.Path}} {{.Version}} {{.Dir}}{{end}}{{end}}' . | sort -u \
       | while read -r m v d; do \
           echo "$m $v" >> "$lic/modules.txt"; \
-          f="$(find "$d" -maxdepth 1 -type f \( -iname 'licen[cs]e*' -o -iname 'copying*' \) | sort | head -n 1)"; \
-          if [ -n "$f" ]; then mkdir -p "$lic/modules/$m"; cp "$f" "$lic/modules/$m/"; fi; \
+          f="$(find "$d" -maxdepth 1 -type f \( -iname 'licen[cs]e*' -o -iname 'copying*' -o -iname 'notice*' \) | sort)"; \
+          if [ -n "$f" ]; then mkdir -p "$lic/modules/$m"; echo "$f" | while read -r g; do cp "$g" "$lic/modules/$m/"; done; fi; \
         done; \
+    echo "go $(go env GOVERSION) (the standard library): go-LICENSE" >> "$lic/modules.txt"; \
+    cp "$(go env GOROOT)/LICENSE" "$lic/go-LICENSE"; \
     for m in github.com/caddyserver/caddy/v2 github.com/caddy-dns/cloudflare github.com/caddy-dns/porkbun \
       github.com/libdns/duckdns github.com/libdns/namecheap; do \
       ls "$lic/modules/$m/"* > /dev/null || { echo "no licence file for $m" >&2; exit 1; }; \
