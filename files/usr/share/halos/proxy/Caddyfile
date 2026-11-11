@@ -1,0 +1,54 @@
+# halOS's front door (halos-proxy.service), HTTP mode: Caddy answers on Halogen's API port (8731)
+# and the dashboard's (8732), and passes requests on to them on this machine only
+# (127.0.0.1:18731 and 127.0.0.1:18732). Checked with `caddy validate` when the image is built.
+{
+	# No admin API (it would let any local process change this configuration), no saved copy of the
+	# configuration, no HTTPS, no HTTP/3.
+	admin off
+	persist_config off
+	auto_https off
+	servers {
+		protocols h1 h2
+	}
+	# Open replies (a long generation) get 10 s to finish when Caddy stops, not forever.
+	grace_period 10s
+}
+
+http://:8731 {
+	# One JSON line per request in the journal: time, client address, method, path, status. No
+	# request headers and no query string: Caddy redacts only Authorization, and clients can send
+	# the API key in others (x-api-key, as Anthropic's SDKs do) or in the address.
+	log {
+		format filter {
+			request>headers delete
+			request>uri regexp "\?.*" "?(query removed)"
+		}
+	}
+	reverse_proxy 127.0.0.1:18731 {
+		# Streamed replies (Server-Sent Events) pass through at once, not buffered.
+		flush_interval -1
+	}
+	handle_errors 502 503 {
+		header Content-Type application/json
+		header Retry-After 30
+		respond `{"error":{"type":"unavailable","message":"Halogen isn't answering yet (starting, downloading or stopped): sudo halogenctl status"}}` 503
+	}
+}
+
+http://:8732 {
+	# IPv4 only, as the dashboard was before: a browser on a LAN with global IPv6 addresses would
+	# otherwise connect over IPv6, fall outside the ranges below and be cut off, not fall back.
+	bind 0.0.0.0
+	# The dashboard has no login, so it answers this machine and private networks only: home and
+	# office ranges, link-local, and 100.64.0.0/10 (Tailscale and other carrier-grade NAT). A network
+	# with other addresses goes in HALOS_DASHBOARD_ALLOW in /etc/halos/proxy.env (root's file).
+	@outside not remote_ip 127.0.0.0/8 ::1/128 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 fe80::/10 100.64.0.0/10 fc00::/7 {$HALOS_DASHBOARD_ALLOW}
+	abort @outside
+	reverse_proxy 127.0.0.1:18732 {
+		flush_interval -1
+	}
+	handle_errors 502 503 {
+		respond "The halOS dashboard is off or starting. Turn it on with: sudo halosctl dashboard on
+" 503
+	}
+}

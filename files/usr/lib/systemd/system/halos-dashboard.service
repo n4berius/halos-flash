@@ -1,5 +1,5 @@
 [Unit]
-Description=halOS dashboard: Halogen's load and health on port 8732
+Description=halOS dashboard: Halogen's load and health (port 8732, through halos-proxy)
 Documentation=https://github.com/Quat3rnion/halogen-dashboard
 # The API key exists once halogen-prepare made it (first boot).
 After=network.target halogen-prepare.service
@@ -10,8 +10,10 @@ StartLimitIntervalSec=0
 # as a user of its own, with no access to Halogen's files, models or tokens.
 ExecStartPre=+/usr/libexec/halogen/dashboard-key
 ExecStart=/usr/libexec/halogen/dashboard-run
-Environment=HALOGEN_URL=http://127.0.0.1:8731
-Environment=HALOGEN_DASHBOARD_LISTEN=0.0.0.0:8732
+Environment=HALOGEN_URL=http://127.0.0.1:18731
+# On this machine only: halos-proxy.service (Caddy) answers the network on 8732 and lets only
+# this machine and private networks through.
+Environment=HALOGEN_DASHBOARD_LISTEN=127.0.0.1:18732
 Environment=HALOGEN_DASHBOARD_DB=/var/lib/halos-dashboard/halogen-dashboard.sqlite
 Environment=RUST_LOG=warn
 Restart=on-failure
@@ -46,16 +48,15 @@ ProtectControlGroups=yes
 ProtectProc=invisible
 ProcSubset=pid
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
-# Only this machine and private networks reach it, and it sends only to the same ranges (it needs
-# only Halogen on localhost): home and office ranges, link-local, and 100.64.0.0/10 (Tailscale and
-# other carrier-grade NAT). fc00::/7 is for an IPv6 listener; 0.0.0.0 is IPv4 only today.
+# Only this machine: Caddy (halos-proxy) in front and Halogen behind are both on 127.0.0.1. The
+# private-networks rule for visitors is Caddy's (/usr/share/halos/proxy/Caddyfile).
 IPAddressDeny=any
-IPAddressAllow=localhost link-local 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10 fc00::/7
+IPAddressAllow=localhost
 # Counts its traffic with the same kernel feature (BPF on its cgroup) the filter above uses, so the
 # selftest can tell the filter is really on: without that feature systemd starts it unfiltered.
 IPAccounting=yes
-# It may listen on 8732 only, whatever its settings say (connecting out needs no bind).
-SocketBindAllow=tcp:8732
+# It may listen on 18732 only, whatever its settings say (connecting out needs no bind).
+SocketBindAllow=tcp:18732
 SocketBindDeny=any
 # No core file, which would hold the API key. dashboard-run also makes the process not dumpable,
 # so a crash isn't handed to systemd-coredump either (it would journal the environment, key included).

@@ -10,6 +10,9 @@ release="${HALOGEN_RELEASE_FILE:-/usr/share/halogen/release.env}"
 models="${HALOGEN_MODELS_DIR:-/srv/models}"
 run="${HALOS_RUN_DIR:-/run}"
 port="${HALOGEN_API_PORT:-8731}"
+# Halogen itself, on this machine only (behind halos-proxy): asking it every 30 s through Caddy would
+# add an access-log line each time.
+local_port="${HALOS_API_LOCAL_PORT:-18731}"
 needed_gib="${HALOGEN_MODELS_NEEDED_GIB:-125}"
 halogen_state="${HALOGEN_STATE_DIR:-/var/lib/halogen}"
 # shellcheck source=/dev/null
@@ -21,7 +24,7 @@ mkdir -p "$state_dir" "$run/issue.d" "$run/motd.d" || exit 1
 # (runuser and systemctl --machine both go through a full login, too much every 30 s.)
 uid="${HALOGEN_UID:-970}"
 as_halogen() { setpriv --reuid="$uid" --regid="$uid" --clear-groups -- "$@"; }
-health() { curl -s -m 3 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$port/health" 2>/dev/null; }
+health() { curl -s -m 3 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$local_port/health" 2>/dev/null; }
 
 # What Halogen is doing, in the words the login screen shows. "ready" ends in agetty's \4,
 # which the console fills in with this machine's IPv4 address; the SSH message says the name.

@@ -4,3 +4,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+  # halOS's Caddy (src/caddy): Caddy and its DNS provider plugins.
+  - package-ecosystem: gomod
+    directory: /src/caddy
+    schedule:
+      interval: weekly

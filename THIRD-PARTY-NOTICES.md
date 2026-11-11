@@ -74,6 +74,19 @@ so the program also carries the parts below.
 | [uPlot](https://github.com/leeoniya/uPlot) (charts) and [Svelte](https://svelte.dev/) with the two small parts its runtime uses ([clsx](https://github.com/lukeed/clsx), [esm-env](https://github.com/benmccann/esm-env)), in the web page | MIT. Texts in `/usr/share/licenses/halogen-dashboard/web/` |
 | The Rust crates it is built from (axum, tokio, rusqlite with SQLite, reqwest, rustls and others) | Each crate's own license, mostly MIT or Apache-2.0 (SQLite is public domain). The list with versions and licenses is `/usr/share/licenses/halogen-dashboard/crates.txt` |
 
+## Web server in the OS image
+
+halOS's front door (`halos-proxy.service`, ports 8731 and 8732) is [Caddy](https://caddyserver.com),
+built unmodified with its standard modules and four DNS providers, from the versions pinned in
+`src/caddy/go.mod` and `src/caddy/go.sum`. Thank you to its authors.
+
+| Component | License |
+|---|---|
+| [Caddy](https://github.com/caddyserver/caddy) (`/usr/libexec/halogen/caddy`) | Apache-2.0 |
+| DNS provider plugins [caddy-dns/cloudflare](https://github.com/caddy-dns/cloudflare) and [caddy-dns/porkbun](https://github.com/caddy-dns/porkbun) | Apache-2.0 and MIT |
+| DNS libraries [libdns/duckdns](https://github.com/libdns/duckdns) and [libdns/namecheap](https://github.com/libdns/namecheap), registered with Caddy by halOS's own modules (`src/caddy/dnsproviders`) because the caddy-dns plugins for them carry no licence | MIT |
+| The Go modules it is built from (certmagic, quic-go, the Go standard library and others) | Each module's own license. The list with versions is `/usr/share/licenses/halos-caddy/modules.txt`, and each module's license file is under `/usr/share/licenses/halos-caddy/modules/` |
+
 ## Build tools
 
 These build the images and are not included in them.

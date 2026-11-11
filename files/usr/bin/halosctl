@@ -567,7 +567,7 @@ case "$cmd" in
         dash_on || [ "$(systemctl is-active "$unit" 2> /dev/null)" = active ] || { echo "The dashboard is already off."; exit 0; }
         systemctl disable --now "$unit" || die "the dashboard didn't stop: sudo systemctl status $unit"
         record dashboard on off
-        echo "Dashboard off: nothing answers on port 8732 now, and it stays off after reboots."
+        echo "Dashboard off: port 8732 now says so, and it stays off after reboots."
         echo "Its history stays in /var/lib/halos-dashboard for when it's on again." ;;
       *) die "dashboard on, off, or nothing for its state" ;;
     esac

@@ -12,6 +12,8 @@ models="${HALOGEN_MODELS_DIR:-/srv/models}"
 configs="${HALOGEN_CONFIGS_DIR:-/srv/configs}"
 clock="${HALOGEN_CLOCK:-/usr/libexec/halogen/halogen-fabric-clock}"
 port="${HALOGEN_API_PORT:-8731}"
+# Halogen itself, behind halos-proxy (Caddy) on this machine only.
+local_port="${HALOS_API_LOCAL_PORT:-18731}"
 # shellcheck disable=SC1090
 . "$release"
 npu=0; [ "${HALOGEN_VARIANT:-}" = npu ] && npu=1
@@ -260,21 +262,30 @@ if have systemd-run; then
        say FAIL preflight "$(printf '%s' "${why:-$(printf '%s\n' "$out" | tail -n 1)}" | cut -c1-200)" ;; esac
 fi
 
-health() { curl -sS -g -m 5 -o /dev/null -w '%{http_code}' "http://$1:$port/health" 2>/dev/null; }
+# halos-proxy (Caddy) answers the network on 8731 and 8732; the API checks below go through it.
+if have systemctl; then
+  # Any HTTP answer counts (Halogen may still be starting): it is Caddy that must answer.
+  pcode="$(curl -sS -m 5 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$port/health" 2>/dev/null)"
+  if [ "$(run systemctl is-active halos-proxy.service)" = active ] && [ -n "$pcode" ] && [ "$pcode" != 000 ]; then
+    say PASS proxy "Caddy answers on 8731 (API) and 8732 (dashboard)"
+  else say FAIL proxy "halos-proxy.service isn't running, so nothing answers on 8731 or 8732: sudo systemctl status halos-proxy"; fi
+fi
+# Halogen directly on 127.0.0.1, and IPv6 through Caddy (Halogen itself is published on IPv4 only).
+health() { curl -sS -g -m 5 -o /dev/null -w '%{http_code}' "http://$1/health" 2>/dev/null; }
 if have curl; then
-  code="$(health 127.0.0.1)"
+  code="$(health "127.0.0.1:$local_port")"
   # While Halogen isn't running (first boot is still downloading), the API can't answer yet.
   miss=FAIL; [ "${running:-0}" = 1 ] || miss=WARN
-  if [ "$code" = 200 ]; then say PASS api-ipv4 "the API answers on 127.0.0.1:$port"
-  else say "$miss" api-ipv4 "the API does not answer on 127.0.0.1:$port (${code:-no answer})"; fi
-  code="$(health '[::1]')"
-  if [ "$code" = 200 ]; then say PASS api-ipv6 "the API answers on [::1]:$port"
-  else say WARN api-ipv6 "the API does not answer on [::1]:$port (${code:-no answer}); fine if IPv6 is off"; fi
+  if [ "$code" = 200 ]; then say PASS api-ipv4 "Halogen answers on 127.0.0.1:$local_port"
+  else say "$miss" api-ipv4 "Halogen does not answer on 127.0.0.1:$local_port (${code:-no answer})"; fi
+  code="$(health "[::1]:$port")"
+  if [ "$code" = 200 ]; then say PASS api-ipv6 "the API answers on [::1]:$port through Caddy"
+  else say WARN api-ipv6 "Caddy does not pass the API on [::1]:$port (${code:-no answer}); fine if IPv6 is off"; fi
   if [ -r "$configs/api-key" ]; then
     # The key goes in a private file, so it never shows in the process list or the report.
     header="$(mktemp)"; trap 'rm -f "$header"' EXIT
     printf 'Authorization: Bearer %s\n' "$(as_owner cat "$configs/api-key")" > "$header"
-    out="$(curl -sS -m 10 -H @"$header" "http://127.0.0.1:$port/v1/models" 2>/dev/null)"
+    out="$(curl -sS -m 10 -H @"$header" "http://127.0.0.1:$local_port/v1/models" 2>/dev/null)"
     rm -f "$header"
     ids="$(printf '%s' "$out" | python3 -c 'import json,sys; print(" ".join(m["id"] for m in json.load(sys.stdin)["data"]))' 2>/dev/null)"
     if [ -n "$ids" ]; then say PASS api-models "serving: $ids"
@@ -295,8 +306,8 @@ if have systemctl && have curl; then
     deny="$(run systemctl show -p IPAddressDeny --value halos-dashboard.service)"
     allow="$(run systemctl show -p IPAddressAllow --value halos-dashboard.service)"
     if [[ "$ipin" =~ ^[0-9]+$ ]] && [ "$ipin" != 0 ] && [ "$ipin" != 18446744073709551615 ] && [[ " $deny " == *" 0.0.0.0/0 "* ]]; then
-      say PASS dashboard-filter "the address filter is on; port 8732 answers only: ${allow:-nothing}"
-    else say WARN dashboard-filter "the address filter isn't active, so any address can reach port 8732; check the kernel's BPF support and any drop-in: systemctl cat halos-dashboard"; fi
+      say PASS dashboard-filter "the address filter is on; the dashboard takes connections only from: ${allow:-nothing}"
+    else say WARN dashboard-filter "the address filter isn't active, so the dashboard takes connections from anywhere; check the kernel's BPF support and any drop-in: systemctl cat halos-dashboard"; fi
     # Not dumpable (dashboard-nodump.so): the kernel then gives the process's /proc files to root.
     pid="$(run systemctl show -p MainPID --value halos-dashboard.service)"
     if [[ "$pid" =~ ^[1-9][0-9]*$ ]] && [ "$(stat -c %u "/proc/$pid/environ" 2>/dev/null)" = 0 ]; then

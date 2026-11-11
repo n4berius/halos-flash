@@ -50,6 +50,8 @@ expect "$motd" 'Channel:   edge'
 expect "$motd" '900 GiB free'
 if grep -qE 'Image:|[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' "$motd"; then echo "the SSH message shows more than it should" >&2; exit 1; fi
 grep -q 'wall halOS: Halogen is ready at http://freyja:8731/v1' "$work/log" || { echo "no ready notice" >&2; exit 1; }
+grep -q 'curl .*http://127.0.0.1:18731/health' "$work/log" || { echo "login-status doesn't ask Halogen directly" >&2; exit 1; }
+if grep -q 'curl .*:8731/health' "$work/log"; then echo "login-status asks through Caddy (an access-log line every 30 s)" >&2; exit 1; fi
 FAKE_SERVER=active FAKE_HEALTH=200 run
 if grep -q wall "$work/log"; then echo "the ready notice repeated" >&2; exit 1; fi
 if grep -q systemctl "$work/log"; then echo "asked the service manager though Halogen answers" >&2; exit 1; fi

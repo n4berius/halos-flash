@@ -3,7 +3,8 @@
 # published numbers come from), and save a report with what the numbers depend on.
 # Runs as halogen. Usage: bench [--quick]
 # The sweep is an HTTP client, so it needs no GPU, no restart and no models mounted: it runs in
-# the pinned Halogen image with host networking only, to reach 127.0.0.1:8731.
+# the pinned Halogen image with host networking only, to reach Halogen itself at 127.0.0.1:18731
+# (behind halos-proxy: the numbers are Halogen's own, and the proxy's access log stays quiet).
 set -euo pipefail
 die() { echo "halogenctl bench: $*" >&2; exit 1; }
 unset HALOS_RELEASE HALOGEN_VERSION HALOGEN_VARIANT HALOGEN_IMAGE
@@ -13,7 +14,7 @@ configs="${HALOGEN_CONFIGS_DIR:-/srv/configs}"
 render="${HALOGEN_RENDER:-/usr/libexec/halogen/render-config}"
 sys="${HALOGEN_SYS:-/sys}"
 cmdline="${HALOGEN_CMDLINE:-/proc/cmdline}"
-api=http://127.0.0.1:8731
+api=http://127.0.0.1:18731
 
 # Prefill sizes, generation length and repeats. The full run takes a few minutes.
 pp=512,2048,8192,32768; tg=128; reps=3; kind=full
