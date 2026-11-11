@@ -22,7 +22,7 @@ promoted.
 - HTTPS for the API and the dashboard: `sudo halosctl https self-signed` turns it on with halOS's
   own certificate authority (copy it to your apps once with `sudo halosctl https ca`), or `sudo
   halosctl https custom <certificate> <key>` with yours. Plain `http://` then redirects. It is off
-  until you turn it on, also after upgrading. (#PR)
+  until you turn it on, also after upgrading. (#105)
 
 ## v0.20.1-alpha.2 (2026-11-11)
 

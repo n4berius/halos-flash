@@ -34,7 +34,7 @@ On edge: the dashboard on port 8732, next to the API (#103), and Caddy in front 
 ## Next
 
 1. HTTPS for Halogen's API and the dashboard (#102), with Caddy in front of both: Caddy on HTTP
-   (#104), then HTTPS with a self-signed certificate or your own (this step), then Let's Encrypt
+   (#104), then HTTPS with a self-signed certificate or your own (#105), then Let's Encrypt
    through DNS-01, then HTTPS by default for new installs.
 2. fail2ban for SSH and the Halogen API (#92), once HTTPS is in.
 3. Unlock the disk from a tang server on the network (#44).

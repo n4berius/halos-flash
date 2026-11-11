@@ -349,7 +349,7 @@ name, but allows saying halOS runs Halogen.
   `/usr/share/licenses/halos-caddy/` (`modules.txt` from `go list -deps`, each module's licence and
   NOTICE files, and Go's own `go-LICENSE` for the standard library).
 
-- HTTPS (#102 step 3, #PR): `/usr/libexec/halogen/https` (root) reads `/etc/halos/https.env` as data
+- HTTPS (#102 step 3, #105): `/usr/libexec/halogen/https` (root) reads `/etc/halos/https.env` as data
   (`HALOS_HTTPS=off|self-signed|custom`, `HALOS_HTTPS_NAMES`; no file = off, also on upgrades) and is
   halos-proxy's `ExecStartPre=+`: it writes `/run/halos/proxy.env` (root's folder, since PID 1 reads
   `EnvironmentFile`s as root and Caddy's runtime folder is Caddy's) with `HALOS_PROXY_CONFIG`
