@@ -42,7 +42,7 @@ name, but allows saying halOS runs Halogen.
 | `variants/npu`, `variants/no-npu` | Per-edition kernel arguments, Quadlet drop-ins, the allowed-options list and default `halogen.env` |
 | `scripts/` | `build.sh`, `build-iso.sh`, `package-iso.sh` (single-file release ISO), `release-info.sh`, `gen-options.py` (options from upstream `FLAGS.md`), `halogen-update.sh` (pins a new Halogen release), `size-report.sh`, `channels.sh` (which channel tags a release moves), `next-tag.sh` (the next release tag), `push-image.sh`, `sign-image.sh` (cosign signing) |
 | `CHANGELOG.md`, `ROADMAP.md` | What each release changed (PRs add to Unreleased), and the order of the work ahead |
-| `src/` | halOS's own C source: `dashboard-nodump.c`, built in the Containerfile's dashboard stage |
+| `src/` | halOS's own source: `dashboard-nodump.c` (built in the Containerfile's dashboard stage) and `caddy/` (`main.go`, `go.mod`, `go.sum`: Caddy with the DNS providers, built in the caddy stage; Dependabot `gomod`) |
 | `tests/` | `run.sh` (fast checks, no GPU or network), `iso-install.sh` + `vm-login.py` (QEMU install test) |
 | `.claude/agents/` | Subagents: `code-reviewer` (QA review before merge) and `security-auditor` (audit, zero-cost hardening ideas). Both only read and report |
 | `.github/workflows/` | `build.yml` (image, edge tag; also weekly, Thursday 05:37 UTC), `iso.yml` (ISO + VM install test), `release.yml`, `refresh.yml` (weekly rebuild of stable), `halogen-update.yml` (daily: opens a PR for a new Halogen release) |
@@ -322,6 +322,23 @@ name, but allows saying halOS runs Halogen.
   `dashboard-filter` passes only when `IPIngressBytes` is above 0 after its own curl and
   `IPAddressDeny` holds `0.0.0.0/0`, and prints the allow list; `dashboard-nodump` passes when
   `/proc/<MainPID>/environ` belongs to uid 0. `iso.yml` also runs for `src/**`.
+
+- Front door (#102 step 2, #PR): `halos-proxy.service` runs Caddy (`/usr/libexec/halogen/caddy`, built
+  in the Containerfile's `caddy` stage from `src/caddy` with Fedora's Go, `GOTOOLCHAIN=local`,
+  `-mod=readonly`, `CGO_ENABLED=0`; Fedora's caddy package has no DNS providers). It is the only
+  listener on 8731 and 8732, on HTTP or (later) HTTPS: Halogen is published on `127.0.0.1:18731`
+  only (Quadlet), the dashboard listens on `127.0.0.1:18732` with `IPAddressAllow=localhost` and
+  reads Halogen at 18731. Caddyfile `/usr/share/halos/proxy/Caddyfile` (`caddy validate` at build):
+  `admin off`, `persist_config off`, `auto_https off`, `protocols h1 h2`, `grace_period 10s`,
+  `flush_interval -1` (SSE, checked unbuffered), 503 notes from `handle_errors` when an upstream
+  is down, an access log for 8731 only (journal; Caddy redacts `Authorization`; fail2ban #92 will read
+  it), and the dashboard's private-ranges rule (`remote_ip` + `abort`, plus `{$HALOS_DASHBOARD_ALLOW}`
+  from root's optional `/etc/halos/proxy.env`). The unit: `DynamicUser`, `StateDirectory=halos-proxy`
+  (HOME/XDG there), no capabilities (ports above 1024), the dashboard's sandbox, `SocketBindAllow`
+  8731 and 8732. Prototype (Fedora 45 container, as nobody): only TCP 8731/8732 listen (no 2019,
+  no :80, no UDP). `login-status` asks Halogen at 18731 directly (no access-log line every 30 s);
+  the selftest's API checks, `bench` and clients go through Caddy. Licences:
+  `/usr/share/licenses/halos-caddy/` (`modules.txt` from `go list -deps`, each module's licence file).
 
 ## Lessons already learned
 
