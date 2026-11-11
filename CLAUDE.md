@@ -286,7 +286,7 @@ name, but allows saying halOS runs Halogen.
   `fake-halogen`), into `/usr/libexec/halogen/halogen-dashboard`. Licences in
   `/usr/share/licenses/halogen-dashboard/`: its own, `web/` (IBM Plex Sans OFL 1.1, uPlot, Svelte, the
   bundled parts) and `crates.txt` (`cargo metadata`). `halos-dashboard.service` (enabled, firewalld
-  service `halos-dashboard`, 8732/tcp open by default (8790 on edge until #PR; the firewalld service file
+  service `halos-dashboard`, 8732/tcp open by default (8790 on edge until #103; the firewalld service file
   moves the port on upgrade, since zones name the service), no login, GET routes only): `DynamicUser`,
   `StateDirectory=halos-dashboard` (SQLite: raw samples 48 h, one-minute rollups and events 30 d; about 430 MB full, from upstream's `seed --days 30`),
   `MemoryMax=256M` (measured 12 MB RSS against the simulator), `HALOGEN_URL=http://127.0.0.1:8731`

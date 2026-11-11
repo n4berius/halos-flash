@@ -16,7 +16,7 @@ promoted.
   unchanged; about 12 MB of memory and 430 MB of disk once it holds 30 days. It is on by default,
   also after upgrading, with no login: anyone on your network can view it, nobody can change
   anything. `sudo halosctl dashboard off` stops it, `on` brings it back. (#98; port 8790 on edge
-  until #PR)
+  until #103)
 - The dashboard is locked down further: it answers only this machine and private networks (home,
   office, Tailscale), uses at most one CPU core, writes no core files, and its web page is built
   without running packages' install scripts. (#99)
