@@ -1,5 +1,5 @@
 [Unit]
-Description=halOS dashboard: Halogen's load and health on port 8790
+Description=halOS dashboard: Halogen's load and health on port 8732
 Documentation=https://github.com/Quat3rnion/halogen-dashboard
 # The API key exists once halogen-prepare made it (first boot).
 After=network.target halogen-prepare.service
@@ -11,7 +11,7 @@ StartLimitIntervalSec=0
 ExecStartPre=+/usr/libexec/halogen/dashboard-key
 ExecStart=/usr/libexec/halogen/dashboard-run
 Environment=HALOGEN_URL=http://127.0.0.1:8731
-Environment=HALOGEN_DASHBOARD_LISTEN=0.0.0.0:8790
+Environment=HALOGEN_DASHBOARD_LISTEN=0.0.0.0:8732
 Environment=HALOGEN_DASHBOARD_DB=/var/lib/halos-dashboard/halogen-dashboard.sqlite
 Environment=RUST_LOG=warn
 Restart=on-failure
@@ -54,8 +54,8 @@ IPAddressAllow=localhost link-local 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.
 # Counts its traffic with the same kernel feature (BPF on its cgroup) the filter above uses, so the
 # selftest can tell the filter is really on: without that feature systemd starts it unfiltered.
 IPAccounting=yes
-# It may listen on 8790 only, whatever its settings say (connecting out needs no bind).
-SocketBindAllow=tcp:8790
+# It may listen on 8732 only, whatever its settings say (connecting out needs no bind).
+SocketBindAllow=tcp:8732
 SocketBindDeny=any
 # No core file, which would hold the API key. dashboard-run also makes the process not dumpable,
 # so a crash isn't handed to systemd-coredump either (it would journal the environment, key included).

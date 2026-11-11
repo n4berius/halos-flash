@@ -58,9 +58,9 @@ ok "dashboard-run starts the dashboard not dumpable, with the key, and refuses w
 u="$repo/files/usr/lib/systemd/system/halos-dashboard.service"
 if grep -qE '^(LoadCredential|EnvironmentFile|ReadOnlyPaths|BindReadOnlyPaths)=.*(srv|configs)' "$u"; then fail "the unit reads halogen's folder as root"; fi
 for want in '^ExecStartPre=\+/usr/libexec/halogen/dashboard-key$' '^DynamicUser=yes$' '^Environment=HALOGEN_URL=http://127.0.0.1:8731$' \
-  '^Environment=HALOGEN_DASHBOARD_LISTEN=0.0.0.0:8790$' '^CapabilityBoundingSet=$' '^ProtectSystem=strict$' '^ProtectHome=yes$' '^MemoryMax=' \
-  '^CPUQuota=100%$' '^IPAddressDeny=any$' '^IPAddressAllow=localhost link-local 10\.0\.0\.0/8 172\.16\.0\.0/12 192\.168\.0\.0/16 100\.64\.0\.0/10 fc00::/7$' '^LimitCORE=0$' '^PrivateUsers=yes$' '^IPAccounting=yes$' '^SocketBindAllow=tcp:8790$' '^SocketBindDeny=any$'; do
+  '^Environment=HALOGEN_DASHBOARD_LISTEN=0.0.0.0:8732$' '^CapabilityBoundingSet=$' '^ProtectSystem=strict$' '^ProtectHome=yes$' '^MemoryMax=' \
+  '^CPUQuota=100%$' '^IPAddressDeny=any$' '^IPAddressAllow=localhost link-local 10\.0\.0\.0/8 172\.16\.0\.0/12 192\.168\.0\.0/16 100\.64\.0\.0/10 fc00::/7$' '^LimitCORE=0$' '^PrivateUsers=yes$' '^IPAccounting=yes$' '^SocketBindAllow=tcp:8732$' '^SocketBindDeny=any$'; do
   grep -qE "$want" "$u" || fail "the unit lacks $want"
 done
-grep -q 'port="8790"' "$repo/files/usr/lib/firewalld/services/halos-dashboard.xml" || fail "the firewall service isn't port 8790"
-ok "the unit runs as its own user against the local Halogen, sandboxed, on port 8790"
+grep -q 'port="8732"' "$repo/files/usr/lib/firewalld/services/halos-dashboard.xml" || fail "the firewall service isn't port 8732"
+ok "the unit runs as its own user against the local Halogen, sandboxed, on port 8732"

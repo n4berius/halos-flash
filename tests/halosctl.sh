@@ -385,12 +385,12 @@ f systemctl 'echo "systemctl $*" >> "$FAKE/log"; d="$FAKE/dash-on"
 f firewall-cmd 'echo "firewall-cmd $*" >> "$FAKE/log"; exit 252'
 f hostname 'echo "192.0.2.7 fd00::7"'
 : > "$work/log"; "$ctl" dashboard > "$work/out"; has '^Dashboard: off' "$work/out"
-"$ctl" dashboard on > "$work/out"; has 'http://192.0.2.7:8790' "$work/out"; has 'no login' "$work/out"
+"$ctl" dashboard on > "$work/out"; has 'http://192.0.2.7:8732' "$work/out"; has 'no login' "$work/out"
 has 'enable --now halos-dashboard.service' "$work/log"; has 'dashboard +off -> on +\(by owner\)' "$work/history"
-"$ctl" dashboard > "$work/out"; has '^Dashboard: on \(active\), at http://192.0.2.7:8790' "$work/out"
+"$ctl" dashboard > "$work/out"; has '^Dashboard: on \(active\), at http://192.0.2.7:8732' "$work/out"
 "$ctl" dashboard on > "$work/out"; has 'already on' "$work/out"
 [ "$(grep -cE 'dashboard +off -> on' "$work/history")" = 1 ] || { echo "a second on was recorded" >&2; exit 1; }
-"$ctl" dashboard off > "$work/out"; has 'nothing answers on port 8790' "$work/out"; [ ! -e "$work/dash-on" ]
+"$ctl" dashboard off > "$work/out"; has 'nothing answers on port 8732' "$work/out"; [ ! -e "$work/dash-on" ]
 has 'dashboard +on -> off' "$work/history"
 "$ctl" dashboard off > "$work/out"; has 'already off' "$work/out"
 hasnt 'firewall-cmd' "$work/log"
