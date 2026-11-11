@@ -8,10 +8,12 @@ import (
 	caddycmd "github.com/caddyserver/caddy/v2/cmd"
 
 	_ "github.com/caddy-dns/cloudflare"
-	_ "github.com/caddy-dns/duckdns"
-	_ "github.com/caddy-dns/namecheap"
 	_ "github.com/caddy-dns/porkbun"
 	_ "github.com/caddyserver/caddy/v2/modules/standard"
+
+	// DuckDNS and Namecheap: halOS's own modules on the MIT libdns providers, since their
+	// caddy-dns plugins carry no licence.
+	_ "github.com/n4berius/halos-flash/caddy/dnsproviders"
 )
 
 func main() {
