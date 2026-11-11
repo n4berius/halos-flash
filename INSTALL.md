@@ -416,8 +416,7 @@ It runs as a user of its own, with no access to Halogen's files, models or token
 [Caddy](https://caddyserver.com) (`halos-proxy.service`) answers the network on both ports:
 **8731** for Halogen's API and **8732** for the dashboard. Halogen and the dashboard themselves
 listen on this machine only (`127.0.0.1:18731` and `127.0.0.1:18732`), so every connection from
-another computer goes through Caddy. Today Caddy speaks plain HTTP; HTTPS is coming
-([#102](https://github.com/n4berius/halos-flash/issues/102)).
+another computer goes through Caddy, over plain HTTP or [HTTPS](#https).
 
 - Replies stream through as Halogen sends them; Caddy adds no buffering.
 - While Halogen starts, downloads or is stopped, the API answers `503` with a short note (JSON, as
@@ -430,6 +429,49 @@ another computer goes through Caddy. Today Caddy speaks plain HTTP; HTTPS is com
   bench` talk to Halogen directly, so their numbers are Halogen's own.
 - Halogen's own [docs](https://github.com/peonist-ai/halogen-flash-server/tree/main/docs) list no
   setting that depends on the client's address, so Halogen behaves the same behind Caddy.
+
+### HTTPS
+
+Plain HTTP sends prompts, replies and the API key across your network as they are. HTTPS
+encrypts them. It is off until you turn it on; machines that upgrade stay on HTTP, so no app
+breaks by surprise.
+
+```bash
+sudo halosctl https                        # the state, and what apps use
+sudo halosctl https self-signed            # on, with halOS's own authority
+sudo halosctl https custom cert.pem key.pem   # on, with your certificate (PEM, key without a passphrase)
+sudo halosctl https off                    # back to plain HTTP
+```
+
+With HTTPS on, both ports speak it: apps use `https://<address>:8731/v1`, and the dashboard is
+`https://<address>:8732`. A plain `http://` request on either port is redirected to `https://`.
+Apps that send the key over `http://` still send it once before they follow the redirect, so
+change their address to `https://`.
+
+**Self-signed** makes halOS's own certificate authority (Caddy's, kept by the machine) and a
+certificate for each of this machine's names and addresses: `localhost`, its host name, the
+`.local` name and every address it has, including Tailscale's. Apps and browsers must trust the
+authority once:
+
+```bash
+sudo halosctl https ca > halos-ca.crt
+```
+
+Then add `halos-ca.crt` to the app (most have a setting for a CA file, such as `SSL_CERT_FILE`
+or `REQUESTS_CA_BUNDLE`), or to your computer's trusted certificates. `sudo halosctl https` shows
+the authority's fingerprint, to compare with the file you copied. For other names (a DNS name
+you gave the machine), list them: `sudo halosctl https self-signed freyja.example`. If the
+machine's address changes, `sudo systemctl restart halos-proxy` adds it; the selftest warns until
+then.
+
+**Your own certificate** must name the address apps use (a DNS name, usually). halOS checks the
+key belongs to it and that it hasn't expired, keeps both in `/etc/halos/https/` (root only), and
+`sudo halogenctl selftest` warns two weeks before it ends. Renewing is running `https custom`
+again with the new files. Certificates from Let's Encrypt that renew themselves come next
+([#102](https://github.com/n4berius/halos-flash/issues/102)).
+
+halOS's own tools (`halogenctl bench`, the selftest's API checks, the login line's check) talk to
+Halogen directly on the machine, so they work the same in either mode.
 
 ### Measuring speed
 

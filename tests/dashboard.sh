@@ -66,21 +66,33 @@ grep -q 'port="8732"' "$repo/files/usr/lib/firewalld/services/halos-dashboard.xm
 ok "the unit runs as its own user against the local Halogen, sandboxed, on 127.0.0.1:18732 behind Caddy"
 
 # Caddy (halos-proxy.service) in front: the only one listening to the network on 8731 and 8732.
-p="$repo/files/usr/lib/systemd/system/halos-proxy.service"; cf="$repo/files/usr/share/halos/proxy/Caddyfile"
+p="$repo/files/usr/lib/systemd/system/halos-proxy.service"; px="$repo/files/usr/share/halos/proxy"
+cf="$px/Caddyfile"; sc="$px/sites.caddy"; cs="$px/Caddyfile.https"
 q="$repo/files/etc/containers/systemd/users/970/halogen.container"
-for want in '^ExecStart=/usr/libexec/halogen/caddy run --config /usr/share/halos/proxy/Caddyfile --adapter caddyfile$' '^DynamicUser=yes$' \
+for want in '^ExecStart=/usr/libexec/halogen/caddy run --config \$\{HALOS_PROXY_CONFIG\} --adapter caddyfile$' '^DynamicUser=yes$' \
+  '^ExecStartPre=\+/usr/libexec/halogen/https env$' '^Environment=HALOS_PROXY_CONFIG=/usr/share/halos/proxy/Caddyfile$' '^EnvironmentFile=-/run/halos/proxy.env$' \
   '^CapabilityBoundingSet=$' '^NoNewPrivileges=yes$' '^ProtectSystem=strict$' '^PrivateUsers=yes$' '^MemoryMax=' '^LimitCORE=0$' \
-  '^SocketBindAllow=tcp:8731$' '^SocketBindAllow=tcp:8732$' '^SocketBindDeny=any$' '^SystemCallFilter=@system-service$' '^EnvironmentFile=-/etc/halos/proxy.env$' '^Environment=GOMEMLIMIT=' '^ExecStartPre=/usr/libexec/halogen/caddy validate --config /usr/share/halos/proxy/Caddyfile --adapter caddyfile$'; do
+  '^SocketBindAllow=tcp:8731$' '^SocketBindAllow=tcp:8732$' '^SocketBindDeny=any$' '^SystemCallFilter=@system-service$' '^EnvironmentFile=-/etc/halos/proxy.env$' '^Environment=GOMEMLIMIT=' '^ExecStartPre=/usr/libexec/halogen/caddy validate --config \$\{HALOS_PROXY_CONFIG\} --adapter caddyfile$'; do
   grep -qE "$want" "$p" || fail "halos-proxy.service lacks $want"
 done
 grep -qx 'PublishPort=127.0.0.1:18731:8731' "$q" || fail "Halogen is published beyond this machine"
 grep -E '^PublishPort=' "$q" > "$work/ports"
 if grep -vqx 'PublishPort=127.0.0.1:18731:8731' "$work/ports"; then fail "Halogen has another published port"; fi
-for want in '^	admin off$' '^	auto_https off$' '^http://:8731 \{$' '^http://:8732 \{$' '^	reverse_proxy 127\.0\.0\.1:18731 \{$' \
-  '^	reverse_proxy 127\.0\.0\.1:18732 \{$' '^		flush_interval -1$' \
-  '^	@outside not remote_ip 127\.0\.0\.0/8 ::1/128 10\.0\.0\.0/8 172\.16\.0\.0/12 192\.168\.0\.0/16 169\.254\.0\.0/16 fe80::/10 100\.64\.0\.0/10 fc00::/7 \{\$HALOS_DASHBOARD_ALLOW\}$' \
-  '^	abort @outside$' '^			request>headers delete$' '^			request>uri regexp "\\\?\.\*" "\?\(query removed\)"$' '^	bind 0\.0\.0\.0$'; do
+for want in '^	admin off$' '^	auto_https off$' '^import /usr/share/halos/proxy/sites\.caddy$' '^http://:8731 \{$' '^http://:8732 \{$' \
+  '^	import api$' '^	import dashboard$'; do
   grep -qE "$want" "$cf" || fail "the Caddyfile lacks $want"
 done
-if grep -qiE 'log_credentials|header_up -?Authorization' "$cf"; then fail "the Caddyfile would log or drop the API key"; fi
+for want in '^\(api\) \{$' '^\(dashboard\) \{$' '^	reverse_proxy 127\.0\.0\.1:18731 \{$' \
+  '^	reverse_proxy 127\.0\.0\.1:18732 \{$' '^		flush_interval -1$' \
+  '^	@outside not remote_ip 127\.0\.0\.0/8 ::1/128 10\.0\.0\.0/8 172\.16\.0\.0/12 192\.168\.0\.0/16 169\.254\.0\.0/16 fe80::/10 100\.64\.0\.0/10 fc00::/7 \{\$HALOS_DASHBOARD_ALLOW\}$' \
+  '^	abort @outside$' '^			request>headers delete$' '^			request>uri regexp "\\\?\.\*" "\?\(query removed\)"$' '^	bind 0\.0\.0\.0$' \
+  '^	tls internal$' '^	tls \{\$RUNTIME_DIRECTORY\}/cert\.pem \{\$RUNTIME_DIRECTORY\}/key\.pem$'; do
+  grep -qE "$want" "$sc" || fail "sites.caddy lacks $want"
+done
+# HTTPS: the redirect from http:// on the same port, no port 80, no admin, never the system's trust store.
+for want in '^	admin off$' '^	auto_https disable_redirects$' '^	skip_install_trust$' '^			http_redirect$' '^		protocols h1 h2$' \
+  '^\{\$HALOS_API_SITES\} \{$' '^\{\$HALOS_DASH_SITES\} \{$' '^	import tls_\{\$HALOS_TLS\}$'; do
+  grep -qE "$want" "$cs" || fail "Caddyfile.https lacks $want"
+done
+if cat "$cf" "$sc" "$cs" | grep -qiE 'log_credentials|header_up -?Authorization'; then fail "the Caddyfile would log or drop the API key"; fi
 ok "Caddy alone faces the network: Halogen and the dashboard on 127.0.0.1, the dashboard only for private networks"

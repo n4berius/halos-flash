@@ -56,7 +56,18 @@ export PATH="$fake:$sysbin" HALOGEN_RELEASE_FILE="$work/release.env" HALOGEN_SYS
   HALOGEN_DEV="$work/dev" HALOGEN_CMDLINE="$work/cmdline" HALOGEN_MEMINFO="$work/meminfo" \
   HALOGEN_MODELS_DIR="$work/models" HALOGEN_CONFIGS_DIR="$work/configs" HALOGEN_CLOCK="$fake/fabric-clock" \
   HALOS_POLICY="$repo/files/etc/containers/policy.json" HALOS_SSH_UNLOCK="$fake/ssh-unlock" \
-  HALOS_ETC="$work/etc" HALOS_USR_ETC="$work/usretc" HALOS_ROOT_POLICY="$work/root-policy.json"
+  HALOS_ETC="$work/etc" HALOS_USR_ETC="$work/usretc" HALOS_ROOT_POLICY="$work/root-policy.json" \
+  HALOS_HTTPS_HELPER="$fake/https" HALOS_HTTPS_RUN="$work/run-halos"
+# The https helper: off unless FAKE_HTTPS says otherwise.
+f https 'case "$1" in
+  describe) case "${FAKE_HTTPS:-off}" in
+      self-signed) echo "mode self-signed"; echo "ca ${FAKE_CA-AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89}"; echo "ca_until Jan 1 2036" ;;
+      custom) echo "mode custom"; echo "subject CN=box.example"; echo "until Jan 1 2027"; echo "expires ${FAKE_EXPIRES:-later}" ;;
+      *) echo "mode off" ;; esac ;;
+  ca) [ "${FAKE_CA-x}" != none ] && echo "-----BEGIN CERTIFICATE-----" ;;
+  *) exit 1 ;; esac'
+f hostname 'echo "192.168.1.20 "'
+mkdir -p "$work/run-halos"; printf 'HALOS_API_SITES="https://localhost:8731, https://192.168.1.20:8731"\n' > "$work/run-halos/proxy.env"
 # /etc and the image's /usr/etc copy, alike to start with.
 for d in etc usretc; do
   mkdir -p "$work/$d/containers/registries.d" "$work/$d/pki/containers"
@@ -88,6 +99,15 @@ FAKE_DASH_PID=0 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN dashboard-
 ok "the selftest checks the dashboard's address filter is on and that it isn't dumpable"
 FAKE_PROXY=failed "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL proxy: .*nothing answers on 8731 or 8732'
 ok "the selftest fails when Caddy (halos-proxy) isn't running"
+"$selftest" > "$work/out" 2>&1 || true; expect '^INFO https: off'
+FAKE_HTTPS=self-signed "$selftest" > "$work/out" 2>&1 || true; expect '^PASS https: on, self-signed; authority.s fingerprint AB:CD:EF'
+refuse 'https-names'; expect '^PASS dashboard:'; grep -q 'curl .*-k .*https://127.0.0.1:8732/healthz' "$work/curl.log" || { echo "the dashboard check didn't use https" >&2; exit 1; }
+FAKE_HTTPS=self-signed FAKE_CA=none "$selftest" > "$work/out" 2>&1 || true; expect '^WARN https: .*hasn.t made its authority'
+printf 'HALOS_API_SITES="https://localhost:8731"\n' > "$work/run-halos/proxy.env"
+FAKE_HTTPS=self-signed "$selftest" > "$work/out" 2>&1 || true; expect '^WARN https-names: not covered by the certificate yet: 192.168.1.20'
+FAKE_HTTPS=custom "$selftest" > "$work/out" 2>&1 || true; expect '^PASS https: on, with your certificate for CN=box.example'
+FAKE_HTTPS=custom FAKE_EXPIRES=soon "$selftest" > "$work/out" 2>&1 || true; expect '^WARN https: your certificate .* within 14 days'
+ok "the selftest names the HTTPS mode, checks Caddy answers in it, and warns of a missing authority, an uncovered address or an ending certificate"
 "$selftest" > "$work/out" 2>&1 || true
 expect '^INFO weights: downloaded from weights commit 8ef7ad828f7f'
 if ! { grep -q "runuser -u halogen -- cat $work/configs/api-key" "$work/runuser.log" &&

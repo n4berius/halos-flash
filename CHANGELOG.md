@@ -19,6 +19,10 @@ promoted.
   other networks see the dashboard with `systemctl edit halos-dashboard` (`IPAddressAllow=`), put
   those ranges in `/etc/halos/proxy.env` as `HALOS_DASHBOARD_ALLOW=` instead: the old setting no
   longer lets them in. (#104)
+- HTTPS for the API and the dashboard: `sudo halosctl https self-signed` turns it on with halOS's
+  own certificate authority (copy it to your apps once with `sudo halosctl https ca`), or `sudo
+  halosctl https custom <certificate> <key>` with yours. Plain `http://` then redirects. It is off
+  until you turn it on, also after upgrading. (#PR)
 
 ## v0.20.1-alpha.2 (2026-11-11)
 

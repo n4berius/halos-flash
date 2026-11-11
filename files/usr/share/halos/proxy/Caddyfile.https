@@ -1,0 +1,34 @@
+# halOS's front door (halos-proxy.service), HTTPS mode (sudo halosctl https): Caddy answers on
+# Halogen's API port (8731) and the dashboard's (8732) over HTTPS, and a plain http:// request on
+# either port gets a redirect to https:// on the same port. The https helper chooses the
+# certificates and site addresses (HALOS_TLS, HALOS_API_SITES, HALOS_DASH_SITES) before Caddy
+# starts. Checked with `caddy validate` when the image is built.
+{
+	# No admin API, no saved copy of the configuration, no HTTP/3, and no listener on port 80: the
+	# redirect from http:// happens on the same port.
+	admin off
+	persist_config off
+	auto_https disable_redirects
+	# Never touch the system's trust store: clients trust the authority if you give it to them.
+	skip_install_trust
+	servers {
+		listener_wrappers {
+			http_redirect
+			tls
+		}
+		protocols h1 h2
+	}
+	grace_period 10s
+}
+
+import /usr/share/halos/proxy/sites.caddy
+
+{$HALOS_API_SITES} {
+	import tls_{$HALOS_TLS}
+	import api
+}
+
+{$HALOS_DASH_SITES} {
+	import tls_{$HALOS_TLS}
+	import dashboard
+}

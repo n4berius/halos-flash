@@ -402,3 +402,40 @@ for bad in "on off" "maybe" "on --reboot" "on --yes"; do
 done
 if FAKE_UID=1000 "$ctl" dashboard on > /dev/null 2>&1; then echo "ran without root" >&2; exit 1; fi
 ok "dashboard on/off starts or stops it without touching the firewall, records changes, and shows the address"
+
+# https: the mode is written by the https helper, Caddy restarted, and the old mode put back if
+# Caddy won't start with the new one, so the API never stays down.
+export HALOS_HTTPS_HELPER="$repo/files/usr/libexec/halogen/https" HALOS_HTTPS_ETC="$work/etc-https" \
+  HALOS_PROXY_STATE="$work/proxy-state"
+f hostname 'case "${1:-}" in -I) echo "192.0.2.7 fd00::7" ;; *) echo box ;; esac'
+f systemctl 'echo "systemctl $*" >> "$FAKE/log"
+  case "$*" in *"restart halos-proxy"*) if [ -n "${FAKE_PROXY_FAIL:-}" ] && grep -q "=$FAKE_PROXY_FAIL" "$FAKE/etc-https/https.env" 2> /dev/null; then exit 1; fi ;; esac'
+ca_dir="$work/proxy-state/caddy/pki/authorities/local"; mkdir -p "$ca_dir"
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout "$work/ca.key" -out "$ca_dir/root.crt" -subj "/CN=Test Root" -days 30 2> /dev/null
+: > "$work/log"; "$ctl" https > "$work/out"; has '^HTTPS: off. Apps use http://192.0.2.7:8731/v1' "$work/out"
+if "$ctl" https self-signed < /dev/null > "$work/out" 2>&1; then echo "switched without --yes or a terminal" >&2; exit 1; fi
+"$ctl" https self-signed laptop.example --yes > "$work/out"
+has 'restart halos-proxy.service' "$work/log"; has 'https +off -> self-signed' "$work/history"
+has '^HTTPS: on, with halOS.s own authority' "$work/out"; has 'Authority.s fingerprint \(SHA-256\): ([0-9A-F]{2}:){31}[0-9A-F]{2}' "$work/out"
+has 'Names and addresses covered: .*192\.0\.2\.7.*laptop\.example' "$work/out"
+"$ctl" https ca > "$work/out"; has 'BEGIN CERTIFICATE' "$work/out"
+"$ctl" dashboard on > "$work/out"; has 'https://192.0.2.7:8732' "$work/out"
+ok "https self-signed switches, records, and shows the authority's fingerprint and the names it covers"
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout "$work/my.key" -out "$work/my.crt" -subj /CN=box.example -days 60 2> /dev/null
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout "$work/wrong.key" -out "$work/wrong.crt" -subj /CN=x -days 60 2> /dev/null
+if "$ctl" https custom "$work/my.crt" "$work/wrong.key" --yes > "$work/out" 2>&1; then echo "a wrong key was taken" >&2; exit 1; fi
+has "doesn't belong" "$work/out"
+: > "$work/log"
+if FAKE_PROXY_FAIL=custom "$ctl" https custom "$work/my.crt" "$work/my.key" --yes > "$work/out" 2>&1; then echo "a failed start passed" >&2; exit 1; fi
+has "nothing changed" "$work/out"; grep -qx 'HALOS_HTTPS=self-signed' "$work/etc-https/https.env" || { echo "the old mode wasn't put back" >&2; exit 1; }
+[ "$(grep -c 'restart halos-proxy' "$work/log")" = 2 ] || { echo "Caddy wasn't restarted with the old mode" >&2; exit 1; }
+"$ctl" https custom "$work/my.crt" "$work/my.key" --yes > "$work/out"
+has '^HTTPS: on, with your certificate for CN=box.example' "$work/out"; has 'https +self-signed -> custom' "$work/history"
+"$ctl" https off --yes > "$work/out"; has '^HTTPS: off' "$work/out"; has 'https +custom -> off' "$work/history"
+"$ctl" https off > "$work/out"; has 'already off' "$work/out"
+if "$ctl" https self-signed 'a b' --yes > /dev/null 2>&1; then echo "took a name with a space" >&2; exit 1; fi
+for bad in "maybe" "custom $work/my.crt" "self-signed --reboot" "off --check"; do
+  # shellcheck disable=SC2086 # the words are the arguments
+  if "$ctl" https $bad --yes > /dev/null 2>&1; then echo "took https $bad" >&2; exit 1; fi
+done
+ok "https custom checks the key, puts the old mode back if Caddy won't start, and off goes back to HTTP"

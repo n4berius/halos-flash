@@ -21,7 +21,7 @@ KEYS = {" ": "spc", "-": "minus", "=": "equal", ".": "dot", "/": "slash", ";": "
         "[": "bracket_left", "]": "bracket_right", "\\": "backslash"}
 SHIFT = {"_": "minus", "|": "backslash", ">": "dot", "{": "bracket_left", "}": "bracket_right",
          "&": "7", "*": "8", "(": "9", ")": "0", "$": "4", "?": "slash", '"': "apostrophe", "!": "1",
-         "@": "2", "#": "3", ":": "semicolon", "+": "equal", "<": "comma"}
+         "@": "2", "#": "3", ":": "semicolon", "+": "equal", "<": "comma", "%": "5"}
 
 time.sleep(5)
 mon = socket.socket(socket.AF_UNIX)
@@ -121,6 +121,20 @@ typed("halogenctl selftest > /tmp/st 2>&1; rc=$?; cat /tmp/st > /dev/ttyS0; "
 log = wait_serial("SELFTEST-RC=", 300)
 selftest = log.split("RESULT-END")[-1].split("SELFTEST-RC=")[0]
 (out / "selftest.txt").write_text(re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", selftest))
+
+# HTTPS (#102): self-signed, then back to plain HTTP. Halogen isn't up in the VM, so Caddy's own
+# 503 note answers /health: CURL 503 means the TLS handshake passed with halOS's authority.
+if mode in ("plain", "luks-stale"):   # the first boot only
+    typed("halosctl https self-signed --yes > /tmp/https 2>&1; echo HTTPS-RC=$? >> /tmp/https; "
+          "/usr/libexec/halogen/https ca > /tmp/ca.pem; "
+          "curl -sS -m 10 -o /dev/null -w 'CURL %{http_code}' --cacert /tmp/ca.pem https://127.0.0.1:8731/health >> /tmp/https 2>&1; echo >> /tmp/https; "
+          "curl -sS -m 10 -o /dev/null -w 'REDIRECT %{http_code}' http://127.0.0.1:8731/health >> /tmp/https 2>&1; echo >> /tmp/https; "
+          "halogenctl selftest 2>&1 | grep -E 'https|proxy:|dashboard:|api-ipv6' >> /tmp/https; "
+          "halosctl https off --yes >> /tmp/https 2>&1; echo OFF-RC=$? >> /tmp/https; "
+          "curl -sS -m 10 -o /dev/null -w 'BACK %{http_code}' http://127.0.0.1:8731/health >> /tmp/https 2>&1; echo >> /tmp/https; "
+          "cat /tmp/https > /dev/ttyS0; echo HTTPS-END > /dev/ttyS0\n")
+    log = wait_serial("HTTPS-END", 180)
+    (out / "https.txt").write_text(re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", log.split("SELFTEST-RC=")[-1].split("HTTPS-END")[0]))
 
 if mode == "luks-stale" and os.environ.get("HALOS_TEST_SSH_UNLOCK"):
     # Unlock over SSH (#13), set up by the installer (TPM and SSH): the next boot asks over SSH too.
