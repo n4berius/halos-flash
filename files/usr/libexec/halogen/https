@@ -99,7 +99,7 @@ read_ca() {
   local uid gid
   uid="$(stat -c %u "$state" 2> /dev/null)" || return 1
   gid="$(stat -c %g "$state" 2> /dev/null)" || return 1
-  if [ "$uid" = "$(id -u)" ]; then timeout 5 head -c 65536 "$root_ca" > "$1" 2> /dev/null || return 1
+  if [ "$uid" = "$EUID" ]; then timeout 5 head -c 65536 "$root_ca" > "$1" 2> /dev/null || return 1
   else timeout 5 setpriv --reuid="$uid" --regid="$gid" --clear-groups -- head -c 65536 "$root_ca" > "$1" 2> /dev/null || return 1; fi
   pem_cert "$1" > /dev/null
 }
