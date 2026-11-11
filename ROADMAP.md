@@ -32,7 +32,7 @@ On edge, for the next release:
 ## Next
 
 1. The dashboard's last hardening: no crash report can hold the API key, only port 8790, and a
-   selftest check that its private-networks rule is on (this PR).
+   selftest check that its private-networks rule is on (#101).
 2. HTTPS for Halogen's API and the dashboard, chosen at setup: a self-signed certificate to
    start, certificates from Let's Encrypt through DNS-01, or your own.
 3. fail2ban for SSH and the Halogen API (#92), once HTTPS is in.

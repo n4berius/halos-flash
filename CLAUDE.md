@@ -309,7 +309,7 @@ name, but allows saying halOS runs Halogen.
   key included),
   `PrivateUsers=yes`, and `pnpm install --ignore-scripts` in the build stage (the page builds
   without them, checked on Fedora 45).
-  Then (#PR): `dashboard-run` preloads `/usr/lib64/halos/dashboard-nodump.so` (`src/dashboard-nodump.c`,
+  Then (#101): `dashboard-run` preloads `/usr/lib64/halos/dashboard-nodump.so` (`src/dashboard-nodump.c`,
   built with gcc in the dashboard stage: a constructor calling `prctl(PR_SET_DUMPABLE, 0)`, exit 70 if
   it fails; a wrapper can't, since execve makes a process dumpable again), so the kernel never hands
   a crash to systemd-coredump (which journals `COREDUMP_ENVIRON`, the key) and gives its `/proc` files
