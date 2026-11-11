@@ -3,19 +3,24 @@
 #
 #   https mode                 off, self-signed or custom (from /etc/halos/https.env)
 #   https names                the names and addresses a self-signed certificate covers
-#   https env                  halos-proxy's ExecStartPre=+: writes /run/halos/proxy.env (which
+#   https env                  halos-proxy's ExecStartPre=+: writes /run/halos-https/proxy.env (which
 #                              Caddyfile, which sites; root's folder, as systemd reads it as root)
 #                              and, for custom, copies the certificate and key into
 #                              $RUNTIME_DIRECTORY for Caddy's own user
 #   https set <mode> [<name>...] writes /etc/halos/https.env
-#   https install <cert> <key> checks a certificate and key, then keeps them in /etc/halos/https/
+#   https stage <cert> <key>   reads a certificate (chain) and key once, checks the copies, and
+#                              keeps them in /etc/halos/https/.pending/ until commit or discard
+#   https commit | discard     puts the staged pair in place (the previous one kept as .prev) or drops it
+#   https restore              puts the previous pair back (halosctl, when Caddy won't start)
 #   https ca                   the self-signed authority's root certificate (PEM), to trust it
 #   https describe             one line per fact, for halosctl and the selftest
 #
-# /etc/halos/https.env is read as data, never sourced. Caddy's own state (the self-signed
-# authority) belongs to its dynamic user; root only reads certificates out of it through openssl,
-# which prints nothing but a certificate whatever the file is.
+# /etc/halos/https.env is read as data, never sourced; a mode it doesn't know stops Caddy's start
+# rather than fall back to plain HTTP. Caddy's own state (the self-signed authority) belongs to its
+# dynamic user: root reads the authority's certificate only as that user, with a time and size
+# limit, and passes on only what openssl re-encodes as a certificate.
 set -euo pipefail
+set -f   # no file-name globbing: names come from a file and from hostname
 LC_ALL=C
 etc="${HALOS_HTTPS_ETC:-/etc/halos}"
 conf="$etc/https.env"
@@ -23,16 +28,16 @@ certdir="$etc/https"
 state="${HALOS_PROXY_STATE:-/var/lib/private/halos-proxy}"
 root_ca="$state/caddy/pki/authorities/local/root.crt"
 share="${HALOS_PROXY_SHARE:-/usr/share/halos/proxy}"
-run="${HALOS_HTTPS_RUN:-/run/halos}"
+run="${HALOS_HTTPS_RUN:-/run/halos-https}"
 die() { echo "https: $*" >&2; exit 1; }
 
 value() { # value KEY: the last KEY=... line of the settings file, quotes stripped
   [ -r "$conf" ] || return 0
   sed -n "s/^[[:space:]]*$1=//p" "$conf" | tail -n 1 | tr -d "\"'" | tr -cd '[:graph:] '
 }
-mode() {
+mode() { # off, self-signed, custom, or invalid (a value it doesn't know)
   local m; m="$(value HALOS_HTTPS)"
-  case "$m" in self-signed|custom) echo "$m" ;; *) echo off ;; esac
+  case "$m" in ''|off) echo off ;; self-signed|custom) echo "$m" ;; *) echo invalid ;; esac
 }
 # A host name or an IP address, nothing a Caddyfile could read as more than one word or a directive.
 valid_name() {
@@ -64,7 +69,17 @@ sites() { # sites PORT [v4]: Caddy site addresses for the self-signed names
 
 pem_cert() { openssl x509 -in "$1" -outform PEM 2> /dev/null; }
 pubkey_of_cert() { openssl x509 -in "$1" -noout -pubkey 2> /dev/null; }
-pubkey_of_key() { openssl pkey -in "$1" -pubout 2> /dev/null; }
+pubkey_of_key() { openssl pkey -in "$1" -pubout -passin pass: 2> /dev/null < /dev/null; }
+# The authority's certificate, read as Caddy's own user (whose folder it is): a link to a file only
+# root may read fails, and a FIFO or an endless file can't hold root's tools. Into "$1".
+read_ca() {
+  local uid gid
+  uid="$(stat -c %u "$state" 2> /dev/null)" || return 1
+  gid="$(stat -c %g "$state" 2> /dev/null)" || return 1
+  if [ "$uid" = "$(id -u)" ]; then timeout 5 head -c 65536 "$root_ca" > "$1" 2> /dev/null || return 1
+  else timeout 5 setpriv --reuid="$uid" --regid="$gid" --clear-groups -- head -c 65536 "$root_ca" > "$1" 2> /dev/null || return 1; fi
+  pem_cert "$1" > /dev/null
+}
 
 case "${1:-}" in
   mode) mode ;;
@@ -75,6 +90,8 @@ case "${1:-}" in
     umask 077
     tmp="$(mktemp "$run/.proxy.env.XXXXXX")"
     case "$(mode)" in
+      invalid)
+        rm -f "$tmp"; die "HALOS_HTTPS in $conf is neither off, self-signed nor custom: sudo halosctl https off, or self-signed" ;;
       off)
         echo "HALOS_PROXY_CONFIG=$share/Caddyfile" > "$tmp" ;;
       self-signed)
@@ -115,29 +132,53 @@ case "${1:-}" in
       echo "HALOS_HTTPS_NAMES=$*"; } > "$tmp"
     chmod 0644 "$tmp"; mv -fT "$tmp" "$conf"
     ;;
-  install)
-    cert="${2:?install <cert> <key>}"; key="${3:?install <cert> <key>}"
-    pem_cert "$cert" > /dev/null || die "$cert isn't a PEM certificate"
-    pubkey_of_key "$key" > /dev/null || die "$key isn't a private key (PEM, without a passphrase)"
-    [ "$(pubkey_of_cert "$cert")" = "$(pubkey_of_key "$key")" ] || die "the key doesn't belong to the certificate"
-    openssl x509 -in "$cert" -noout -checkend 0 > /dev/null 2>&1 || die "the certificate has expired"
-    mkdir -p "$certdir"; chmod 0700 "$certdir"
+  stage)
+    cert="${2:?stage <cert> <key>}"; key="${3:?stage <cert> <key>}"
+    pending="$certdir/.pending"
+    mkdir -p "$certdir"; chmod 0700 "$certdir"; rm -rf "$pending"; mkdir -m 0700 "$pending"
     umask 077
-    for pair in "cert.pem:$cert" "key.pem:$key"; do
-      t="$(mktemp "$certdir/.new.XXXXXX")"; cat "${pair#*:}" > "$t"; mv -fT "$t" "$certdir/${pair%%:*}"
+    # Each file read once, at most 1 MiB, then checked and re-encoded from that copy: what Caddy
+    # gets is only certificates and one key, never whatever else the file held.
+    head -c 1048576 -- "$cert" > "$pending/in-cert" 2> /dev/null || { rm -rf "$pending"; die "can't read $cert"; }
+    head -c 1048576 -- "$key" > "$pending/in-key" 2> /dev/null || { rm -rf "$pending"; die "can't read $key"; }
+    fail() { rm -rf "$pending"; die "$1"; }
+    pem_cert "$pending/in-cert" > /dev/null || fail "$cert isn't a PEM certificate"
+    pubkey_of_key "$pending/in-key" > /dev/null || fail "$key isn't a private key (PEM, without a passphrase)"
+    [ "$(pubkey_of_cert "$pending/in-cert")" = "$(pubkey_of_key "$pending/in-key")" ] || fail "the key doesn't belong to the certificate"
+    openssl x509 -in "$pending/in-cert" -noout -checkend 0 > /dev/null 2>&1 || fail "the certificate has expired"
+    openssl crl2pkcs7 -nocrl -certfile "$pending/in-cert" 2> /dev/null | openssl pkcs7 -print_certs 2> /dev/null \
+      | grep -v -e '^subject=' -e '^issuer=' -e '^$' > "$pending/cert.pem" || fail "the certificate chain can't be read"
+    openssl pkey -in "$pending/in-key" -passin pass: -out "$pending/key.pem" 2> /dev/null < /dev/null || fail "the key can't be read"
+    rm -f "$pending/in-cert" "$pending/in-key"
+    ;;
+  commit)
+    pending="$certdir/.pending"
+    if [ ! -f "$pending/cert.pem" ] || [ ! -f "$pending/key.pem" ]; then die "nothing staged"; fi
+    for f in cert.pem key.pem; do
+      if [ -f "$certdir/$f" ]; then cp -p "$certdir/$f" "$certdir/.prev-$f"; else rm -f "$certdir/.prev-$f"; fi
+      mv -fT "$pending/$f" "$certdir/$f"
+    done
+    rm -rf "$pending"
+    ;;
+  discard) rm -rf "$certdir/.pending" ;;
+  restore)
+    for f in cert.pem key.pem; do
+      if [ -f "$certdir/.prev-$f" ]; then mv -fT "$certdir/.prev-$f" "$certdir/$f"; else rm -f "$certdir/$f"; fi
     done
     ;;
   ca)
-    [ -e "$root_ca" ] || die "no self-signed authority yet (sudo halosctl https self-signed makes one)"
-    pem_cert "$root_ca" || die "the self-signed authority's certificate can't be read"
+    t="$(mktemp)"; trap 'rm -f "$t"' EXIT
+    read_ca "$t" || die "no self-signed authority yet, or it can't be read (sudo halosctl https self-signed makes one)"
+    pem_cert "$t"
     ;;
   describe)
     m="$(mode)"; echo "mode $m"
     case "$m" in
       self-signed)
-        if [ -e "$root_ca" ] && f="$(openssl x509 -in "$root_ca" -noout -fingerprint -sha256 2> /dev/null)"; then
+        t="$(mktemp)"; trap 'rm -f "$t"' EXIT
+        if read_ca "$t" && f="$(openssl x509 -in "$t" -noout -fingerprint -sha256 2> /dev/null)"; then
           echo "ca ${f#*=}"
-          echo "ca_until $(openssl x509 -in "$root_ca" -noout -enddate | cut -d= -f2)"
+          echo "ca_until $(openssl x509 -in "$t" -noout -enddate | cut -d= -f2)"
         else echo "ca none"; fi
         echo "names $(names | paste -sd' ' -)" ;;
       custom)
@@ -149,5 +190,5 @@ case "${1:-}" in
         else echo "subject none"; fi ;;
     esac
     ;;
-  *) die "mode, names, env, set, install, ca or describe" ;;
+  *) die "mode, names, env, set, stage, commit, discard, restore, ca or describe" ;;
 esac

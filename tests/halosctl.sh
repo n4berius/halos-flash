@@ -408,8 +408,14 @@ ok "dashboard on/off starts or stops it without touching the firewall, records c
 export HALOS_HTTPS_HELPER="$repo/files/usr/libexec/halogen/https" HALOS_HTTPS_ETC="$work/etc-https" \
   HALOS_PROXY_STATE="$work/proxy-state"
 f hostname 'case "${1:-}" in -I) echo "192.0.2.7 fd00::7" ;; *) echo box ;; esac'
+# FAKE_PROXY_FAIL=<mode>: Caddy's restart fails in that mode; FAKE_PROXY_DEAF=<name>: it starts
+# but never answers with that certificate in use (what systemctl alone can't see).
 f systemctl 'echo "systemctl $*" >> "$FAKE/log"
-  case "$*" in *"restart halos-proxy"*) if [ -n "${FAKE_PROXY_FAIL:-}" ] && grep -q "=$FAKE_PROXY_FAIL" "$FAKE/etc-https/https.env" 2> /dev/null; then exit 1; fi ;; esac'
+  case "$*" in *"restart halos-proxy"*) if [ -n "${FAKE_PROXY_FAIL:-}" ] && grep -q "=$FAKE_PROXY_FAIL" "$FAKE/etc-https/https.env" 2> /dev/null; then exit 1; fi ;;
+    *"is-active halos-proxy"*) echo active ;; esac'
+f curl 'echo "curl $*" >> "$FAKE/log"
+  if [ -n "${FAKE_PROXY_DEAF:-}" ] && openssl x509 -in "$FAKE/etc-https/https/cert.pem" -noout -subject 2> /dev/null | grep -q "$FAKE_PROXY_DEAF"; then printf 000; exit 7; fi; printf 503'
+f sleep 'exit 0'
 ca_dir="$work/proxy-state/caddy/pki/authorities/local"; mkdir -p "$ca_dir"
 openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout "$work/ca.key" -out "$ca_dir/root.crt" -subj "/CN=Test Root" -days 30 2> /dev/null
 : > "$work/log"; "$ctl" https > "$work/out"; has '^HTTPS: off. Apps use http://192.0.2.7:8731/v1' "$work/out"
@@ -427,7 +433,7 @@ if "$ctl" https custom "$work/my.crt" "$work/wrong.key" --yes > "$work/out" 2>&1
 has "doesn't belong" "$work/out"
 : > "$work/log"
 if FAKE_PROXY_FAIL=custom "$ctl" https custom "$work/my.crt" "$work/my.key" --yes > "$work/out" 2>&1; then echo "a failed start passed" >&2; exit 1; fi
-has "nothing changed" "$work/out"; grep -qx 'HALOS_HTTPS=self-signed' "$work/etc-https/https.env" || { echo "the old mode wasn't put back" >&2; exit 1; }
+has "previous setting is back" "$work/out"; grep -qx 'HALOS_HTTPS=self-signed' "$work/etc-https/https.env" || { echo "the old mode wasn't put back" >&2; exit 1; }
 [ "$(grep -c 'restart halos-proxy' "$work/log")" = 2 ] || { echo "Caddy wasn't restarted with the old mode" >&2; exit 1; }
 "$ctl" https custom "$work/my.crt" "$work/my.key" --yes > "$work/out"
 has '^HTTPS: on, with your certificate for CN=box.example' "$work/out"; has 'https +self-signed -> custom' "$work/history"
@@ -438,4 +444,18 @@ for bad in "maybe" "custom $work/my.crt" "self-signed --reboot" "off --check"; d
   # shellcheck disable=SC2086 # the words are the arguments
   if "$ctl" https $bad --yes > /dev/null 2>&1; then echo "took https $bad" >&2; exit 1; fi
 done
-ok "https custom checks the key, puts the old mode back if Caddy won't start, and off goes back to HTTP"
+# A Caddy that starts but never answers is caught too, and with custom the old certificate comes back.
+"$ctl" https custom "$work/my.crt" "$work/my.key" --yes > /dev/null
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout "$work/new.key" -out "$work/new.crt" -subj /CN=new.example -days 60 2> /dev/null
+if FAKE_PROXY_DEAF=new.example "$ctl" https custom "$work/new.crt" "$work/new.key" --yes > "$work/out" 2>&1; then echo "a deaf Caddy passed" >&2; exit 1; fi
+has "previous setting is back" "$work/out"
+openssl x509 -in "$work/etc-https/https/cert.pem" -noout -subject | grep -q box.example || { echo "the old certificate wasn't put back" >&2; exit 1; }
+# No: nothing in use changes, and nothing stays staged.
+if "$ctl" https custom "$work/new.crt" "$work/new.key" < /dev/null > "$work/out" 2>&1; then echo "custom passed without --yes or a terminal" >&2; exit 1; fi
+openssl x509 -in "$work/etc-https/https/cert.pem" -noout -subject | grep -q box.example || { echo "a refused certificate went in use" >&2; exit 1; }
+[ ! -e "$work/etc-https/https/.pending" ] || { echo "a refused certificate stayed staged" >&2; exit 1; }
+"$ctl" https off --yes > /dev/null
+printf 'HALOS_HTTPS=selfsigned\n' > "$work/etc-https/https.env"
+"$ctl" https > "$work/out"; has "isn't off, self-signed or custom" "$work/out"
+"$ctl" https off --yes > /dev/null
+ok "https custom checks the key, changes nothing on no, and puts the old mode and certificate back if Caddy won't start or answer"

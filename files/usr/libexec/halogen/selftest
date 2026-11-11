@@ -287,7 +287,7 @@ if [ -x "$https" ] && have curl; then
       else say WARN https "on (self-signed), but 127.0.0.1:$port doesn't answer with halOS's authority: sudo journalctl -u halos-proxy"; fi
       rm -f "$cafile"
       # The certificate covers the addresses Caddy saw when it started; a new one needs a restart.
-      sites="$(sed -n 's/^HALOS_API_SITES=//p' "${HALOS_HTTPS_RUN:-/run/halos}/proxy.env" 2>/dev/null)"
+      sites="$(sed -n 's/^HALOS_API_SITES=//p' "${HALOS_HTTPS_RUN:-/run/halos-https}/proxy.env" 2>/dev/null)"
       missing=""
       for a in $(hostname -I 2>/dev/null); do
         [[ "$a" == *:* ]] && b="[$a]" || b="$a"
@@ -301,6 +301,7 @@ if [ -x "$https" ] && have curl; then
       elif code="$(curl -sS -k -m 5 -o /dev/null -w '%{http_code}' "https://127.0.0.1:$port/health" 2>/dev/null)" && [ "$code" != 000 ]; then
         say PASS https "on, with your certificate for $(fact subject), until $(fact until)"
       else say WARN https "on (your certificate), but 127.0.0.1:$port doesn't answer over HTTPS: sudo journalctl -u halos-proxy"; fi ;;
+    invalid) say FAIL https "HALOS_HTTPS in /etc/halos/https.env isn't off, self-signed or custom, so Caddy won't start: sudo halosctl https off, or self-signed" ;;
     *) say INFO https "off: apps use plain http:// (sudo halosctl https self-signed turns it on)" ;;
   esac
 fi

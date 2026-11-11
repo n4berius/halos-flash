@@ -17,11 +17,16 @@ export PATH="$work/bin:$PATH" HALOS_HTTPS_ETC="$work/etc" HALOS_HTTPS_RUN="$work
   HALOS_PROXY_SHARE=/usr/share/halos/proxy RUNTIME_DIRECTORY="$work/rt"
 env_of() { cat "$work/run/proxy.env"; }
 
-# Off by default (an upgrade keeps plain HTTP), and anything unknown counts as off.
+# Off by default (an upgrade keeps plain HTTP); a value it doesn't know stops Caddy's start, rather
+# than serve the key in clear when HTTPS was meant.
 [ "$("$h" mode)" = off ] || fail "a machine with no setting isn't on HTTP"
 "$h" env; [ "$(env_of)" = "HALOS_PROXY_CONFIG=/usr/share/halos/proxy/Caddyfile" ] || fail "off doesn't give the HTTP Caddyfile: $(env_of)"
-printf 'HALOS_HTTPS=sometimes\n' > "$work/etc/https.env"; [ "$("$h" mode)" = off ] || fail "an unknown mode isn't off"
-ok "no setting, or an unknown one, is plain HTTP"
+printf 'HALOS_HTTPS=Self-signed\n' > "$work/etc/https.env"; [ "$("$h" mode)" = invalid ] || fail "a mistyped mode isn't invalid"
+cp "$work/run/proxy.env" "$work/before"
+if "$h" env 2> "$work/err"; then fail "a mistyped mode started Caddy"; fi
+if ! { grep -q 'halosctl https' "$work/err" && cmp -s "$work/before" "$work/run/proxy.env"; }; then fail "a mistyped mode changed proxy.env or didn't say what to do"; fi
+printf 'HALOS_HTTPS=\n' > "$work/etc/https.env"; [ "$("$h" mode)" = off ] || fail "an empty mode isn't off"
+ok "no setting is plain HTTP, and a mistyped one stops Caddy's start"
 
 # Self-signed: this machine's names and addresses, and the extra names, each once.
 "$h" set self-signed tailscale-box freyja.example 192.168.1.20
@@ -48,10 +53,12 @@ ok "self-signed covers this machine's names and addresses and the extra names, t
 for bad in 'a b' 'x;y' '{$HOME}' 'a}' '-x' 'http://x' "$(printf 'a\nb')"; do
   if "$h" set self-signed "$bad" 2> /dev/null; then fail "set took the name '$bad'"; fi
 done
-printf 'HALOS_HTTPS=self-signed\nHALOS_HTTPS_NAMES=good.example {bad} a;b\n' > "$work/etc/https.env"
-"$h" names > "$work/names"
+printf 'HALOS_HTTPS=self-signed\nHALOS_HTTPS_NAMES=good.example {bad} a;b *\n' > "$work/etc/https.env"
+mkdir -p "$work/cwd"; touch "$work/cwd/globbed.example"
+(cd "$work/cwd" && "$h" names) > "$work/names"
 grep -qx good.example "$work/names" || fail "a good extra name was dropped"
-if grep -qE '[{};]' "$work/names"; then fail "a bad name from a hand-edited file got through"; fi
+if grep -qE '[{};*]' "$work/names"; then fail "a bad name from a hand-edited file got through"; fi
+if grep -q globbed "$work/names"; then fail "a * in the names was expanded to file names"; fi
 ok "names that aren't plain host names or addresses are refused, also from a hand-edited file"
 
 # Custom: the certificate is checked, kept private, and copied for Caddy's user at start.
@@ -63,12 +70,19 @@ mk "$work/soon" soon.example 5
 o req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout "$work/old.key" -out "$work/old.crt" -subj /CN=old -not_before 20200101000000Z -not_after 20200201000000Z \
   || o x509 -req -in <(o req -new -key "$work/good.key" -subj /CN=old) -signkey "$work/good.key" -days -1 -out "$work/old.crt"
 if "$h" set custom 2> /dev/null; then fail "custom was set with no certificate installed"; fi
-if "$h" install "$work/good.crt" "$work/other.key" 2> /dev/null; then fail "a key of another certificate was taken"; fi
-if "$h" install "$work/good.key" "$work/good.key" 2> /dev/null; then fail "a key was taken as the certificate"; fi
-if "$h" install "$work/old.crt" "$work/old.key" 2> /dev/null || "$h" install "$work/old.crt" "$work/good.key" 2> /dev/null; then
+if "$h" stage "$work/good.crt" "$work/other.key" 2> /dev/null; then fail "a key of another certificate was taken"; fi
+if "$h" stage "$work/good.key" "$work/good.key" 2> /dev/null; then fail "a key was taken as the certificate"; fi
+if "$h" stage "$work/old.crt" "$work/old.key" 2> /dev/null || "$h" stage "$work/old.crt" "$work/good.key" 2> /dev/null; then
   fail "an expired certificate was taken"
 fi
-"$h" install "$work/good.crt" "$work/good.key"
+[ ! -e "$work/etc/https/.pending" ] || fail "a refused pair was left staged"
+# Only certificates and the key reach Caddy, whatever else the files held.
+{ echo "a comment someone left"; cat "$work/good.crt"; } > "$work/noisy.crt"
+"$h" stage "$work/noisy.crt" "$work/good.key"
+[ ! -e "$work/etc/https/cert.pem" ] || fail "staging put a certificate in use"
+if grep -q comment "$work/etc/https/.pending/cert.pem"; then fail "text around the certificate was kept"; fi
+"$h" discard; [ ! -e "$work/etc/https/.pending" ] || fail "discard left the staged pair"
+"$h" stage "$work/good.crt" "$work/good.key"; "$h" commit
 if [ "$(stat -c %a "$work/etc/https")" != 700 ] || [ "$(stat -c %a "$work/etc/https/key.pem")" != 600 ]; then fail "the key isn't private"; fi
 "$h" set custom
 "$h" env
@@ -77,8 +91,10 @@ if ! { cmp -s "$work/rt/key.pem" "$work/good.key" && cmp -s "$work/rt/cert.pem" 
 [ "$(stat -c %a "$work/rt/key.pem")" = 600 ] || fail "the key copy isn't private"
 "$h" describe > "$work/d"
 if ! { grep -qx 'mode custom' "$work/d" && grep -q '^subject CN=freyja.example' "$work/d" && grep -qx 'expires later' "$work/d"; }; then fail "describe: $(cat "$work/d")"; fi
-"$h" install "$work/soon.crt" "$work/soon.key"; "$h" describe | grep -qx 'expires soon' || fail "a certificate ending within 14 days isn't flagged"
-ok "your own certificate: a wrong key, a non-certificate and an expired one are refused; it is kept private and handed to Caddy"
+"$h" stage "$work/soon.crt" "$work/soon.key"; "$h" commit; "$h" describe | grep -qx 'expires soon' || fail "a certificate ending within 14 days isn't flagged"
+openssl x509 -in "$work/etc/https/.prev-cert.pem" -noout -subject | grep -q freyja.example || fail "commit didn't keep the previous certificate"
+"$h" restore; openssl x509 -in "$work/etc/https/cert.pem" -noout -subject | grep -q freyja.example || fail "restore didn't put the previous certificate back"
+ok "your own certificate: refused if wrong or expired, staged until committed, re-encoded, kept private with the previous one, and handed to Caddy"
 
 # Fail closed: custom without its files stops Caddy's start and leaves the last settings alone.
 cp "$work/run/proxy.env" "$work/before"
@@ -98,4 +114,10 @@ if "$h" ca > "$work/out" 2>&1; then fail "ca followed a link to a non-certificat
 if grep -q secret "$work/out"; then fail "ca printed the linked file"; fi
 printf 'HALOS_HTTPS=self-signed\n' > "$work/etc/https.env"; rm "$ca"; cp "$work/good.crt" "$ca"
 "$h" describe > "$work/d"; grep -qE '^ca ([0-9A-F]{2}:){31}[0-9A-F]{2}$' "$work/d" || fail "describe has no fingerprint: $(cat "$work/d")"
+# A FIFO where the authority should be (only Caddy's user could put one there) can't hold root's tools.
+rm "$ca"; mkfifo "$ca"
+start=$SECONDS; if timeout 20 "$h" ca > /dev/null 2>&1; then fail "ca read a FIFO"; fi
+timeout 20 "$h" describe > "$work/d" || true
+[ $((SECONDS - start)) -lt 15 ] || fail "a FIFO at the authority's path held the helper"
+grep -qx 'ca none' "$work/d" || fail "describe with a FIFO: $(cat "$work/d")"
 ok "ca prints only a certificate, never a file the authority's path was pointed at"

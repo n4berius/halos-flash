@@ -457,16 +457,22 @@ authority once:
 sudo halosctl https ca > halos-ca.crt
 ```
 
-Then add `halos-ca.crt` to the app (most have a setting for a CA file, such as `SSL_CERT_FILE`
-or `REQUESTS_CA_BUNDLE`), or to your computer's trusted certificates. `sudo halosctl https` shows
-the authority's fingerprint, to compare with the file you copied. For other names (a DNS name
+Then give `halos-ca.crt` to each app that talks to the machine: most have a setting for a CA
+file (such as `SSL_CERT_FILE` or `REQUESTS_CA_BUNDLE`, or a field in the app's settings).
+Prefer that over adding it to your computer's trusted certificates: an authority trusted
+system-wide can vouch for any website, so anyone who stole it from this machine could pass for
+any site on that computer. For a browser and the dashboard, accepting the warning once for
+`https://<address>:8732` is enough. `sudo halosctl https` shows the authority's fingerprint, to
+compare with the file you copied. For other names (a DNS name
 you gave the machine), list them: `sudo halosctl https self-signed freyja.example`. If the
 machine's address changes, `sudo systemctl restart halos-proxy` adds it; the selftest warns until
 then.
 
 **Your own certificate** must name the address apps use (a DNS name, usually). halOS checks the
-key belongs to it and that it hasn't expired, keeps both in `/etc/halos/https/` (root only), and
-`sudo halogenctl selftest` warns two weeks before it ends. Renewing is running `https custom`
+key belongs to it and that it hasn't expired, shows you whose it is and asks before using it, keeps
+both in `/etc/halos/https/` (root only, with the previous pair), and `sudo halogenctl selftest`
+warns two weeks before it ends. If Caddy doesn't answer with a new setting, `halosctl` puts the
+previous one back, certificate included. Renewing is running `https custom`
 again with the new files. Certificates from Let's Encrypt that renew themselves come next
 ([#102](https://github.com/n4berius/halos-flash/issues/102)).
 

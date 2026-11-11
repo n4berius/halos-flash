@@ -62,6 +62,7 @@ export PATH="$fake:$sysbin" HALOGEN_RELEASE_FILE="$work/release.env" HALOGEN_SYS
 f https 'case "$1" in
   describe) case "${FAKE_HTTPS:-off}" in
       self-signed) echo "mode self-signed"; echo "ca ${FAKE_CA-AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89}"; echo "ca_until Jan 1 2036" ;;
+      invalid) echo "mode invalid" ;;
       custom) echo "mode custom"; echo "subject CN=box.example"; echo "until Jan 1 2027"; echo "expires ${FAKE_EXPIRES:-later}" ;;
       *) echo "mode off" ;; esac ;;
   ca) [ "${FAKE_CA-x}" != none ] && echo "-----BEGIN CERTIFICATE-----" ;;
@@ -107,6 +108,7 @@ printf 'HALOS_API_SITES="https://localhost:8731"\n' > "$work/run-halos/proxy.env
 FAKE_HTTPS=self-signed "$selftest" > "$work/out" 2>&1 || true; expect '^WARN https-names: not covered by the certificate yet: 192.168.1.20'
 FAKE_HTTPS=custom "$selftest" > "$work/out" 2>&1 || true; expect '^PASS https: on, with your certificate for CN=box.example'
 FAKE_HTTPS=custom FAKE_EXPIRES=soon "$selftest" > "$work/out" 2>&1 || true; expect '^WARN https: your certificate .* within 14 days'
+FAKE_HTTPS=invalid "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL https: .*isn.t off, self-signed or custom'
 ok "the selftest names the HTTPS mode, checks Caddy answers in it, and warns of a missing authority, an uncovered address or an ending certificate"
 "$selftest" > "$work/out" 2>&1 || true
 expect '^INFO weights: downloaded from weights commit 8ef7ad828f7f'

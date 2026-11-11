@@ -587,6 +587,9 @@ case "$cmd" in
     show() {
       facts="$("$https" describe)"
       case "$(fact mode)" in
+        invalid)
+          echo "HTTPS: the setting in $https_conf isn't off, self-signed or custom, so Caddy doesn't start."
+          echo "Fix: sudo halosctl https off, or sudo halosctl https self-signed" ;;
         off)
           echo "HTTPS: off. Apps use http://$(addr):8731/v1, and the dashboard is http://$(addr):8732."
           echo "On: sudo halosctl https self-signed, or sudo halosctl https custom <certificate> <key>" ;;
@@ -607,15 +610,34 @@ case "$cmd" in
           echo "  Apps use https://<the name on the certificate>:8731/v1." ;;
       esac
     }
-    # Switch, and go back to what was there if Caddy won't start with it, so the API never stays down.
+    # Up means Caddy answers on 8731 (any HTTP code: Halogen may be down), not only that it started:
+    # systemd counts a start as done before Caddy has bound its ports.
+    proxy_up() {
+      local code="" s=http i
+      case "$("$https" mode)" in self-signed|custom) s=https ;; esac
+      for i in $(seq 10); do
+        if [ "$(systemctl is-active "$unit" 2> /dev/null)" = active ]; then
+          code="$(curl -sS -k -m 3 -o /dev/null -w '%{http_code}' "$s://127.0.0.1:8731/health" 2> /dev/null || true)"
+          [ -n "$code" ] && [ "$code" != 000 ] && return 0
+        fi
+        [ "$i" = 10 ] || sleep 1
+      done
+      return 1
+    }
+    # Switch, and go back to what was there (the mode, and with custom the certificate) if Caddy
+    # doesn't come up with it, so the API never stays down.
     apply() {
-      local saved=""
+      local saved="" certs=0
       [ -e "$https_conf" ] && saved="$(cat "$https_conf")"
+      if [ "$1" = commit ]; then shift; "$https" commit; certs=1; fi
       "$https" set "$@"
-      if ! systemctl restart "$unit"; then
+      if ! systemctl restart "$unit" || ! proxy_up; then
         if [ -n "$saved" ]; then printf '%s\n' "$saved" > "$https_conf"; else rm -f "$https_conf"; fi
-        systemctl restart "$unit" || true
-        die "Caddy didn't start with it, so nothing changed: sudo journalctl -u $unit"
+        [ "$certs" = 0 ] || "$https" restore
+        if systemctl restart "$unit" && proxy_up; then
+          die "Caddy didn't come up with it, so the previous setting is back: sudo journalctl -u $unit"
+        fi
+        die "Caddy didn't come up with it, nor with the previous setting: sudo journalctl -u $unit, then sudo halosctl https off"
       fi
     }
     case "${args[0]:-}" in
@@ -640,11 +662,12 @@ case "$cmd" in
       custom)
         [ "${#args[@]}" = 3 ] || die "https custom <certificate> <key> (PEM files; the key without a passphrase)"
         old="$("$https" mode)"
-        "$https" install "${args[1]}" "${args[2]}"
-        facts="$("$https" describe 2> /dev/null || true)"
-        echo "Certificate for $(openssl x509 -in "${args[1]}" -noout -subject -nameopt RFC2253 2> /dev/null | cut -d= -f2-), valid until $(openssl x509 -in "${args[1]}" -noout -enddate 2> /dev/null | cut -d= -f2)."
-        confirm "Turn on HTTPS with this certificate?"
-        apply custom
+        # Checked from a staged copy; nothing in use changes until you say yes.
+        "$https" stage "${args[1]}" "${args[2]}"
+        staged="${HALOS_HTTPS_ETC:-/etc/halos}/https/.pending/cert.pem"
+        echo "Certificate for $(openssl x509 -in "$staged" -noout -subject -nameopt RFC2253 2> /dev/null | cut -d= -f2-), valid until $(openssl x509 -in "$staged" -noout -enddate 2> /dev/null | cut -d= -f2)."
+        if ! ( confirm "Turn on HTTPS with this certificate?" ); then "$https" discard; exit 1; fi
+        apply commit custom
         record https "$old" custom
         show ;;
       *) die "https self-signed, custom <certificate> <key>, off, ca, or nothing for its state" ;;

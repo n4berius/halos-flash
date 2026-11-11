@@ -349,29 +349,41 @@ name, but allows saying halOS runs Halogen.
   `/usr/share/licenses/halos-caddy/` (`modules.txt` from `go list -deps`, each module's licence and
   NOTICE files, and Go's own `go-LICENSE` for the standard library).
 
-- HTTPS (#102 step 3, #105): `/usr/libexec/halogen/https` (root) reads `/etc/halos/https.env` as data
-  (`HALOS_HTTPS=off|self-signed|custom`, `HALOS_HTTPS_NAMES`; no file = off, also on upgrades) and is
-  halos-proxy's `ExecStartPre=+`: it writes `/run/halos/proxy.env` (root's folder, since PID 1 reads
-  `EnvironmentFile`s as root and Caddy's runtime folder is Caddy's) with `HALOS_PROXY_CONFIG`
-  (`Caddyfile` or `Caddyfile.https`), `HALOS_TLS` (`internal|custom`, imported as `tls_<mode>` from
-  `sites.caddy`) and quoted `HALOS_API_SITES`/`HALOS_DASH_SITES` (self-signed: `https://<name>:port`
-  for localhost, 127.0.0.1, ::1, the host name, short name, `.local`, every `hostname -I` address and
-  the extra names, IPv6 bracketed, the dashboard IPv4 only; custom: `https://:port`). systemd re-reads
-  `EnvironmentFile` for each command, so `caddy validate --config ${HALOS_PROXY_CONFIG}` and `run`
-  see it. Custom copies `/etc/halos/https/{cert,key}.pem` (0700/0600) into `$RUNTIME_DIRECTORY`
-  (`mktemp` + `chown -h --reference`), and fails closed without them. Names are validated (host-name
-  characters or an IP) before reaching the Caddyfile. `Caddyfile.https`: `auto_https disable_redirects`,
-  `skip_install_trust`, `listener_wrappers { http_redirect tls }` (308 to https on the same port, no
-  :80). Caddy's authority: `/var/lib/private/halos-proxy/caddy/pki/authorities/local/root.crt`;
-  root reads it only through `openssl x509` (a planted link prints nothing). Checked in a container
-  as nobody: certs per name and address, unknown SNI refused, custom cert for any SNI, the redirect.
-  `halosctl https [self-signed [<name>...]|custom <cert> <key>|off|ca]` restarts the proxy and puts
-  the old `https.env` back if it won't start; the selftest's `https` (INFO off; PASS when
-  `--cacert` the authority, or `-k` for custom, gets an answer; WARN within 14 days of a custom
-  certificate's end) and `https-names` (an address not in the sites: restart); its API-over-Caddy
-  and dashboard checks use the mode's scheme with `-k`; login-status and `halosctl dashboard` show
-  `https://`. The VM test turns self-signed on, curls with the authority (Caddy's 503 note, Halogen
-  being down), checks the 308, the selftest lines, and `off`.
+- HTTPS (#102 step 3, #105): `/usr/libexec/halogen/https` (root, `set -f`) reads `/etc/halos/https.env`
+  as data (`HALOS_HTTPS=off|self-signed|custom`, `HALOS_HTTPS_NAMES`; no file or empty = off, also on
+  upgrades; any other value = `invalid`, which stops Caddy's start, never plain HTTP) and is
+  halos-proxy's `ExecStartPre=+`: it writes `/run/halos-https/proxy.env` (a folder only root writes,
+  since PID 1 reads `EnvironmentFile`s as root and Caddy's runtime folder is Caddy's; the unit's own
+  default `HALOS_PROXY_CONFIG` is a missing file, so no env file fails closed) with
+  `HALOS_PROXY_CONFIG` (`Caddyfile` or `Caddyfile.https`), `HALOS_TLS` (`internal|custom`, imported
+  as `tls_<mode>` from `sites.caddy`) and quoted `HALOS_API_SITES`/`HALOS_DASH_SITES` (self-signed:
+  `https://<name>:port` for localhost, 127.0.0.1, ::1, the host name, short name, `.local`, every
+  `hostname -I` address and the extra names, IPv6 bracketed, the dashboard IPv4 only; custom:
+  `https://:port`). systemd re-reads `EnvironmentFile` for each command, so `caddy validate --config
+  ${HALOS_PROXY_CONFIG}` and `run` see it. Custom: `stage <cert> <key>` reads each file once (1 MiB
+  at most) into `/etc/halos/https/.pending/`, checks the copies (key matches, not expired, no
+  passphrase) and re-encodes them (`crl2pkcs7 | pkcs7 -print_certs`, `pkey`); `commit` moves them in,
+  keeping `.prev-*`; `discard`, `restore`. `env` copies them into `$RUNTIME_DIRECTORY` (`mktemp` +
+  `chown -h --reference`) and fails closed without them. Names are validated (host-name characters or
+  an IP) before reaching the Caddyfile. `Caddyfile.https`: `auto_https disable_redirects`,
+  `skip_install_trust`, `listener_wrappers { http_redirect tls }` (308 on the same port, no :80).
+  Caddy's authority (`/var/lib/private/halos-proxy/caddy/pki/authorities/local/root.crt`, key beside
+  it in Caddy's state) is read as Caddy's own user with `setpriv`, `timeout 5` and `head -c 64K`,
+  then re-encoded by openssl (a link, FIFO or endless file can't make root print or hang). Checked in
+  a container as nobody: certs per name and address, unknown SNI refused, custom cert for any SNI,
+  the redirect. `halosctl https [self-signed [<name>...]|custom <cert> <key>|off|ca]`: custom stages,
+  shows the subject, asks (no: `discard`, nothing in use changes), commits; every switch restarts the
+  proxy and then needs `is-active` plus an HTTP answer on 8731 within 10 s (systemd counts the start
+  as done before Caddy binds), else puts back `https.env` and with custom the previous certificate.
+  The selftest's `https` (INFO off; FAIL invalid; PASS when `--cacert` the authority, or `-k` for
+  custom, gets an answer; WARN within 14 days of a custom certificate's end) and `https-names` (an
+  address not in the sites: restart); its API-over-Caddy and dashboard checks use the mode's scheme
+  with `-k`; login-status and `halosctl dashboard` show `https://`. INSTALL advises trusting the
+  authority per app, not system-wide (it isn't name-constrained). The VM test turns self-signed on,
+  curls with the authority (Caddy's 503 note, Halogen being down), checks the 308, the selftest
+  lines, and `off`. Not done, for the owner to agree (security audit): a name-constrained root kept
+  by root with Caddy holding only an intermediate, and the selftest comparing the served
+  certificate in custom mode.
 
 ## Lessons already learned
 
