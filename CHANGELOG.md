@@ -10,18 +10,25 @@ promoted.
 
 ## Unreleased
 
-- A live dashboard of Halogen at `http://<machine>:8732`, next to the API on 8731: whether it is up, speed, busy slots,
+- The dashboard moved from port 8790 to **8732**, next to the API on 8731: `http://<machine>:8732`.
+  The firewall follows by itself on upgrade; only a bookmark changes. (#103)
+
+## v0.20.1-alpha.2 (2026-11-11)
+
+- The dashboard can no longer leak the API key in a crash report, may listen only on its own port,
+  and the selftest checks that its private-networks rule is really on. (#101)
+
+## v0.20.1-alpha.1 (2026-11-10)
+
+- A live dashboard of Halogen at `http://<machine>:8790`: whether it is up, speed, busy slots,
   queue, KV pool, prompt cache and NPU, with charts up to 30 days. It is
   [halogen-dashboard](https://github.com/Quat3rnion/halogen-dashboard) by Quaternion, built in
   unchanged; about 12 MB of memory and 430 MB of disk once it holds 30 days. It is on by default,
   also after upgrading, with no login: anyone on your network can view it, nobody can change
-  anything. `sudo halosctl dashboard off` stops it, `on` brings it back. (#98; port 8790 on edge
-  until #103)
+  anything. `sudo halosctl dashboard off` stops it, `on` brings it back. (#98)
 - The dashboard is locked down further: it answers only this machine and private networks (home,
   office, Tailscale), uses at most one CPU core, writes no core files, and its web page is built
   without running packages' install scripts. (#99)
-- The dashboard can no longer leak the API key in a crash report, may listen only on its own port,
-  and the selftest checks that its private-networks rule is really on. (#101)
 - Halogen 0.20.1: follow-up turns start faster (the end of each reply is cached, on by default,
   about 0.4 GiB more RAM at 4 slots), a turn that ended inside its reasoning now gets its answer,
   and a routine `kv pool` line no longer shows red in the logs. The Flash checkpoints and

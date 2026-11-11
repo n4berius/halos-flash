@@ -301,7 +301,7 @@ if have systemctl && have curl; then
     pid="$(run systemctl show -p MainPID --value halos-dashboard.service)"
     if [[ "$pid" =~ ^[1-9][0-9]*$ ]] && [ "$(stat -c %u "/proc/$pid/environ" 2>/dev/null)" = 0 ]; then
       say PASS dashboard-nodump "a crash can't put the API key in the journal"
-    else say WARN dashboard-nodump "the dashboard is dumpable, so a crash would put the API key in the journal: sudo journalctl -u halos-dashboard"; fi
+    else say WARN dashboard-nodump "the dashboard is dumpable, so a crash would put the API key in the journal: sudo systemctl restart halos-dashboard; if it stays, see systemctl cat halos-dashboard and journalctl -u halos-dashboard"; fi
   else say WARN dashboard "halos-dashboard.service doesn't answer on port 8732: sudo journalctl -u halos-dashboard"; fi
 fi
 # --- Model folders

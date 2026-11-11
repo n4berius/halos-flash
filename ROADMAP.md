@@ -22,19 +22,20 @@ guided installer. Done on the way: first-boot setup and the "API ready" line (#4
 installer (#42), a full security audit (#69), the benchmark (#15), `flash check` (#56),
 `halosctl npu on|off` (#40) and tab completion (#14).
 
-On edge, for the next release:
+In `v0.20.1-alpha.1` and `alpha.2` (2026-11-10 and 11), for the next beta:
 - machines refuse unsigned images (#46, done in #91, hardening in #96);
 - unlocking over SSH (#13, done in #93 and #94);
 - the tokenizer fix for checkpoints that ship no vocabulary (#88);
 - `halogenctl flash convert` (#97), Halogen 0.20.1 (#95);
 - the dashboard (#98, #99, #101), running on the test machine.
 
+On edge: the dashboard on port 8732, next to the API (#103).
+
 ## Next
 
-1. HTTPS for Halogen's API and the dashboard (#102), with Caddy in front of both: first the
-   dashboard moves next to the API (8731 and 8732), then Caddy on HTTP, then HTTPS with a
-   self-signed certificate or your own, then Let's Encrypt through DNS-01, then HTTPS by default
-   for new installs.
+1. HTTPS for Halogen's API and the dashboard (#102), with Caddy in front of both: first Caddy on
+   HTTP, then HTTPS with a self-signed certificate or your own, then Let's Encrypt through
+   DNS-01, then HTTPS by default for new installs.
 2. fail2ban for SSH and the Halogen API (#92), once HTTPS is in.
 3. Unlock the disk from a tang server on the network (#44).
 4. GGUF repositories in `flash pull` (#61).
