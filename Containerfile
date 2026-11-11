@@ -67,7 +67,7 @@ COPY src/caddy/ /src/caddy/
 RUN set -eu; \
     dnf -y --setopt=install_weak_deps=False install golang; \
     cd /src/caddy; \
-    export GOTOOLCHAIN=local GOFLAGS=-mod=readonly CGO_ENABLED=0; \
+    export GOTOOLCHAIN=local GOFLAGS=-mod=readonly CGO_ENABLED=0 GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org; \
     go build -trimpath -ldflags='-s -w' -o /out/caddy .; \
     /out/caddy version; \
     for p in cloudflare duckdns namecheap porkbun; do /out/caddy list-modules | grep -qx "dns.providers.$p"; done; \

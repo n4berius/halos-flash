@@ -19,8 +19,9 @@ StateDirectory=halos-proxy
 StateDirectoryMode=0700
 UMask=0077
 LimitNOFILE=8192
-MemoryHigh=192M
 MemoryMax=256M
+# Go's collector works to stay under this, well below the cap, rather than being throttled by it.
+Environment=GOMEMLIMIT=192MiB
 LimitCORE=0
 CapabilityBoundingSet=
 AmbientCapabilities=

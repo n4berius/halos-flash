@@ -70,7 +70,7 @@ p="$repo/files/usr/lib/systemd/system/halos-proxy.service"; cf="$repo/files/usr/
 q="$repo/files/etc/containers/systemd/users/970/halogen.container"
 for want in '^ExecStart=/usr/libexec/halogen/caddy run --config /usr/share/halos/proxy/Caddyfile --adapter caddyfile$' '^DynamicUser=yes$' \
   '^CapabilityBoundingSet=$' '^NoNewPrivileges=yes$' '^ProtectSystem=strict$' '^PrivateUsers=yes$' '^MemoryMax=' '^LimitCORE=0$' \
-  '^SocketBindAllow=tcp:8731$' '^SocketBindAllow=tcp:8732$' '^SocketBindDeny=any$' '^SystemCallFilter=@system-service$' '^EnvironmentFile=-/etc/halos/proxy.env$'; do
+  '^SocketBindAllow=tcp:8731$' '^SocketBindAllow=tcp:8732$' '^SocketBindDeny=any$' '^SystemCallFilter=@system-service$' '^EnvironmentFile=-/etc/halos/proxy.env$' '^Environment=GOMEMLIMIT='; do
   grep -qE "$want" "$p" || fail "halos-proxy.service lacks $want"
 done
 grep -qx 'PublishPort=127.0.0.1:18731:8731' "$q" || fail "Halogen is published beyond this machine"
@@ -78,7 +78,7 @@ if grep -E '^PublishPort=' "$q" | grep -vqx 'PublishPort=127.0.0.1:18731:8731'; 
 for want in '^	admin off$' '^	auto_https off$' '^http://:8731 \{$' '^http://:8732 \{$' '^	reverse_proxy 127\.0\.0\.1:18731 \{$' \
   '^	reverse_proxy 127\.0\.0\.1:18732 \{$' '^		flush_interval -1$' \
   '^	@outside not remote_ip 127\.0\.0\.0/8 ::1/128 10\.0\.0\.0/8 172\.16\.0\.0/12 192\.168\.0\.0/16 169\.254\.0\.0/16 fe80::/10 100\.64\.0\.0/10 fc00::/7 \{\$HALOS_DASHBOARD_ALLOW\}$' \
-  '^	abort @outside$'; do
+  '^	abort @outside$' '^			request>headers delete$' '^			request>uri regexp "\\\?\.\*" "\?\(query removed\)"$' '^	bind 0\.0\.0\.0$'; do
   grep -qE "$want" "$cf" || fail "the Caddyfile lacks $want"
 done
 if grep -qiE 'log_credentials|header_up -?Authorization' "$cf"; then fail "the Caddyfile would log or drop the API key"; fi

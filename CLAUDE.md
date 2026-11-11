@@ -334,10 +334,12 @@ name, but allows saying halOS runs Halogen.
   reads Halogen at 18731. Caddyfile `/usr/share/halos/proxy/Caddyfile` (`caddy validate` at build):
   `admin off`, `persist_config off`, `auto_https off`, `protocols h1 h2`, `grace_period 10s`,
   `flush_interval -1` (SSE, checked unbuffered), 503 notes from `handle_errors` when an upstream
-  is down, an access log for 8731 only (journal; Caddy redacts `Authorization`; fail2ban #92 will read
-  it), and the dashboard's private-ranges rule (`remote_ip` + `abort`, plus `{$HALOS_DASHBOARD_ALLOW}`
+  is down, an access log for 8731 only (journal; `format filter` deletes request headers and the query,
+  since Caddy redacts only `Authorization` and `x-api-key`/`?api_key=` would be kept: security audit;
+  fail2ban #92 will read it), `bind 0.0.0.0` on 8732 (IPv4 only as before), and the dashboard's private-ranges rule (`remote_ip` + `abort`, plus `{$HALOS_DASHBOARD_ALLOW}`
   from root's optional `/etc/halos/proxy.env`). The unit: `DynamicUser`, `StateDirectory=halos-proxy`
-  (HOME/XDG there), no capabilities (ports above 1024), the dashboard's sandbox, `SocketBindAllow`
+  (HOME/XDG there), `GOMEMLIMIT=192MiB` under `MemoryMax=256M` (no `MemoryHigh`: Caddy's automemlimit
+  would aim above it), no capabilities (ports above 1024), the dashboard's sandbox, `SocketBindAllow`
   8731 and 8732. Prototype (Fedora 45 container, as nobody): only TCP 8731/8732 listen (no 2019,
   no :80, no UDP). `login-status` asks Halogen at 18731 directly (no access-log line every 30 s);
   the selftest's API checks, `bench` and clients go through Caddy. Licences:

@@ -19,7 +19,7 @@ import (
 //		resolver <host:port>
 //	}
 //
-// Values may use placeholders, such as {file./run/credentials/halos-proxy/dns-token}.
+// Values may use placeholders, such as {file./run/credentials/halos-proxy.service/dns-token}.
 type DuckDNS struct{ *duckdns.Provider }
 
 func init() { caddy.RegisterModule(DuckDNS{}) }

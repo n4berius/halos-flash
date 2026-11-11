@@ -392,7 +392,7 @@ It runs as a user of its own, with no access to Halogen's files, models or token
   192.168.x, link-local, and 100.64.0.0 to 100.127.255.255 (Tailscale; also some internet
   providers' shared addresses). A computer on a public address, such as through a port forward,
   gets no answer, unless something on your network passes it on (a reverse proxy, a tunnel or
-  `tailscale serve`). Caddy applies this rule. If your network uses other addresses, browsers get
+  `tailscale serve`). Caddy applies this rule, on IPv4 (as before). If your network uses other addresses, browsers get
   no answer: add your ranges to `/etc/halos/proxy.env` as `HALOS_DASHBOARD_ALLOW=<range> <range>`,
   then `sudo systemctl restart halos-proxy`. The dashboard itself takes connections only from this
   machine.
@@ -421,7 +421,8 @@ another computer goes through Caddy. Today Caddy speaks plain HTTP; HTTPS is com
 - While Halogen starts, downloads or is stopped, the API answers `503` with a short note instead of
   refusing the connection.
 - Caddy writes one line per API request to the journal (`sudo journalctl -u halos-proxy`): the
-  time, the client's address, the path and the status. It never writes the API key.
+  time, the client's address, the path and the status. It writes no request headers and no
+  query string, so the API key never lands there, whichever way an app sends it.
 - Caddy runs as a user of its own with no access to your files, and with no admin interface.
   `sudo halogenctl selftest` checks it runs (`proxy`).
 - Halogen's own [docs](https://github.com/peonist-ai/halogen-flash-server/tree/main/docs) list no
