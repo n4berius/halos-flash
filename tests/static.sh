@@ -65,6 +65,8 @@ assert '--build-arg "BF16_TO_HGN_COMMIT=$BF16_TO_HGN_COMMIT"' in open("scripts/b
 assert re.fullmatch(r"[0-9a-f]{40}", pins["HALOGEN_DASHBOARD_COMMIT"]), "HALOGEN_DASHBOARD_COMMIT must be a full commit"
 assert 'git checkout -q "$HALOGEN_DASHBOARD_COMMIT"' in cf and "pnpm install --frozen-lockfile" in cf \
   and "cargo build --release --locked --bin halogen-dashboard" in cf and "pnpm install --frozen-lockfile --ignore-scripts && pnpm build" in cf, "halogen-dashboard isn't built from its pin"
+assert "COPY src/dashboard-nodump.c" in cf and "COPY --from=dashboard /out/dashboard-nodump.so /usr/lib64/halos/dashboard-nodump.so" in cf \
+  and "PR_SET_DUMPABLE, 0" in open("src/dashboard-nodump.c").read(), "the dashboard's not-dumpable library isn't built or shipped"
 assert "/usr/share/licenses/halogen-dashboard/" in cf and "ibm-plex-sans" in cf and "crates.txt" in cf, "halogen-dashboard's licences aren't shipped"
 notices = open("THIRD-PARTY-NOTICES.md").read()
 assert "Quat3rnion/halogen-dashboard" in notices and "IBM Plex" in notices, "THIRD-PARTY-NOTICES doesn't credit halogen-dashboard and its font"

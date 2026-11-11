@@ -47,6 +47,12 @@ RUN set -eu; \
     } > "$lic/crates.txt"; \
     grep -q '^axum ' "$lic/crates.txt" && grep -q '^rusqlite ' "$lic/crates.txt" \
       || { echo "the crate list is incomplete" >&2; exit 1; }
+# halOS's own small library, preloaded into the dashboard so a crash can't put the API key in the
+# journal (src/dashboard-nodump.c). Same base image, so the same glibc as the os stage.
+COPY src/dashboard-nodump.c /halos-src/
+RUN set -eu; \
+    gcc -O2 -shared -fPIC -Wall -Wextra -Werror -o /out/dashboard-nodump.so /halos-src/dashboard-nodump.c; \
+    [ -z "$(LD_PRELOAD=/out/dashboard-nodump.so /usr/bin/true 2>&1)" ]
 
 FROM ${FEDORA_BOOTC_IMAGE} AS os
 ARG HALOGEN_VARIANT
@@ -88,6 +94,7 @@ COPY --from=bf16-to-hgn /src/native/LICENSE /usr/share/licenses/bf16-to-hgn/nati
 COPY --from=bf16-to-hgn /src/native/NOTICE /usr/share/licenses/bf16-to-hgn/native/NOTICE
 COPY --from=dashboard /src/target/release/halogen-dashboard /usr/libexec/halogen/halogen-dashboard
 COPY --from=dashboard /out/licenses/ /usr/share/licenses/halogen-dashboard/
+COPY --from=dashboard /out/dashboard-nodump.so /usr/lib64/halos/dashboard-nodump.so
 
 # Upstream's clock script and terms, unmodified and checked by hash.
 RUN set -eu; \
@@ -107,6 +114,7 @@ ARG HALOGEN_DASHBOARD_COMMIT
 RUN set -eu; \
     /usr/libexec/halogen/bf16-to-hgn --version; \
     /usr/libexec/halogen/halogen-dashboard --version; \
+    [ -z "$(LD_PRELOAD=/usr/lib64/halos/dashboard-nodump.so /usr/bin/true 2>&1)" ]; \
     chmod 0755 /usr/bin/halosctl /usr/bin/halogenctl /usr/bin/halogen-enroll-tpm /usr/libexec/halogen/*; \
     find /etc/containers/systemd/users/970 -type f -exec sed -i \
       -e "s|@HALOGEN_IMAGE@|${HALOGEN_IMAGE}|g" -e "s|@HALOGEN_VERSION@|${HALOGEN_VERSION}|g" {} +; \

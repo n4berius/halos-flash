@@ -42,6 +42,7 @@ name, but allows saying halOS runs Halogen.
 | `variants/npu`, `variants/no-npu` | Per-edition kernel arguments, Quadlet drop-ins, the allowed-options list and default `halogen.env` |
 | `scripts/` | `build.sh`, `build-iso.sh`, `package-iso.sh` (single-file release ISO), `release-info.sh`, `gen-options.py` (options from upstream `FLAGS.md`), `halogen-update.sh` (pins a new Halogen release), `size-report.sh`, `channels.sh` (which channel tags a release moves), `next-tag.sh` (the next release tag), `push-image.sh`, `sign-image.sh` (cosign signing) |
 | `CHANGELOG.md`, `ROADMAP.md` | What each release changed (PRs add to Unreleased), and the order of the work ahead |
+| `src/` | halOS's own C source: `dashboard-nodump.c`, built in the Containerfile's dashboard stage |
 | `tests/` | `run.sh` (fast checks, no GPU or network), `iso-install.sh` + `vm-login.py` (QEMU install test) |
 | `.claude/agents/` | Subagents: `code-reviewer` (QA review before merge) and `security-auditor` (audit, zero-cost hardening ideas). Both only read and report |
 | `.github/workflows/` | `build.yml` (image, edge tag; also weekly, Thursday 05:37 UTC), `iso.yml` (ISO + VM install test), `release.yml`, `refresh.yml` (weekly rebuild of stable), `halogen-update.yml` (daily: opens a PR for a new Halogen release) |
@@ -308,6 +309,14 @@ name, but allows saying halOS runs Halogen.
   key included),
   `PrivateUsers=yes`, and `pnpm install --ignore-scripts` in the build stage (the page builds
   without them, checked on Fedora 45).
+  Then (#PR): `dashboard-run` preloads `/usr/lib64/halos/dashboard-nodump.so` (`src/dashboard-nodump.c`,
+  built with gcc in the dashboard stage: a constructor calling `prctl(PR_SET_DUMPABLE, 0)`, exit 70 if
+  it fails; a wrapper can't, since execve makes a process dumpable again), so the kernel never hands
+  a crash to systemd-coredump (which journals `COREDUMP_ENVIRON`, the key) and gives its `/proc` files
+  to root; dashboard-run refuses to start without it. `SocketBindAllow=tcp:8790` + `SocketBindDeny=any`.
+  `IPAccounting=yes` uses the same cgroup BPF as `IPAddressDeny`, which systemd silently skips without
+  it: the selftest's `dashboard-filter` passes only when `IPIngressBytes` is a number, and
+  `dashboard-nodump` when `/proc/<MainPID>/environ` belongs to uid 0.
 
 ## Lessons already learned
 

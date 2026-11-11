@@ -51,8 +51,14 @@ RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 # other carrier-grade NAT). fc00::/7 is for an IPv6 listener; 0.0.0.0 is IPv4 only today.
 IPAddressDeny=any
 IPAddressAllow=localhost link-local 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10 fc00::/7
-# No core file, which would hold the API key. systemd-coredump still logs a crashed process's
-# environment, key included, to the journal (readable by root, wheel and adm).
+# Counts its traffic with the same kernel feature (BPF on its cgroup) the filter above uses, so the
+# selftest can tell the filter is really on: without that feature systemd starts it unfiltered.
+IPAccounting=yes
+# It may listen on 8790 only, whatever its settings say (connecting out needs no bind).
+SocketBindAllow=tcp:8790
+SocketBindDeny=any
+# No core file, which would hold the API key. dashboard-run also makes the process not dumpable,
+# so a crash isn't handed to systemd-coredump either (it would journal the environment, key included).
 LimitCORE=0
 PrivateUsers=yes
 RestrictNamespaces=yes
