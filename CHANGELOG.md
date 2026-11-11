@@ -19,6 +19,8 @@ promoted.
 - The dashboard is locked down further: it answers only this machine and private networks (home,
   office, Tailscale), uses at most one CPU core, writes no core files, and its web page is built
   without running packages' install scripts. (#99)
+- The dashboard can no longer leak the API key in a crash report, may listen only on its own port,
+  and the selftest checks that its private-networks rule is really on. (#101)
 - Halogen 0.20.1: follow-up turns start faster (the end of each reply is cached, on by default,
   about 0.4 GiB more RAM at 4 slots), a turn that ended inside its reasoning now gets its answer,
   and a routine `kv pool` line no longer shows red in the logs. The Flash checkpoints and

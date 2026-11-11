@@ -22,20 +22,25 @@ guided installer. Done on the way: first-boot setup and the "API ready" line (#4
 installer (#42), a full security audit (#69), the benchmark (#15), `flash check` (#56),
 `halosctl npu on|off` (#40) and tab completion (#14).
 
-On edge, for the next release: the tokenizer fix for checkpoints that ship no vocabulary (#88), and
-machines refuse unsigned images (#46, phase 2, #91).
+On edge, for the next release:
+- machines refuse unsigned images (#46, done in #91, hardening in #96);
+- unlocking over SSH (#13, done in #93 and #94);
+- the tokenizer fix for checkpoints that ship no vocabulary (#88);
+- `halogenctl flash convert` (#97), Halogen 0.20.1 (#95);
+- the dashboard on port 8790 (#98, #99), running on the test machine.
 
 ## Next
 
-The second stable release aims at the first three: machines refuse unsigned images (#46, done in
-#91; hardening in #96), unlocking over SSH (#13, done in #93 and #94), and converting full-precision weights.
+1. The dashboard's last hardening: no crash report can hold the API key, only port 8790, and a
+   selftest check that its private-networks rule is on (#101).
+2. HTTPS for Halogen's API and the dashboard, chosen at setup: a self-signed certificate to
+   start, certificates from Let's Encrypt through DNS-01, or your own.
+3. fail2ban for SSH and the Halogen API (#92), once HTTPS is in.
+4. Unlock the disk from a tang server on the network (#44).
+5. GGUF repositories in `flash pull` (#61).
 
-1. Convert full-precision (BF16 safetensors) checkpoints to `.hgn` on the machine (#97):
-   `halogenctl flash convert`, with [bf16-to-hgn](https://github.com/Quat3rnion/bf16-to-hgn). It
-   handles Qwen3.8 Flash Next only, on the CPU. Still to do: a first real conversion on freyja
-   (time and quality), the GPU (HIP) build, and Qwen4 / Qwen4 Flash Next when we get there.
-2. Unlock the disk from a tang server on the network (#44).
-3. GGUF repositories in `flash pull` (#61).
+Later: a first real `flash convert` on the test machine (time and quality), then its GPU (HIP)
+build and the Qwen4 models.
 
 ## Always
 

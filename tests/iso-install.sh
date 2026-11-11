@@ -131,6 +131,8 @@ selftest_has 'PASS firewall:'
 # The dashboard (halos-dashboard.service) runs sandboxed, its start found a key to hand over, and it
 # answers on 8790, though Halogen itself isn't up in the VM (so the key itself isn't tried).
 selftest_has 'PASS dashboard:'
+selftest_has 'PASS dashboard-filter:'
+selftest_has 'PASS dashboard-nodump:'
 selftest_has 'PASS prepare:'
 selftest_has '(PASS|SKIP) power-profile:'   # QEMU likely has no ACPI platform profile
 selftest_has 'PASS folder-flash:'
