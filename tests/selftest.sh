@@ -83,7 +83,7 @@ for ipin in '' 0 '[not set]' 18446744073709551615; do
   FAKE_DASH_IPIN="$ipin" "$selftest" > "$work/out" 2>&1 || true; expect '^WARN dashboard-filter: .*from anywhere'
 done
 FAKE_DASH_DENY='' "$selftest" > "$work/out" 2>&1 || true; expect '^WARN dashboard-filter: .*from anywhere'
-FAKE_DASH_DUMP_UID=61234 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN dashboard-nodump: .*dumpable'
+FAKE_DASH_DUMP_UID=61234 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN dashboard-nodump: .*dumpable.*restart halos-dashboard.*systemctl cat halos-dashboard'
 FAKE_DASH_PID=0 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN dashboard-nodump:'
 ok "the selftest checks the dashboard's address filter is on and that it isn't dumpable"
 FAKE_PROXY=failed "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL proxy: .*nothing answers on 8731 or 8732'
