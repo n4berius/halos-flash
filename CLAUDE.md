@@ -323,7 +323,7 @@ name, but allows saying halOS runs Halogen.
   `IPAddressDeny` holds `0.0.0.0/0`, and prints the allow list; `dashboard-nodump` passes when
   `/proc/<MainPID>/environ` belongs to uid 0. `iso.yml` also runs for `src/**`.
 
-- Front door (#102 step 2, #PR): `halos-proxy.service` runs Caddy (`/usr/libexec/halogen/caddy`, built
+- Front door (#102 step 2, #104): `halos-proxy.service` runs Caddy (`/usr/libexec/halogen/caddy`, built
   in the Containerfile's `caddy` stage from `src/caddy` with Fedora's Go, `GOTOOLCHAIN=local`,
   `-mod=readonly`, `CGO_ENABLED=0`; Fedora's caddy package has no DNS providers). DNS providers: caddy-dns
   cloudflare and porkbun; DuckDNS and Namecheap through halOS's own modules in `src/caddy/dnsproviders`

@@ -18,7 +18,7 @@ promoted.
   Halogen starts, the API answers with a short note instead of refusing the connection. If you let
   other networks see the dashboard with `systemctl edit halos-dashboard` (`IPAddressAllow=`), put
   those ranges in `/etc/halos/proxy.env` as `HALOS_DASHBOARD_ALLOW=` instead: the old setting no
-  longer lets them in. (#PR)
+  longer lets them in. (#104)
 
 ## v0.20.1-alpha.2 (2026-11-11)
 
