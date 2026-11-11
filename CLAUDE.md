@@ -325,7 +325,10 @@ name, but allows saying halOS runs Halogen.
 
 - Front door (#102 step 2, #PR): `halos-proxy.service` runs Caddy (`/usr/libexec/halogen/caddy`, built
   in the Containerfile's `caddy` stage from `src/caddy` with Fedora's Go, `GOTOOLCHAIN=local`,
-  `-mod=readonly`, `CGO_ENABLED=0`; Fedora's caddy package has no DNS providers). It is the only
+  `-mod=readonly`, `CGO_ENABLED=0`; Fedora's caddy package has no DNS providers). DNS providers: caddy-dns
+  cloudflare and porkbun; DuckDNS and Namecheap through halOS's own modules in `src/caddy/dnsproviders`
+  on the MIT libdns libraries, because caddy-dns/duckdns and /namecheap carry no licence (owner's call;
+  `tests/static.sh` keeps them out). Their values take placeholders (`{file.…}` for credentials). It is the only
   listener on 8731 and 8732, on HTTP or (later) HTTPS: Halogen is published on `127.0.0.1:18731`
   only (Quadlet), the dashboard listens on `127.0.0.1:18732` with `IPAddressAllow=localhost` and
   reads Halogen at 18731. Caddyfile `/usr/share/halos/proxy/Caddyfile` (`caddy validate` at build):

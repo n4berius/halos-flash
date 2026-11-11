@@ -4,10 +4,10 @@ go 1.27.3
 
 require (
 	github.com/caddy-dns/cloudflare v0.2.4
-	github.com/caddy-dns/duckdns v0.5.0
-	github.com/caddy-dns/namecheap v1.0.0
 	github.com/caddy-dns/porkbun v0.3.1
 	github.com/caddyserver/caddy/v2 v2.11.9
+	github.com/libdns/duckdns v0.3.0
+	github.com/libdns/namecheap v1.0.0
 )
 
 require (
@@ -76,9 +76,7 @@ require (
 	github.com/klauspost/compress v1.20.1 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/libdns/cloudflare v0.2.2 // indirect
-	github.com/libdns/duckdns v0.3.0 // indirect
 	github.com/libdns/libdns v1.1.1 // indirect
-	github.com/libdns/namecheap v1.0.0 // indirect
 	github.com/libdns/porkbun v1.0.1 // indirect
 	github.com/manifoldco/promptui v0.9.0 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect

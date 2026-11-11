@@ -92,10 +92,6 @@ github.com/bits-and-blooms/bitset v1.25.0 h1:0Ro0qF4abCkM6SqWPVj29sFhAbMPAZpaDD7
 github.com/bits-and-blooms/bitset v1.25.0/go.mod h1:7hO7Gc7Pp1vODcmWvKMRA9BNmbv6a/7QIWpPxHddWR8=
 github.com/caddy-dns/cloudflare v0.2.4 h1:h51SY6+JeevBcPtQ6xZxGRakYzbGiOXeJCFowQj/bGg=
 github.com/caddy-dns/cloudflare v0.2.4/go.mod h1:Rge8GoKEa65RIUd1GQ9DmOmnjD9FMztz5yiaKvf351E=
-github.com/caddy-dns/duckdns v0.5.0 h1:XD2xNOzsMZpYTiaXWpJE2i3iWfMucIs8lE+QvuuRjYk=
-github.com/caddy-dns/duckdns v0.5.0/go.mod h1:h+OP22+TarY/S+GWj1Ry/+ZSnNEV2oLOuX5iSRUdim0=
-github.com/caddy-dns/namecheap v1.0.0 h1:CwMvdB7H/UP6wR7Z0PyCMhm8ZFwQ8UVV7yW+7NFUW98=
-github.com/caddy-dns/namecheap v1.0.0/go.mod h1:4/9/AcsTd+5SDVgJsC2nIjNb1olHiAewjx7GR83OzzY=
 github.com/caddy-dns/porkbun v0.3.1 h1:+W9ijfpYwWDr8tYEfMMKTxpaG11RvvpZyQ3fCD8XmlA=
 github.com/caddy-dns/porkbun v0.3.1/go.mod h1:tnxl1mZeGLdxoEPzCeoQOlhGT46YrHTE+o+nzEKkacM=
 github.com/caddyserver/caddy/v2 v2.11.9 h1:bhZtcRKQOq0fuLvEgCdPYvUxXyGn9kzjG4lh2332DTE=

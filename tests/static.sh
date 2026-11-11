@@ -72,11 +72,16 @@ notices = open("THIRD-PARTY-NOTICES.md").read()
 # Caddy (halos-proxy) is built from src/caddy's pinned modules, with its four DNS providers, and its
 # licences ship.
 gomod = open("src/caddy/go.mod").read()
-for m in ("github.com/caddyserver/caddy/v2", "github.com/caddy-dns/cloudflare", "github.com/caddy-dns/duckdns",
-          "github.com/caddy-dns/namecheap", "github.com/caddy-dns/porkbun"):
+gosrc = open("src/caddy/main.go").read() + "".join(open(f).read() for f in glob.glob("src/caddy/dnsproviders/*.go"))
+for m in ("github.com/caddyserver/caddy/v2", "github.com/caddy-dns/cloudflare", "github.com/caddy-dns/porkbun",
+          "github.com/libdns/duckdns", "github.com/libdns/namecheap"):
     assert re.search(r"^\t" + re.escape(m) + r" v\d+\.\d+\.\d+$", gomod, re.M), f"{m} isn't pinned in src/caddy/go.mod"
-    assert m.replace("/v2", "") in open("src/caddy/main.go").read(), f"src/caddy/main.go doesn't link {m}"
+    assert f'"{m}' in gosrc, f"src/caddy doesn't link {m}"
     assert m + " " in open("src/caddy/go.sum").read(), f"src/caddy/go.sum has no hash for {m}"
+# caddy-dns/duckdns and caddy-dns/namecheap carry no licence, so halOS uses its own modules instead.
+assert "caddy-dns/duckdns" not in gomod and "caddy-dns/namecheap" not in gomod, "an unlicensed caddy-dns plugin is back"
+for mod in ("duckdns", "namecheap"):
+    assert f'ID:  "dns.providers.{mod}"' in gosrc, f"halOS's {mod} module is missing"
 assert "GOFLAGS=-mod=readonly" in cf and "COPY --from=caddy /out/caddy /usr/libexec/halogen/caddy" in cf \
   and "COPY --from=caddy /out/licenses/ /usr/share/licenses/halos-caddy/" in cf, "Caddy isn't built from src/caddy or its licences don't ship"
 assert "caddy validate --config /usr/share/halos/proxy/Caddyfile" in cf and "systemctl enable halos-proxy.service" in cf, "the proxy isn't checked or enabled"

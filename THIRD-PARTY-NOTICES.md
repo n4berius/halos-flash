@@ -77,13 +77,14 @@ so the program also carries the parts below.
 ## Web server in the OS image
 
 halOS's front door (`halos-proxy.service`, ports 8731 and 8732) is [Caddy](https://caddyserver.com),
-built unmodified with its standard modules and four DNS provider plugins from the versions pinned in
+built unmodified with its standard modules and four DNS providers, from the versions pinned in
 `src/caddy/go.mod` and `src/caddy/go.sum`. Thank you to its authors.
 
 | Component | License |
 |---|---|
 | [Caddy](https://github.com/caddyserver/caddy) (`/usr/libexec/halogen/caddy`) | Apache-2.0 |
-| DNS providers [cloudflare](https://github.com/caddy-dns/cloudflare), [duckdns](https://github.com/caddy-dns/duckdns), [namecheap](https://github.com/caddy-dns/namecheap), [porkbun](https://github.com/caddy-dns/porkbun) (caddy-dns) | Each repository's own license (MIT or Apache-2.0) |
+| DNS provider plugins [caddy-dns/cloudflare](https://github.com/caddy-dns/cloudflare) and [caddy-dns/porkbun](https://github.com/caddy-dns/porkbun) | Apache-2.0 and MIT |
+| DNS libraries [libdns/duckdns](https://github.com/libdns/duckdns) and [libdns/namecheap](https://github.com/libdns/namecheap), registered with Caddy by halOS's own modules (`src/caddy/dnsproviders`) because the caddy-dns plugins for them carry no licence | MIT |
 | The Go modules it is built from (certmagic, quic-go, the Go standard library and others) | Each module's own license. The list with versions is `/usr/share/licenses/halos-caddy/modules.txt`, and each module's license file is under `/usr/share/licenses/halos-caddy/modules/` |
 
 ## Build tools

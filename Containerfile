@@ -60,7 +60,8 @@ RUN set -eu; \
 # Caddy, halOS's front door (halos-proxy.service): Halogen's API on 8731 and the dashboard on 8732,
 # over HTTP or HTTPS. Built from src/caddy, whose go.mod and go.sum pin every module by version and
 # hash, because Fedora's caddy package has no DNS providers for Let's Encrypt's DNS-01 challenge.
-# Also gathers the licence files of every module linked in, and their list.
+# DuckDNS and Namecheap go through halOS's own modules (src/caddy/dnsproviders), since their
+# caddy-dns plugins carry no licence. Also gathers the licence files of every module linked in.
 FROM ${FEDORA_BOOTC_IMAGE} AS caddy
 COPY src/caddy/ /src/caddy/
 RUN set -eu; \
@@ -79,8 +80,8 @@ RUN set -eu; \
           f="$(find "$d" -maxdepth 1 -type f \( -iname 'licen[cs]e*' -o -iname 'copying*' \) | sort | head -n 1)"; \
           if [ -n "$f" ]; then mkdir -p "$lic/modules/$m"; cp "$f" "$lic/modules/$m/"; fi; \
         done; \
-    for m in github.com/caddyserver/caddy/v2 github.com/caddy-dns/cloudflare github.com/caddy-dns/duckdns \
-      github.com/caddy-dns/namecheap github.com/caddy-dns/porkbun; do \
+    for m in github.com/caddyserver/caddy/v2 github.com/caddy-dns/cloudflare github.com/caddy-dns/porkbun \
+      github.com/libdns/duckdns github.com/libdns/namecheap; do \
       ls "$lic/modules/$m/"* > /dev/null || { echo "no licence file for $m" >&2; exit 1; }; \
     done
 
