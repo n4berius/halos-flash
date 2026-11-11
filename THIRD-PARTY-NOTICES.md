@@ -62,7 +62,7 @@ Fedora packages is available from [Fedora](https://src.fedoraproject.org/).
 
 ## Dashboard in the OS image
 
-halOS's dashboard (`halos-dashboard.service`, port 8790) is
+halOS's dashboard (`halos-dashboard.service`, port 8732) is
 [halogen-dashboard](https://github.com/Quat3rnion/halogen-dashboard) by Quaternion, built unmodified
 from the commit in `versions.env`. Thank you to its author. Its web page is built into the program,
 so the program also carries the parts below.

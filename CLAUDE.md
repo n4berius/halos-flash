@@ -286,7 +286,8 @@ name, but allows saying halOS runs Halogen.
   `fake-halogen`), into `/usr/libexec/halogen/halogen-dashboard`. Licences in
   `/usr/share/licenses/halogen-dashboard/`: its own, `web/` (IBM Plex Sans OFL 1.1, uPlot, Svelte, the
   bundled parts) and `crates.txt` (`cargo metadata`). `halos-dashboard.service` (enabled, firewalld
-  service `halos-dashboard`, 8790/tcp open by default, no login, GET routes only): `DynamicUser`,
+  service `halos-dashboard`, 8732/tcp open by default (8790 on edge until #PR; the firewalld service file
+  moves the port on upgrade, since zones name the service), no login, GET routes only): `DynamicUser`,
   `StateDirectory=halos-dashboard` (SQLite: raw samples 48 h, one-minute rollups and events 30 d; about 430 MB full, from upstream's `seed --days 30`),
   `MemoryMax=256M` (measured 12 MB RSS against the simulator), `HALOGEN_URL=http://127.0.0.1:8731`
   (the binary's defaults are upstream's LAN address and 0.0.0.0). `/metrics`, `/cache` and
@@ -315,7 +316,7 @@ name, but allows saying halOS runs Halogen.
   a crash to systemd-coredump (which journals `COREDUMP_ENVIRON`, the key) and gives its `/proc` files
   to root; dashboard-run refuses to start unless the library loads (ld.so skips a broken one with a
   warning), and the dashboard stage checks a nobody process with it can't read its own environ.
-  `SocketBindAllow=tcp:8790` + `SocketBindDeny=any` (skipped quietly without systemd's BPF framework
+  `SocketBindAllow=tcp:8732` + `SocketBindDeny=any` (skipped quietly without systemd's BPF framework
   or libbpf; not checked by the selftest). `IPAccounting=yes` uses the same cgroup BPF program as
   `IPAddressDeny`, which systemd skips quietly when it can't load or attach it: the selftest's
   `dashboard-filter` passes only when `IPIngressBytes` is above 0 after its own curl and

@@ -370,7 +370,7 @@ Firmware updates use [fwupd](https://fwupd.org/). Check for them with
 
 ### The dashboard
 
-Open `http://<this machine's address>:8790` in a browser on your network for a live view of
+Open `http://<this machine's address>:8732` (next to the API on 8731) in a browser on your network for a live view of
 Halogen: whether it is up, generation and prefill speed, busy slots, queued requests, the KV pool,
 the prompt cache, the NPU, and charts from the last five minutes to the last 30 days.
 `sudo halosctl dashboard` shows its state and address.
@@ -381,10 +381,10 @@ second with your API key, and keeps its history in `/var/lib/halos-dashboard` (4
 then one-minute summaries for 30 days: about 430 MB once full). It uses about 12 MB of memory and almost no CPU.
 It runs as a user of its own, with no access to Halogen's files, models or tokens.
 
-- **No login.** Anyone who can reach port 8790 on your network can view it, but nobody can change
+- **No login.** Anyone who can reach port 8732 on your network can view it, but nobody can change
   anything through it, and it never shows your API key or anything sent to Halogen. It does show
   when and how much the server is used. If you don't want that, turn it off:
-  `sudo halosctl dashboard off` stops it (nothing answers on 8790 then); `on` turns it back on.
+  `sudo halosctl dashboard off` stops it (nothing answers on 8732 then); `on` turns it back on.
 - **On by default**, also on machines that upgrade to a release with it.
 - **Private networks only.** It answers this machine and private addresses only: 10.x, 172.16-31.x,
   192.168.x, link-local, and 100.64.0.0 to 100.127.255.255 (Tailscale; also some internet
@@ -394,14 +394,14 @@ It runs as a user of its own, with no access to Halogen's files, models or token
   `sudo systemctl edit halos-dashboard`, as `[Service]` and `IPAddressAllow=<range>`.
 - **The API key stays out of crash reports.** The dashboard can't be dumped, so if it ever
   crashes, nothing it holds (the key included) lands on disk or in the system log. It may also
-  listen on port 8790 only. `sudo halogenctl selftest` checks the crash-report protection, and that
+  listen on port 8732 only. `sudo halogenctl selftest` checks the crash-report protection, and that
   the private-networks rule is really active.
 - **Memory is capped at 256 MB**, so it can never take memory from Halogen. Its own 30-day view
   needs about 100 MB. A request crafted to read far more makes it restart after 30 seconds, and
   Halogen is unaffected.
 - **Only one reader of `/metrics`.** Halogen resets two of its speed figures each time something
   reads `/metrics`, so the dashboard must be the only reader. Don't point Prometheus or a script at
-  Halogen's `/metrics`; the dashboard serves its own copy at `http://<address>:8790/metrics`.
+  Halogen's `/metrics`; the dashboard serves its own copy at `http://<address>:8732/metrics`.
 - If you change the API key in `/srv/configs/api-key`, restart the dashboard:
   `sudo systemctl restart halos-dashboard`.
 

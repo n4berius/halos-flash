@@ -45,7 +45,7 @@ f fabric-clock 'exit 0'
 f ssh-unlock 'case "$1" in verify) exit "${FAKE_VERIFY:-0}" ;; *) echo "${FAKE_SSHU:-on 2}" ;; esac'
 # Group, owner and label as the real image sets them.
 f stat 'case "$2" in %G|%U) echo halogen ;; %u) case "$3" in /proc/4242/environ) echo "${FAKE_DASH_DUMP_UID:-0}" ;; *) exec /usr/bin/stat "$@" ;; esac ;; %C) case "$3" in *accel*) echo system_u:object_r:dri_device_t:s0 ;; *) echo system_u:object_r:container_file_t:s0 ;; esac ;; *) exec /usr/bin/stat "$@" ;; esac'
-f curl 'echo "curl $*" >> "$FAKE/curl.log"; case "$*" in *8790/healthz*) printf "${FAKE_DASH_CODE:-200}" ;; *models*) echo "{\"data\":[{\"id\":\"halogen-qwen3.8-flash-next\"},{\"id\":\"qwen3.5-2b\"}]}" ;; *::1*) [ -n "${FAKE_NOIPV6:-}" ] && printf 000 || printf 200 ;; *) printf 200 ;; esac'
+f curl 'echo "curl $*" >> "$FAKE/curl.log"; case "$*" in *8732/healthz*) printf "${FAKE_DASH_CODE:-200}" ;; *models*) echo "{\"data\":[{\"id\":\"halogen-qwen3.8-flash-next\"},{\"id\":\"qwen3.5-2b\"}]}" ;; *::1*) [ -n "${FAKE_NOIPV6:-}" ] && printf 000 || printf 200 ;; *) printf 200 ;; esac'
 echo "halogen" > "$work/services"
 # Files halogen owns are read through runuser (security audit P2/P7); log it, then run the command.
 f runuser 'echo "runuser $*" >> "$FAKE/runuser.log"; [ "$1 $2 $3" = "-u halogen --" ] || exit 9; shift 3; exec "$@"'

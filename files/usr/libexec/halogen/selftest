@@ -282,12 +282,12 @@ if have curl; then
   fi
 fi
 
-# --- Dashboard (halos-dashboard.service, Quaternion's halogen-dashboard on port 8790)
+# --- Dashboard (halos-dashboard.service, Quaternion's halogen-dashboard on port 8732)
 if have systemctl && have curl; then
   if [ "$(run systemctl is-enabled halos-dashboard.service)" != enabled ]; then
-    say INFO dashboard "off; a live page of Halogen's load on port 8790: sudo halosctl dashboard on"
-  elif [ "$(curl -sS -m 5 -o /dev/null -w '%{http_code}' http://127.0.0.1:8790/healthz 2>/dev/null)" = 200 ]; then
-    say PASS dashboard "answers on port 8790 (state and address: sudo halosctl dashboard)"
+    say INFO dashboard "off; a live page of Halogen's load on port 8732: sudo halosctl dashboard on"
+  elif [ "$(curl -sS -m 5 -o /dev/null -w '%{http_code}' http://127.0.0.1:8732/healthz 2>/dev/null)" = 200 ]; then
+    say PASS dashboard "answers on port 8732 (state and address: sudo halosctl dashboard)"
     # The address filter and the IP counters are the same BPF program on its cgroup, which systemd
     # skips quietly when it can't load or attach it. The curl above went through that cgroup, so an
     # attached program has counted more than 0 bytes.
@@ -295,14 +295,14 @@ if have systemctl && have curl; then
     deny="$(run systemctl show -p IPAddressDeny --value halos-dashboard.service)"
     allow="$(run systemctl show -p IPAddressAllow --value halos-dashboard.service)"
     if [[ "$ipin" =~ ^[0-9]+$ ]] && [ "$ipin" != 0 ] && [ "$ipin" != 18446744073709551615 ] && [[ " $deny " == *" 0.0.0.0/0 "* ]]; then
-      say PASS dashboard-filter "the address filter is on; port 8790 answers only: ${allow:-nothing}"
-    else say WARN dashboard-filter "the address filter isn't active, so any address can reach port 8790; check the kernel's BPF support and any drop-in: systemctl cat halos-dashboard"; fi
+      say PASS dashboard-filter "the address filter is on; port 8732 answers only: ${allow:-nothing}"
+    else say WARN dashboard-filter "the address filter isn't active, so any address can reach port 8732; check the kernel's BPF support and any drop-in: systemctl cat halos-dashboard"; fi
     # Not dumpable (dashboard-nodump.so): the kernel then gives the process's /proc files to root.
     pid="$(run systemctl show -p MainPID --value halos-dashboard.service)"
     if [[ "$pid" =~ ^[1-9][0-9]*$ ]] && [ "$(stat -c %u "/proc/$pid/environ" 2>/dev/null)" = 0 ]; then
       say PASS dashboard-nodump "a crash can't put the API key in the journal"
-    else say WARN dashboard-nodump "the dashboard is dumpable, so a crash would put the API key in the journal: sudo systemctl restart halos-dashboard"; fi
-  else say WARN dashboard "halos-dashboard.service doesn't answer on port 8790: sudo journalctl -u halos-dashboard"; fi
+    else say WARN dashboard-nodump "the dashboard is dumpable, so a crash would put the API key in the journal: sudo journalctl -u halos-dashboard"; fi
+  else say WARN dashboard "halos-dashboard.service doesn't answer on port 8732: sudo journalctl -u halos-dashboard"; fi
 fi
 # --- Model folders
 old="$(find "$models/npu" -mindepth 1 -maxdepth 1 -type d -regex '.*/[0-9]+\.[0-9]+\.[0-9]+' -printf '%f ' 2>/dev/null)"

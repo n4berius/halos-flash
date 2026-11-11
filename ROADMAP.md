@@ -27,17 +27,17 @@ On edge, for the next release:
 - unlocking over SSH (#13, done in #93 and #94);
 - the tokenizer fix for checkpoints that ship no vocabulary (#88);
 - `halogenctl flash convert` (#97), Halogen 0.20.1 (#95);
-- the dashboard on port 8790 (#98, #99), running on the test machine.
+- the dashboard (#98, #99, #101), running on the test machine.
 
 ## Next
 
-1. The dashboard's last hardening: no crash report can hold the API key, only port 8790, and a
-   selftest check that its private-networks rule is on (#101).
-2. HTTPS for Halogen's API and the dashboard, chosen at setup: a self-signed certificate to
-   start, certificates from Let's Encrypt through DNS-01, or your own.
-3. fail2ban for SSH and the Halogen API (#92), once HTTPS is in.
-4. Unlock the disk from a tang server on the network (#44).
-5. GGUF repositories in `flash pull` (#61).
+1. HTTPS for Halogen's API and the dashboard (#102), with Caddy in front of both: first the
+   dashboard moves next to the API (8731 and 8732), then Caddy on HTTP, then HTTPS with a
+   self-signed certificate or your own, then Let's Encrypt through DNS-01, then HTTPS by default
+   for new installs.
+2. fail2ban for SSH and the Halogen API (#92), once HTTPS is in.
+3. Unlock the disk from a tang server on the network (#44).
+4. GGUF repositories in `flash pull` (#61).
 
 Later: a first real `flash convert` on the test machine (time and quality), then its GPU (HIP)
 build and the Qwen4 models.

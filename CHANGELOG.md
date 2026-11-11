@@ -10,12 +10,13 @@ promoted.
 
 ## Unreleased
 
-- A live dashboard of Halogen at `http://<machine>:8790`: whether it is up, speed, busy slots,
+- A live dashboard of Halogen at `http://<machine>:8732`, next to the API on 8731: whether it is up, speed, busy slots,
   queue, KV pool, prompt cache and NPU, with charts up to 30 days. It is
   [halogen-dashboard](https://github.com/Quat3rnion/halogen-dashboard) by Quaternion, built in
   unchanged; about 12 MB of memory and 430 MB of disk once it holds 30 days. It is on by default,
   also after upgrading, with no login: anyone on your network can view it, nobody can change
-  anything. `sudo halosctl dashboard off` stops it, `on` brings it back. (#98)
+  anything. `sudo halosctl dashboard off` stops it, `on` brings it back. (#98; port 8790 on edge
+  until #PR)
 - The dashboard is locked down further: it answers only this machine and private networks (home,
   office, Tailscale), uses at most one CPU core, writes no core files, and its web page is built
   without running packages' install scripts. (#99)
