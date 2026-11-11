@@ -84,7 +84,7 @@ for mod in ("duckdns", "namecheap"):
     assert f'ID:  "dns.providers.{mod}"' in gosrc, f"halOS's {mod} module is missing"
 assert "GOFLAGS=-mod=readonly" in cf and "COPY --from=caddy /out/caddy /usr/libexec/halogen/caddy" in cf \
   and "COPY --from=caddy /out/licenses/ /usr/share/licenses/halos-caddy/" in cf and "-iname 'notice*'" in cf \
-  and 'cp "$(go env GOROOT)/LICENSE"' in cf, "Caddy isn't built from src/caddy or its licences don't ship"
+  and 'cp "$goli" "$lic/go-LICENSE"' in cf, "Caddy isn't built from src/caddy or its licences don't ship"
 assert "caddy validate --config /usr/share/halos/proxy/Caddyfile" in cf and "systemctl enable halos-proxy.service" in cf, "the proxy isn't checked or enabled"
 assert "caddyserver/caddy" in notices and "halos-caddy/modules.txt" in notices, "THIRD-PARTY-NOTICES doesn't credit Caddy"
 assert "Quat3rnion/halogen-dashboard" in notices and "IBM Plex" in notices, "THIRD-PARTY-NOTICES doesn't credit halogen-dashboard and its font"

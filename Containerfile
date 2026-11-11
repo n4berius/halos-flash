@@ -81,7 +81,8 @@ RUN set -eu; \
           if [ -n "$f" ]; then mkdir -p "$lic/modules/$m"; echo "$f" | while read -r g; do cp "$g" "$lic/modules/$m/"; done; fi; \
         done; \
     echo "go $(go env GOVERSION) (the standard library): go-LICENSE" >> "$lic/modules.txt"; \
-    cp "$(go env GOROOT)/LICENSE" "$lic/go-LICENSE"; \
+    goli="$(go env GOROOT)/LICENSE"; [ -r "$goli" ] || goli=/usr/share/licenses/golang/LICENSE; \
+    cp "$goli" "$lic/go-LICENSE"; \
     for m in github.com/caddyserver/caddy/v2 github.com/caddy-dns/cloudflare github.com/caddy-dns/porkbun \
       github.com/libdns/duckdns github.com/libdns/namecheap; do \
       ls "$lic/modules/$m/"* > /dev/null || { echo "no licence file for $m" >&2; exit 1; }; \
