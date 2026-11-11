@@ -85,7 +85,9 @@ case "${1:-}" in
       custom)
         # Fail closed: without its certificate, Caddy doesn't start, rather than serve the key in clear.
         for f in cert.pem key.pem; do
-          [ -f "$certdir/$f" ] && [ ! -L "$certdir/$f" ] || { rm -f "$tmp"; die "HTTPS is set to custom, but $certdir/$f is missing: sudo halosctl https custom <cert> <key>, or sudo halosctl https off"; }
+          if [ ! -f "$certdir/$f" ] || [ -L "$certdir/$f" ]; then
+            rm -f "$tmp"; die "HTTPS is set to custom, but $certdir/$f is missing: sudo halosctl https custom <cert> <key>, or sudo halosctl https off"
+          fi
           c="$(mktemp "$dir/.$f.XXXXXX")"
           cat "$certdir/$f" > "$c"
           chown -h --reference="$dir" "$c"
@@ -104,7 +106,7 @@ case "${1:-}" in
     case "$m" in off|self-signed|custom) ;; *) die "set off|self-signed|custom [<name>...]" ;; esac
     for n in "$@"; do valid_name "$n" || die "not a host name or address: $n"; done
     if [ "$m" = custom ]; then
-      [ -f "$certdir/cert.pem" ] && [ -f "$certdir/key.pem" ] || die "no certificate installed yet"
+      if [ ! -f "$certdir/cert.pem" ] || [ ! -f "$certdir/key.pem" ]; then die "no certificate installed yet"; fi
     fi
     mkdir -p "$etc"; umask 022
     tmp="$(mktemp "$etc/.https.env.XXXXXX")"
