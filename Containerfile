@@ -117,6 +117,12 @@ RUN dnf -y --setopt=install_weak_deps=False install \
     dnf clean all && \
     rm -rf /var/log/dnf5.log /var/lib/dnf /var/cache/libdnf5 /run/dnf && \
     rpm -q bash-completion fwupd skopeo jq amd-ucode-firmware realtek-firmware mt7xxx-firmware atheros-firmware && \
+    : 'fwupd finds the EFI partition through udisks2, removed above, so it is told where it is: halOS' \
+      'boots only in UEFI mode, and the installers mount the partition at /boot/efi. Without it' \
+      'fwupd says "UEFI ESP partition not detected" and cannot update the Secure Boot dbx.' && \
+    grep -qx '\[fwupd\]' /etc/fwupd/fwupd.conf && ! grep -q '^EspLocation' /etc/fwupd/fwupd.conf && \
+    sed -i '/^\[fwupd\]$/a EspLocation=/boot/efi' /etc/fwupd/fwupd.conf && \
+    [ "$(grep -cx 'EspLocation=/boot/efi' /etc/fwupd/fwupd.conf)" = 1 ] && \
     ls -d /usr/lib/firmware/amdgpu /usr/lib/firmware/amdnpu && \
     command -v runuser setpriv nano
 
