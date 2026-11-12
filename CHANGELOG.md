@@ -12,7 +12,7 @@ promoted.
 
 - New guides: [the command reference](docs/CLI.md) lists every halOS command, and [Connecting
   apps](docs/CLIENTS.md) shows how to point Claude Code, Codex, Pi, oh-my-pi, opencode, Cline,
-  aider and others at the machine, and how each one trusts halOS's certificate. (#PR)
+  aider and others at the machine, and how each one trusts halOS's certificate. (#109)
 - The dashboard moved from port 8790 to **8732**, next to the API on 8731: `http://<machine>:8732`.
   The firewall follows by itself on upgrade; only a bookmark changes. (#103)
 - [Caddy](https://caddyserver.com) now answers on ports 8731 (API) and 8732 (dashboard) and passes
