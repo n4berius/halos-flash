@@ -299,7 +299,24 @@ if [ -x "$https" ] && have curl; then
       elif code="$(curl -sS -k -m 5 -o /dev/null -w '%{http_code}' "https://127.0.0.1:$port/health" 2>/dev/null)" && [ "$code" != 000 ]; then
         say PASS https "on, with your certificate for $(fact subject), until $(fact until)"
       else say WARN https "on (your certificate), but 127.0.0.1:$port doesn't answer over HTTPS: sudo journalctl -u halos-proxy"; fi ;;
-    invalid) say FAIL https "HALOS_HTTPS in /etc/halos/https.env isn't off, self-signed or custom, so Caddy won't start: sudo halosctl https off, or self-signed" ;;
+    letsencrypt)
+      front=https; insecure=(-k)
+      first="$(fact public)"; first="${first%% *}"
+      if [ "$(fact until)" = none ]; then
+        say FAIL https "on (Let's Encrypt for $(fact public)), but Caddy serves no certificate for $first yet: sudo journalctl -u halos-proxy"
+      elif [ "$(fact expires)" = ended ]; then
+        say FAIL https "the Let's Encrypt certificate for $first ended $(fact until), so renewing failed: sudo journalctl -u halos-proxy"
+      elif [ "$(fact expires)" != later ]; then
+        say WARN https "the Let's Encrypt certificate for $first ends $(fact until), within 10 days, so renewing is failing: sudo journalctl -u halos-proxy"
+      elif [ "$(fact staging)" = yes ]; then
+        say WARN https "on, with Let's Encrypt's staging (test) certificate for $first, which apps don't trust: sudo halosctl https letsencrypt $(fact provider) $(fact public)"
+      # Checked as an app would: the system's trust store, the name, the chain.
+      elif code="$(curl -sS -m 5 --resolve "$first:$port:127.0.0.1" -o /dev/null -w '%{http_code}' "https://$first:$port/health" 2>/dev/null)" && [ "$code" != 000 ]; then
+        say PASS https "on, Let's Encrypt for $(fact public) (DNS: $(fact provider)), until $(fact until)"
+      else say WARN https "on (Let's Encrypt), but $first:$port doesn't answer with a certificate this machine trusts: sudo journalctl -u halos-proxy"; fi
+      missing="$(run "$https" uncovered | paste -sd' ' -) "
+      if [ -n "${missing% }" ]; then say WARN https-names "local addresses not covered by halOS's authority yet: ${missing% } (halos-https-refresh.timer restarts Caddy within a minute)"; fi ;;
+    invalid) say FAIL https "HALOS_HTTPS in /etc/halos/https.env isn't off, self-signed, custom or letsencrypt, so Caddy won't start: sudo halosctl https off, or self-signed" ;;
     *) say INFO https "off: apps use plain http:// (sudo halosctl https self-signed turns it on)" ;;
   esac
 fi

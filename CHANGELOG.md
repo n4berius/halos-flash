@@ -14,6 +14,13 @@ promoted.
   (dbx), instead of saying "UEFI ESP partition not detected". On a machine that unlocks its disk
   with the TPM, such an update asks for the disk passphrase at the next boot; then run
   `sudo halogen-enroll-tpm` once. (#106)
+- HTTPS with Let's Encrypt: `sudo halosctl https letsencrypt <provider> <name>` gets certificates
+  every app already trusts, and renews them, for a public name you own, through Cloudflare's,
+  DuckDNS's, Porkbun's or Namecheap's API. No port is opened to the internet. `--staging` tries
+  Let's Encrypt's test service first. The machine's own addresses keep halOS's authority. (#108)
+- The SSH login message and the "Halogen is ready" notice show an address other machines can use:
+  the Let's Encrypt name, the machine's full name (such as `freyja.home.example`), or its IPv4
+  address, instead of a bare host name like `freyja`. (#108)
 - The dashboard moved from port 8790 to **8732**, next to the API on 8731: `http://<machine>:8732`.
   The firewall follows by itself on upgrade; only a bookmark changes. (#103)
 - [Caddy](https://caddyserver.com) now answers on ports 8731 (API) and 8732 (dashboard) and passes

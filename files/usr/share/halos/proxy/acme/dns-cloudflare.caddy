@@ -1,0 +1,5 @@
+# Imported into Caddyfile.letsencrypt's global options for HALOS_ACME_DNS=cloudflare: the credentials are
+# files the https helper copies into Caddy's runtime folder (from root's /etc/halos/https/dns).
+acme_dns cloudflare {
+	api_token {file.{$RUNTIME_DIRECTORY}/dns_api_token}
+}

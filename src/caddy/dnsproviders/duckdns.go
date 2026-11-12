@@ -5,8 +5,12 @@
 package dnsproviders
 
 import (
+	"context"
+	"fmt"
+
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
+	"github.com/libdns/libdns"
 	"github.com/libdns/duckdns"
 )
 
@@ -32,12 +36,16 @@ func (DuckDNS) CaddyModule() caddy.ModuleInfo {
 	}
 }
 
-// Provision fills in placeholders.
+// Provision fills in placeholders, then checks the values they gave.
 func (p *DuckDNS) Provision(caddy.Context) error {
 	r := caddy.NewReplacer()
 	p.Provider.APIToken = r.ReplaceAll(p.Provider.APIToken, "")
 	p.Provider.OverrideDomain = r.ReplaceAll(p.Provider.OverrideDomain, "")
 	p.Provider.Resolver = r.ReplaceAll(p.Provider.Resolver, "")
+	// The parse-time check saw only the placeholder; this one sees what the file held.
+	if p.Provider.APIToken == "" {
+		return fmt.Errorf("duckdns: the api_token is empty (its file missing or empty?)")
+	}
 	return nil
 }
 
@@ -79,7 +87,37 @@ func (p *DuckDNS) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	return nil
 }
 
+// The record methods pass the provider's own, with its credentials removed from any error text.
+
+// GetRecords lists the zone's records.
+func (p *DuckDNS) GetRecords(ctx context.Context, zone string) ([]libdns.Record, error) {
+	r, err := p.Provider.GetRecords(ctx, zone)
+	return r, redact(err, p.Provider.APIToken)
+}
+
+// AppendRecords adds records to the zone.
+func (p *DuckDNS) AppendRecords(ctx context.Context, zone string, recs []libdns.Record) ([]libdns.Record, error) {
+	r, err := p.Provider.AppendRecords(ctx, zone, recs)
+	return r, redact(err, p.Provider.APIToken)
+}
+
+// SetRecords sets records in the zone.
+func (p *DuckDNS) SetRecords(ctx context.Context, zone string, recs []libdns.Record) ([]libdns.Record, error) {
+	r, err := p.Provider.SetRecords(ctx, zone, recs)
+	return r, redact(err, p.Provider.APIToken)
+}
+
+// DeleteRecords removes records from the zone.
+func (p *DuckDNS) DeleteRecords(ctx context.Context, zone string, recs []libdns.Record) ([]libdns.Record, error) {
+	r, err := p.Provider.DeleteRecords(ctx, zone, recs)
+	return r, redact(err, p.Provider.APIToken)
+}
+
 var (
 	_ caddyfile.Unmarshaler = (*DuckDNS)(nil)
 	_ caddy.Provisioner     = (*DuckDNS)(nil)
+	_ libdns.RecordGetter   = (*DuckDNS)(nil)
+	_ libdns.RecordAppender = (*DuckDNS)(nil)
+	_ libdns.RecordSetter   = (*DuckDNS)(nil)
+	_ libdns.RecordDeleter  = (*DuckDNS)(nil)
 )
