@@ -15,7 +15,7 @@ port="${HALOGEN_API_PORT:-8731}"
 local_port="${HALOS_API_LOCAL_PORT:-18731}"
 # http:// or https:// in the address shown (sudo halosctl https).
 scheme=http
-case "$("${HALOS_HTTPS_HELPER:-/usr/libexec/halogen/https}" mode 2>/dev/null)" in self-signed|custom) scheme=https ;; esac
+case "$("${HALOS_HTTPS_HELPER:-/usr/libexec/halogen/https}" mode 2>/dev/null)" in self-signed|custom|letsencrypt) scheme=https ;; esac
 needed_gib="${HALOGEN_MODELS_NEEDED_GIB:-125}"
 halogen_state="${HALOGEN_STATE_DIR:-/var/lib/halogen}"
 # shellcheck source=/dev/null
@@ -58,10 +58,28 @@ elif [ -z "$server" ]; then state="starting up"
 else state="stopped: sudo halogenctl logs"
 fi
 
+# The address apps should use, as other machines can reach it: Let's Encrypt's public name, else
+# this machine's fully qualified name, else its first IPv4 address. A bare host name ("freyja")
+# works only where the network's DNS knows it.
+where() {
+  local n
+  n="$("${HALOS_HTTPS_HELPER:-/usr/libexec/halogen/https}" public 2>/dev/null | head -n 1)"
+  if [ -z "$n" ]; then
+    n="$(hostname 2>/dev/null)"
+    [[ "$n" == *.* ]] || n="$(timeout 2 hostname -f 2>/dev/null)"
+    case "$n" in *.*) case "$n" in *.localdomain|*.localhost) n="" ;; esac ;; *) n="" ;; esac
+  fi
+  [ -n "$n" ] || n="$(hostname -I 2>/dev/null | tr ' ' '\n' | grep -m 1 -E '^[0-9]+(\.[0-9]+){3}$')"
+  [ -n "$n" ] || n="$(hostname 2>/dev/null)"
+  # Only host-name characters: this text goes to every terminal (wall).
+  [[ "$n" =~ ^[A-Za-z0-9.-]+$ ]] || n="<this machine>"
+  echo "$n"
+}
 name="halOS ${HALOS_RELEASE:-} (${HALOGEN_VARIANT:-} edition)"
 if [ "$state" = ready ]; then
+  host="$(where)"
   console="$name - ready: $scheme://\\4:$port/v1"
-  remote="$name - ready: $scheme://$(hostname):$port/v1"
+  remote="$name - ready: $scheme://$host:$port/v1"
 else
   console="$name - $state"; remote="$console"
 fi
@@ -93,6 +111,6 @@ put "$run/motd.d/50-halos" "$motd" || true
 # Tell logged-in terminals once per boot, the first time Halogen answers.
 if [ "$state" = ready ] && [ ! -e "$state_dir/announced" ]; then
   : > "$state_dir/announced"
-  wall "halOS: Halogen is ready at $scheme://$(hostname):$port/v1" 2>/dev/null || true
+  wall "halOS: Halogen is ready at $scheme://$host:$port/v1" 2>/dev/null || true
 fi
 exit 0

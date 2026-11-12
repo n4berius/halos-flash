@@ -441,6 +441,7 @@ breaks by surprise.
 sudo halosctl https                        # the state, and what apps use
 sudo halosctl https self-signed            # on, with halOS's own authority
 sudo halosctl https custom cert.pem key.pem   # on, with your certificate (PEM, key without a passphrase)
+sudo halosctl https letsencrypt cloudflare halos.example.com   # on, with Let's Encrypt (see below)
 sudo halosctl https off                    # back to plain HTTP
 ```
 
@@ -474,8 +475,63 @@ key belongs to it and that it hasn't expired, shows you whose it is and asks bef
 both in `/etc/halos/https/` (root only, with the previous pair), and `sudo halogenctl selftest`
 warns two weeks before it ends. If Caddy doesn't answer with a new setting, `halosctl` puts the
 previous one back, certificate included. Renewing is running `https custom`
-again with the new files. Certificates from Let's Encrypt that renew themselves come next
-([#102](https://github.com/n4berius/halos-flash/issues/102)).
+again with the new files.
+
+**Let's Encrypt** gives certificates every app and browser already trusts, and renews them by
+itself, for a public DNS name you own (such as `halos.example.com`). Nothing is opened to the
+internet: Caddy proves the name is yours by writing a temporary TXT record through your DNS
+provider's API (the DNS-01 challenge). The name only has to point to this machine, and a private
+address such as `192.168.1.20` is fine. Some home routers block public names that point to private
+addresses ("DNS rebinding protection"); allow the name there if it doesn't resolve on your network.
+
+1. Make an API credential at your DNS provider, allowed to change that name's zone and no more:
+
+   | Provider | What `halosctl` asks for | Where |
+   |---|---|---|
+   | `cloudflare` | `api_token` | My Profile > API Tokens > Create Token, template "Edit zone DNS", for that zone only |
+   | `duckdns` | `api_token` | The token at the top of duckdns.org once you sign in; the name is `<yours>.duckdns.org` |
+   | `porkbun` | `api_key`, `api_secret_key` | Account > API Access; then turn on "API Access" on the domain itself |
+   | `namecheap` | `api_key`, `user`, `client_ip` | Profile > Tools > Business & Dev Tools > API Access; add this network's public IPv4 address to its allowed list, and give the same address as `client_ip` |
+
+   Namecheap's API can only replace a domain's whole list of records, so each certificate rewrites
+   the list. Note your records first, or use a domain (or a DuckDNS name) only for this.
+
+2. Try it against Let's Encrypt's test service first, whose limits are generous (its certificates
+   aren't trusted, so apps will still warn):
+
+   ```bash
+   sudo halosctl https letsencrypt cloudflare halos.example.com --staging
+   ```
+
+   `halosctl` asks for the credential (it isn't shown while you type), then waits for the
+   certificate, usually under a minute. If none comes within five minutes, it says what Let's
+   Encrypt answered and puts the previous setting back.
+
+3. Then for real; it offers to reuse the credential you gave:
+
+   ```bash
+   sudo halosctl https letsencrypt cloudflare halos.example.com --email you@example.com
+   ```
+
+   `--email` is optional: Let's Encrypt uses it only for important notices about your account.
+
+Apps then use `https://halos.example.com:8731/v1`, and the dashboard is
+`https://halos.example.com:8732`. This machine's own names and addresses keep halOS's authority
+(as with self-signed), so apps that connect by address keep working once they trust it.
+Certificates are public: every name you certify appears in the
+[Certificate Transparency](https://certificate.transparency.dev/) logs anyone can search, so
+don't use a name you want to keep private. The credential is kept in `/etc/halos/https/dns/`,
+readable by root only, and Caddy gets a copy each time it starts; it never appears in a command
+line, the settings file or the journal (halOS removes it from DuckDNS's and Namecheap's error
+messages, and refuses a Cloudflare token whose shape Caddy's plugin would print back).
+`sudo halogenctl selftest` checks the certificate as an app would, and warns ten days before it
+ends, which means renewing has failed. To give a new credential, run the same command and answer
+no to reusing the old one. Without a terminal, `--yes` reads the credential as `field=value` lines
+on standard input.
+
+halOS releases before this one don't know `letsencrypt`: after `sudo halosctl rollback` to one of
+them, Caddy won't start until you run `sudo halosctl https off` or `self-signed` (it never falls
+back to plain HTTP by itself).
 
 halOS's own tools (`halogenctl bench`, the selftest's API checks, the login line's check) talk to
 Halogen directly on the machine, so they work the same in either mode.

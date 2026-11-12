@@ -1,8 +1,12 @@
 package dnsproviders
 
 import (
+	"context"
+	"fmt"
+
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
+	"github.com/libdns/libdns"
 	"github.com/libdns/namecheap"
 )
 
@@ -28,13 +32,17 @@ func (Namecheap) CaddyModule() caddy.ModuleInfo {
 	}
 }
 
-// Provision fills in placeholders.
+// Provision fills in placeholders, then checks the values they gave.
 func (p *Namecheap) Provision(caddy.Context) error {
 	r := caddy.NewReplacer()
 	p.Provider.APIKey = r.ReplaceAll(p.Provider.APIKey, "")
 	p.Provider.User = r.ReplaceAll(p.Provider.User, "")
 	p.Provider.ClientIP = r.ReplaceAll(p.Provider.ClientIP, "")
 	p.Provider.APIEndpoint = r.ReplaceAll(p.Provider.APIEndpoint, "")
+	// The parse-time check saw only the placeholder; this one sees what the file held.
+	if p.Provider.APIKey == "" || p.Provider.User == "" {
+		return fmt.Errorf("namecheap: the api_key or user is empty (its file missing or empty?)")
+	}
 	return nil
 }
 
@@ -75,7 +83,37 @@ func (p *Namecheap) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	return nil
 }
 
+// The record methods pass the provider's own, with its credentials removed from any error text.
+
+// GetRecords lists the zone's records.
+func (p *Namecheap) GetRecords(ctx context.Context, zone string) ([]libdns.Record, error) {
+	r, err := p.Provider.GetRecords(ctx, zone)
+	return r, redact(err, p.Provider.APIKey)
+}
+
+// AppendRecords adds records to the zone.
+func (p *Namecheap) AppendRecords(ctx context.Context, zone string, recs []libdns.Record) ([]libdns.Record, error) {
+	r, err := p.Provider.AppendRecords(ctx, zone, recs)
+	return r, redact(err, p.Provider.APIKey)
+}
+
+// SetRecords sets records in the zone.
+func (p *Namecheap) SetRecords(ctx context.Context, zone string, recs []libdns.Record) ([]libdns.Record, error) {
+	r, err := p.Provider.SetRecords(ctx, zone, recs)
+	return r, redact(err, p.Provider.APIKey)
+}
+
+// DeleteRecords removes records from the zone.
+func (p *Namecheap) DeleteRecords(ctx context.Context, zone string, recs []libdns.Record) ([]libdns.Record, error) {
+	r, err := p.Provider.DeleteRecords(ctx, zone, recs)
+	return r, redact(err, p.Provider.APIKey)
+}
+
 var (
 	_ caddyfile.Unmarshaler = (*Namecheap)(nil)
 	_ caddy.Provisioner     = (*Namecheap)(nil)
+	_ libdns.RecordGetter   = (*Namecheap)(nil)
+	_ libdns.RecordAppender = (*Namecheap)(nil)
+	_ libdns.RecordSetter   = (*Namecheap)(nil)
+	_ libdns.RecordDeleter  = (*Namecheap)(nil)
 )
