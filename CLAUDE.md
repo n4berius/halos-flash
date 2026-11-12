@@ -401,9 +401,13 @@ name, but allows saying halOS runs Halogen.
   (4 KiB, one printable word each, a Cloudflare token in the shape caddy-dns/cloudflare accepts,
   since its refusal prints the token; DuckDNS 36 characters; Namecheap's `client_ip` an IPv4), into
   `/etc/halos/https/dns/.pending` (root, 0700/0600); `dns-commit` keeps `.prev`, `dns-restore`; `env`
-  copies them into `$RUNTIME_DIRECTORY/dns_<field>` (as custom's certificate; `LoadCredential` was
-  not used, its behaviour for a missing folder unchecked) and fails closed without them; Caddy reads
-  them through `{file.…}`. halOS's DuckDNS and Namecheap modules check the values after
+  checks them and fails closed without them. Caddy gets them as systemd credentials
+  (`LoadCredential=dns:/etc/halos/https/dns`: a folder loads each regular file as `dns_<name>`,
+  skipping dot entries (`.pending`, `.prev`) and links; the folder must exist: Fedora 45's systemd 262 fails the start
+  with 243/CREDENTIALS "No such file or directory" without it, `SetCredential=dns:` as a fallback
+  or not (VM test), so tmpfiles makes it at boot and `dns-forget` only empties it) and reads them through
+  `{file.{$CREDENTIALS_DIRECTORY}/dns_<field>}`; they're loaded in every mode until `forget-dns`, which also try-restarts halos-proxy, since a running Caddy keeps what it loaded; `env` checks what Caddy's `{file.…}` passes on (the file less one trailing newline; `$(...)` alone drops them all).
+  The build stops if caddy-dns/cloudflare's two token regexes change (`dns_value_ok` copies them). halOS's DuckDNS and Namecheap modules check the values after
   replacement in `Provision` and wrap the four record methods to replace the secret (raw and
   URL-encoded) with `REDACTED` in errors (`go test ./dnsproviders/` runs in the caddy stage).
   `halosctl https letsencrypt <provider> <name>... [--email] [--staging]` prompts (hidden) on a

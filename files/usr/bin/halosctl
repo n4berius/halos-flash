@@ -720,9 +720,13 @@ case "$cmd" in
       '') show ;;
       ca) "$https" ca ;;
       forget-dns)
-        [ -d "${HALOS_HTTPS_ETC:-/etc/halos}/https/dns" ] || { echo "No DNS credentials are saved."; exit 0; }
-        confirm "Delete the saved DNS provider credentials? (Revoke them at the provider too.)"
+        dnsd="${HALOS_HTTPS_ETC:-/etc/halos}/https/dns"
+        # The folder itself always exists (tmpfiles); saved means a provider or a kept older copy.
+        if [ ! -e "$dnsd/provider" ] && [ ! -d "$dnsd/.prev" ]; then echo "No DNS credentials are saved."; exit 0; fi
+        confirm "Delete the saved DNS provider credentials? (Revoke them at the provider too.) The front door restarts for a moment."
         "$https" dns-forget
+        # Caddy got them as systemd credentials when it started, and keeps them until it stops.
+        systemctl try-restart halos-proxy.service
         echo "Deleted." ;;
       off)
         [ "$("$https" mode)" != off ] || { echo "HTTPS is already off."; exit 0; }

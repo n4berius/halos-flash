@@ -188,8 +188,8 @@ if ! { grep -qx 'HALOS_PROXY_CONFIG=/usr/share/halos/proxy/Caddyfile.letsencrypt
 grep -q '^HALOS_API_SITES="https://localhost:8731, .*https://192.168.1.20:8731' "$work/run/proxy.env" || fail "the local names lost halOS's authority: $(env_of)"
 if grep '^HALOS_API_SITES=' "$work/run/proxy.env" | grep -q halos.example.com; then fail "a public name is also a local site"; fi
 if grep -q cf-token-1- "$work/run/proxy.env"; then fail "the token is in proxy.env"; fi
-[ "$(cat "$work/rt/dns_api_token")" = cf-token-1-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA ] || fail "Caddy's runtime folder has no token"
-ok "Let's Encrypt: credentials only from stdin, checked, root's, copied for Caddy; public names only"
+for f in "$work/rt"/dns_*; do [ ! -e "$f" ] || fail "a DNS credential was copied into Caddy's runtime folder (systemd loads them)"; done
+ok "Let's Encrypt: credentials only from stdin, checked, root's, never copied for Caddy; public names only"
 
 "$h" set letsencrypt cloudflare halos.example.com --staging
 if ! { "$h" env; grep -qx 'HALOS_ACME_CA=https://acme-staging-v02.api.letsencrypt.org/directory' "$work/run/proxy.env" && grep -qx 'HALOS_ACME_EMAIL_SET=no' "$work/run/proxy.env"; }; then fail "staging, without email: $(env_of)"; fi
@@ -215,10 +215,15 @@ if printf 'cfut_PASTEDSECRETPASTEDSECRETPASTEDSECRET\n' | "$h" dns-stage cloudfl
 if grep -q PASTEDSECRET "$work/err"; then fail "a bare token was printed back"; fi
 printf 'api_token=cf-token-1-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' | "$h" dns-stage cloudflare; "$h" dns-commit
 "$h" set letsencrypt cloudflare halos.example.com
-printf 'bad token HANDEDITED' > "$work/etc/https/dns/api_token"; rm -f "$work/rt/dns_api_token"
+printf 'bad token HANDEDITED' > "$work/etc/https/dns/api_token"
 if "$h" env 2> "$work/err"; then fail "a malformed token on disk started Caddy"; fi
 if grep -q HANDEDITED "$work/err"; then fail "a malformed token was printed"; fi
-[ ! -e "$work/rt/dns_api_token" ] || fail "a malformed token was copied for Caddy"
+# A good token with extra newlines: Caddy would pass one on, and the plugin would print it.
+printf 'cf-token-1-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n\n' > "$work/etc/https/dns/api_token"
+if "$h" env 2> /dev/null; then fail "a token file with trailing newlines started Caddy"; fi
+# One trailing newline is fine: Caddy trims it (as a hand-written file usually has).
+printf 'cf-token-1-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n' > "$work/etc/https/dns/api_token"
+"$h" env 2> "$work/err" || fail "a token file with one trailing newline was refused: $(cat "$work/err")"
 # set --check: names and email checked without credentials, nothing written.
 cp "$work/etc/https.env" "$work/before"
 "$h" set --check letsencrypt porkbun other.example.com || fail "set --check needed credentials"
@@ -228,6 +233,7 @@ if "$h" dns-forget 2> /dev/null; then fail "dns-forget removed the credentials L
 # Back to self-signed: the public names aren't kept as extra names.
 "$h" set self-signed
 grep -qx 'HALOS_HTTPS_NAMES=' "$work/etc/https.env" || fail "self-signed kept the Let's Encrypt names: $(cat "$work/etc/https.env")"
-"$h" dns-forget; [ ! -e "$work/etc/https/dns" ] || fail "dns-forget left the credentials"
+"$h" dns-forget
+if [ ! -d "$work/etc/https/dns" ] || [ -n "$(ls -A "$work/etc/https/dns")" ]; then fail "dns-forget didn't leave the folder, empty"; fi
 ok "a pasted or hand-edited token is never printed or given to Caddy; set --check; forget"
 

@@ -533,7 +533,9 @@ Apps then use `https://halos.example.com:8731/v1`, and the dashboard is
 Certificates are public: every name you certify appears in the
 [Certificate Transparency](https://certificate.transparency.dev/) logs anyone can search, so
 don't use a name you want to keep private. The credential is kept in `/etc/halos/https/dns/`,
-readable by root only, and Caddy gets a copy each time it starts; it never appears in a command
+readable by root only. Caddy gets it from systemd each time it starts, read-only and in memory,
+and loses it when it stops (`sudo halosctl https forget-dns` deletes it and restarts Caddy). It
+never appears in a command
 line, the settings file or the journal (halOS removes it from DuckDNS's and Namecheap's error
 messages, and refuses a Cloudflare token whose shape Caddy's plugin would print back).
 `sudo halogenctl selftest` checks the certificate as an app would, and warns ten days before it
