@@ -370,7 +370,7 @@ name, but allows saying halOS runs Halogen.
   an IP) before reaching the Caddyfile. `Caddyfile.https`: `auto_https disable_redirects`,
   `skip_install_trust`, `listener_wrappers { http_redirect tls }` (308 on the same port, no :80).
   Caddy's authority (`/var/lib/private/halos-proxy/caddy/pki/authorities/local/root.crt`, key beside
-  it in Caddy's state) is read as Caddy's own user with `setpriv`, `timeout 5` and `head -c 64K`,
+  it in Caddy's state) is checked by root to lie inside Caddy's state (realpath, a regular file), then read from inside that folder as Caddy's own user with `setpriv` (relative path, so a link swapped in later is followed only with Caddy's rights), `timeout 5` and `head -c 64K`,
   then re-encoded by openssl (a link, FIFO or endless file can't make root print or hang). Checked in
   a container as nobody: certs per name and address, unknown SNI refused, custom cert for any SNI,
   the redirect. `halosctl https [self-signed [<name>...]|custom <cert> <key>|off|ca]`: custom stages,

@@ -144,6 +144,14 @@ cp "$work/good.crt" "$ca"; "$h" ca | grep -q 'BEGIN CERTIFICATE' || fail "ca doe
 printf 'root:secret-hash:1:2:3\n' > "$work/secret"; rm "$ca"; ln -s "$work/secret" "$ca"
 if "$h" ca > "$work/out" 2>&1; then fail "ca followed a link to a non-certificate"; fi
 if grep -q secret "$work/out"; then fail "ca printed the linked file"; fi
+# A link to a real certificate outside Caddy's state, or a folder of Caddy's pointing outside it.
+mkdir -p "$work/outside/local"; cp "$work/good.crt" "$work/outside/root.crt"; cp "$work/good.crt" "$work/outside/local/root.crt"
+rm "$ca"; ln -s "$work/outside/root.crt" "$ca"
+if "$h" ca > "$work/out" 2>&1; then fail "ca followed a link to a certificate outside Caddy's state"; fi
+rm "$ca"; mv "$work/state/caddy/pki/authorities/local" "$work/state/caddy/pki/authorities/local.real"
+ln -s "$work/outside/local" "$work/state/caddy/pki/authorities/local"
+if "$h" ca > "$work/out" 2>&1; then fail "ca followed a folder link outside Caddy's state"; fi
+rm "$work/state/caddy/pki/authorities/local"; mv "$work/state/caddy/pki/authorities/local.real" "$work/state/caddy/pki/authorities/local"; cp "$work/good.crt" "$ca"
 printf 'HALOS_HTTPS=self-signed\n' > "$work/etc/https.env"; rm "$ca"; cp "$work/good.crt" "$ca"
 "$h" describe > "$work/d"; grep -qE '^ca ([0-9A-F]{2}:){31}[0-9A-F]{2}$' "$work/d" || fail "describe has no fingerprint: $(cat "$work/d")"
 # A FIFO where the authority should be (only Caddy's user could put one there) can't hold root's tools.

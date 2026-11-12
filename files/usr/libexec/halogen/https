@@ -94,16 +94,22 @@ pem_cert() { openssl x509 -in "$1" -outform PEM 2> /dev/null; }
 pubkey_of_cert() { openssl x509 -in "$1" -noout -pubkey 2> /dev/null; }
 pubkey_of_key() { openssl pkey -in "$1" -pubout -passin pass: 2> /dev/null < /dev/null; }
 # The authority's certificate, into "$1". Caddy's state is its dynamic user's, under
-# /var/lib/private, which only root may enter, so root reads it, but only a regular file that
-# really lies inside that state (no link or folder of Caddy's can point it elsewhere), with a time
-# and size limit (a FIFO or an endless file can't hold root's tools), and passes on only what
-# openssl re-encodes as a certificate.
+# /var/lib/private, which only root may enter. Root checks the file really lies inside that state,
+# then enters the state folder and reads it from there as Caddy's own user, by a relative path, so
+# a link Caddy swaps in after the check is followed only with Caddy's own rights. A time and size
+# limit stop a FIFO or an endless file, and only what openssl re-encodes as a certificate is passed on.
 read_ca() {
-  local real
+  local real uid gid
   real="$(realpath -e -- "$root_ca" 2> /dev/null)" || return 1
   case "$real" in "$(realpath -e -- "$state")"/*) ;; *) return 1 ;; esac
   if [ ! -f "$real" ] || [ -L "$real" ]; then return 1; fi
-  timeout 5 head -c 65536 -- "$real" > "$1" 2> /dev/null || return 1
+  uid="$(stat -c %u -- "$state")" && gid="$(stat -c %g -- "$state")" || return 1
+  (
+    cd -P -- "$state" || exit 1
+    rel="${real#"$(pwd -P)"/}"
+    if [ "$uid" = "$EUID" ]; then exec timeout 5 head -c 65536 -- "$rel"; fi
+    exec timeout 5 setpriv --reuid="$uid" --regid="$gid" --clear-groups -- head -c 65536 -- "$rel"
+  ) > "$1" 2> /dev/null || return 1
   pem_cert "$1" > /dev/null
 }
 
