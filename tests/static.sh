@@ -85,6 +85,11 @@ for mod in ("duckdns", "namecheap"):
 assert "GOFLAGS=-mod=readonly" in cf and "COPY --from=caddy /out/caddy /usr/libexec/halogen/caddy" in cf \
   and "COPY --from=caddy /out/licenses/ /usr/share/licenses/halos-caddy/" in cf and "-iname 'notice*'" in cf \
   and 'cp "$goli" "$lic/go-LICENSE"' in cf, "Caddy isn't built from src/caddy or its licences don't ship"
+# Halogen's container runs read-only, with only /tmp, /var/tmp and /root writable, on disk.
+quadlet = open("files/etc/containers/systemd/users/970/halogen.container").read()
+for line in ("ReadOnly=true", "Volume=/tmp", "Volume=/var/tmp", "Volume=/root"):
+    assert "\n" + line + "\n" in quadlet, f"halogen.container lacks {line}"
+assert "ReadOnlyTmpfs" not in quadlet and "Tmpfs=" not in quadlet, "Halogen's scratch folders must stay on disk, not in memory"
 assert "systemctl enable halos-https-refresh.timer" in cf, "the HTTPS address refresh isn't enabled"
 assert "caddy adapt --config /usr/share/halos/proxy/Caddyfile.https" in cf and "for tls in internal custom" in cf, "the HTTPS Caddyfile isn't checked at build"
 assert "caddy adapt --config /usr/share/halos/proxy/Caddyfile.letsencrypt" in cf and "for dns in cloudflare duckdns porkbun namecheap" in cf, "the Let's Encrypt Caddyfile isn't checked at build for every DNS provider"

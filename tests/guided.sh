@@ -113,6 +113,7 @@ expect "$ks" 'clearpart --all --initlabel --disklabel=gpt --drives=nvme0n1'
 expect "$ks" 'rootpw --lock'
 expect "$ks" 'volgroup halos pv.halos'
 expect "$ks" 'reboot'
+expect "$ks" '--size=4096 --fsoptions=nodev,nosuid,noexec'
 [ "$(stat -c %a "$ks")" = 600 ] || { echo "the kickstart lines are readable by others" >&2; exit 1; }
 if grep -q "secret\|hunter2" "$work/out"; then echo "a password was shown" >&2; exit 1; fi
 # Only hashes of the passwords: Anaconda copies these lines to the installed system.

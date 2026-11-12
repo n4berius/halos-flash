@@ -10,6 +10,9 @@ promoted.
 
 ## Unreleased
 
+- Hardening: Halogen's container now runs read-only, apart from its scratch folders (`/tmp`,
+  `/var/tmp`), which stay on disk as before, so memory use is unchanged. The request records
+  folder, and on new installs the whole `/srv/logs` volume, can't hold or run programs. (#PR)
 - Request records: `sudo halogenctl records on` makes Halogen keep a line per request it answers
   (which app sent it, its size, how it finished, timings), counts only unless you choose to keep
   text, in `/srv/logs/halogen`. `records stats` sums them up and `records prune` deletes them. New

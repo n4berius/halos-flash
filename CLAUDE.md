@@ -458,6 +458,15 @@ name, but allows saying halOS runs Halogen.
   XFS can't shrink). The VM test checks the volume, the folder, on/off, the mount in the generated
   unit and the rendered settings; recording itself needs Halogen running, so freyja checks it.
 
+- Records hardening (owner agreed): the records drop-in mounts `/srv/logs/halogen:/records:noexec,nosuid,nodev`;
+  the guided install's `logs` LV has `--fsoptions=nodev,nosuid,noexec` (custom partitioning's
+  Anaconda defaults can't set options). `halogen.container` has `ReadOnly=true` with anonymous
+  volumes (on disk, removed with the container) for `/tmp`, `/var/tmp` (the entrypoint's only write
+  places: the tuning-plan copy, NPU output, `HALOGEN_CACHE_FILE`'s default snapshot, up to 26.6 GiB)
+  and `/root` (the image runs as root, HOME unset; ROCm may cache there), never tmpfs, so memory use
+  stays as before; podman's read-only tmpfs still covers `/run`. Checked in the VM only as the
+  generated unit's `--read-only`; Halogen's start and speed under it need freyja.
+
 ## Lessons already learned
 
 - The initramfs must be built with `--no-hostonly` and the `crypt systemd-cryptsetup tpm2-tss

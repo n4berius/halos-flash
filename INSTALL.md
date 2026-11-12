@@ -621,7 +621,8 @@ The records go to `/srv/logs/halogen`, readable by the `halogen` user only. Thre
 Halogen's `/health` address answers anyone who can reach port 8731, and while recording is on it
 shows the counts (records written and dropped) and which text is kept, never the records.
 
-New installs give `/srv/logs` a 4 GiB volume of its own, so records can never fill `/var`.
+New installs give `/srv/logs` a 4 GiB volume of its own, so records can never fill `/var`. Nothing
+there can be run as a program (`noexec`), on the volume and in Halogen's mount of the folder.
 Machines installed earlier keep it as a folder on `/var` (60 GiB), where the 2 GiB cap keeps it
 small. A volume of its own there would need free space in the volume group (`sudo vgs`,
 column VFree), and the guided install leaves none: the models volume takes the rest, and XFS

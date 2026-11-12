@@ -507,7 +507,7 @@ case "${1:-status}" in
           # Readable by halogen whatever root's umask: its Quadlet generator and render-config read it.
           install -d -m 0755 "${dropin%/*}"
           printf '%s\n' "# Written by sudo halogenctl records on; removed by records off." "[Container]" \
-            "Volume=/srv/logs/halogen:/records" > "$dropin.new"
+            "Volume=/srv/logs/halogen:/records:noexec,nosuid,nodev" > "$dropin.new"
           chmod 0644 "$dropin.new"; mv -f "$dropin.new" "$dropin"
         else
           if [ ! -f "$dropin" ]; then
