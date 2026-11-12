@@ -429,8 +429,9 @@ if [ ! -f "$records_dropin" ]; then
 else
   used="$(as_owner timeout "${HALOGEN_SELFTEST_TIMEOUT:-20}" du -sh "$d" | cut -f1 | tr -cd '[:print:]')"
   # The mount must be in halogen's generated unit; without it Halogen would write inside its container.
-  # Asked over halogen's own socket, as halogenctl records does: through --machine=halogen@.host
-  # this reading failed on freyja, so the line warned about a mount that was there.
+  # Asked over halogen's own socket, as halogenctl records does: systemctl cat refuses
+  # --machine=halogen@.host ("Cannot remotely cat units"), so that reading always came back empty
+  # and the line warned about a mount that was there (freyja).
   huid="$(id -u halogen 2> /dev/null || echo 970)"
   unit_text="$(run setpriv --reuid="$huid" --regid="$huid" --clear-groups env XDG_RUNTIME_DIR="/run/user/$huid" systemctl --user cat halogen.service)"
   mounted="$(grep -c -F 'srv/logs/halogen:/records' <<< "$unit_text")"

@@ -460,8 +460,9 @@ name, but allows saying halOS runs Halogen.
   doesn't ship it). The selftest's `folder-logs` (own volume or /var) and `records`
   (INFO off; PASS with `/health`'s `request_records`; WARN when on but /health has none or
   halogen's generated unit lacks the mount, and when off but /health still has them). The selftest
-  reads the generated unit with `setpriv` over halogen's own socket too: through `--machine` it read
-  nothing on freyja and warned about a mount that was there; the VM test runs the selftest with
+  reads the generated unit with `setpriv` over halogen's own socket too: `systemctl cat` refuses any
+  remote transport, `--machine` included ("Cannot remotely cat units"), so the first version always
+  warned about a mount that was there (freyja); the VM test runs the selftest with
   records on (`RECST`). Earlier
   installs keep `/srv/logs` on `/var`: the guided install leaves no free extents (models `--grow`,
   XFS can't shrink). The VM test checks the volume, the folder, on/off, the mount in the generated
