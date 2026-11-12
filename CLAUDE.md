@@ -436,8 +436,10 @@ name, but allows saying halOS runs Halogen.
   "Request records"). `halogenctl records on|off` writes or removes root's Quadlet drop-in
   `/etc/containers/systemd/users/970/halogen.container.d/20-records.conf` (`Volume=/srv/logs/halogen:/records`),
   reloads halogen's manager (as halogen with `setpriv` and `systemctl --user` on its private socket,
-  as login-status does: `daemon-reload` through `--machine=halogen@.host` failed in the VM test with
-  "Transport endpoint is not connected"), checks the generated `halogen.service` gained or lost the
+  as login-status does; through `--machine=halogen@.host` the VM test's reload and `is-active` failed
+  with "Transport endpoint is not connected", cause not established; its output then went to a file
+  in /tmp, now a pipe), treats any `is-active` answer but running or stopped as an error (never as
+  "stopped", which would skip the restart), checks the generated `halogen.service` gained or lost the
   mount, and restarts Halogen if running; a Quadlet volume can't be conditional
   otherwise, and off means nothing is mounted. `render-config` sets `HALOGEN_RECORD_DIR=/records` only
   while that drop-in exists (`HALOGEN_RECORD_DIR` stays in gen-options' BLOCKED), defaults

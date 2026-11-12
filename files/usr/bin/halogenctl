@@ -464,7 +464,18 @@ case "${1:-status}" in
       read -rp "$1 [y/N] " answer
       [ "$answer" = y ] || [ "$answer" = Y ] || { echo "Nothing changed."; exit 1; }
     }
-    running() { unit is-active --quiet halogen.service; }
+    # Whether Halogen runs, asked over halogen's own socket (as_manager below). An answer other than
+    # running or stopped stops here: taking "couldn't ask" for "stopped" would skip a restart and leave
+    # Halogen recording after off (VM test: the --machine route failed with "Transport endpoint is not
+    # connected").
+    running() {
+      local s; s="$(as_manager is-active halogen.service 2> /dev/null)" || true
+      case "$s" in
+        active|reloading|activating|deactivating) return 0 ;;
+        inactive|failed) return 1 ;;
+        *) echo "Couldn't ask halogen's service manager whether Halogen runs (${s:-no answer}); nothing restarted. Try again, or: sudo halogenctl restart" >&2; exit 1 ;;
+      esac
+    }
     # halogen's own manager over its private socket, as login-status reads it: a daemon-reload
     # through --machine=halogen@.host fails with "Transport endpoint is not connected" (VM test).
     huid="$(id -u halogen 2> /dev/null || echo 970)"

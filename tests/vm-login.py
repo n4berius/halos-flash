@@ -82,10 +82,10 @@ typed("{ echo RESULT-START; cat /proc/cmdline; dmesg | grep -i secure; bootctl s
       "systemctl restart halogen-prepare; "
       # Request records (#107): on adds the mount and counts only reach Halogen; off removes it.
       # Halogen doesn't run in the VM, so nothing is recorded: that part is checked on freyja.
-      "halogenctl records on --yes > /tmp/rec 2>&1; "
+      "halogenctl records on --yes 2>&1 | cat > /tmp/rec; "
       "echo RECCONF $(halogenctl config 2>/dev/null | grep -c -x -e HALOGEN_RECORD_DIR=/records -e HALOGEN_RECORD_TEXT=none) "
       "$(setpriv --reuid=halogen --regid=halogen --init-groups env XDG_RUNTIME_DIR=/run/user/970 systemctl --user cat halogen.service 2>/dev/null | grep -c -F srv/logs/halogen:/records); "
-      "halogenctl records off --yes >> /tmp/rec 2>&1; echo RECOFF $(ls /etc/containers/systemd/users/970/halogen.container.d | grep -c records); "
+      "halogenctl records off --yes 2>&1 | cat >> /tmp/rec; echo RECOFF $(ls /etc/containers/systemd/users/970/halogen.container.d | grep -c records); "
       "stat -c 'RECDIR %U %a' /var/srv/logs/halogen; cat /tmp/rec; "
       # The guided install (#42): volume sizes, hostname, admin user, and no password left behind.
       "lvs --noheadings --units g --nosuffix -o lv_name,lv_size halos; cat /etc/hostname; id admin; "
