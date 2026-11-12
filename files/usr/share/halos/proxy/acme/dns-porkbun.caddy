@@ -1,6 +1,6 @@
 # Imported into Caddyfile.letsencrypt's global options for HALOS_ACME_DNS=porkbun: the credentials are
-# files the https helper copies into Caddy's runtime folder (from root's /etc/halos/https/dns).
+# systemd credentials halos-proxy.service loads from root's /etc/halos/https/dns (LoadCredential=).
 acme_dns porkbun {
-	api_key {file.{$RUNTIME_DIRECTORY}/dns_api_key}
-	api_secret_key {file.{$RUNTIME_DIRECTORY}/dns_api_secret_key}
+	api_key {file.{$CREDENTIALS_DIRECTORY}/dns_api_key}
+	api_secret_key {file.{$CREDENTIALS_DIRECTORY}/dns_api_secret_key}
 }
