@@ -13,7 +13,7 @@ promoted.
 - Let's Encrypt: your DNS provider's credential now reaches Caddy through systemd's credentials
   (read-only, in memory, removed when Caddy stops) instead of a copy in Caddy's own folder, and the
   build stops if the Cloudflare plugin ever changes which token shapes it accepts, since it prints a
-  token it refuses. (#PR)
+  token it refuses. (#112)
 - Only root may use the disk service udisks2, kept for firmware updates: an admin uses `sudo`,
   and the `halogen` user that runs Halogen can't call it at all. Firmware updates with
   `sudo fwupdmgr` work as before. (#110)
