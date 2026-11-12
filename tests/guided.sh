@@ -119,7 +119,7 @@ if grep -q "secret\|hunter2" "$work/out"; then echo "a password was shown" >&2; 
 if grep -q hunter2 "$ks"; then echo "the admin password is in the kickstart unhashed" >&2; exit 1; fi
 parse "{'luks': [\"it's a secret\"], 'root': None, 'admin': [('nab', 'hunter2hunter2', ['wheel'])], 'disk': ['nvme0n1'],
   'vg': ['halos'], 'lvs': [('audit', '/var/log/audit', False), ('configs', '/var/srv/configs', False),
-  ('home', '/home', False), ('log', '/var/log', False), ('models', '/var/srv/models', True),
+  ('home', '/home', False), ('log', '/var/log', False), ('logs', '/var/srv/logs', False), ('models', '/var/srv/models', True),
   ('root', '/', False), ('var', '/var', False)]}"
 [ "$(handoff)" = none ] || { handoff >&2; echo "unlock: neither was not handed on" >&2; exit 1; }
 ok "one empty disk: a yes, the questions, fixed halos-* volumes, and the passphrase survives quoting"

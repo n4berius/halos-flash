@@ -9,8 +9,11 @@ import pathlib, re, sys
 # Offered to nobody: they need a path, mount, port or check this OS controls.
 BLOCKED = set("""API API_KEY API_KEY_FILE API_LOG API_PORT BIND CACHE_DIR CACHE_DISK_GIB CACHE_FILE
 CACHE_PRUNE_OLD CHAT_TEMPLATE CHECKPOINT CK_OVERLAY DOWNLOAD ENGINE GGUF_CACHE GGUF_THREADS
-MATMUL_TUNING_FILE MTP_HEAD NPU_VERIFY NPU_WITH_GPU PORT RECORD_DAYS RECORD_DIR RECORD_GIB RECORD_TEXT
+MATMUL_TUNING_FILE MTP_HEAD NPU_VERIFY NPU_WITH_GPU PORT RECORD_DIR
 TEMPLATE_CHECK TEMPLATE_UNCHECKED TOKENIZER""".split())
+# Where halOS's default differs from Halogen's. Recording itself is turned on with
+# sudo halogenctl records on (render-config sets HALOGEN_RECORD_DIR); the owner chose counts only.
+DEFAULTS = {"RECORD_TEXT": "none on halOS (counts only; recording is off until: sudo halogenctl records on)"}
 NPU_ONLY = re.compile(r"^(NPU_|GUARD_|AGENT_GUARD$)")
 ACTIVE = {
     "npu": {
@@ -64,6 +67,7 @@ for edition, active in ACTIVE.items():
             if short in BLOCKED or (edition == "no-npu" and NPU_ONLY.match(short)):
                 continue
             allowed.append(name)
+            default = DEFAULTS.get(short, default)
             kept.append(f"# {text} Default: {default or 'unset'}\n"
                         + (f"{name}={active[name]}\n" if name in active else f"#{name}=\n"))
         if kept:

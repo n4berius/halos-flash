@@ -10,6 +10,8 @@ cmdline="${HALOGEN_CMDLINE:-/proc/cmdline}"
 meminfo="${HALOGEN_MEMINFO:-/proc/meminfo}"
 models="${HALOGEN_MODELS_DIR:-/srv/models}"
 configs="${HALOGEN_CONFIGS_DIR:-/srv/configs}"
+logs="${HALOGEN_LOGS_DIR:-/srv/logs}"
+records_dropin="${HALOGEN_RECORDS_DROPIN:-/etc/containers/systemd/users/970/halogen.container.d/20-records.conf}"
 clock="${HALOGEN_CLOCK:-/usr/libexec/halogen/halogen-fabric-clock}"
 port="${HALOGEN_API_PORT:-8731}"
 # Halogen itself, behind halos-proxy (Caddy) on this machine only.
@@ -408,6 +410,26 @@ meta="$models/.cache/huggingface/download/qwen38-flash-next-v2.hgn.metadata"
 [ ! -r "$meta" ] || say INFO weights "downloaded from weights commit $(as_owner head -n 1 "$meta" | cut -c1-12); pinned: ${HALOGEN_WEIGHTS_REVISION:-unknown}"
 free="$(df --output=avail --block-size=1G "$models" 2>/dev/null | tail -n 1 | tr -d ' ')"
 [ -z "$free" ] || say INFO disk "${free} GiB free for models"
+
+# Halogen's request records (#107): the folder prepare makes, and whether recording is on.
+d="$logs/halogen"
+if [ ! -d "$d" ]; then say FAIL folder-logs "$d is missing (halogen-prepare makes it at boot)"
+elif [ "$(stat -c %U "$d")" != halogen ]; then say FAIL folder-logs "$d belongs to $(stat -c %U "$d"), not halogen"
+else
+  label="$(stat -c %C "$d" 2>/dev/null)"
+  where="its own volume"; [ "$(findmnt -n -o TARGET --target "$logs" 2>/dev/null)" = "$(readlink -f "$logs")" ] || where="the /var volume"
+  case "$label" in *container_file_t*|'') say PASS folder-logs "$d is ready for request records, on $where" ;;
+    *) say FAIL folder-logs "$d has SELinux label $label, not container_file_t" ;; esac
+fi
+if [ ! -f "$records_dropin" ]; then say INFO records "off (sudo halogenctl records on keeps a line per request, counts only)"
+else
+  used="$(as_owner du -sh "$d" | cut -f1 | tr -cd '[:print:]')"
+  # Halogen's own counts (written, dropped, size), when it answers.
+  rr="$(curl -sS -m 5 "http://127.0.0.1:$local_port/health" 2>/dev/null | jq -c '.request_records // empty' 2>/dev/null | tr -cd '[:print:]' | cut -c1-200)"
+  if [ -n "$rr" ]; then say PASS records "on, ${used:-?} in $d; Halogen reports $rr"
+  elif [ "${running:-0}" = 1 ]; then say WARN records "on, but Halogen's /health has no request_records: is the mount in place? sudo halogenctl restart"
+  else say INFO records "on, ${used:-?} in $d (Halogen isn't running)"; fi
+fi
 
 # --- Network (names, state and drivers only: no addresses)
 for n in "$sys"/class/net/*; do

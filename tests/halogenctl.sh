@@ -289,3 +289,32 @@ if FAKE_CONV=active "$ctl" flash convert someone/Flash-BF16 --yes > "$work/out" 
 grep -q 'already running' "$work/out"
 FAKE_CONV=active "$ctl" flash convert-stop > "$work/out"; grep -q 'stop halogen-flash-convert.service' "$work/log"
 ok "flash convert checks first, asks, starts one conversion as its own unit and returns; convert-stop stops it"
+
+# Request records (#107): on/off is a Quadlet drop-in root writes, then a reload and a restart;
+# stats and prune run Halogen's own tool inside the container, with only the options it documents.
+export HALOGEN_RECORDS_DROPIN="$work/dropin.d/20-records.conf" HALOGEN_LOGS_DIR="$work/logs"
+mkdir -p "$work/logs/halogen"
+f systemctl 'echo "systemctl $*" >> "$FAKE/log"; case "$*" in *"is-active --quiet halogen.service"*) [ -z "${FAKE_INACTIVE:-}" ] ;; esac'
+f systemd-run 'echo "systemd-run $*" >> "$FAKE/log"; case "$*" in *render-config*) echo HALOGEN_RECORD_TEXT=none ;; *request_records*) echo "turns 3" ;; esac'
+: > "$work/log"
+"$ctl" records > "$work/out"; grep -q '^Request records: off' "$work/out" || { cat "$work/out" >&2; exit 1; }
+if "$ctl" records on < /dev/null > /dev/null 2>&1; then echo "records on ran without --yes or a terminal" >&2; exit 1; fi
+[ ! -e "$work/dropin.d/20-records.conf" ] || { echo "records on changed something before asking" >&2; exit 1; }
+"$ctl" records on --yes > /dev/null
+grep -qx 'Volume=/srv/logs/halogen:/records' "$work/dropin.d/20-records.conf" || { echo "no records mount" >&2; exit 1; }
+if ! { grep -q 'systemctl --user --machine=halogen@.host daemon-reload' "$work/log" && grep -q 'restart halogen.service' "$work/log"; }; then
+  cat "$work/log" >&2; echo "records on didn't reload and restart" >&2; exit 1
+fi
+"$ctl" records > "$work/out"; grep -q '^Request records: on, text kept: none' "$work/out" || { cat "$work/out" >&2; exit 1; }
+"$ctl" records stats > "$work/out"
+grep -q 'podman exec halogen python3 /halogen/tools/request_records.py stats /records' "$work/log" || { echo "stats didn't run Halogen's tool" >&2; exit 1; }
+"$ctl" records prune --days 7 --yes > /dev/null
+grep -q 'request_records.py prune /records --days 7$' "$work/log" || { cat "$work/log" >&2; echo "prune didn't pass --days" >&2; exit 1; }
+for bad in '--days x' '--gib 1;id' '--session ../x' '--path /etc' ''; do
+  # shellcheck disable=SC2086 # split on purpose
+  if "$ctl" records prune $bad --yes > /dev/null 2>&1; then echo "prune took '$bad'" >&2; exit 1; fi
+done
+FAKE_INACTIVE=1 "$ctl" records off --yes > "$work/out" || { cat "$work/out" "$work/log" >&2; exit 1; }
+if [ -e "$work/dropin.d/20-records.conf" ] || ! grep -q "next starts" "$work/out"; then cat "$work/out" >&2; echo "records off did not remove the mount" >&2; exit 1; fi
+if FAKE_INACTIVE=1 "$ctl" records stats > /dev/null 2>&1; then echo "stats ran with Halogen stopped" >&2; exit 1; fi
+ok "records on/off mounts the folder (after asking) and restarts; stats and prune run Halogen's tool with checked options"

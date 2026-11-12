@@ -37,12 +37,11 @@ HTTPS with a self-signed certificate or your own (#105).
 1. HTTPS for Halogen's API and the dashboard (#102), with Caddy in front of both: Caddy on HTTP
    (#104), then HTTPS with a self-signed certificate or your own (#105), then Let's Encrypt
    through DNS-01 (#108), then HTTPS by default for new installs.
-2. Halogen 0.20.4 (#111, in review; 0.20.2 is in, #100).
+2. Logging (#107): Halogen's request records in `/srv/logs` on a volume of their own (#PR, in
+   review), then journal limits, audit logging with auditd, and rotation.
 3. fail2ban for SSH and the Halogen API (#92), once HTTPS is in.
-4. Logging (#107): Halogen's request records in `/srv/logs`, journal limits, audit logging and
-   rotation.
-5. Unlock the disk from a tang server on the network (#44).
-6. GGUF repositories in `flash pull` (#61).
+4. Unlock the disk from a tang server on the network (#44).
+5. GGUF repositories in `flash pull` (#61).
 
 Later: a first real `flash convert` on the test machine (time and quality), then its GPU (HIP)
 build and the Qwen4 models.

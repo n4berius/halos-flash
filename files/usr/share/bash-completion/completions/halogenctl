@@ -21,15 +21,20 @@ _halogenctl() {
   else cur="${COMP_WORDS[COMP_CWORD]}"; words=("${COMP_WORDS[@]}"); cword=$COMP_CWORD; fi
   local models=/srv/models
   if [ "$cword" -eq 1 ]; then
-    _halogenctl_offer "status start stop restart logs fetch-logs doctor selftest bench config options api-key hf-token model flash"
+    _halogenctl_offer "status start stop restart logs fetch-logs doctor selftest bench config options api-key hf-token records model flash"
     return
   fi
   # After an option that takes a value, there is nothing to offer.
-  case "${words[cword-1]}" in --revision|--as|--file) return ;; esac
+  case "${words[cword-1]}" in --revision|--as|--file|--days|--gib|--session|--unit) return ;; esac
   case "${words[1]}" in
     options) [ "$cword" -eq 2 ] && _halogenctl_offer "--new" ;;
     bench) [ "$cword" -eq 2 ] && _halogenctl_offer "--quick" ;;
     hf-token) [ "$cword" -eq 2 ] && _halogenctl_offer "--remove" ;;
+    records)
+      if [ "$cword" -eq 2 ]; then _halogenctl_offer "on off stats prune"
+      elif [ "${words[2]}" = prune ]; then _halogenctl_offer "--days --gib --session --unit --all --yes"
+      elif [ "$cword" -eq 3 ] && [[ "${words[2]}" =~ ^(on|off)$ ]]; then _halogenctl_offer "--yes"
+      fi ;;
     model)
       if [ "$cword" -eq 2 ]; then _halogenctl_offer "pull list remove"
       elif [ "${words[2]}" = remove ] && [ "$cword" -eq 3 ]; then _halogenctl_names "$models/decider" "$models/LFM" "$models/custom"

@@ -214,6 +214,7 @@ always `halos`, whatever the machine's name:
 | `/var/log/audit` | `halos-audit` | 5 GiB |
 | `/var/home` | `halos-home` | 50 GiB |
 | `/var/srv/configs` | `halos-configs` | 1 GiB |
+| `/var/srv/logs` | `halos-logs` | 4 GiB, for [request records](#request-records) |
 | `/var/srv/models` | `halos-models` | the rest: about 300 GiB on a 512 GB disk, 1,690 GiB on a 2 TB one |
 
 Each [Flash checkpoint of your own](#your-own-flash-checkpoint) takes about 110 GB more of the
@@ -584,6 +585,40 @@ were taken at about 85 W of sustained power; a machine with a lower power limit 
 The run uses the prompt cache as your server does, so compare `pp` with Halogen's "cache on (a
 cold request)" rows, not the cache-off headline figures. Its prompts also go into the cache, and
 can push out long conversations cached there, which then read their history again once.
+
+### Request records
+
+Halogen can keep a line per request it answers: which API and client sent it, its size and
+settings, how it finished, tokens generated, tool calls and timings. It shows what your apps and
+agents actually send. It is off until you turn it on, and halOS keeps **counts only**, no message
+text, unless you choose otherwise. See Halogen's
+[request records](https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/configuration.md#request-records-a-log-of-what-your-clients-send-opt-in)
+for what each line holds.
+
+```bash
+sudo halogenctl records on        # restarts Halogen
+sudo halogenctl records           # on or off, what text is kept, space used
+sudo halogenctl records stats     # counts by API, client, finish, cache share, tool errors
+sudo halogenctl records prune --days 7    # or --gib 1, --all
+sudo halogenctl records off       # what was kept stays until you prune it
+```
+
+The records go to `/srv/logs/halogen`, readable by the `halogen` user only. Three settings in
+`/srv/configs/halogen.env` shape them (then `sudo halogenctl restart`):
+
+- `HALOGEN_RECORD_TEXT`: `none` on halOS (counts only), or `all`, or a list of `prompt`,
+  `reply`, `reasoning`, `args` and `results`. **Before keeping text on a server others reach:**
+  everything they send is written to disk. The API key keeps strangers out, but anyone holding
+  it is recorded too, and the session fields are whatever a client claims.
+- `HALOGEN_RECORD_GIB`: the folder's size cap, 2 GiB by default. Past it, new records are dropped
+  and counted; requests are never slowed or refused.
+- `HALOGEN_RECORD_DAYS`: how many days to keep, 90 by default. Halogen deletes older ones itself.
+
+New installs give `/srv/logs` a 4 GiB volume of its own, so records can never fill `/var`.
+Machines installed earlier keep it as a folder on `/var` (60 GiB), where the 2 GiB cap keeps it
+small. A volume of its own there would need free space in the volume group (`sudo vgs`,
+column VFree), and the guided install leaves none: the models volume takes the rest, and XFS
+can't shrink.
 
 ### Your own NPU checkpoints
 

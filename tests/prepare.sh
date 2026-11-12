@@ -14,7 +14,7 @@ f runuser 'echo "runuser $*" >> "$FAKE/log"; [ "$1 $2 $3" = "-u halogen --" ] ||
 f install 'echo "${FAKE_AS:-root} install $*" >> "$FAKE/log"; a=(); while [ $# -gt 0 ]; do case "$1" in -o|-g) shift 2 ;; *) a+=("$1"); shift ;; esac; done; exec /usr/bin/install "${a[@]}"'
 f selinuxenabled 'exit 1'
 printf 'HALOGEN_VARIANT=npu\n' > "$work/release.env"; echo 'HALOGEN_FLASH_CTX=1' > "$work/default.env"
-export PATH="$work/bin:$PATH" HALOGEN_MODELS_DIR="$work/models" HALOGEN_CONFIGS_DIR="$work/configs" \
+export PATH="$work/bin:$PATH" HALOGEN_MODELS_DIR="$work/models" HALOGEN_CONFIGS_DIR="$work/configs" HALOGEN_LOGS_DIR="$work/logs" \
   HALOGEN_STATE_DIR="$work/state" HALOGEN_RELEASE_FILE="$work/release.env" HALOGEN_ENV_DEFAULT="$work/default.env"
 prepare="$repo/files/usr/libexec/halogen/prepare"
 ok() { echo "ok: $*"; }
@@ -27,6 +27,8 @@ grep -qx 'HALOGEN_FLASH_CTX=1' "$work/configs/halogen.env"
 grep '^root install' "$work/log" | grep -q "$work/models/npu" && { echo "root created a folder inside /srv/models" >&2; exit 1; }
 grep -q "runuser -u halogen -- install -d -m 0750 $work/models/npu" "$work/log"
 grep -q "runuser -u halogen -- install -d -m 0750 $work/models/flash" "$work/log"
+grep -q "runuser -u halogen -- install -d -m 0700 $work/logs/halogen" "$work/log"
+[ "$(stat -c %a "$work/logs/halogen")" = 700 ] || { echo "the records folder isn't private" >&2; exit 1; }
 grep -q "runuser -u halogen -- sh -c .* $work/configs/api-key" "$work/log"
 if ! grep -q '^# Reference only' "$work/configs/halogen.env.example" || ! grep -qx 'HALOGEN_FLASH_CTX=1' "$work/configs/halogen.env.example" ||
    ! grep -q "sh $work/configs/halogen.env.example " "$work/log"; then
