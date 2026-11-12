@@ -209,3 +209,25 @@ sed -i 's/^HALOS_ACME_DNS=.*/HALOS_ACME_DNS=route53/' "$work/etc/https.env"
 if "$h" env 2> /dev/null; then fail "an unknown DNS provider started"; fi
 [ "$("$h" describe | sed -n 's/^mode //p')" = letsencrypt ] || fail "describe doesn't name the mode"
 ok "staging, a second provider and restore, and fail-closed on a missing credential or provider"
+# Audit (#108): a token pasted without field= is never printed back; a malformed token in the file
+# (hand-edited) stops the start without reaching Caddy, whose Cloudflare plugin would print it.
+if printf 'cfut_PASTEDSECRETPASTEDSECRETPASTEDSECRET\n' | "$h" dns-stage cloudflare 2> "$work/err"; then fail "a bare token was staged"; fi
+if grep -q PASTEDSECRET "$work/err"; then fail "a bare token was printed back"; fi
+printf 'api_token=cf-token-1-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' | "$h" dns-stage cloudflare; "$h" dns-commit
+"$h" set letsencrypt cloudflare halos.example.com
+printf 'bad token HANDEDITED' > "$work/etc/https/dns/api_token"; rm -f "$work/rt/dns_api_token"
+if "$h" env 2> "$work/err"; then fail "a malformed token on disk started Caddy"; fi
+if grep -q HANDEDITED "$work/err"; then fail "a malformed token was printed"; fi
+[ ! -e "$work/rt/dns_api_token" ] || fail "a malformed token was copied for Caddy"
+# set --check: names and email checked without credentials, nothing written.
+cp "$work/etc/https.env" "$work/before"
+"$h" set --check letsencrypt porkbun other.example.com || fail "set --check needed credentials"
+if "$h" set --check letsencrypt porkbun box.local 2> /dev/null; then fail "set --check took .local"; fi
+cmp -s "$work/before" "$work/etc/https.env" || fail "set --check wrote the settings"
+if "$h" dns-forget 2> /dev/null; then fail "dns-forget removed the credentials Let's Encrypt is using"; fi
+# Back to self-signed: the public names aren't kept as extra names.
+"$h" set self-signed
+grep -qx 'HALOS_HTTPS_NAMES=' "$work/etc/https.env" || fail "self-signed kept the Let's Encrypt names: $(cat "$work/etc/https.env")"
+"$h" dns-forget; [ ! -e "$work/etc/https/dns" ] || fail "dns-forget left the credentials"
+ok "a pasted or hand-edited token is never printed or given to Caddy; set --check; forget"
+

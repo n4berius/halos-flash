@@ -411,7 +411,15 @@ name, but allows saying halOS runs Halogen.
   and otherwise prints Caddy's last errors and restores the mode and credentials. The selftest
   checks the name against the system trust store (WARN staging or within 10 days, FAIL none or
   ended). Namecheap's API replaces a domain's whole record list (libdns/namecheap `SetHosts`):
-  INSTALL warns. Real issuance can't run in CI; first checked on freyja.
+  INSTALL warns. Review and audit fixes: `dns_value_ok` (provider shapes) runs in `dns-stage` and
+  again in `env` (a hand-edited token never reaches Caddy); `dns-stage` never echoes a line without
+  `field=`; `halosctl` runs `https set --check` (names, email) before asking for any secret, puts
+  back the credentials if `set` refuses, traps INT/TERM/HUP during the wait to revert, reads
+  Caddy's errors with `jq` (escaped quotes), and drops `.prev` once the new credentials work
+  (`https forget-dns` removes them all, refused while in use); `set self-signed` alone doesn't keep
+  the Let's Encrypt names. A new credential is first used at Caddy's next renewal when the name
+  already has a valid certificate (INSTALL says so). Real issuance can't run in CI; first checked
+  on freyja.
 
 ## Lessons already learned
 

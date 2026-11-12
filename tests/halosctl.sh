@@ -485,5 +485,17 @@ if printf 'api_token=other-token-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC\n' | FAKE_ACME
 has 'NXDOMAIN' "$work/out"; has 'previous setting is back' "$work/out"
 grep -qx 'HALOS_HTTPS_NAMES=halos.example.com' "$work/etc-https/https.env" || { echo "the old names weren't put back" >&2; exit 1; }
 [ "$(cat "$work/etc-https/https/dns/api_token")" = secret-cf-token-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBB ] || { echo "the old token wasn't put back" >&2; exit 1; }
+# A bad name or email is refused before any credential is read or replaced (code review, audit).
+if printf 'api_token=new-token-DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD\n' | "$ctl" https letsencrypt cloudflare halos.lan --yes > "$work/out" 2>&1; then echo "took halos.lan" >&2; exit 1; fi
+if printf 'api_token=new-token-DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD\n' | "$ctl" https letsencrypt cloudflare halos.example.com --email bad@ --yes > "$work/out" 2>&1; then echo "took a bad email" >&2; exit 1; fi
+[ "$(cat "$work/etc-https/https/dns/api_token")" = secret-cf-token-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBB ] || { echo "a refused command replaced the token" >&2; exit 1; }
+# Another provider that never gets a certificate: the first provider's credentials come back.
+if printf 'api_key=pk1_x\napi_secret_key=sk1_y\n' | FAKE_ACME_FAIL=1 HALOS_ACME_WAIT=2 "$ctl" https letsencrypt porkbun halos.example.com --yes > "$work/out" 2>&1; then echo "porkbun passed without a certificate" >&2; exit 1; fi
+[ "$(cat "$work/etc-https/https/dns/provider")" = cloudflare ] || { echo "the provider switch wasn't put back" >&2; exit 1; }
+# A new credential that works replaces the old one for good (no copy kept).
+printf 'api_token=new-token-DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD\n' | "$ctl" https letsencrypt cloudflare halos.example.com --yes > /dev/null
+[ ! -e "$work/etc-https/https/dns/.prev" ] || { echo "the replaced token was kept" >&2; exit 1; }
+if "$ctl" https forget-dns --yes > /dev/null 2>&1; then echo "forget-dns ran while in use" >&2; exit 1; fi
 "$ctl" https off --yes > /dev/null
+"$ctl" https forget-dns --yes > /dev/null; [ ! -e "$work/etc-https/https/dns" ] || { echo "forget-dns left the credentials" >&2; exit 1; }
 ok "https letsencrypt takes credentials from stdin only, waits for the certificate by name, and puts everything back if none comes"

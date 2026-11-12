@@ -484,7 +484,9 @@ provider's API (the DNS-01 challenge). The name only has to point to this machin
 address such as `192.168.1.20` is fine. Some home routers block public names that point to private
 addresses ("DNS rebinding protection"); allow the name there if it doesn't resolve on your network.
 
-1. Make an API credential at your DNS provider, allowed to change that name's zone and no more:
+1. Make an API credential at your DNS provider, allowed to change that name's zone and no more.
+   A credential that can change your main domain's DNS is valuable to an attacker who got into
+   the machine; a domain (or a DuckDNS name) used only for halOS limits that:
 
    | Provider | What `halosctl` asks for | Where |
    |---|---|---|
@@ -525,9 +527,21 @@ readable by root only, and Caddy gets a copy each time it starts; it never appea
 line, the settings file or the journal (halOS removes it from DuckDNS's and Namecheap's error
 messages, and refuses a Cloudflare token whose shape Caddy's plugin would print back).
 `sudo halogenctl selftest` checks the certificate as an app would, and warns ten days before it
-ends, which means renewing has failed. To give a new credential, run the same command and answer
-no to reusing the old one. Without a terminal, `--yes` reads the credential as `field=value` lines
-on standard input.
+ends, which means renewing has failed.
+
+To give a new credential, run the same command and answer no to reusing the old one. halOS
+deletes the old one once the new setting works; revoke it at the provider too. When the name
+already has a valid certificate, Caddy keeps using that one, so a new credential is first used at
+the next renewal (Caddy renews about a month before the end); the selftest warns if that fails.
+`sudo halosctl https forget-dns` deletes the saved credential once you no longer use Let's Encrypt.
+
+Without a terminal, `--yes` reads the credential as `field=value` lines on standard input. Put
+them in a file readable only by you, never in the command itself (the shell's history keeps it),
+and delete the file afterwards:
+
+```bash
+sudo halosctl https letsencrypt cloudflare halos.example.com --yes < cloudflare.txt   # api_token=...
+```
 
 halOS releases before this one don't know `letsencrypt`: after `sudo halosctl rollback` to one of
 them, Caddy won't start until you run `sudo halosctl https off` or `self-signed` (it never falls
