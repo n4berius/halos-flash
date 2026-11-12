@@ -12,7 +12,7 @@ promoted.
 
 - Only root may use the disk service udisks2, kept for firmware updates: an admin uses `sudo`,
   and the `halogen` user that runs Halogen can't reach it at all. Firmware updates with
-  `sudo fwupdmgr` work as before. (#PR)
+  `sudo fwupdmgr` work as before. (#110)
 - Firmware updates: `sudo fwupdmgr update` can now also update the Secure Boot revocation list
   (dbx), instead of saying "UEFI ESP partition not detected". On a machine that unlocks its disk
   with the TPM, such an update asks for the disk passphrase at the next boot; then run
