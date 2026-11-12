@@ -221,6 +221,9 @@ if grep -q HANDEDITED "$work/err"; then fail "a malformed token was printed"; fi
 # A good token with extra newlines: Caddy would pass one on, and the plugin would print it.
 printf 'cf-token-1-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n\n' > "$work/etc/https/dns/api_token"
 if "$h" env 2> /dev/null; then fail "a token file with trailing newlines started Caddy"; fi
+# One trailing newline is fine: Caddy trims it (as a hand-written file usually has).
+printf 'cf-token-1-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n' > "$work/etc/https/dns/api_token"
+"$h" env 2> "$work/err" || fail "a token file with one trailing newline was refused: $(cat "$work/err")"
 # set --check: names and email checked without credentials, nothing written.
 cp "$work/etc/https.env" "$work/before"
 "$h" set --check letsencrypt porkbun other.example.com || fail "set --check needed credentials"

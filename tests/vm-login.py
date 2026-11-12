@@ -153,7 +153,13 @@ if mode in ("plain", "luks-stale"):   # the first boot only
           # forget-dns restarts Caddy itself, so the token it had loaded goes too.
           + "halosctl https forget-dns --yes >> /tmp/https 2>&1; sleep 3; "
           + "echo CREDGONE $(ls -A /run/credentials/halos-proxy.service | grep -c api_token) $(systemctl is-active halos-proxy) >> /tmp/https 2>&1; "
-          + "{ systemctl --version | head -n 1; journalctl -b -u halos-proxy --no-pager -n 12; } >> /tmp/https-diag 2>&1; "
+          # Diagnostic only (not asserted): does Caddy start with the folder gone? SetCredential=dns:
+          # should allow it, but an earlier run's start failed once forget-dns had removed it.
+          + "mv /etc/halos/https/dns /etc/halos/https/dns-aside; systemctl try-restart halos-proxy >> /tmp/https-diag 2>&1; sleep 3; "
+          + "echo CREDMISSING $(systemctl show -P Result halos-proxy) $(systemctl is-active halos-proxy) >> /tmp/https-diag; "
+          + "{ systemctl --version | head -n 1; systemctl status halos-proxy --no-pager -n 0; journalctl -b -u halos-proxy --no-pager -n 12; } >> /tmp/https-diag 2>&1; "
+          + "mv /etc/halos/https/dns-aside /etc/halos/https/dns; systemctl reset-failed halos-proxy; systemctl restart halos-proxy; sleep 3; "
+          + "echo CREDBACK $(systemctl is-active halos-proxy) >> /tmp/https 2>&1; "
           # Each switch changes the login screen's line, and agetty's reload on the serial console
           # can swallow what is written meanwhile (login-status runs every 30 s): wait it out.
           + step("print") + "sleep 35; cat /tmp/https /tmp/https-diag > /dev/ttyS0; echo HTTPS-END > /dev/ttyS0\n")

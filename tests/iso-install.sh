@@ -156,7 +156,7 @@ https_has '^PASS proxy:'; https_has '^PASS dashboard:'; https_has '^OFF-RC=0'; h
 # The DNS credential: loaded by systemd (root's file, read-only, Caddy's user by ACL: no "other"
 # bits), none in Caddy's runtime folder, readable by Caddy's own user, gone after forget-dns (which empties the folder and restarts Caddy),
 # and Caddy starts again with the folder empty.
-https_has '^CRED [0-7][0-7]0 [a-z-]+ 0$'; https_has '^CREDREAD 4$'; https_has '^CREDGONE 0 active$'
+https_has '^CRED [0-7][0-7]0 [a-z-]+ 0$'; https_has '^CREDREAD 4$'; https_has '^CREDGONE 0 active$'; https_has '^CREDBACK active$'
 selftest_has '(PASS|SKIP) power-profile:'   # QEMU likely has no ACPI platform profile
 selftest_has 'PASS folder-flash:'
 selftest_has 'INFO flash: serving the official Flash checkpoint'
