@@ -270,15 +270,49 @@ if have systemctl; then
     say PASS proxy "Caddy answers on 8731 (API) and 8732 (dashboard)"
   else say FAIL proxy "halos-proxy.service isn't running, so nothing answers on 8731 or 8732: sudo systemctl status halos-proxy"; fi
 fi
+# HTTPS (sudo halosctl https): which mode, whether Caddy answers in it, and its certificate.
+front=http; insecure=()
+https="${HALOS_HTTPS_HELPER:-/usr/libexec/halogen/https}"
+if [ -x "$https" ] && have curl; then
+  facts="$(run "$https" describe)"
+  fact() { sed -n "s/^$1 //p" <<< "$facts"; }
+  case "$(fact mode)" in
+    self-signed)
+      front=https; insecure=(-k)
+      cafile="$(mktemp)"
+      if [ "$(fact ca)" = none ] || ! run "$https" ca > "$cafile"; then
+        say WARN https "on (self-signed), but Caddy hasn't made its authority yet: sudo systemctl status halos-proxy"
+      elif code="$(curl -sS -m 5 --cacert "$cafile" -o /dev/null -w '%{http_code}' "https://127.0.0.1:$port/health" 2>/dev/null)" && [ "$code" != 000 ]; then
+        say PASS https "on, self-signed; authority's fingerprint $(fact ca | cut -c1-23)… (sudo halosctl https)"
+      else say WARN https "on (self-signed), but 127.0.0.1:$port doesn't answer with halOS's authority: sudo journalctl -u halos-proxy"; fi
+      rm -f "$cafile"
+      # The certificate covers the addresses Caddy saw when it started; halos-https-refresh.timer
+      # restarts it within a minute for a new one.
+      missing="$(run "$https" uncovered | paste -sd' ' -) "
+      if [ -n "${missing% }" ]; then say WARN https-names "not covered by the certificate yet: ${missing% } (halos-https-refresh.timer restarts Caddy within a minute; now: sudo systemctl restart halos-proxy)"; fi ;;
+    custom)
+      front=https; insecure=(-k)
+      if [ "$(fact expires)" = ended ]; then
+        say FAIL https "your certificate ($(fact subject)) ended $(fact until), so apps refuse it: sudo halosctl https custom <new certificate> <key>"
+      elif [ "$(fact expires)" != later ]; then
+        say WARN https "your certificate ($(fact subject)) expires $(fact until), within 14 days: sudo halosctl https custom <new certificate> <key>"
+      elif code="$(curl -sS -k -m 5 -o /dev/null -w '%{http_code}' "https://127.0.0.1:$port/health" 2>/dev/null)" && [ "$code" != 000 ]; then
+        say PASS https "on, with your certificate for $(fact subject), until $(fact until)"
+      else say WARN https "on (your certificate), but 127.0.0.1:$port doesn't answer over HTTPS: sudo journalctl -u halos-proxy"; fi ;;
+    invalid) say FAIL https "HALOS_HTTPS in /etc/halos/https.env isn't off, self-signed or custom, so Caddy won't start: sudo halosctl https off, or self-signed" ;;
+    *) say INFO https "off: apps use plain http:// (sudo halosctl https self-signed turns it on)" ;;
+  esac
+fi
 # Halogen directly on 127.0.0.1, and IPv6 through Caddy (Halogen itself is published on IPv4 only).
-health() { curl -sS -g -m 5 -o /dev/null -w '%{http_code}' "http://$1/health" 2>/dev/null; }
+# Through Caddy in HTTPS mode, the certificate isn't the question here (the https check is).
+health() { curl -sS -g -m 5 "${@:2}" -o /dev/null -w '%{http_code}' "$1/health" 2>/dev/null; }
 if have curl; then
-  code="$(health "127.0.0.1:$local_port")"
+  code="$(health "http://127.0.0.1:$local_port")"
   # While Halogen isn't running (first boot is still downloading), the API can't answer yet.
   miss=FAIL; [ "${running:-0}" = 1 ] || miss=WARN
   if [ "$code" = 200 ]; then say PASS api-ipv4 "Halogen answers on 127.0.0.1:$local_port"
   else say "$miss" api-ipv4 "Halogen does not answer on 127.0.0.1:$local_port (${code:-no answer})"; fi
-  code="$(health "[::1]:$port")"
+  code="$(health "$front://[::1]:$port" "${insecure[@]}")"
   if [ "$code" = 200 ]; then say PASS api-ipv6 "the API answers on [::1]:$port through Caddy"
   else say WARN api-ipv6 "Caddy does not pass the API on [::1]:$port (${code:-no answer}); fine if IPv6 is off"; fi
   if [ -r "$configs/api-key" ]; then
@@ -297,7 +331,7 @@ fi
 if have systemctl && have curl; then
   if [ "$(run systemctl is-enabled halos-dashboard.service)" != enabled ]; then
     say INFO dashboard "off; a live page of Halogen's load on port 8732: sudo halosctl dashboard on"
-  elif [ "$(curl -sS -m 5 -o /dev/null -w '%{http_code}' http://127.0.0.1:8732/healthz 2>/dev/null)" = 200 ]; then
+  elif [ "$(curl -sS -m 5 "${insecure[@]}" -o /dev/null -w '%{http_code}' "$front://127.0.0.1:8732/healthz" 2>/dev/null)" = 200 ]; then
     say PASS dashboard "answers on port 8732 (state and address: sudo halosctl dashboard)"
     # The address filter and the IP counters are the same BPF program on its cgroup, which systemd
     # skips quietly when it can't load or attach it. The curl above went through that cgroup, so an

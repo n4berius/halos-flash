@@ -1,0 +1,242 @@
+#!/bin/bash
+# HTTPS for halOS's front door (halos-proxy.service, Caddy on 8731 and 8732). Root only.
+#
+#   https mode                 off, self-signed or custom (from /etc/halos/https.env)
+#   https names                the names and addresses a self-signed certificate covers
+#   https env                  halos-proxy's ExecStartPre=+: writes /run/halos-https/proxy.env (which
+#                              Caddyfile, which sites; root's folder, as systemd reads it as root)
+#                              and, for custom, copies the certificate and key into
+#                              $RUNTIME_DIRECTORY for Caddy's own user
+#   https set <mode> [<name>...] writes /etc/halos/https.env
+#   https stage <cert> <key>   reads a certificate (chain) and key once, checks the copies, and
+#                              keeps them in /etc/halos/https/.pending/ until commit or discard
+#   https commit | discard     puts the staged pair in place (the previous one kept as .prev) or drops it
+#   https restore              puts the previous pair back (halosctl, when Caddy won't start)
+#   https ca                   the self-signed authority's root certificate (PEM), to trust it
+#   https describe             one line per fact, for halosctl and the selftest
+#   https refresh              halos-https-refresh.timer, every minute: in self-signed mode,
+#                              restarts Caddy when this machine has an address its certificates
+#                              don't cover yet (Caddy may start before DHCP or Tailscale, and
+#                              addresses change); otherwise does nothing
+#
+# /etc/halos/https.env is read as data, never sourced; a mode it doesn't know stops Caddy's start
+# rather than fall back to plain HTTP. Caddy's own state (the self-signed authority) belongs to its
+# dynamic user: root reads the authority's certificate only as a regular file inside that state,
+# with a time and size limit, and passes on only what openssl re-encodes as a certificate.
+set -euo pipefail
+set -f   # no file-name globbing: names come from a file and from hostname
+LC_ALL=C
+etc="${HALOS_HTTPS_ETC:-/etc/halos}"
+conf="$etc/https.env"
+certdir="$etc/https"
+state="${HALOS_PROXY_STATE:-/var/lib/private/halos-proxy}"
+root_ca="$state/caddy/pki/authorities/local/root.crt"
+share="${HALOS_PROXY_SHARE:-/usr/share/halos/proxy}"
+run="${HALOS_HTTPS_RUN:-/run/halos-https}"
+die() { echo "https: $*" >&2; exit 1; }
+
+value() { # value KEY: the last KEY=... line of the settings file, quotes stripped
+  [ -r "$conf" ] || return 0
+  sed -n "s/^[[:space:]]*$1=//p" "$conf" | tail -n 1 | tr -d "\"'" | tr -cd '[:graph:] '
+}
+mode() { # off, self-signed, custom, or invalid (a value it doesn't know)
+  local m; m="$(value HALOS_HTTPS)"
+  case "$m" in ''|off) echo off ;; self-signed|custom) echo "$m" ;; *) echo invalid ;; esac
+}
+# A host name or an IP address, nothing a Caddyfile could read as more than one word or a directive.
+valid_name() {
+  [[ "$1" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$ ]] || [[ "$1" =~ ^[0-9A-Fa-f:.]+$ && "$1" == *:* ]]
+}
+# This machine's addresses: global scope only, and not IPv6 privacy addresses, which change daily
+# and which no app is told to use.
+addrs() {
+  if command -v ip > /dev/null; then
+    ip -o addr show scope global 2> /dev/null | grep -v -e ' temporary' -e ' deprecated' -e ' tentative' \
+      | awk '{print $4}' | cut -d/ -f1
+  else
+    local a; for a in $(hostname -I 2> /dev/null || true); do echo "$a"; done
+  fi
+}
+# Addresses not yet among the sites Caddy started with (/run/halos-https/proxy.env).
+uncovered() {
+  local a b sites
+  sites="$(sed -n 's/^HALOS_API_SITES=//p' "$run/proxy.env" 2> /dev/null)"
+  while read -r a; do
+    valid_name "$a" || continue
+    if [[ "$a" == *:* ]]; then b="[$a]"; else b="$a"; fi
+    [[ "$sites" == *"https://$b:"* ]] || echo "$a"
+  done < <(addrs)
+}
+names() {
+  local h n seen=" "
+  h="$(hostname 2> /dev/null || true)"
+  {
+    echo localhost; echo 127.0.0.1; echo ::1
+    if [ -n "$h" ]; then echo "$h"; echo "${h%%.*}"; echo "${h%%.*}.local"; fi
+    addrs
+    for n in $(value HALOS_HTTPS_NAMES); do echo "$n"; done
+  } | while read -r n; do
+    valid_name "$n" || continue
+    case "$seen" in *" $n "*) continue ;; esac
+    seen+="$n "; echo "$n"
+  done
+}
+sites() { # sites PORT [v4]: Caddy site addresses for the self-signed names
+  local n out=""
+  while read -r n; do
+    if [[ "$n" == *:* ]]; then [ "${2:-}" = v4 ] && continue; n="[$n]"; fi
+    out+="${out:+, }https://$n:$1"
+  done < <(names)
+  echo "$out"
+}
+
+pem_cert() { openssl x509 -in "$1" -outform PEM 2> /dev/null; }
+pubkey_of_cert() { openssl x509 -in "$1" -noout -pubkey 2> /dev/null; }
+pubkey_of_key() { openssl pkey -in "$1" -pubout -passin pass: 2> /dev/null < /dev/null; }
+# The authority's certificate, into "$1". Caddy's state is its dynamic user's, under
+# /var/lib/private, which only root may enter. Root checks the file really lies inside that state,
+# then enters the state folder and reads it from there as Caddy's own user, by a relative path, so
+# a link Caddy swaps in after the check is followed only with Caddy's own rights. A time and size
+# limit stop a FIFO or an endless file, and only what openssl re-encodes as a certificate is passed on.
+read_ca() {
+  local real uid gid
+  real="$(realpath -e -- "$root_ca" 2> /dev/null)" || return 1
+  case "$real" in "$(realpath -e -- "$state")"/*) ;; *) return 1 ;; esac
+  if [ ! -f "$real" ] || [ -L "$real" ]; then return 1; fi
+  uid="$(stat -c %u -- "$state")" && gid="$(stat -c %g -- "$state")" || return 1
+  (
+    cd -P -- "$state" || exit 1
+    rel="${real#"$(pwd -P)"/}"
+    if [ "$uid" = "$EUID" ]; then exec timeout 5 head -c 65536 -- "$rel"; fi
+    exec timeout 5 setpriv --reuid="$uid" --regid="$gid" --clear-groups -- head -c 65536 -- "$rel"
+  ) > "$1" 2> /dev/null || return 1
+  pem_cert "$1" > /dev/null
+}
+
+case "${1:-}" in
+  mode) mode ;;
+  names) names ;;
+  env)
+    dir="${RUNTIME_DIRECTORY:?run by halos-proxy.service}"
+    mkdir -p "$run"; chmod 0755 "$run"
+    umask 077
+    tmp="$(mktemp "$run/.proxy.env.XXXXXX")"
+    case "$(mode)" in
+      invalid)
+        rm -f "$tmp"; die "HALOS_HTTPS in $conf is neither off, self-signed nor custom: sudo halosctl https off, or self-signed" ;;
+      off)
+        echo "HALOS_PROXY_CONFIG=$share/Caddyfile" > "$tmp" ;;
+      self-signed)
+        { echo "HALOS_PROXY_CONFIG=$share/Caddyfile.https"
+          echo "HALOS_TLS=internal"
+          echo "HALOS_API_SITES=\"$(sites 8731)\""
+          echo "HALOS_DASH_SITES=\"$(sites 8732 v4)\""; } > "$tmp" ;;
+      custom)
+        # Fail closed: without its certificate, Caddy doesn't start, rather than serve the key in clear.
+        for f in cert.pem key.pem; do
+          if [ ! -f "$certdir/$f" ] || [ -L "$certdir/$f" ]; then
+            rm -f "$tmp"; die "HTTPS is set to custom, but $certdir/$f is missing: sudo halosctl https custom <cert> <key>, or sudo halosctl https off"
+          fi
+          c="$(mktemp "$dir/.$f.XXXXXX")"
+          cat "$certdir/$f" > "$c"
+          chown -h --reference="$dir" "$c"
+          mv -fT "$c" "$dir/$f"
+        done
+        { echo "HALOS_PROXY_CONFIG=$share/Caddyfile.https"
+          echo "HALOS_TLS=custom"
+          echo "HALOS_API_SITES=https://:8731"
+          echo "HALOS_DASH_SITES=https://:8732"; } > "$tmp" ;;
+    esac
+    chmod 0644 "$tmp"
+    mv -fT "$tmp" "$run/proxy.env"
+    ;;
+  set)
+    m="${2:-}"; shift 2 || true
+    case "$m" in off|self-signed|custom) ;; *) die "set off|self-signed|custom [<name>...]" ;; esac
+    for n in "$@"; do valid_name "$n" || die "not a host name or address: $n"; done
+    # self-signed with no names keeps the extra names set before; names given replace them.
+    if [ $# = 0 ]; then
+      keep="$(value HALOS_HTTPS_NAMES)"
+      # shellcheck disable=SC2086 # the saved names, one word each (no globbing: set -f)
+      set -- $keep
+    fi
+    if [ "$m" = custom ]; then
+      if [ ! -f "$certdir/cert.pem" ] || [ ! -f "$certdir/key.pem" ]; then die "no certificate installed yet"; fi
+    fi
+    mkdir -p "$etc"; umask 022
+    tmp="$(mktemp "$etc/.https.env.XXXXXX")"
+    { echo "# halOS HTTPS for 8731 and 8732: off, self-signed or custom. Change with sudo halosctl https."
+      echo "HALOS_HTTPS=$m"
+      echo "HALOS_HTTPS_NAMES=$*"; } > "$tmp"
+    chmod 0644 "$tmp"; mv -fT "$tmp" "$conf"
+    ;;
+  stage)
+    cert="${2:?stage <cert> <key>}"; key="${3:?stage <cert> <key>}"
+    pending="$certdir/.pending"
+    mkdir -p "$certdir"; chmod 0700 "$certdir"; rm -rf "$pending"; mkdir -m 0700 "$pending"
+    umask 077
+    # Each file read once, at most 1 MiB, then checked and re-encoded from that copy: what Caddy
+    # gets is only certificates and one key, never whatever else the file held.
+    head -c 1048576 -- "$cert" > "$pending/in-cert" 2> /dev/null || { rm -rf "$pending"; die "can't read $cert"; }
+    head -c 1048576 -- "$key" > "$pending/in-key" 2> /dev/null || { rm -rf "$pending"; die "can't read $key"; }
+    fail() { rm -rf "$pending"; die "$1"; }
+    pem_cert "$pending/in-cert" > /dev/null || fail "$cert isn't a PEM certificate"
+    pubkey_of_key "$pending/in-key" > /dev/null || fail "$key isn't a private key (PEM, without a passphrase)"
+    [ "$(pubkey_of_cert "$pending/in-cert")" = "$(pubkey_of_key "$pending/in-key")" ] || fail "the key doesn't belong to the certificate"
+    openssl x509 -in "$pending/in-cert" -noout -checkend 0 > /dev/null 2>&1 || fail "the certificate has expired"
+    openssl crl2pkcs7 -nocrl -certfile "$pending/in-cert" 2> /dev/null | openssl pkcs7 -print_certs 2> /dev/null \
+      | grep -v -e '^subject=' -e '^issuer=' -e '^$' > "$pending/cert.pem" || fail "the certificate chain can't be read"
+    openssl pkey -in "$pending/in-key" -passin pass: -out "$pending/key.pem" 2> /dev/null < /dev/null || fail "the key can't be read"
+    rm -f "$pending/in-cert" "$pending/in-key"
+    ;;
+  commit)
+    pending="$certdir/.pending"
+    if [ ! -f "$pending/cert.pem" ] || [ ! -f "$pending/key.pem" ]; then die "nothing staged"; fi
+    for f in cert.pem key.pem; do
+      if [ -f "$certdir/$f" ]; then cp -p "$certdir/$f" "$certdir/.prev-$f"; else rm -f "$certdir/.prev-$f"; fi
+      mv -fT "$pending/$f" "$certdir/$f"
+    done
+    rm -rf "$pending"
+    ;;
+  discard) rm -rf "$certdir/.pending" ;;
+  restore)
+    for f in cert.pem key.pem; do
+      if [ -f "$certdir/.prev-$f" ]; then mv -fT "$certdir/.prev-$f" "$certdir/$f"; else rm -f "$certdir/$f"; fi
+    done
+    ;;
+  ca)
+    t="$(mktemp)"; trap 'rm -f "$t"' EXIT
+    read_ca "$t" || die "no self-signed authority yet, or it can't be read (sudo halosctl https self-signed makes one)"
+    pem_cert "$t"
+    ;;
+  describe)
+    m="$(mode)"; echo "mode $m"
+    case "$m" in
+      self-signed)
+        t="$(mktemp)"; trap 'rm -f "$t"' EXIT
+        if read_ca "$t" && f="$(openssl x509 -in "$t" -noout -fingerprint -sha256 2> /dev/null)"; then
+          echo "ca ${f#*=}"
+          echo "ca_until $(openssl x509 -in "$t" -noout -enddate | cut -d= -f2)"
+        else echo "ca none"; fi
+        echo "names $(names | paste -sd' ' -)" ;;
+      custom)
+        if [ -f "$certdir/cert.pem" ]; then
+          echo "subject $(openssl x509 -in "$certdir/cert.pem" -noout -subject -nameopt RFC2253 2> /dev/null | cut -d= -f2-)"
+          echo "until $(openssl x509 -in "$certdir/cert.pem" -noout -enddate 2> /dev/null | cut -d= -f2)"
+          if openssl x509 -in "$certdir/cert.pem" -noout -checkend 1209600 > /dev/null 2>&1; then echo "expires later"
+          elif openssl x509 -in "$certdir/cert.pem" -noout -checkend 0 > /dev/null 2>&1; then echo "expires soon"
+          else echo "expires ended"; fi
+        else echo "subject none"; fi ;;
+    esac
+    ;;
+  uncovered) uncovered ;;
+  refresh)
+    [ "$(mode)" = self-signed ] || exit 0
+    [ "$(systemctl is-active halos-proxy.service 2> /dev/null)" = active ] || exit 0
+    new="$(uncovered | paste -sd' ' -)"
+    [ -n "$new" ] || exit 0
+    echo "https: certificates for $new: restarting halos-proxy"
+    systemctl try-restart halos-proxy.service
+    ;;
+  *) die "mode, names, env, set, stage, commit, discard, restore, ca, describe, uncovered or refresh" ;;
+esac

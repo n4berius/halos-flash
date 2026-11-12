@@ -57,6 +57,11 @@ if grep -q wall "$work/log"; then echo "the ready notice repeated" >&2; exit 1; 
 if grep -q systemctl "$work/log"; then echo "asked the service manager though Halogen answers" >&2; exit 1; fi
 if grep -q halosctl "$work/log"; then echo "halosctl ran again within 10 minutes" >&2; exit 1; fi
 ok "ready shows the address on the console, the name over SSH, and is announced once"
+printf '#!/bin/bash\n[ "$1" = mode ] && echo self-signed\n' > "$work/https"; chmod +x "$work/https"
+HALOS_HTTPS_HELPER="$work/https" FAKE_SERVER=active FAKE_HEALTH=200 run
+expect "$issue" '- ready: https://\4:8731/v1'
+expect "$motd" 'ready: https://freyja:8731/v1'
+ok "with HTTPS on, the address says https://"
 
 FAKE_SERVER=failed run
 expect "$issue" 'stopped: sudo halogenctl logs'

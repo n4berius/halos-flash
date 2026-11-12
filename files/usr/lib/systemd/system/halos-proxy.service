@@ -1,19 +1,36 @@
 [Unit]
-Description=halOS front door: Caddy on Halogen's API (8731) and the dashboard (8732)
+Description=halOS front door: Caddy on Halogen's API (8731) and the dashboard (8732), HTTP or HTTPS
 Documentation=https://caddyserver.com/docs/
 # Halogen and the dashboard listen on 127.0.0.1:18731 and :18732 only; every connection from the
 # network comes through here. It needs neither to start: until they answer, it says so (503).
-After=network.target
+# In self-signed HTTPS mode the certificates name this machine's addresses, so wait for the network
+# to have them; one that comes later (Tailscale, a new DHCP lease) is picked up by
+# halos-https-refresh.timer within a minute.
+Wants=network-online.target
+After=network-online.target
 StartLimitIntervalSec=0
 
 [Service]
+# HTTP or HTTPS (sudo halosctl https): as root, outside the sandbox, the https helper writes which
+# Caddyfile and sites to use into /run/halos-https, and for your own certificate copies it into the
+# runtime folder for Caddy's user. Root reads only its own /etc/halos.
+ExecStartPre=+/usr/libexec/halogen/https env
 # A bad setting (such as a mistyped range in /etc/halos/proxy.env) fails here once, with Caddy's
 # reason in the journal, instead of a silent restart loop.
-ExecStartPre=/usr/libexec/halogen/caddy validate --config /usr/share/halos/proxy/Caddyfile --adapter caddyfile
-ExecStart=/usr/libexec/halogen/caddy run --config /usr/share/halos/proxy/Caddyfile --adapter caddyfile
+ExecStartPre=/usr/libexec/halogen/caddy validate --config ${HALOS_PROXY_CONFIG} --adapter caddyfile
+ExecStart=/usr/libexec/halogen/caddy run --config ${HALOS_PROXY_CONFIG} --adapter caddyfile
 Environment=HOME=/var/lib/halos-proxy XDG_DATA_HOME=/var/lib/halos-proxy XDG_CONFIG_HOME=/var/lib/halos-proxy
+# No default: if the https helper's file below is missing, validate fails and Caddy doesn't start,
+# rather than serve plain HTTP when HTTPS was asked for.
+Environment=HALOS_PROXY_CONFIG=/run/halos-https/missing
 # Optional, root's: HALOS_DASHBOARD_ALLOW=<more address ranges> lets other networks see the dashboard.
 EnvironmentFile=-/etc/halos/proxy.env
+# Written by the https helper above, in a folder of its own that only root writes (Caddy's runtime
+# folder is Caddy's, and systemd reads this as root). Read again for each command, so the two below
+# see it; "-" only because the helper itself runs before the file exists.
+EnvironmentFile=-/run/halos-https/proxy.env
+RuntimeDirectory=halos-proxy
+RuntimeDirectoryMode=0700
 Restart=always
 RestartSec=2
 TimeoutStopSec=20

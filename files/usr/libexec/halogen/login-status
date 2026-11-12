@@ -13,6 +13,9 @@ port="${HALOGEN_API_PORT:-8731}"
 # Halogen itself, on this machine only (behind halos-proxy): asking it every 30 s through Caddy would
 # add an access-log line each time.
 local_port="${HALOS_API_LOCAL_PORT:-18731}"
+# http:// or https:// in the address shown (sudo halosctl https).
+scheme=http
+case "$("${HALOS_HTTPS_HELPER:-/usr/libexec/halogen/https}" mode 2>/dev/null)" in self-signed|custom) scheme=https ;; esac
 needed_gib="${HALOGEN_MODELS_NEEDED_GIB:-125}"
 halogen_state="${HALOGEN_STATE_DIR:-/var/lib/halogen}"
 # shellcheck source=/dev/null
@@ -57,8 +60,8 @@ fi
 
 name="halOS ${HALOS_RELEASE:-} (${HALOGEN_VARIANT:-} edition)"
 if [ "$state" = ready ]; then
-  console="$name - ready: http://\\4:$port/v1"
-  remote="$name - ready: http://$(hostname):$port/v1"
+  console="$name - ready: $scheme://\\4:$port/v1"
+  remote="$name - ready: $scheme://$(hostname):$port/v1"
 else
   console="$name - $state"; remote="$console"
 fi
@@ -90,6 +93,6 @@ put "$run/motd.d/50-halos" "$motd" || true
 # Tell logged-in terminals once per boot, the first time Halogen answers.
 if [ "$state" = ready ] && [ ! -e "$state_dir/announced" ]; then
   : > "$state_dir/announced"
-  wall "halOS: Halogen is ready at http://$(hostname):$port/v1" 2>/dev/null || true
+  wall "halOS: Halogen is ready at $scheme://$(hostname):$port/v1" 2>/dev/null || true
 fi
 exit 0
