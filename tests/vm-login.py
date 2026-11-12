@@ -125,17 +125,18 @@ selftest = log.split("RESULT-END")[-1].split("SELFTEST-RC=")[0]
 # HTTPS (#102): self-signed, then back to plain HTTP. Halogen isn't up in the VM, so Caddy's own
 # 503 note answers /health: CURL 503 means the TLS handshake passed with halOS's authority.
 if mode in ("plain", "luks-stale"):   # the first boot only
-    # Each step says when it starts on the serial console, so a hang shows where; Caddy's status and
-    # log come at the end.
+    # Each step says when it starts on the serial console, so a slow step shows; what Caddy was
+    # given, what listens, its status and log come at the end.
     step = lambda n: "echo HTTPS-STEP-" + n + " $(date +%s) > /dev/ttyS0; "
-    c = "curl -sS -m 5 --retry 5 --retry-connrefused --retry-delay 1 -o /dev/null "
+    # No --retry: curl retries a 503 and obeys its Retry-After (30 s), and a 503 is the answer
+    # expected here; halosctl has already waited for Caddy to answer.
+    c = "curl -sS -m 10 -o /dev/null "
     typed(step("on") + "halosctl https self-signed --yes > /tmp/https 2>&1; echo HTTPS-RC=$? >> /tmp/https; "
           + step("ca") + "/usr/libexec/halogen/https ca > /tmp/ca.pem; "
           # What Caddy was given and what listens, before any request.
           + "{ cat /run/halos-https/proxy.env; ss -tlnp; systemctl show halos-proxy -p ActiveState -p SubState -p NRestarts; } > /tmp/https-diag 2>&1; "
           + step("curl") + c + "-w 'CURL %{http_code}' --cacert /tmp/ca.pem https://127.0.0.1:8731/health >> /tmp/https 2>&1; echo >> /tmp/https; "
           + c + "-w 'REDIRECT %{http_code}' http://127.0.0.1:8731/health >> /tmp/https 2>&1; echo >> /tmp/https; "
-          + "curl -v -m 5 -o /dev/null --cacert /tmp/ca.pem https://127.0.0.1:8731/health >> /tmp/https-diag 2>&1; "
           + step("selftest") + "halogenctl selftest 2>&1 | grep -E 'https|proxy:|dashboard:|api-ipv6' >> /tmp/https; "
           + "systemctl status halos-proxy --no-pager -n 0 >> /tmp/https-diag 2>&1; journalctl -b -u halos-proxy --no-pager -o cat -n 25 >> /tmp/https-diag 2>&1; "
           + step("off") + "halosctl https off --yes >> /tmp/https 2>&1; echo OFF-RC=$? >> /tmp/https; "
