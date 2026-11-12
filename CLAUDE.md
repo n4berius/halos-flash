@@ -421,6 +421,13 @@ name, but allows saying halOS runs Halogen.
   already has a valid certificate (INSTALL says so). Real issuance can't run in CI; first checked
   on freyja.
 
+- udisks2 (kept for fwupd's EFI partition lookup, #106; disabled, D-Bus activated) is root's alone
+  (security audit, owner agreed): `/usr/share/polkit-1/rules.d/10-halos-udisks2.rules` returns NO for
+  every `org.freedesktop.udisks2.*` action to a non-root subject (polkit allows uid 0 before rules,
+  so fwupd works), and `/usr/share/dbus-1/system.d/halos-udisks2.conf` denies the `halogen` user
+  any send to `org.freedesktop.UDisks2` (no activation, no properties). The VM test checks the admin
+  is refused `udisksctl loop-setup` and halogen gets "access denied", besides fwupd's ESPRC.
+
 ## Lessons already learned
 
 - The initramfs must be built with `--no-hostonly` and the `crypt systemd-cryptsetup tpm2-tss
