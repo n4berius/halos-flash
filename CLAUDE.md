@@ -435,7 +435,10 @@ name, but allows saying halOS runs Halogen.
 - Request records (#107 part A): Halogen's own feature (`HALOGEN_RECORD_*`, configuration.md
   "Request records"). `halogenctl records on|off` writes or removes root's Quadlet drop-in
   `/etc/containers/systemd/users/970/halogen.container.d/20-records.conf` (`Volume=/srv/logs/halogen:/records`),
-  reloads halogen's manager and restarts Halogen if running; a Quadlet volume can't be conditional
+  reloads halogen's manager (as halogen with `setpriv` and `systemctl --user` on its private socket,
+  as login-status does: `daemon-reload` through `--machine=halogen@.host` failed in the VM test with
+  "Transport endpoint is not connected"), checks the generated `halogen.service` gained or lost the
+  mount, and restarts Halogen if running; a Quadlet volume can't be conditional
   otherwise, and off means nothing is mounted. `render-config` sets `HALOGEN_RECORD_DIR=/records` only
   while that drop-in exists (`HALOGEN_RECORD_DIR` stays in gen-options' BLOCKED), defaults
   `HALOGEN_RECORD_TEXT` to `none` (owner's decision; Halogen's own default is `all`), checks TEXT

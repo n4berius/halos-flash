@@ -297,8 +297,11 @@ mkdir -p "$work/logs/halogen"
 printf 'HALOGEN_IMAGE=ghcr.io/peonist-ai/halogen-flash-server@sha256:abc\n' > "$work/release.env"
 export HALOGEN_RELEASE_FILE="$work/release.env"
 f id 'if [ "$1" = -u ]; then echo "${FAKE_UID:-0}"; else exec /usr/bin/id "$@"; fi'
+# setpriv as halogen: log it, then run what follows env (the fake systemctl below).
+f setpriv 'echo "setpriv $*" >> "$FAKE/log"; while [ $# -gt 0 ] && [ "$1" != env ]; do shift; done; exec "$@"'
 f curl 'h="${FAKE_HEALTH:-}"; [ -n "$h" ] || h="{\"status\":\"ok\"}"; echo "$h"'
-f systemctl 'echo "systemctl $*" >> "$FAKE/log"; case "$*" in *"is-active --quiet halogen.service"*) [ -z "${FAKE_INACTIVE:-}" ] ;; esac'
+f systemctl 'echo "systemctl $*" >> "$FAKE/log"; case "$*" in *"is-active --quiet halogen.service"*) [ -z "${FAKE_INACTIVE:-}" ] ;;
+  *"cat halogen.service"*) if [ -z "${FAKE_NOMOUNT:-}" ] && [ -f "$HALOGEN_RECORDS_DROPIN" ]; then echo "ExecStart=podman run -v /srv/logs/halogen:/records x"; fi ;; esac'
 f systemd-run 'echo "systemd-run $*" >> "$FAKE/log"; case "$*" in *render-config*) echo HALOGEN_RECORD_TEXT=none ;; *request_records*) echo "turns 3" ;; esac'
 : > "$work/log"
 "$ctl" records > "$work/out"; grep -q '^Request records: off' "$work/out" || { cat "$work/out" >&2; exit 1; }
@@ -306,7 +309,7 @@ if "$ctl" records on < /dev/null > /dev/null 2>&1; then echo "records on ran wit
 [ ! -e "$work/dropin.d/20-records.conf" ] || { echo "records on changed something before asking" >&2; exit 1; }
 "$ctl" records on --yes > /dev/null
 grep -qx 'Volume=/srv/logs/halogen:/records' "$work/dropin.d/20-records.conf" || { echo "no records mount" >&2; exit 1; }
-if ! { grep -q 'systemctl --user --machine=halogen@.host daemon-reload' "$work/log" && grep -q 'restart halogen.service' "$work/log"; }; then
+if ! { grep -q 'setpriv --reuid=.* env XDG_RUNTIME_DIR=/run/user/.* systemctl --user daemon-reload' "$work/log" && grep -q 'restart halogen.service' "$work/log"; }; then
   cat "$work/log" >&2; echo "records on didn't reload and restart" >&2; exit 1
 fi
 "$ctl" records > "$work/out"; grep -q '^Request records: on, text kept: none' "$work/out" || { cat "$work/out" >&2; exit 1; }
@@ -334,4 +337,7 @@ grep -q 'restart halogen.service' "$work/log" || { echo "a server still recordin
 if grep -q 'restart halogen.service' "$work/log"; then echo "off restarted a server that doesn't record" >&2; exit 1; fi
 if FAKE_UID=1000 "$ctl" records on --yes > "$work/out" 2>&1 || ! grep -q 'Run it with sudo' "$work/out"; then echo "records on ran without root" >&2; exit 1; fi
 "$ctl" records prune --session ab_C-12 --yes > /dev/null || { echo "a base64url hash was refused" >&2; exit 1; }
+# A reload that doesn't bring the mount is reported, not called done.
+if FAKE_NOMOUNT=1 "$ctl" records on --yes > "$work/out" 2>&1 || ! grep -q "isn't in Halogen's service" "$work/out"; then cat "$work/out" >&2; echo "a missing mount after on wasn't reported" >&2; exit 1; fi
+rm -f "$work/dropin.d/20-records.conf"
 ok "records on/off mounts the folder (after asking) and restarts; stats and prune run Halogen's tool with checked options, also after off"

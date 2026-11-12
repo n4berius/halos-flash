@@ -465,6 +465,11 @@ case "${1:-status}" in
       [ "$answer" = y ] || [ "$answer" = Y ] || { echo "Nothing changed."; exit 1; }
     }
     running() { unit is-active --quiet halogen.service; }
+    # halogen's own manager over its private socket, as login-status reads it: a daemon-reload
+    # through --machine=halogen@.host fails with "Transport endpoint is not connected" (VM test).
+    huid="$(id -u halogen 2> /dev/null || echo 970)"
+    as_manager() { setpriv --reuid="$huid" --regid="$huid" --clear-groups env XDG_RUNTIME_DIR="/run/user/$huid" systemctl --user "$@"; }
+    mounted() { as_manager cat halogen.service 2> /dev/null | grep -q -F 'srv/logs/halogen:/records'; }
     # Whether the running Halogen keeps records (its /health says so), whatever the drop-in says.
     recording() { curl -sS -m 5 "http://127.0.0.1:${HALOS_API_LOCAL_PORT:-18731}/health" 2> /dev/null | jq -e '.request_records' > /dev/null 2>&1; }
     # Halogen's own tool, as halogen; its output is filtered (the client names in it come from
@@ -513,7 +518,13 @@ case "${1:-status}" in
           confirm "Stop keeping request records? What is kept stays in $logdir (sudo halogenctl records prune --all deletes it). Halogen restarts."
           rm -f "$dropin"
         fi
-        unit daemon-reload
+        as_manager daemon-reload
+        # Quadlet makes halogen.service at the reload: check the mount came or went with it.
+        if [ "${args[0]}" = on ] && ! mounted; then
+          echo "The records folder isn't in Halogen's service after the reload; see: sudo halogenctl selftest" >&2; exit 1
+        elif [ "${args[0]}" = off ] && mounted; then
+          echo "Halogen's service still mounts the records folder after the reload; see: sudo halogenctl selftest" >&2; exit 1
+        fi
         if running; then start_halogen restart; echo "Done; Halogen restarted."
         else echo "Done; it applies when Halogen next starts (sudo halogenctl start)."; fi
         ;;
