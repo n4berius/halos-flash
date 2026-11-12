@@ -1,7 +1,7 @@
 # halOS command reference
 
-halOS has three commands of its own. Run them with `sudo`; each one's own help (`halosctl help`)
-says the same in short.
+halOS has three commands of its own. Run them with `sudo`. `halosctl help` says the same in
+short; `halogenctl` prints a one-line summary when given a command it doesn't know.
 
 | Command | What it looks after |
 |---|---|
@@ -15,10 +15,13 @@ are described in Halogen's [FLAGS.md](https://github.com/peonist-ai/halogen-flas
 
 Common options:
 
-- `--yes` answers yes to the question a command asks before it changes something. Without a
-  terminal (a script, `ssh host cmd`), commands that change something refuse unless it is given.
+- `--yes` answers yes to the question a command asks before it changes something, where the
+  table shows it. Without a terminal (a script, `ssh host cmd`), those commands refuse unless it
+  is given. Commands without it (`start`, `stop`, `restart`, `power`, `dashboard`) don't ask;
+  `model remove` always asks, in a terminal.
 - `--reboot` restarts the machine at once after an OS change, instead of at your next reboot.
-  A reboot stops Halogen until it is back.
+  A reboot stops Halogen until it is back. It waits for you instead while models are downloading,
+  or when an upgrade would stage an older build than the one running.
 
 ## halosctl: the operating system
 
@@ -40,7 +43,7 @@ Changes to the OS apply at the next reboot. Each update is checked against halOS
 
 | Command | What it does |
 |---|---|
-| `halosctl setup [--skip]` | The first-boot questions: TPM unlock, SSH unlock, your Hugging Face token and your settings. Halogen waits for it (up to 30 minutes) on a new install. `--skip` starts with the defaults. |
+| `halosctl setup [--skip]` | The first-boot questions: TPM unlock, SSH unlock, SSH logins with keys only, your Hugging Face token and your settings. Halogen waits for it (up to 30 minutes) on a new install. `--skip` starts with the defaults. |
 | `halosctl power [low-power\|balanced\|performance]` | The firmware's power profile, now and at every boot. `performance` (the default) serves fastest; the others draw less power and run cooler and slower. Alone, it shows the profile. |
 
 ### SSH
@@ -50,7 +53,7 @@ Changes to the OS apply at the next reboot. Each update is checked against halOS
 | `halosctl ssh-unlock` | Whether the encrypted disk can be unlocked over SSH at boot, and with which keys. |
 | `halosctl ssh-unlock on --github <user>` (or `--gitlab`, `--codeberg`, `--key '<public key>'`, several allowed) `[--yes]` | Lets those keys unlock the disk over SSH at boot, when the TPM can't. It prints the lines your SSH client needs. |
 | `halosctl ssh-unlock off [--yes]` | Turns it off. |
-| `halosctl ssh-unlock record` | Keeps fingerprints of the unlock keys, so the selftest notices a change. |
+| `halosctl ssh-unlock record [--yes]` | Keeps fingerprints of the unlock keys, so the selftest notices a change. |
 | `halosctl ssh-passwords [on\|off] [--yes]` | `off`: SSH logins with keys only (your account needs a key first). `on`: passwords again. Alone, it shows which. The console always takes the password. |
 
 ### The dashboard and HTTPS
@@ -61,7 +64,7 @@ Changes to the OS apply at the next reboot. Each update is checked against halOS
 | `halosctl https` | Whether HTTPS is on, and what apps use. |
 | `halosctl https self-signed [<name>...] [--yes]` | HTTPS on both ports with halOS's own certificate authority, for this machine's names and addresses and any extra names you list. Apps must trust the authority once. |
 | `halosctl https custom <certificate> <key> [--yes]` | HTTPS with your own certificate and key (PEM files, the key without a passphrase). It shows whose certificate it is and asks first. |
-| `halosctl https ca` | Prints halOS's authority (PEM), to give to your apps: `sudo halosctl https ca > halos-ca.crt`. See [Trusting the certificate](CLIENTS.md). |
+| `halosctl https ca` | Prints halOS's authority (PEM), to give to your apps: `sudo halosctl https ca > halos-ca.crt`. See [trusting it](CLIENTS.md#trust-it-per-app-or-on-the-whole-computer). |
 | `halosctl https off [--yes]` | Back to plain HTTP. |
 
 With HTTPS on, `http://` on either port is redirected to `https://`. If Caddy doesn't answer
@@ -75,7 +78,7 @@ after a change, the previous setting comes back by itself.
 |---|---|
 | `halogenctl status` | The download-and-check step and the server, and which Flash checkpoint is served. The default. |
 | `halogenctl start`, `stop`, `restart` | Starts, stops or restarts Halogen. A restart downloads only what is missing or changed first. |
-| `halogenctl logs [lines]` | Halogen's log (100 lines by default), following it on a terminal. |
+| `halogenctl logs [lines]` | Halogen's log and the download step's together (100 lines by default), following them on a terminal. |
 | `halogenctl fetch-logs [lines]` | Only the download-and-check step's log. |
 | `halogenctl api-key` | Prints the API key apps need (`/srv/configs/api-key`). |
 | `halogenctl hf-token [--remove]` | Saves your Hugging Face read token (asked for, not shown), for gated models; `--remove` deletes it. |
@@ -86,7 +89,7 @@ after a change, the previous setting comes back by itself.
 |---|---|
 | `halogenctl config` | The settings Halogen gets: yours from `/srv/configs/halogen.env` that halOS allows, then the ones halOS fixes. |
 | `halogenctl options [--new]` | Every option this release offers, and whether yours is set, commented out or new; `--new` lists only those your file doesn't mention. |
-| `halogenctl doctor` | Checks the settings and the machine before a start (Halogen's preflight), and says what to change. |
+| `halogenctl doctor` | Checks the settings and the machine before a start (halOS's own checks), and says what to change. |
 
 Edit settings with `sudo nano /srv/configs/halogen.env`, then `sudo halogenctl restart`.
 
@@ -111,11 +114,11 @@ Edit settings with `sudo nano /srv/configs/halogen.env`, then `sudo halogenctl r
 |---|---|
 | `halogenctl flash pull <hf-repo> [--revision <rev>] [--as <name>] [--file <checkpoint.hgn>]` | Downloads a Flash checkpoint in Halogen's format, checks it against Hugging Face's hashes and Halogen's `verify`. |
 | `halogenctl flash list` | The official checkpoint and yours, and which is served. |
-| `halogenctl flash use <name>\|official [--yes]` | Serves that one from the next start (it offers to restart). The official checkpoint is always kept. |
+| `halogenctl flash use <name>\|official [--yes]` | Switches Halogen to that checkpoint and restarts it now, after asking (`--yes` skips the question). The official checkpoint is always kept. |
 | `halogenctl flash verify <name>` | Runs Halogen's `verify` on it again. |
 | `halogenctl flash check <name> [--yes]` | Compares its quality with the official one (perplexity on a standard text). Stops Halogen while it runs, then starts it again. |
-| `halogenctl flash convert <hf-repo> [--revision <rev>] [--as <name>] [--threads <n>] [--keep-source] [--yes]` | Converts full-precision weights to Halogen's format on this machine (hours, about 480 GB of space). |
-| `halogenctl flash convert-logs [lines]`, `flash convert-stop [<name>] [--yes]` | Follows a conversion, or stops it. |
+| `halogenctl flash convert <hf-repo> [--revision <rev>] [--as <name>] [--threads <n>] [--keep-source] [--yes]` | Converts full-precision weights to Halogen's format on this machine (many hours, likely a day or more, and about 480 GB of space). |
+| `halogenctl flash convert-logs [lines]`, `flash convert-stop [<name>] [--yes]` | `convert-logs` follows a conversion. `convert-stop` stops it; with a name it also deletes that conversion's downloaded weights (it asks first), and without one it lists what is left on disk. |
 | `halogenctl flash remove <name> [--yes]` | Deletes one of yours (not the one in use). |
 
 ## halogen-enroll-tpm
@@ -134,6 +137,9 @@ passphrase once. Keep the passphrase: it is your recovery key.
 | `/srv/configs/api-key` | The API key |
 | `/srv/configs/bench/` | Benchmark reports |
 | `/srv/models/` | The models, and your own checkpoints |
-| `/etc/halos/https.env`, `/etc/halos/https/` | HTTPS settings and certificates (root only) |
+| `/etc/halos/https.env` | The HTTPS setting (only root can change it) |
+| `/etc/halos/https/` | Your certificate and key (root only) |
+| `/srv/configs/hf-token` | Your Hugging Face token, if you saved one |
+| `/srv/configs/flash-checkpoint` | Which Flash checkpoint `flash use` chose |
 | `/etc/halos/proxy.env` | Optional: more networks allowed to see the dashboard (`HALOS_DASHBOARD_ALLOW`) |
 | `/var/lib/halos/history` | What `halosctl history` shows |

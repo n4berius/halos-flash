@@ -11,7 +11,7 @@ commands are in the [command reference](CLI.md); HTTPS itself is in
 | Address (OpenAI-style APIs) | `http://<machine>:8731/v1`, or `https://…` with HTTPS on |
 | Address (Anthropic Messages API, Claude Code) | `http://<machine>:8731`, or `https://…`, without `/v1` |
 | API key | `sudo halogenctl api-key` on the machine |
-| Model name | Any: Halogen serves one model and names it in its replies (`GET /v1/models` lists it) |
+| Model name | `halogen-qwen3.8-flash-next`. Any name other than the NPU models' reaches it; `GET /v1/models` lists them all |
 
 Halogen speaks the OpenAI Chat Completions, Completions and Responses APIs and the Anthropic
 Messages API ([Halogen's API reference](https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/api.md)).
@@ -28,28 +28,34 @@ output limits, tool calls):
 | HTTPS mode (`sudo halosctl https`) | What apps need |
 |---|---|
 | off | Nothing: `http://` |
-| letsencrypt | Nothing: every app already trusts Let's Encrypt. Use the public name, such as `https://halos.example.com:8731/v1` |
 | custom, from a public authority | Nothing. Use the name on the certificate |
 | custom, from your own authority | Trust your authority, as below |
 | self-signed | Trust halOS's authority once, as below |
 
 ## Getting halOS's authority
 
-On your own computer (with `admin` being your user on the machine):
+On the machine:
 
 ```bash
-ssh admin@<machine> sudo halosctl https ca > halos-ca.crt
+sudo halosctl https ca > halos-ca.crt
+```
+
+Then copy it to your own computer (with `admin` being your user on the machine):
+
+```bash
+scp admin@<machine>:halos-ca.crt ~/
 ```
 
 Compare its fingerprint with the one `sudo halosctl https` shows on the machine:
 
 ```bash
-openssl x509 -in halos-ca.crt -noout -fingerprint -sha256
+openssl x509 -in ~/halos-ca.crt -noout -fingerprint -sha256
 ```
 
 Use an address the certificate covers: `sudo halosctl https` lists them (localhost, the host
 name, the `.local` name and every address of the machine, Tailscale's included). A name it
-doesn't list is refused; add it with `sudo halosctl https self-signed <name>`.
+doesn't list is refused. To add names, list all of them, since they replace the ones given
+before: `sudo halosctl https self-signed <name1> <name2>`.
 
 ## Trust it per app, or on the whole computer
 
@@ -77,7 +83,11 @@ the app, then restart it. In the examples, `192.168.1.20` is the machine and `HA
 the key from `sudo halogenctl api-key`. These come from each project's own documentation and
 source (November 2026); none was tried against halOS yet, so tell us what works.
 
-| Agent | Language | Trust halOS's authority with | Adds to, or replaces, the usual authorities |
+"Adds" means the app trusts halOS on top of every website it already trusts; "replaces" means it
+then trusts only the file you give it (see the bundle below). The second column is what the app
+is written in, which decides the setting it reads.
+
+| Agent | Written in | Trust halOS's authority with | Adds to, or replaces, the usual authorities |
 |---|---|---|---|
 | [Pi](#pi-and-oh-my-pi) | Node | `NODE_EXTRA_CA_CERTS=~/halos-ca.crt` | Adds |
 | [oh-my-pi (omp)](#pi-and-oh-my-pi) | Bun | `NODE_EXTRA_CA_CERTS=~/halos-ca.crt` (also in `~/.omp/agent/.env`) | Adds |
@@ -108,10 +118,34 @@ export HALOS_API_KEY=<the key>
 pi    # or omp
 ```
 
-Add halOS as a provider with `"api": "openai-completions"`, `"baseUrl":
-"https://192.168.1.20:8731/v1"` and `"apiKey": "$HALOS_API_KEY"`: in Pi's
-`~/.pi/agent/models.json` ([Pi's models guide](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/models.md)),
-in oh-my-pi's `~/.omp/agent/models.yml`. Pi's per-provider environment settings in `auth.json`
+Pi's `~/.pi/agent/models.json` ([Pi's models guide](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/models.md)):
+
+```json
+{
+  "providers": {
+    "halos": {
+      "baseUrl": "https://192.168.1.20:8731/v1",
+      "api": "openai-completions",
+      "apiKey": "$HALOS_API_KEY",
+      "models": [{ "id": "halogen-qwen3.8-flash-next" }]
+    }
+  }
+}
+```
+
+oh-my-pi's `~/.omp/agent/models.yml`, where `apiKey` is the name of the variable, without `$`:
+
+```yaml
+providers:
+  halos:
+    baseUrl: https://192.168.1.20:8731/v1
+    api: openai-completions
+    apiKey: HALOS_API_KEY
+    models:
+      - id: halogen-qwen3.8-flash-next
+```
+
+Pi's per-provider environment settings in `auth.json`
 can't carry the authority: Node reads it only when it starts. oh-my-pi also reads
 `NODE_EXTRA_CA_CERTS` from `~/.omp/agent/.env`. Pi's prebuilt single-file binaries run on Bun
 rather than Node; if one of them still reports a certificate error, trust the authority on the
@@ -127,7 +161,8 @@ opencode
 If opencode runs as a background service, give the service the setting too: `opencode service
 set env NODE_EXTRA_CA_CERTS ~/halos-ca.crt`, then restart the service. opencode also trusts the
 computer's store. halOS goes in `opencode.json` as an OpenAI-compatible provider with its
-`baseURL` ([opencode's providers guide](https://opencode.ai/docs/providers/)). With a proxy set
+`baseURL`, the key and the model `halogen-qwen3.8-flash-next` under `"models"`
+([opencode's providers guide](https://opencode.ai/docs/providers/)). With a proxy set
 (`HTTPS_PROXY`), add `NO_PROXY=localhost,127.0.0.1,::1,192.168.1.20`.
 
 ### Codex
@@ -140,6 +175,7 @@ codex
 
 ```toml
 # ~/.codex/config.toml
+model = "halogen-qwen3.8-flash-next"
 model_provider = "halos"
 
 [model_providers.halos]
@@ -217,13 +253,14 @@ curl --cacert halos-ca.crt -H "Authorization: Bearer $HALOS_API_KEY" https://192
 Python (`openai`): set `SSL_CERT_FILE` to a bundle as for aider, or pass an SSL context:
 
 ```python
-import ssl, openai
+import os, ssl, openai
 ctx = ssl.create_default_context(cafile="halos-ca.crt")
-client = openai.OpenAI(base_url="https://192.168.1.20:8731/v1", api_key=key,
+client = openai.OpenAI(base_url="https://192.168.1.20:8731/v1", api_key=os.environ["HALOS_API_KEY"],
                        http_client=openai.DefaultHttpxClient(verify=ctx))
 ```
 
-(From version 3 of the `openai` package the class is `DefaultHttpx2Client`.)
+(Version 3 of the `openai` package also offers `DefaultHttpx2Client`; `DefaultHttpxClient` still
+works.)
 
 Node (`openai`): start Node with `NODE_EXTRA_CA_CERTS=halos-ca.crt`.
 
@@ -234,8 +271,8 @@ Node (`openai`): start Node with `NODE_EXTRA_CA_CERTS=halos-ca.crt`.
   the environment of the process that runs the app (restart it), and that the file is the one
   `sudo halosctl https ca` prints.
 - **"Hostname/IP does not match", "certificate is not valid for …"**: the address isn't covered.
-  `sudo halosctl https` lists the covered ones; add a name with `sudo halosctl https self-signed
-  <name>`. A new address of the machine is covered within a minute.
+  `sudo halosctl https` lists the covered ones; to add names, give all of them (they replace the
+  earlier ones): `sudo halosctl https self-signed <name1> <name2>`. A new address of the machine is covered within a minute.
 - **Nothing answers, or a proxy error**: with a proxy set (`HTTPS_PROXY`), add the machine's
   address to `NO_PROXY` (the exact address; not every app understands ranges).
 - **Connection reset**: the machine's firewall and port. `sudo halogenctl selftest` checks both,
