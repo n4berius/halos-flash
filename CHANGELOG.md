@@ -10,8 +10,10 @@ promoted.
 
 ## Unreleased
 
-- Firmware updates: fwupd now finds the EFI partition, so `sudo fwupdmgr update` can also update
-  the Secure Boot revocation list (dbx) instead of saying "UEFI ESP partition not detected". (#106)
+- Firmware updates: `sudo fwupdmgr update` can now also update the Secure Boot revocation list
+  (dbx), instead of saying "UEFI ESP partition not detected". On a machine that unlocks its disk
+  with the TPM, such an update asks for the disk passphrase at the next boot; then run
+  `sudo halogen-enroll-tpm` once. (#106)
 - The dashboard moved from port 8790 to **8732**, next to the API on 8731: `http://<machine>:8732`.
   The firewall follows by itself on upgrade; only a bookmark changes. (#103)
 - [Caddy](https://caddyserver.com) now answers on ports 8731 (API) and 8732 (dashboard) and passes

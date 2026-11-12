@@ -225,4 +225,7 @@ if [ -n "$luks" ]; then
     echo "bootc-fstab-edit still rewrote fstab" >&2; exit 1
   fi
   grep -qi "skipped due to 'exec-condition'" "$out/report.txt" || echo "note: bootc-fstab-edit wasn't made at this boot; fstab unchanged"
+  # fwupd finds the EFI partition through udisks2 (#106), which starts only when asked.
+  grep -qE '^ESPRC 0 [1-9][0-9]* (disabled|static)' "$out/report.txt" \
+    || { echo "fwupd did not find the EFI partition at /boot/efi, or udisks2 is enabled:" >&2; grep '^ESPRC' "$out/report.txt" >&2; exit 1; }
 fi
