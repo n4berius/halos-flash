@@ -64,6 +64,8 @@ Changes to the OS apply at the next reboot. Each update is checked against halOS
 | `halosctl https` | Whether HTTPS is on, and what apps use. |
 | `halosctl https self-signed [<name>...] [--yes]` | HTTPS on both ports with halOS's own certificate authority, for this machine's names and addresses and any extra names you list. Apps must trust the authority once. |
 | `halosctl https custom <certificate> <key> [--yes]` | HTTPS with your own certificate and key (PEM files, the key without a passphrase). It shows whose certificate it is and asks first. |
+| `halosctl https letsencrypt <cloudflare\|duckdns\|porkbun\|namecheap> <name>... [--email <address>] [--staging] [--yes]` | HTTPS with Let's Encrypt certificates for public names you own, through your DNS provider's API; no port is opened to the internet. It asks for the provider's credential (not shown while you type; with `--yes`, as `field=value` lines on standard input), waits for the certificate and, if none comes within five minutes, puts the previous setting back. `--staging` uses Let's Encrypt's test service first. This machine's own addresses keep halOS's authority. |
+| `halosctl https forget-dns [--yes]` | Deletes the saved DNS provider credential, once Let's Encrypt is no longer in use. Revoke it at the provider too. |
 | `halosctl https ca` | Prints halOS's authority (PEM), to give to your apps: `sudo halosctl https ca > halos-ca.crt`. See [trusting it](CLIENTS.md#trust-it-per-app-or-on-the-whole-computer). |
 | `halosctl https off [--yes]` | Back to plain HTTP. |
 
@@ -138,7 +140,7 @@ passphrase once. Keep the passphrase: it is your recovery key.
 | `/srv/configs/bench/` | Benchmark reports |
 | `/srv/models/` | The models, and your own checkpoints |
 | `/etc/halos/https.env` | The HTTPS setting (only root can change it) |
-| `/etc/halos/https/` | Your certificate and key (root only) |
+| `/etc/halos/https/` | Your certificate and key, and the DNS provider's credential for Let's Encrypt (root only) |
 | `/srv/configs/hf-token` | Your Hugging Face token, if you saved one |
 | `/srv/configs/flash-checkpoint` | Which Flash checkpoint `flash use` chose |
 | `/etc/halos/proxy.env` | Optional: more networks allowed to see the dashboard (`HALOS_DASHBOARD_ALLOW`) |

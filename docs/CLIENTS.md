@@ -28,6 +28,7 @@ output limits, tool calls):
 | HTTPS mode (`sudo halosctl https`) | What apps need |
 |---|---|
 | off | Nothing: `http://` |
+| letsencrypt | Nothing: every app already trusts Let's Encrypt. Use the public name, such as `https://halos.example.com:8731/v1`; the machine's own addresses keep halOS's authority, as below |
 | custom, from a public authority | Nothing. Use the name on the certificate |
 | custom, from your own authority | Trust your authority, as below |
 | self-signed | Trust halOS's authority once, as below |

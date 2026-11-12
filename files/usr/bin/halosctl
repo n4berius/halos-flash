@@ -24,6 +24,8 @@ usage: halosctl version
        halosctl ssh-passwords [on|off] [--yes]
        halosctl dashboard [on|off]
        halosctl https [self-signed [<name>...] | custom <certificate> <key> | off | ca] [--yes]
+       halosctl https letsencrypt <cloudflare|duckdns|porkbun|namecheap> <name>... [--email <address>] [--staging] [--yes]
+       halosctl https forget-dns [--yes]
 
 Channels: alpha, beta and rc are test releases; release (stable) is for production; edge is
 every change to main. Each channel also gets newer releases of the more stable ones.
@@ -41,7 +43,10 @@ dashboard is a live web page of Halogen's load and health on port 8732 (Quaterni
 halogen-dashboard), open to your network and without a login; off stops it.
 https turns on HTTPS for both (8731 and 8732): self-signed uses halOS's own authority, which your
 apps must trust once (ca prints it); custom takes your certificate and key (PEM). Plain http://
-then redirects to https://. off goes back to plain HTTP; alone it shows the state.
+then redirects to https://. letsencrypt gets certificates apps already trust for public names
+(such as halos.example.com) through your DNS provider's API; it asks for the provider's
+credentials, and --staging tries Let's Encrypt's test service first. off goes back to plain HTTP;
+alone it shows the state.
 U
 }
 
@@ -155,7 +160,7 @@ record() {
     "${SUDO_USER:-root}" >> "$history"
 }
 
-yes=0; sfx=""; reboot=0; check=0; skip=0; to=""; question=""
+yes=0; sfx=""; reboot=0; check=0; skip=0; to=""; question=""; email=""; staging=0
 confirm() {
   [ "$yes" = 1 ] && return 0
   [ -t 0 ] || die "nothing changed: add --yes to confirm without a terminal"
@@ -283,7 +288,7 @@ ssh_unlock_howto() {
 # first value it reads), checked with sshd -t before sshd reloads.
 https="${HALOS_HTTPS_HELPER:-/usr/libexec/halogen/https}"
 https_conf="${HALOS_HTTPS_ETC:-/etc/halos}/https.env"
-scheme() { case "$("$https" mode 2> /dev/null)" in self-signed|custom) echo https ;; *) echo http ;; esac; }
+scheme() { case "$("$https" mode 2> /dev/null)" in self-signed|custom|letsencrypt) echo https ;; *) echo http ;; esac; }
 keys_only="${HALOS_SSHD_DROPIN:-/etc/ssh/sshd_config.d/20-halos-keys-only.conf}"
 passwords_off() { [ -e "$keys_only" ]; }
 # The admin running this has a key to log in with, so turning passwords off can't lock them out.
@@ -329,6 +334,8 @@ while [ $# -gt 0 ]; do
     --github|--gitlab|--codeberg|--key)
       [ $# -ge 2 ] || die "$1 needs a value"; src+=("${1#--}" "$2"); shift ;;
     --to) [ $# -ge 2 ] || die "--to needs a version, such as 0.19.0-alpha.1"; to="$2"; shift ;;
+    --email) [ $# -ge 2 ] || die "--email needs an address"; email="$2"; shift ;;
+    --staging) staging=1 ;;
     -h|--help) usage; exit 0 ;;
     -*) usage >&2; exit 2 ;;
     *) args+=("$1") ;;
@@ -337,6 +344,9 @@ while [ $# -gt 0 ]; do
 done
 
 [ "${#src[@]}" = 0 ] || [ "$cmd" = ssh-unlock ] || die "--github, --gitlab, --codeberg and --key go with ssh-unlock on"
+if [ -n "$email" ] || [ "$staging" = 1 ]; then
+  if [ "$cmd" != https ] || [ "${args[0]:-}" != letsencrypt ]; then die "--email and --staging go with https letsencrypt"; fi
+fi
 case "$cmd" in switch|npu|power|ssh-unlock|ssh-passwords|dashboard|https) ;; *) [ "${#args[@]}" = 0 ] ;; esac || die "unexpected ${args[0]} (for an older release: halosctl rollback --to <version>)"
 
 case "$cmd" in
@@ -588,7 +598,7 @@ case "$cmd" in
       facts="$("$https" describe)"
       case "$(fact mode)" in
         invalid)
-          echo "HTTPS: the setting in $https_conf isn't off, self-signed or custom, so Caddy doesn't start."
+          echo "HTTPS: the setting in $https_conf isn't off, self-signed, custom or letsencrypt, so Caddy doesn't start."
           echo "Fix: sudo halosctl https off, or sudo halosctl https self-signed" ;;
         off)
           echo "HTTPS: off. Apps use http://$(addr):8731/v1, and the dashboard is http://$(addr):8732."
@@ -612,13 +622,32 @@ case "$cmd" in
             ended) echo "  It has ended, so apps refuse it: sudo halosctl https custom <new certificate> <key>" ;;
           esac
           echo "  Apps use https://<the name on the certificate>:8731/v1." ;;
+        letsencrypt)
+          local first; first="$(fact public)"; first="${first%% *}"
+          echo "HTTPS: on, with Let's Encrypt certificates for $(fact public) (DNS: $(fact provider))."
+          if [ "$(fact staging)" = yes ]; then
+            echo "  From Let's Encrypt's staging (test) service: apps don't trust these. For real ones, run the"
+            echo "  same command again without --staging: sudo halosctl https letsencrypt $(fact provider) $(fact public)"
+          fi
+          if [ "$(fact until)" = none ]; then
+            echo "  No certificate yet: Caddy is still getting it, or can't. sudo journalctl -u $unit"
+          else
+            echo "  Valid until $(fact until), from $(fact issuer). Caddy renews it by itself, well before the end."
+            case "$(fact expires)" in
+              soon) echo "  It ends within 10 days, so renewing is failing: sudo journalctl -u $unit" ;;
+              ended) echo "  It has ended, so apps refuse it: sudo journalctl -u $unit" ;;
+            esac
+          fi
+          echo "  Apps use https://$first:8731/v1, and the dashboard is https://$first:8732."
+          echo "  This machine's own names and addresses keep halOS's authority (sudo halosctl https ca):"
+          echo "  $(fact names)" ;;
       esac
     }
     # Up means Caddy answers on 8731 (any HTTP code: Halogen may be down), not only that it started:
     # systemd counts a start as done before Caddy has bound its ports.
     proxy_up() {
       local code="" s=http i
-      case "$("$https" mode)" in self-signed|custom) s=https ;; esac
+      case "$("$https" mode)" in self-signed|custom|letsencrypt) s=https ;; esac
       for i in $(seq 10); do
         if [ "$(systemctl is-active "$unit" 2> /dev/null)" = active ]; then
           code="$(curl -sS -k -m 3 -o /dev/null -w '%{http_code}' "$s://127.0.0.1:8731/health" 2> /dev/null || true)"
@@ -628,25 +657,73 @@ case "$cmd" in
       done
       return 1
     }
-    # Switch, and go back to what was there (the mode, and with custom the certificate) if Caddy
-    # doesn't come up with it, so the API never stays down.
+    # With Let's Encrypt, up also means each public name is served a certificate: Caddy gets them
+    # after it starts, which takes from seconds to a few minutes (the TXT record must reach the
+    # provider's name servers). Asked once a few seconds, never with curl's retries (a 503 answer
+    # would make curl wait 30 s each time).
+    acme_up() {
+      local n code ok start=$SECONDS wait="${HALOS_ACME_WAIT:-300}" told=0 public
+      [ "$("$https" mode)" = letsencrypt ] || return 0
+      read -ra public <<< "$(sed -n 's/^HALOS_HTTPS_NAMES=//p' "$https_conf" | tail -n 1)"
+      echo "Getting certificates from Let's Encrypt (usually under a minute, at most $((wait / 60)) minutes)..."
+      while :; do
+        ok=1
+        for n in "${public[@]}"; do
+          code="$(curl -sS -k -m 5 --resolve "$n:8731:127.0.0.1" -o /dev/null -w '%{http_code}' "https://$n:8731/health" 2> /dev/null || true)"
+          if [ -z "$code" ] || [ "$code" = 000 ]; then ok=0; fi
+        done
+        [ "$ok" = 0 ] || return 0
+        [ $((SECONDS - start)) -lt "$wait" ] || break
+        if [ $((SECONDS - start)) -ge $((told + 30)) ]; then told=$((SECONDS - start)); echo "  still waiting ($told s)"; fi
+        sleep 5
+      done
+      # What Caddy said, without anything but the error text (the providers' own credentials are
+      # kept out of it).
+      echo "No certificate after $wait s. Caddy's last errors:" >&2
+      journalctl -u "$unit" --since "$since" --no-pager -o cat 2> /dev/null \
+        | jq -Rr 'fromjson? | select(.level == "error") | .error // empty' 2> /dev/null \
+        | tail -n 3 | tr -d '\000-\010\013-\037\177' | cut -c1-300 | sed 's/^/  /' >&2 || true
+      return 1
+    }
+    # Switch, and go back to what was there (the mode, and the certificate or DNS credentials it
+    # had) if Caddy doesn't come up with it, so the API never stays down.
     apply() {
-      local saved="" certs=0
+      local saved="" certs=""
       [ -e "$https_conf" ] && saved="$(cat "$https_conf")"
-      if [ "$1" = commit ]; then shift; "$https" commit; certs=1; fi
-      "$https" set "$@"
-      if ! systemctl restart "$unit" || ! proxy_up; then
+      case "$1" in
+        commit) shift; "$https" commit; certs=restore ;;
+        dns-commit) shift; "$https" dns-commit; certs=dns-restore ;;
+      esac
+      # A refused setting puts back what commit replaced (it is checked earlier, but never trusted).
+      if ! "$https" set "$@"; then
+        [ -z "$certs" ] || "$https" "$certs"
+        die "nothing changed"
+      fi
+      since="$(date '+%Y-%m-%d %H:%M:%S')"
+      revert() {
+        trap - INT TERM HUP
         if [ -n "$saved" ]; then printf '%s\n' "$saved" > "$https_conf"; else rm -f "$https_conf"; fi
-        [ "$certs" = 0 ] || "$https" restore
+        [ -z "$certs" ] || "$https" "$certs"
+      }
+      # Interrupted while waiting (Ctrl-C, a dropped SSH session): the previous setting comes back.
+      trap 'revert; systemctl restart "$unit"; die "interrupted, so the previous setting is back"' INT TERM HUP
+      if ! systemctl restart "$unit" || ! proxy_up || ! acme_up; then
+        revert
         if systemctl restart "$unit" && proxy_up; then
           die "Caddy didn't come up with it, so the previous setting is back: sudo journalctl -u $unit"
         fi
         die "Caddy didn't come up with it, nor with the previous setting: sudo journalctl -u $unit, then sudo halosctl https off"
       fi
+      trap - INT TERM HUP
     }
     case "${args[0]:-}" in
       '') show ;;
       ca) "$https" ca ;;
+      forget-dns)
+        [ -d "${HALOS_HTTPS_ETC:-/etc/halos}/https/dns" ] || { echo "No DNS credentials are saved."; exit 0; }
+        confirm "Delete the saved DNS provider credentials? (Revoke them at the provider too.)"
+        "$https" dns-forget
+        echo "Deleted." ;;
       off)
         [ "$("$https" mode)" != off ] || { echo "HTTPS is already off."; exit 0; }
         confirm "Go back to plain HTTP on 8731 and 8732? Apps set to https:// stop working until changed back."
@@ -674,7 +751,58 @@ case "$cmd" in
         apply commit custom
         record https "$old" custom
         show ;;
-      *) die "https self-signed, custom <certificate> <key>, off, ca, or nothing for its state" ;;
+      letsencrypt)
+        [ "${#args[@]}" -ge 3 ] || die "https letsencrypt <cloudflare|duckdns|porkbun|namecheap> <name>... [--email <address>] [--staging]"
+        p="${args[1]}"
+        case "$p" in
+          cloudflare|duckdns) fields=(api_token) ;;
+          porkbun) fields=(api_key api_secret_key) ;;
+          namecheap) fields=(api_key user client_ip) ;;
+          *) die "the DNS provider must be cloudflare, duckdns, porkbun or namecheap (how to make each one's key: INSTALL.md, HTTPS)" ;;
+        esac
+        old="$("$https" mode)"
+        set_args=(letsencrypt "$p")
+        [ -z "$email" ] || set_args+=(--email "$email")
+        [ "$staging" = 0 ] || set_args+=(--staging)
+        set_args+=("${args[@]:2}")
+        # Names, email and provider checked before any secret is asked for.
+        "$https" set --check "${set_args[@]}" || exit 1
+        echo "Let's Encrypt certificates for ${args[*]:2}, through $p's API (DNS-01: no port is opened to the"
+        echo "internet). Each name must be in a zone at $p, and point to this machine (a private address is"
+        echo "fine). Certificates are public: the names appear in Certificate Transparency logs."
+        [ "$staging" = 0 ] || echo "Staging: Let's Encrypt's test service, whose certificates apps don't trust."
+        # The provider's credentials: asked for here (secrets not shown), or field=value lines on
+        # stdin with --yes; never as arguments, which sudo's log and shell history would keep.
+        dnsconf="${HALOS_HTTPS_ETC:-/etc/halos}/https/dns"
+        saved_p="$(cat "$dnsconf/provider" 2> /dev/null || true)"
+        "$https" dns-discard   # nothing half-staged from an earlier, interrupted run
+        creds=""
+        if [ -t 0 ]; then
+          if [ "$saved_p" != "$p" ] || ! ask "Use the $p credentials saved before? [Y/n]" y; then
+            for f in "${fields[@]}"; do
+              case "$f" in
+                user) read -rp "$p API user name: " v ;;
+                client_ip) read -rp "This machine's public IPv4 address, as allowed in Namecheap's API settings: " v ;;
+                *) read -rsp "$p $f (not shown): " v; echo ;;
+              esac
+              creds+="$f=$v"$'\n'
+            done
+          fi
+        else
+          creds="$(head -c 4096)"
+          [ -n "$creds" ] || [ "$saved_p" = "$p" ] || die "no $p credentials: give them as field=value lines on stdin (${fields[*]})"
+        fi
+        if [ -n "$creds" ]; then printf '%s' "$creds" | "$https" dns-stage "$p"; fi
+        unset creds v
+        if ! ( confirm "Turn on HTTPS with Let's Encrypt?" ); then "$https" dns-discard; exit 1; fi
+        if [ -d "$dnsconf/.pending" ]; then
+          apply dns-commit "${set_args[@]}"
+          # They work, so the replaced ones go (revoke those at the provider too).
+          "$https" dns-forget-prev
+        else apply "${set_args[@]}"; fi
+        record https "$old" letsencrypt
+        show ;;
+      *) die "https self-signed, custom <certificate> <key>, letsencrypt <provider> <name>..., off, ca, forget-dns, or nothing for its state" ;;
     esac
     ;;
   history)

@@ -1,0 +1,50 @@
+# halOS's front door (halos-proxy.service), Let's Encrypt mode (sudo halosctl https letsencrypt):
+# the public names (HALOS_ACME_API_SITES, HALOS_ACME_DASH_SITES) get Let's Encrypt certificates
+# through the DNS provider's API (HALOS_ACME_DNS); this machine's local names and addresses
+# (HALOS_API_SITES, HALOS_DASH_SITES) keep halOS's own authority, so apps on the network that use an
+# address, and halOS's own checks, still connect. The https helper writes all of these before Caddy
+# starts. Adapted for every provider when the image is built.
+{
+	# As Caddyfile.https: no admin API, no saved configuration, no HTTP/3, no port 80 (the
+	# challenge is DNS-01, and http:// is redirected on the same port).
+	admin off
+	persist_config off
+	auto_https disable_redirects
+	skip_install_trust
+	servers {
+		listener_wrappers {
+			http_redirect
+			tls
+		}
+		protocols h1 h2
+	}
+	grace_period 10s
+	# Every site without tls internal below (the public names) gets its certificate from this CA
+	# (Let's Encrypt, or its staging directory), through the DNS provider's API: DNS-01 needs no
+	# port open to the internet. The credentials are never in this file, the environment or a
+	# command line: Caddy reads them from its runtime folder when it starts.
+	acme_ca {$HALOS_ACME_CA}
+	cert_issuer acme
+	import /usr/share/halos/proxy/acme/dns-{$HALOS_ACME_DNS}.caddy
+	import /usr/share/halos/proxy/acme/email-{$HALOS_ACME_EMAIL_SET}.caddy
+}
+
+import /usr/share/halos/proxy/sites.caddy
+
+{$HALOS_ACME_API_SITES} {
+	import api
+}
+
+{$HALOS_ACME_DASH_SITES} {
+	import dashboard
+}
+
+{$HALOS_API_SITES} {
+	import tls_internal
+	import api
+}
+
+{$HALOS_DASH_SITES} {
+	import tls_internal
+	import dashboard
+}

@@ -16,7 +16,8 @@ f df 'printf "Avail\n 900\n"'
 f halosctl 'echo "halosctl $*" >> "$FAKE/log"; printf "halOS x\nChannel:   edge\nHalogen:   0.19.1 (img)\nImage:     y\nNext boot: no change staged\nRollback:  z\n"'
 f agetty 'echo "agetty $*" >> "$FAKE/log"'
 f wall 'echo "wall $*" >> "$FAKE/log"'
-f hostname 'echo freyja'
+# A bare host name (as freyja's): the address shown is the IPv4 one; FAKE_FQDN gives a full name.
+f hostname 'case "${1:-}" in -I) echo "192.0.2.7 fd00::7 " ;; -f) echo "${FAKE_FQDN:-freyja}" ;; *) echo "${FAKE_HOST:-freyja}" ;; esac'
 printf 'HALOS_RELEASE=0.19.1-beta.1\nHALOGEN_VARIANT=npu\n' > "$work/release.env"
 export PATH="$work/bin:$PATH" HALOGEN_RELEASE_FILE="$work/release.env" HALOGEN_MODELS_DIR="$work/models" HALOS_RUN_DIR="$work/run"
 status="$repo/files/usr/libexec/halogen/login-status"
@@ -45,11 +46,11 @@ ok "the console line follows the download, the check and the start, and redraws 
 
 FAKE_SERVER=active FAKE_HEALTH=200 run
 expect "$issue" '- ready: http://\4:8731/v1'
-expect "$motd" 'ready: http://freyja:8731/v1'
+expect "$motd" 'ready: http://192.0.2.7:8731/v1'
 expect "$motd" 'Channel:   edge'
 expect "$motd" '900 GiB free'
-if grep -qE 'Image:|[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' "$motd"; then echo "the SSH message shows more than it should" >&2; exit 1; fi
-grep -q 'wall halOS: Halogen is ready at http://freyja:8731/v1' "$work/log" || { echo "no ready notice" >&2; exit 1; }
+if grep -qE 'Image:' "$motd"; then echo "the SSH message shows more than it should" >&2; exit 1; fi
+grep -q 'wall halOS: Halogen is ready at http://192.0.2.7:8731/v1' "$work/log" || { echo "no ready notice" >&2; exit 1; }
 grep -q 'curl .*http://127.0.0.1:18731/health' "$work/log" || { echo "login-status doesn't ask Halogen directly" >&2; exit 1; }
 if grep -q 'curl .*:8731/health' "$work/log"; then echo "login-status asks through Caddy (an access-log line every 30 s)" >&2; exit 1; fi
 FAKE_SERVER=active FAKE_HEALTH=200 run
@@ -60,8 +61,20 @@ ok "ready shows the address on the console, the name over SSH, and is announced 
 printf '#!/bin/bash\n[ "$1" = mode ] && echo self-signed\n' > "$work/https"; chmod +x "$work/https"
 HALOS_HTTPS_HELPER="$work/https" FAKE_SERVER=active FAKE_HEALTH=200 run
 expect "$issue" '- ready: https://\4:8731/v1'
-expect "$motd" 'ready: https://freyja:8731/v1'
+expect "$motd" 'ready: https://192.0.2.7:8731/v1'
 ok "with HTTPS on, the address says https://"
+# A full name, from the host name or the network's DNS, is shown rather than the address; with
+# Let's Encrypt, its public name (the one its certificate covers).
+FAKE_HOST=freyja.home.example FAKE_SERVER=active FAKE_HEALTH=200 run
+expect "$motd" 'ready: http://freyja.home.example:8731/v1'
+FAKE_FQDN=freyja.lan.example FAKE_SERVER=active FAKE_HEALTH=200 run
+expect "$motd" 'ready: http://freyja.lan.example:8731/v1'
+FAKE_FQDN=freyja.localdomain FAKE_SERVER=active FAKE_HEALTH=200 run
+expect "$motd" 'ready: http://192.0.2.7:8731/v1'
+printf '#!/bin/bash\ncase "$1" in mode) echo letsencrypt ;; public) echo halos.example.com ;; esac\n' > "$work/https"
+HALOS_HTTPS_HELPER="$work/https" FAKE_SERVER=active FAKE_HEALTH=200 run
+expect "$motd" 'ready: https://halos.example.com:8731/v1'
+ok "the address shown is the Let's Encrypt name, a full name, or the IPv4 address, never a bare host name"
 
 FAKE_SERVER=failed run
 expect "$issue" 'stopped: sudo halogenctl logs'

@@ -390,6 +390,37 @@ name, but allows saying halOS runs Halogen.
   lines, and `off`. Not done, for the owner to agree (security audit): a name-constrained root kept
   by root with Caddy holding only an intermediate, and the selftest comparing the served
   certificate in custom mode.
+  Let's Encrypt (#102 step 4): `HALOS_HTTPS=letsencrypt` with `HALOS_ACME_DNS` (cloudflare, duckdns,
+  porkbun, namecheap), `HALOS_HTTPS_NAMES` (public names only: two labels or more, no address,
+  no `.local`/`.lan`/`.home`/`.internal`), `HALOS_ACME_EMAIL`, `HALOS_ACME_STAGING`. Config
+  `Caddyfile.letsencrypt`: global `acme_ca`, `cert_issuer acme` and `import acme/dns-<provider>.caddy`
+  plus `acme/email-<yes|no>.caddy` (one policy for both ports: two `tls` blocks for the same name on
+  8731 and 8732 are refused as ambiguous); the public names' sites get ACME, the local names
+  (`names` minus the public ones) keep `tls internal`, so IP clients, the selftest and `proxy_up`
+  still work. Credentials: `https dns-stage <provider>` reads `field=value` lines from stdin only
+  (4 KiB, one printable word each, a Cloudflare token in the shape caddy-dns/cloudflare accepts,
+  since its refusal prints the token; DuckDNS 36 characters; Namecheap's `client_ip` an IPv4), into
+  `/etc/halos/https/dns/.pending` (root, 0700/0600); `dns-commit` keeps `.prev`, `dns-restore`; `env`
+  copies them into `$RUNTIME_DIRECTORY/dns_<field>` (as custom's certificate; `LoadCredential` was
+  not used, its behaviour for a missing folder unchecked) and fails closed without them; Caddy reads
+  them through `{file.…}`. halOS's DuckDNS and Namecheap modules check the values after
+  replacement in `Provision` and wrap the four record methods to replace the secret (raw and
+  URL-encoded) with `REDACTED` in errors (`go test ./dnsproviders/` runs in the caddy stage).
+  `halosctl https letsencrypt <provider> <name>... [--email] [--staging]` prompts (hidden) on a
+  terminal or reads stdin with `--yes`, offers to reuse the saved credential, waits up to
+  `HALOS_ACME_WAIT` (300 s) for each name to answer by SNI (`curl --resolve`, no `--retry`),
+  and otherwise prints Caddy's last errors and restores the mode and credentials. The selftest
+  checks the name against the system trust store (WARN staging or within 10 days, FAIL none or
+  ended). Namecheap's API replaces a domain's whole record list (libdns/namecheap `SetHosts`):
+  INSTALL warns. Review and audit fixes: `dns_value_ok` (provider shapes) runs in `dns-stage` and
+  again in `env` (a hand-edited token never reaches Caddy); `dns-stage` never echoes a line without
+  `field=`; `halosctl` runs `https set --check` (names, email) before asking for any secret, puts
+  back the credentials if `set` refuses, traps INT/TERM/HUP during the wait to revert, reads
+  Caddy's errors with `jq` (escaped quotes), and drops `.prev` once the new credentials work
+  (`https forget-dns` removes them all, refused while in use); `set self-signed` alone doesn't keep
+  the Let's Encrypt names. A new credential is first used at Caddy's next renewal when the name
+  already has a valid certificate (INSTALL says so). Real issuance can't run in CI; first checked
+  on freyja.
 
 ## Lessons already learned
 

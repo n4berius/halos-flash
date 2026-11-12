@@ -414,9 +414,12 @@ f ip 'echo "2: eth0    inet 192.0.2.7/24 scope global eth0\\       valid_lft for
 f systemctl 'echo "systemctl $*" >> "$FAKE/log"
   case "$*" in *"restart halos-proxy"*) if [ -n "${FAKE_PROXY_FAIL:-}" ] && grep -q "=$FAKE_PROXY_FAIL" "$FAKE/etc-https/https.env" 2> /dev/null; then exit 1; fi ;;
     *"is-active halos-proxy"*) echo active ;; esac'
+# FAKE_ACME_FAIL=1: Let's Encrypt never gives a certificate, so the public names never answer.
 f curl 'echo "curl $*" >> "$FAKE/log"
+  case "$*" in *--resolve*) if [ -n "${FAKE_ACME_FAIL:-}" ]; then printf 000; exit 35; fi ;; esac
   if [ -n "${FAKE_PROXY_DEAF:-}" ] && openssl x509 -in "$FAKE/etc-https/https/cert.pem" -noout -subject 2> /dev/null | grep -q "$FAKE_PROXY_DEAF"; then printf 000; exit 7; fi; printf 503'
 f sleep 'exit 0'
+f journalctl 'echo "{\"level\":\"error\",\"msg\":\"could not get certificate\",\"error\":\"DNS problem: NXDOMAIN looking up TXT for _acme-challenge.halos.example.com\"}"'
 ca_dir="$work/proxy-state/caddy/pki/authorities/local"; mkdir -p "$ca_dir"
 openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout "$work/ca.key" -out "$ca_dir/root.crt" -subj "/CN=Test Root" -days 30 2> /dev/null
 : > "$work/log"; "$ctl" https > "$work/out"; has '^HTTPS: off. Apps use http://192.0.2.7:8731/v1' "$work/out"
@@ -457,6 +460,42 @@ openssl x509 -in "$work/etc-https/https/cert.pem" -noout -subject | grep -q box.
 [ ! -e "$work/etc-https/https/.pending" ] || { echo "a refused certificate stayed staged" >&2; exit 1; }
 "$ctl" https off --yes > /dev/null
 printf 'HALOS_HTTPS=selfsigned\n' > "$work/etc-https/https.env"
-"$ctl" https > "$work/out"; has "isn't off, self-signed or custom" "$work/out"
+"$ctl" https > "$work/out"; has "isn't off, self-signed, custom or letsencrypt" "$work/out"
 "$ctl" https off --yes > /dev/null
 ok "https custom checks the key, changes nothing on no, and puts the old mode and certificate back if Caddy won't start or answer"
+
+# Let's Encrypt: the provider's credentials come from stdin (or a hidden prompt), never arguments.
+if "$ctl" https letsencrypt route53 halos.example.com --yes < /dev/null > /dev/null 2>&1; then echo "took an unknown DNS provider" >&2; exit 1; fi
+if "$ctl" https letsencrypt cloudflare halos.example.com --yes < /dev/null > "$work/out" 2>&1; then echo "letsencrypt passed without credentials" >&2; exit 1; fi
+has 'field=value lines on stdin' "$work/out"
+if "$ctl" https self-signed --staging --yes > /dev/null 2>&1; then echo "--staging was taken outside letsencrypt" >&2; exit 1; fi
+: > "$work/log"
+printf 'api_token=secret-cf-token-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n' | "$ctl" https letsencrypt cloudflare halos.example.com --email admin@example.com --staging --yes > "$work/out"
+has 'Certificate Transparency' "$work/out"; has 'https +off -> letsencrypt' "$work/history"
+has '^HTTPS: on, with Let.s Encrypt certificates for halos.example.com \(DNS: cloudflare\)' "$work/out"; has 'staging' "$work/out"
+has 'resolve halos.example.com:8731:127.0.0.1' "$work/log"
+grep -qx 'HALOS_ACME_STAGING=1' "$work/etc-https/https.env" || { echo "--staging wasn't saved" >&2; exit 1; }
+if grep -rq secret-cf-token "$work/log" "$work/history" "$work/out" "$work/etc-https/https.env"; then echo "the token leaked outside its file" >&2; exit 1; fi
+# Again without --staging: the saved credentials are used when stdin gives none.
+"$ctl" https letsencrypt cloudflare halos.example.com --yes < /dev/null > "$work/out"
+grep -qx 'HALOS_ACME_STAGING=0' "$work/etc-https/https.env" || { echo "production wasn't saved" >&2; exit 1; }
+# No certificate in time: the previous mode and credentials come back, with Let's Encrypt's reason.
+if printf 'api_token=other-token-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC\n' | FAKE_ACME_FAIL=1 HALOS_ACME_WAIT=2 "$ctl" https letsencrypt cloudflare other.example.com --yes > "$work/out" 2>&1; then
+  echo "letsencrypt passed without a certificate" >&2; exit 1; fi
+has 'NXDOMAIN' "$work/out"; has 'previous setting is back' "$work/out"
+grep -qx 'HALOS_HTTPS_NAMES=halos.example.com' "$work/etc-https/https.env" || { echo "the old names weren't put back" >&2; exit 1; }
+[ "$(cat "$work/etc-https/https/dns/api_token")" = secret-cf-token-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBB ] || { echo "the old token wasn't put back" >&2; exit 1; }
+# A bad name or email is refused before any credential is read or replaced (code review, audit).
+if printf 'api_token=new-token-DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD\n' | "$ctl" https letsencrypt cloudflare halos.lan --yes > "$work/out" 2>&1; then echo "took halos.lan" >&2; exit 1; fi
+if printf 'api_token=new-token-DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD\n' | "$ctl" https letsencrypt cloudflare halos.example.com --email bad@ --yes > "$work/out" 2>&1; then echo "took a bad email" >&2; exit 1; fi
+[ "$(cat "$work/etc-https/https/dns/api_token")" = secret-cf-token-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBB ] || { echo "a refused command replaced the token" >&2; exit 1; }
+# Another provider that never gets a certificate: the first provider's credentials come back.
+if printf 'api_key=pk1_x\napi_secret_key=sk1_y\n' | FAKE_ACME_FAIL=1 HALOS_ACME_WAIT=2 "$ctl" https letsencrypt porkbun halos.example.com --yes > "$work/out" 2>&1; then echo "porkbun passed without a certificate" >&2; exit 1; fi
+[ "$(cat "$work/etc-https/https/dns/provider")" = cloudflare ] || { echo "the provider switch wasn't put back" >&2; exit 1; }
+# A new credential that works replaces the old one for good (no copy kept).
+printf 'api_token=new-token-DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD\n' | "$ctl" https letsencrypt cloudflare halos.example.com --yes > /dev/null
+[ ! -e "$work/etc-https/https/dns/.prev" ] || { echo "the replaced token was kept" >&2; exit 1; }
+if "$ctl" https forget-dns --yes > /dev/null 2>&1; then echo "forget-dns ran while in use" >&2; exit 1; fi
+"$ctl" https off --yes > /dev/null
+"$ctl" https forget-dns --yes > /dev/null; [ ! -e "$work/etc-https/https/dns" ] || { echo "forget-dns left the credentials" >&2; exit 1; }
+ok "https letsencrypt takes credentials from stdin only, waits for the certificate by name, and puts everything back if none comes"
