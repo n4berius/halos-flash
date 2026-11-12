@@ -92,6 +92,7 @@ account). Then run `sudo halosctl setup` and let the first boot download the mod
 | `/srv/configs` | `halogen.env` (yours), `halogen.env.example` (every option, refreshed each boot), `api-key`, `flash-checkpoint` (which Flash checkpoint is served) | Edit `halogen.env`; `sudo halogenctl flash use` for `flash-checkpoint` |
 | `/usr/share/halogen` | Locked settings and the allowed-option list | Rebuild only, read-only |
 | `/srv/models` | Flash weights and NPU models, about 125 GB, on their own volume | Fetched on first boot |
+| `/srv/logs/halogen` | Halogen's request records, when on: counts only unless you choose text | `sudo halogenctl records` ([how](INSTALL.md#request-records)) |
 | `/srv/models/flash` | Your own Flash checkpoints, about 60 to 110 GB each | `sudo halogenctl flash pull` ([how](INSTALL.md#your-own-flash-checkpoint)) |
 | BIOS | UMA frame buffer at its explicit minimum, not Auto; newest firmware | Set by hand |
 

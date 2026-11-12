@@ -421,12 +421,17 @@ else
   case "$label" in *container_file_t*|'') say PASS folder-logs "$d is ready for request records, on $where" ;;
     *) say FAIL folder-logs "$d has SELinux label $label, not container_file_t" ;; esac
 fi
-if [ ! -f "$records_dropin" ]; then say INFO records "off (sudo halogenctl records on keeps a line per request, counts only)"
+# Halogen's own counts (written, dropped, size), when it answers; nothing when it doesn't record.
+rr="$(curl -sS -m 5 "http://127.0.0.1:$local_port/health" 2>/dev/null | jq -c '.request_records // empty' 2>/dev/null | tr -cd '[:print:]' | cut -c1-200)"
+if [ ! -f "$records_dropin" ]; then
+  if [ -n "$rr" ]; then say WARN records "off, but Halogen still keeps records (an off cut short?): sudo halogenctl records off"
+  else say INFO records "off (sudo halogenctl records on keeps a line per request, counts only)"; fi
 else
-  used="$(as_owner du -sh "$d" | cut -f1 | tr -cd '[:print:]')"
-  # Halogen's own counts (written, dropped, size), when it answers.
-  rr="$(curl -sS -m 5 "http://127.0.0.1:$local_port/health" 2>/dev/null | jq -c '.request_records // empty' 2>/dev/null | tr -cd '[:print:]' | cut -c1-200)"
-  if [ -n "$rr" ]; then say PASS records "on, ${used:-?} in $d; Halogen reports $rr"
+  used="$(as_owner timeout "${HALOGEN_SELFTEST_TIMEOUT:-20}" du -sh "$d" | cut -f1 | tr -cd '[:print:]')"
+  # The mount must be in halogen's generated unit; without it Halogen would write inside its container.
+  mounted=1; ! declare -F user > /dev/null || mounted="$(user cat halogen.service | grep -c -F 'srv/logs/halogen:/records')"
+  if [ "${mounted:-0}" = 0 ]; then say WARN records "on, but Halogen's service doesn't mount $d: sudo halogenctl records off, then on"
+  elif [ -n "$rr" ]; then say PASS records "on, ${used:-?} in $d; Halogen reports $rr"
   elif [ "${running:-0}" = 1 ]; then say WARN records "on, but Halogen's /health has no request_records: is the mount in place? sudo halogenctl restart"
   else say INFO records "on, ${used:-?} in $d (Halogen isn't running)"; fi
 fi

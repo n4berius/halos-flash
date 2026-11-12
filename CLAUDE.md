@@ -441,11 +441,16 @@ name, but allows saying halOS runs Halogen.
   `HALOGEN_RECORD_TEXT` to `none` (owner's decision; Halogen's own default is `all`), checks TEXT
   (Halogen refuses to start on an unknown field), GIB and DAYS, and drops all three while off.
   `prepare` makes `/srv/logs` (halogen, 0750, `container_file_t`) and `logs/halogen` (0700, as
-  halogen); `halogen-prepare.service` may write there. `records stats|prune` run
-  `podman exec halogen python3 /halogen/tools/request_records.py <cmd> /records` through
-  `halogen_run` (the output carries client names), prune only with `--days/--gib/--session/--unit/--all`
-  and plain values, after asking. The selftest's `folder-logs` (own volume or /var) and `records`
-  (INFO off; PASS with `/health`'s `request_records`; WARN when on but /health has none). Earlier
+  halogen); `halogen-prepare.service` may write there. `records stats|prune` run Halogen's
+  `request_records.py <cmd> /records` through `halogen_run` (the output carries client names):
+  `podman exec` while on and running (one writer), else a one-off `podman run --rm --network=none
+  --read-only --cap-drop=all` of the pinned image with only the folder (so records kept before
+  `off` can still be pruned); prune only with `--days/--gib/--session/--unit/--all` and plain
+  values, after asking; on/off/prune need root; `off` restarts Halogen when its `/health` still
+  shows `request_records` (an off cut short); the drop-in folder is `install -d -m 0755` (no-NPU
+  doesn't ship it). The selftest's `folder-logs` (own volume or /var) and `records`
+  (INFO off; PASS with `/health`'s `request_records`; WARN when on but /health has none or
+  halogen's generated unit lacks the mount, and when off but /health still has them). Earlier
   installs keep `/srv/logs` on `/var`: the guided install leaves no free extents (models `--grow`,
   XFS can't shrink). The VM test checks the volume, the folder, on/off, the mount in the generated
   unit and the rendered settings; recording itself needs Halogen running, so freyja checks it.

@@ -294,6 +294,10 @@ ok "flash convert checks first, asks, starts one conversion as its own unit and 
 # stats and prune run Halogen's own tool inside the container, with only the options it documents.
 export HALOGEN_RECORDS_DROPIN="$work/dropin.d/20-records.conf" HALOGEN_LOGS_DIR="$work/logs"
 mkdir -p "$work/logs/halogen"
+printf 'HALOGEN_IMAGE=ghcr.io/peonist-ai/halogen-flash-server@sha256:abc\n' > "$work/release.env"
+export HALOGEN_RELEASE_FILE="$work/release.env"
+f id 'if [ "$1" = -u ]; then echo "${FAKE_UID:-0}"; else exec /usr/bin/id "$@"; fi'
+f curl 'h="${FAKE_HEALTH:-}"; [ -n "$h" ] || h="{\"status\":\"ok\"}"; echo "$h"'
 f systemctl 'echo "systemctl $*" >> "$FAKE/log"; case "$*" in *"is-active --quiet halogen.service"*) [ -z "${FAKE_INACTIVE:-}" ] ;; esac'
 f systemd-run 'echo "systemd-run $*" >> "$FAKE/log"; case "$*" in *render-config*) echo HALOGEN_RECORD_TEXT=none ;; *request_records*) echo "turns 3" ;; esac'
 : > "$work/log"
@@ -316,5 +320,18 @@ for bad in '--days x' '--gib 1;id' '--session ../x' '--path /etc' ''; do
 done
 FAKE_INACTIVE=1 "$ctl" records off --yes > "$work/out" || { cat "$work/out" "$work/log" >&2; exit 1; }
 if [ -e "$work/dropin.d/20-records.conf" ] || ! grep -q "next starts" "$work/out"; then cat "$work/out" >&2; echo "records off did not remove the mount" >&2; exit 1; fi
-if FAKE_INACTIVE=1 "$ctl" records stats > /dev/null 2>&1; then echo "stats ran with Halogen stopped" >&2; exit 1; fi
-ok "records on/off mounts the folder (after asking) and restarts; stats and prune run Halogen's tool with checked options"
+# Off (or stopped): the records kept before are still reached, in a one-off container of the
+# pinned image with only that folder, no network and nothing writable but it.
+: > "$work/log"; "$ctl" records prune --all --yes > /dev/null
+if ! grep -q 'podman run --rm --pull=never --network=none --read-only --cap-drop=all --security-opt no-new-privileges -v /srv/logs/halogen:/records --entrypoint python3 ghcr.io/peonist-ai/halogen-flash-server@sha256:abc /halogen/tools/request_records.py prune /records --all$' "$work/log"; then
+  cat "$work/log" >&2; echo "prune after off didn't reach the kept records" >&2; exit 1
+fi
+if grep -q 'podman exec' "$work/log"; then echo "prune after off ran in the server's container" >&2; exit 1; fi
+# An off cut short (drop-in gone, Halogen still recording): off restarts it.
+: > "$work/log"; FAKE_HEALTH='{"request_records":{"written":1}}' "$ctl" records off --yes > /dev/null
+grep -q 'restart halogen.service' "$work/log" || { echo "a server still recording wasn't restarted" >&2; exit 1; }
+: > "$work/log"; "$ctl" records off --yes > /dev/null
+if grep -q 'restart halogen.service' "$work/log"; then echo "off restarted a server that doesn't record" >&2; exit 1; fi
+if FAKE_UID=1000 "$ctl" records on --yes > "$work/out" 2>&1 || ! grep -q 'Run it with sudo' "$work/out"; then echo "records on ran without root" >&2; exit 1; fi
+"$ctl" records prune --session ab_C-12 --yes > /dev/null || { echo "a base64url hash was refused" >&2; exit 1; }
+ok "records on/off mounts the folder (after asking) and restarts; stats and prune run Halogen's tool with checked options, also after off"

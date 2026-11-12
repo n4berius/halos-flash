@@ -261,7 +261,7 @@ changes. Machines upgraded from an earlier release never wait.
 
 After setup, the first boot runs in this order:
 
-1. `halogen-prepare` creates `/srv/models`, `/srv/configs`, the config file and an API key.
+1. `halogen-prepare` creates `/srv/models`, `/srv/configs`, `/srv/logs`, the config file and an API key.
 2. On the NPU edition, `halogen-fabric-clock` holds the clock Halogen needs for GPU and NPU
    together.
 3. `halogen-fetch` pulls the pinned Halogen container and downloads the models. Interrupted
@@ -603,6 +603,9 @@ sudo halogenctl records prune --days 7    # or --gib 1, --all
 sudo halogenctl records off       # what was kept stays until you prune it
 ```
 
+`stats` and `prune` also work while recording is off or Halogen is stopped: they then run
+Halogen's tool in a short-lived container that sees only the records folder.
+
 The records go to `/srv/logs/halogen`, readable by the `halogen` user only. Three settings in
 `/srv/configs/halogen.env` shape them (then `sudo halogenctl restart`):
 
@@ -612,7 +615,11 @@ The records go to `/srv/logs/halogen`, readable by the `halogen` user only. Thre
   it is recorded too, and the session fields are whatever a client claims.
 - `HALOGEN_RECORD_GIB`: the folder's size cap, 2 GiB by default. Past it, new records are dropped
   and counted; requests are never slowed or refused.
-- `HALOGEN_RECORD_DAYS`: how many days to keep, 90 by default. Halogen deletes older ones itself.
+- `HALOGEN_RECORD_DAYS`: how many days to keep, 90 by default. Halogen deletes older ones itself,
+  while recording is on; after `records off`, use `records prune`.
+
+Halogen's `/health` address answers anyone who can reach port 8731, and while recording is on it
+shows the counts (records written and dropped) and which text is kept, never the records.
 
 New installs give `/srv/logs` a 4 GiB volume of its own, so records can never fill `/var`.
 Machines installed earlier keep it as a folder on `/var` (60 GiB), where the 2 GiB cap keeps it

@@ -465,9 +465,25 @@ case "${1:-status}" in
       [ "$answer" = y ] || [ "$answer" = Y ] || { echo "Nothing changed."; exit 1; }
     }
     running() { unit is-active --quiet halogen.service; }
-    # Halogen's own tool, inside the running container, as halogen; its output is filtered (the
-    # client names in it come from requests).
-    tool() { local c="$1"; shift; halogen_run podman exec halogen python3 /halogen/tools/request_records.py "$c" /records "$@"; }
+    # Whether the running Halogen keeps records (its /health says so), whatever the drop-in says.
+    recording() { curl -sS -m 5 "http://127.0.0.1:${HALOS_API_LOCAL_PORT:-18731}/health" 2> /dev/null | jq -e '.request_records' > /dev/null 2>&1; }
+    # Halogen's own tool, as halogen; its output is filtered (the client names in it come from
+    # requests). While Halogen records, inside its container, so two writers never meet; otherwise
+    # (off, or stopped) in a one-off container of the pinned image with only the folder mounted,
+    # so records kept before can still be read and deleted.
+    tool() {
+      local c="$1" image; shift
+      if [ -f "$dropin" ] && running; then
+        halogen_run podman exec halogen python3 /halogen/tools/request_records.py "$c" /records "$@"
+      else
+        image="$(sed -n 's/^HALOGEN_IMAGE=//p' "${HALOGEN_RELEASE_FILE:-/usr/share/halogen/release.env}" | tail -n 1 | tr -d "\"'")"
+        [ -n "$image" ] || { echo "No Halogen image named in the release file." >&2; exit 1; }
+        halogen_run podman run --rm --pull=never --network=none --read-only --cap-drop=all \
+          --security-opt no-new-privileges -v /srv/logs/halogen:/records --entrypoint python3 \
+          "$image" /halogen/tools/request_records.py "$c" /records "$@"
+      fi
+    }
+    case "${args[0]:-}" in on|off|prune) [ "$(id -u)" = 0 ] || { echo "Run it with sudo: sudo halogenctl records ${args[*]}" >&2; exit 1; } ;; esac
     case "${args[0]:-}" in
       '')
         if [ -f "$dropin" ]; then
@@ -483,12 +499,17 @@ case "${1:-status}" in
         if [ "${args[0]}" = on ]; then
           [ ! -f "$dropin" ] || { echo "Request records are already on."; exit 0; }
           confirm "Keep a record of every request Halogen answers (counts and settings, no text unless HALOGEN_RECORD_TEXT says so) in $logdir? Halogen restarts."
-          mkdir -p "${dropin%/*}"
+          # Readable by halogen whatever root's umask: its Quadlet generator and render-config read it.
+          install -d -m 0755 "${dropin%/*}"
           printf '%s\n' "# Written by sudo halogenctl records on; removed by records off." "[Container]" \
             "Volume=/srv/logs/halogen:/records" > "$dropin.new"
           chmod 0644 "$dropin.new"; mv -f "$dropin.new" "$dropin"
         else
-          [ -f "$dropin" ] || { echo "Request records are already off."; exit 0; }
+          if [ ! -f "$dropin" ]; then
+            # Already off, unless an earlier off was cut short before Halogen restarted.
+            if running && recording; then echo "Off, but Halogen still records: restarting it."; start_halogen restart; fi
+            echo "Request records are already off."; exit 0
+          fi
           confirm "Stop keeping request records? What is kept stays in $logdir (sudo halogenctl records prune --all deletes it). Halogen restarts."
           rm -f "$dropin"
         fi
@@ -497,7 +518,6 @@ case "${1:-status}" in
         else echo "Done; it applies when Halogen next starts (sudo halogenctl start)."; fi
         ;;
       stats)
-        running || { echo "Halogen isn't running; its tool reads the records inside it: sudo halogenctl start" >&2; exit 1; }
         [ -f "$dropin" ] || echo "(Request records are off; showing what was kept before.)"
         tool stats
         ;;
@@ -510,13 +530,12 @@ case "${1:-status}" in
             --all) p+=(--all); i=$((i + 1)); continue ;;
             --days) [[ "$v" =~ ^[0-9]+$ ]] || { echo "--days takes a whole number" >&2; exit 2; } ;;
             --gib) [[ "$v" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "--gib takes a number" >&2; exit 2; } ;;
-            --session|--unit) [[ "$v" =~ ^[0-9A-Za-z]{1,128}$ ]] || { echo "$o takes a hash, as shown in the records" >&2; exit 2; } ;;
+            --session|--unit) [[ "$v" =~ ^[0-9A-Za-z_][0-9A-Za-z_-]{0,127}$ ]] || { echo "$o takes a hash, as shown in the records" >&2; exit 2; } ;;
             *) echo "usage: halogenctl records prune --days <n> | --gib <g> | --session <hash> | --unit <hash> | --all [--yes]" >&2; exit 2 ;;
           esac
           p+=("$o" "$v"); i=$((i + 2))
         done
         [ "${#p[@]}" -gt 0 ] || { echo "usage: halogenctl records prune --days <n> | --gib <g> | --session <hash> | --unit <hash> | --all [--yes]" >&2; exit 2; }
-        running || { echo "Halogen isn't running; its tool prunes inside it: sudo halogenctl start" >&2; exit 1; }
         confirm "Delete request records (${p[*]})?"
         tool prune "${p[@]}"
         ;;

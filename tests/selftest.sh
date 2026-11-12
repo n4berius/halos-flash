@@ -40,12 +40,13 @@ f systemctl 'case "$*" in *--failed*) cat "$FAKE/failed" 2>/dev/null ;; *"show -
   *"is-enabled halos-dashboard"*) echo "${FAKE_DASH:-enabled}" ;; *"is-active halos-proxy"*) echo "${FAKE_PROXY:-active}" ;;
   *"IPIngressBytes --value halos-dashboard"*) echo "${FAKE_DASH_IPIN-1234}" ;; *"IPAddressDeny --value halos-dashboard"*) echo "${FAKE_DASH_DENY-0.0.0.0/0 ::/0}" ;;
   *"IPAddressAllow --value halos-dashboard"*) echo "127.0.0.0/8 ::1/128" ;; *"MainPID --value halos-dashboard"*) echo "${FAKE_DASH_PID-4242}" ;;
+  *"cat halogen.service"*) echo "${FAKE_UNIT-ExecStart=podman run -v /srv/logs/halogen:/records x}" ;;
   *halogen-fetch*) echo "${FAKE_FETCH:-inactive}" ;; *) echo "${FAKE_STATE:-active}" ;; esac'
 f fabric-clock 'exit 0'
 f ssh-unlock 'case "$1" in verify) exit "${FAKE_VERIFY:-0}" ;; *) echo "${FAKE_SSHU:-on 2}" ;; esac'
 # Group, owner and label as the real image sets them.
 f stat 'case "$2" in %G|%U) echo halogen ;; %u) case "$3" in /proc/4242/environ) echo "${FAKE_DASH_DUMP_UID:-0}" ;; *) exec /usr/bin/stat "$@" ;; esac ;; %C) case "$3" in *accel*) echo system_u:object_r:dri_device_t:s0 ;; *) echo system_u:object_r:container_file_t:s0 ;; esac ;; *) exec /usr/bin/stat "$@" ;; esac'
-f curl 'echo "curl $*" >> "$FAKE/curl.log"; case "$*" in *-w*) ;; *18731/health*) echo "${FAKE_HEALTH:-{\"status\":\"ok\"}}"; exit 0 ;; esac; case "$*" in *8732/healthz*) printf "${FAKE_DASH_CODE:-200}" ;; *models*) echo "{\"data\":[{\"id\":\"halogen-qwen3.8-flash-next\"},{\"id\":\"qwen3.5-2b\"}]}" ;; *::1*) [ -n "${FAKE_NOIPV6:-}" ] && printf 000 || printf 200 ;; *) printf 200 ;; esac'
+f curl 'echo "curl $*" >> "$FAKE/curl.log"; case "$*" in *-w*) ;; *18731/health*) h="${FAKE_HEALTH:-}"; [ -n "$h" ] || h="{\"status\":\"ok\"}"; echo "$h"; exit 0 ;; esac; case "$*" in *8732/healthz*) printf "${FAKE_DASH_CODE:-200}" ;; *models*) echo "{\"data\":[{\"id\":\"halogen-qwen3.8-flash-next\"},{\"id\":\"qwen3.5-2b\"}]}" ;; *::1*) [ -n "${FAKE_NOIPV6:-}" ] && printf 000 || printf 200 ;; *) printf 200 ;; esac'
 echo "halogen" > "$work/services"
 # Files halogen owns are read through runuser (security audit P2/P7); log it, then run the command.
 f runuser 'echo "runuser $*" >> "$FAKE/runuser.log"; [ "$1 $2 $3" = "-u halogen --" ] || exit 9; shift 3; exec "$@"'
@@ -97,8 +98,13 @@ expect '^INFO records: off'
 : > "$work/20-records.conf"
 FAKE_HEALTH='{"request_records":{"written":3,"dropped_cap":0}}' "$selftest" > "$work/out" 2>&1 || true
 expect '^PASS records: on, .* Halogen reports \{"written":3,"dropped_cap":0\}'
-"$selftest" > "$work/out" 2>&1 || true; expect '^WARN records: on, but'
+"$selftest" > "$work/out" 2>&1 || true; expect '^WARN records: on, but Halogen.s /health'
+FAKE_UNIT='ExecStart=podman run x' FAKE_HEALTH='{"request_records":{"written":3}}' "$selftest" > "$work/out" 2>&1 || true
+expect "^WARN records: on, but Halogen's service doesn't mount"
 rm "$work/20-records.conf"
+# Off, but Halogen still records (an off cut short before the restart).
+FAKE_HEALTH='{"request_records":{"written":3}}' "$selftest" > "$work/out" 2>&1 || true; expect '^WARN records: off, but Halogen still keeps records'
+ok "request records: off, on with Halogen's counts, and a mount or state that doesn't match"
 FAKE_DASH=disabled "$selftest" > "$work/out" 2>&1 || true; expect '^INFO dashboard: off; .*halosctl dashboard on'
 FAKE_DASH_CODE=000 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN dashboard: .*journalctl -u halos-dashboard'
 refuse '^(PASS|WARN) dashboard-(filter|nodump)'

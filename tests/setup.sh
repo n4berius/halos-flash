@@ -119,7 +119,7 @@ f install 'a=(); while [ $# -gt 0 ]; do case "$1" in -o|-g) shift 2 ;; *) a+=("$
 f selinuxenabled 'exit 1'
 echo 'HALOGEN_FLASH_CTX=1' > "$work/default.env"
 rm -rf "$work/configs" "$work/state"; mkdir -p "$work/models"
-prep() { HALOGEN_MODELS_DIR="$work/models" HALOGEN_RELEASE_FILE="$work/release.env" HALOGEN_ENV_DEFAULT="$work/default.env" \
+prep() { HALOGEN_MODELS_DIR="$work/models" HALOGEN_LOGS_DIR="$work/logs" HALOGEN_RELEASE_FILE="$work/release.env" HALOGEN_ENV_DEFAULT="$work/default.env" \
   "$repo/files/usr/libexec/halogen/prepare" > /dev/null 2>&1; }
 prep
 [ -e "$work/state/setup-pending" ] || { echo "a new install got no marker" >&2; exit 1; }

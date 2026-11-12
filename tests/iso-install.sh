@@ -87,7 +87,7 @@ for v in /sysroot:root /var:var /var/log:log /var/log/audit:audit /var/home:home
          /var/srv/configs:configs /var/srv/logs:logs /var/srv/models:models; do
   grep -qx "${v%%:*} /dev/mapper/halos-${v#*:}" "$out/report.txt" || { echo "${v%%:*} is not on halos-${v#*:}" >&2; exit 1; }
 done
-# The models volume takes the rest: about 308 GiB of a 512 GB disk, 1690 GiB of a 2 TB one.
+# The models volume takes the rest: about 304 GiB of a 512 GB disk, 1686 GiB of a 2 TB one.
 models_gib="$(awk '$1 == "models" { printf "%d", $2 }' "$out/report.txt")"
 if [ "$variant" = npu ]; then want=290; else want=1650; fi
 [ "${models_gib:-0}" -ge "$want" ] || { echo "the models volume is ${models_gib:-missing} GiB, expected $want or more" >&2; exit 1; }
