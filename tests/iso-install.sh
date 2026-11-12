@@ -100,9 +100,12 @@ grep -qx 'PWJOURNAL 0' "$out/report.txt" || { echo "a password is in the journal
 # fwupd finds the EFI partition through udisks2 (#106), which starts only when asked; both editions.
 grep -qE '^ESPRC 0 [1-9][0-9]* disabled' "$out/report.txt" \
   || { echo "fwupd did not find the EFI partition at /boot/efi, or udisks2 is enabled:" >&2; grep '^ESPRC' "$out/report.txt" >&2; exit 1; }
-# Only root may use udisks2: the admin is refused (polkit rule), halogen can't reach it (D-Bus policy).
-grep -qE '^UDLOOP [1-9]' "$out/report.txt" || { echo "the admin could use udisks2 without sudo:" >&2; grep '^UDLOOP' "$out/report.txt" >&2; exit 1; }
-grep -qE '^UDBUS [1-9]' "$out/report.txt" || { echo "the halogen user could reach udisks2:" >&2; grep '^UDBUS' "$out/report.txt" >&2; exit 1; }
+# Only root may use udisks2: the admin gets polkit's flat no (NotAuthorized:, not NotAuthorizedCanObtain,
+# the default's "needs a password"), and halogen's call is refused by the bus while the same call
+# from the admin gets an answer, so the refusal is halogen's own.
+grep -qE '^UDLOOP [1-9]' "$out/report.txt" || { echo "the admin wasn't refused udisks2 by halOS's rule:" >&2; grep '^UDLOOP' "$out/report.txt" >&2; exit 1; }
+grep -qE '^UDBUS [1-9]' "$out/report.txt" || { echo "the halogen user could call udisks2:" >&2; grep '^UDBUS' "$out/report.txt" >&2; exit 1; }
+grep -qE '^UDBUSADMIN [1-9]' "$out/report.txt" || { echo "the control call to udisks2 got no answer, so the halogen check proves nothing:" >&2; grep '^UDBUS' "$out/report.txt" >&2; exit 1; }
 # The serial login prompt has the port check and still starts where the port answers (ttyS0).
 grep -qx 'SERIALGETTY active 1' "$out/report.txt" \
   || { grep SERIALGETTY "$out/report.txt" >&2; echo "the serial getty check is wrong" >&2; exit 1; }

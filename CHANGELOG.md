@@ -11,7 +11,7 @@ promoted.
 ## Unreleased
 
 - Only root may use the disk service udisks2, kept for firmware updates: an admin uses `sudo`,
-  and the `halogen` user that runs Halogen can't reach it at all. Firmware updates with
+  and the `halogen` user that runs Halogen can't call it at all. Firmware updates with
   `sudo fwupdmgr` work as before. (#110)
 - New guides: [the command reference](docs/CLI.md) lists every halOS command, and [Connecting
   apps](docs/CLIENTS.md) shows how to point Claude Code, Codex, Pi, oh-my-pi, opencode, Cline,

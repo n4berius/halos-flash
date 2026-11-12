@@ -426,8 +426,11 @@ name, but allows saying halOS runs Halogen.
   (security audit, owner agreed): `/usr/share/polkit-1/rules.d/10-halos-udisks2.rules` returns NO for
   every `org.freedesktop.udisks2.*` action to a non-root subject (polkit allows uid 0 before rules,
   so fwupd works), and `/usr/share/dbus-1/system.d/halos-udisks2.conf` denies the `halogen` user
-  any send to `org.freedesktop.UDisks2` (no activation, no properties). The VM test checks the admin
-  is refused `udisksctl loop-setup` and halogen gets "access denied", besides fwupd's ESPRC.
+  any send to `org.freedesktop.UDisks2` (no call, no properties; dbus-broker still activates the
+  service for the message, then refuses it at delivery). The VM test checks the admin gets polkit's
+  `Error.NotAuthorized:` from `udisksctl loop-setup -r` (without `-r` udisksctl opens the file
+  read-write itself and fails before asking), halogen's `busctl call` gets "not authorized to send"
+  while the admin's same call answers (`a{sv}`), besides fwupd's ESPRC.
 
 ## Lessons already learned
 
