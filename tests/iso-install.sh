@@ -97,6 +97,9 @@ grep -qE '^uid=[0-9]+\(admin\).*\(wheel\)' "$out/report.txt" || { echo "the admi
 # No password or passphrase in a file or the journal on the installed system.
 if grep -q '^PWLEAK ' "$out/report.txt"; then grep '^PWLEAK ' "$out/report.txt" >&2; echo "a password was written to disk" >&2; exit 1; fi
 grep -qx 'PWJOURNAL 0' "$out/report.txt" || { echo "a password is in the journal" >&2; exit 1; }
+# fwupd finds the EFI partition through udisks2 (#106), which starts only when asked; both editions.
+grep -qE '^ESPRC 0 [1-9][0-9]* disabled' "$out/report.txt" \
+  || { echo "fwupd did not find the EFI partition at /boot/efi, or udisks2 is enabled:" >&2; grep '^ESPRC' "$out/report.txt" >&2; exit 1; }
 # The serial login prompt has the port check and still starts where the port answers (ttyS0).
 grep -qx 'SERIALGETTY active 1' "$out/report.txt" \
   || { grep SERIALGETTY "$out/report.txt" >&2; echo "the serial getty check is wrong" >&2; exit 1; }
@@ -231,7 +234,4 @@ if [ -n "$luks" ]; then
     echo "bootc-fstab-edit still rewrote fstab" >&2; exit 1
   fi
   grep -qi "skipped due to 'exec-condition'" "$out/report.txt" || echo "note: bootc-fstab-edit wasn't made at this boot; fstab unchanged"
-  # fwupd finds the EFI partition through udisks2 (#106), which starts only when asked.
-  grep -qE '^ESPRC 0 [1-9][0-9]* (disabled|static)' "$out/report.txt" \
-    || { echo "fwupd did not find the EFI partition at /boot/efi, or udisks2 is enabled:" >&2; grep '^ESPRC' "$out/report.txt" >&2; exit 1; }
 fi
