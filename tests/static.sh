@@ -94,7 +94,7 @@ for rx in ("^[A-Za-z0-9_-]{35,50}$", "^cf(ut|at)_[A-Za-z0-9_-]{32,256}$"):
 # DNS credentials reach Caddy through systemd's credentials, read from root's folder (H5), never
 # copied into Caddy's own runtime folder.
 proxy = open("files/usr/lib/systemd/system/halos-proxy.service").read()
-assert "\nLoadCredential=dns:/etc/halos/https/dns\n" in proxy and "\nSetCredential=dns:\n" in proxy, "halos-proxy doesn't load the DNS credentials as credentials"
+assert "\nLoadCredential=dns:/etc/halos/https/dns\n" in proxy, "halos-proxy doesn't load the DNS credentials as credentials"
 for f in glob.glob("files/usr/share/halos/proxy/acme/dns-*.caddy"):
     body = open(f).read()
     assert "{file.{$CREDENTIALS_DIRECTORY}/dns_" in body and "RUNTIME_DIRECTORY" not in body, f"{f} doesn't read the credentials from CREDENTIALS_DIRECTORY"

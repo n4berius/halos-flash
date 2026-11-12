@@ -364,8 +364,8 @@ case "${1:-}" in
   dns-forget-prev) rm -rf "$dnsdir/.prev" ;;   # once the new credentials work
   dns-forget)   # all saved DNS credentials, when Let's Encrypt isn't in use
     [ "$(mode)" != letsencrypt ] || die "Let's Encrypt is in use: sudo halosctl https off (or self-signed) first"
-    # Emptied, not removed: halos-proxy loads this folder at every start, and in the VM test it
-    # didn't start once the folder was gone, although SetCredential= should cover that.
+    # Emptied, not removed: halos-proxy loads this folder at every start, and systemd refuses
+    # the start without it (243/CREDENTIALS, seen in the VM test).
     if [ -d "$dnsdir" ]; then find "$dnsdir" -mindepth 1 -delete; fi ;;
   dns-restore)
     [ -d "$dnsdir/.prev" ] || exit 0
