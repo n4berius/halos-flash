@@ -10,6 +10,10 @@ promoted.
 
 ## Unreleased
 
+- Firmware updates: `sudo fwupdmgr update` can now also update the Secure Boot revocation list
+  (dbx), instead of saying "UEFI ESP partition not detected". On a machine that unlocks its disk
+  with the TPM, such an update asks for the disk passphrase at the next boot; then run
+  `sudo halogen-enroll-tpm` once. (#106)
 - HTTPS with Let's Encrypt: `sudo halosctl https letsencrypt <provider> <name>` gets certificates
   every app already trusts, and renews them, for a public name you own, through Cloudflare's,
   DuckDNS's, Porkbun's or Namecheap's API. No port is opened to the internet. `--staging` tries

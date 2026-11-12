@@ -103,7 +103,9 @@ ARG HALOGEN_WEIGHTS_REVISION
 
 # A headless AMD server: AMD GPU, NPU and CPU firmware, the network firmware Strix Halo boards
 # use (Realtek, MediaTek, Qualcomm), the Wi-Fi channel rules (wireless-regdb, small, with iw;
-# the Wi-Fi driver asks for them at boot) and a few admin tools. fwupd stays for firmware updates.
+# the Wi-Fi driver asks for them at boot) and a few admin tools. fwupd stays for firmware updates,
+# with udisks2: fwupd finds the EFI partition only through it (EspLocation only picks among what it
+# lists), so without it the Secure Boot revocation list (dbx) can't be updated. It starts on demand.
 RUN dnf -y --setopt=install_weak_deps=False install \
       amd-gpu-firmware firewalld linux-firmware tpm2-tss \
       amdsmi nvtop htop pciutils usbutils tmux wireless-regdb nano bash-completion && \
@@ -112,12 +114,13 @@ RUN dnf -y --setopt=install_weak_deps=False install \
       cirrus-audio-firmware brcmfmac-firmware tiwilink-firmware nxpwireless-firmware \
       qcom-wwan-firmware microcode_ctl \
       'qemu-user-static*' toolbox sos python3-boto3 python3-botocore python3-s3transfer \
-      'sssd*' adcli libsmbclient 'samba-*' nfs-utils udisks2 libudisks2 \
+      'sssd*' adcli libsmbclient 'samba-*' nfs-utils \
       btrfs-progs nilfs-utils f2fs-tools ntfsprogs ntfs-3g exfatprogs udftools \
       fwupd-plugin-modem-manager ModemManager-glib libqmi libmbim && \
     dnf clean all && \
     rm -rf /var/log/dnf5.log /var/lib/dnf /var/cache/libdnf5 /run/dnf && \
-    rpm -q bash-completion fwupd skopeo jq amd-ucode-firmware realtek-firmware mt7xxx-firmware atheros-firmware && \
+    rpm -q bash-completion fwupd udisks2 skopeo jq amd-ucode-firmware realtek-firmware mt7xxx-firmware atheros-firmware && \
+    systemctl disable udisks2.service && ls /usr/share/dbus-1/system-services/org.freedesktop.UDisks2.service && \
     ls -d /usr/lib/firmware/amdgpu /usr/lib/firmware/amdnpu && \
     command -v runuser setpriv nano
 

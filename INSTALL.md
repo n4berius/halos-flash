@@ -371,6 +371,12 @@ Firmware updates use [fwupd](https://fwupd.org/). Check for them with
 `sudo fwupdmgr refresh && sudo fwupdmgr get-updates`, and apply them with
 `sudo fwupdmgr update`. A BIOS update reboots the machine, which stops Halogen until it is back.
 
+fwupd can also update the Secure Boot revocation list (dbx), the firmware's list of start-up
+programs it must refuse. The disk's TPM unlock is tied to the Secure Boot settings, so after a dbx
+update the next boot asks for the disk passphrase (at the screen, or over SSH if you set that up).
+Have it ready, and once the machine is up run `sudo halogen-enroll-tpm` to make it unlock on its
+own again. Without the TPM unlock, nothing changes at boot.
+
 ### The dashboard
 
 Open `http://<this machine's address>:8732` (next to the API on 8731) in a browser on your network for a live view of

@@ -74,7 +74,7 @@ typed("{ echo RESULT-START; cat /proc/cmdline; dmesg | grep -i secure; bootctl s
       "lsblk -f | grep -i crypto; sysctl kernel.dmesg_restrict kernel.kptr_restrict kernel.yama.ptrace_scope; sshd -T | grep -i x11forwarding; "
       "for d in $(lsblk -rno PATH,FSTYPE | awk '$2==\"crypto_LUKS\"{print $1}'); do cryptsetup luksDump $d | grep -i systemd-tpm2; done; vgs --noheadings -o vg_name; findmnt -rn -o TARGET,SOURCE -t xfs; sestatus | head -3; id halogen; loginctl show-user halogen -p Linger; "
       "systemctl status user@970.service --no-pager | head -4; journalctl --no-pager -n 8 -o cat _SYSTEMD_USER_UNIT=halogen-fetch.service; systemctl --failed --no-legend --no-pager; "
-      "systemctl is-active firewalld halogen-prepare; halosctl version; ls /etc/ssh/sshd_config.d; sshd -T | grep -i permitrootlogin; journalctl -b -o cat -u bootc-fstab-edit; echo FSTABMARK $(grep -c Updated.by.bootc-fstab-edit /etc/fstab); "
+      "systemctl is-active firewalld halogen-prepare; halosctl version; ls /etc/ssh/sshd_config.d; sshd -T | grep -i permitrootlogin; journalctl -b -o cat -u bootc-fstab-edit; echo FSTABMARK $(grep -c Updated.by.bootc-fstab-edit /etc/fstab); fwupdtool esp-list --json > /tmp/esp 2>&1; echo ESPRC $? $(grep -c /boot/efi /tmp/esp) $(systemctl is-enabled udisks2); "
       # Security audit P1: a link planted in /srv/models must not let root hand its target to halogen.
       # Only the NPU edition makes model folders, so on no-NPU this passes without testing much.
       "mkdir -p -m 755 /var/tmp/victim; mv /var/srv/models/custom /var/srv/models/custom.x; ln -s /var/tmp/victim /var/srv/models/custom; "
