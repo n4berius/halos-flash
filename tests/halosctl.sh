@@ -498,4 +498,7 @@ printf 'api_token=new-token-DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD\n' | "$ctl" htt
 if "$ctl" https forget-dns --yes > /dev/null 2>&1; then echo "forget-dns ran while in use" >&2; exit 1; fi
 "$ctl" https off --yes > /dev/null
 "$ctl" https forget-dns --yes > /dev/null; [ ! -e "$work/etc-https/https/dns" ] || { echo "forget-dns left the credentials" >&2; exit 1; }
+has '^systemctl try-restart halos-proxy.service$' "$work/log"   # Caddy drops the loaded copy
+mkdir -p "$work/etc-https/https/dns"
+"$ctl" https forget-dns --yes > "$work/out"; has 'No DNS credentials are saved' "$work/out"
 ok "https letsencrypt takes credentials from stdin only, waits for the certificate by name, and puts everything back if none comes"

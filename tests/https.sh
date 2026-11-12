@@ -218,6 +218,9 @@ printf 'api_token=cf-token-1-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' | "$h" dns-
 printf 'bad token HANDEDITED' > "$work/etc/https/dns/api_token"
 if "$h" env 2> "$work/err"; then fail "a malformed token on disk started Caddy"; fi
 if grep -q HANDEDITED "$work/err"; then fail "a malformed token was printed"; fi
+# A good token with extra newlines: Caddy would pass one on, and the plugin would print it.
+printf 'cf-token-1-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n\n' > "$work/etc/https/dns/api_token"
+if "$h" env 2> /dev/null; then fail "a token file with trailing newlines started Caddy"; fi
 # set --check: names and email checked without credentials, nothing written.
 cp "$work/etc/https.env" "$work/before"
 "$h" set --check letsencrypt porkbun other.example.com || fail "set --check needed credentials"

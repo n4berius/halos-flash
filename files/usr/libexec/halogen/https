@@ -197,11 +197,14 @@ case "${1:-}" in
             rm -f "$tmp"; die "HTTPS is set to letsencrypt, but the $p credential '$f' is missing: sudo halosctl https letsencrypt $p <name>..., or sudo halosctl https off"
           fi
           # Never printed: only whether it has its provider's shape.
-          if ! dns_value_ok "$p" "$f" "$(head -c 513 "$dnsdir/$f")" > /dev/null; then
+          # The whole file, byte for byte: $(...) drops trailing newlines, which Caddy's {file.…}
+          # would pass on (it trims one), and the Cloudflare plugin would refuse and print.
+          v="$(head -c 513 "$dnsdir/$f")"
+          if ! dns_value_ok "$p" "$f" "$v" > /dev/null || [ "$(wc -c < "$dnsdir/$f")" != "${#v}" ]; then
             rm -f "$tmp"; die "HTTPS is set to letsencrypt, but the $p credential '$f' isn't in the shape $p uses: sudo halosctl https letsencrypt $p <name>... to give it again"
           fi
-          # Caddy gets it as a systemd credential (LoadCredential= in halos-proxy.service), loaded
-          # from this folder before this check; failing here stops the start all the same.
+          # Caddy gets it as a systemd credential (LoadCredential= in halos-proxy.service): systemd
+          # reads the folder again for Caddy's own start, after this check.
         done
         email="$(value HALOS_ACME_EMAIL)"
         if [ -n "$email" ] && ! valid_email "$email"; then rm -f "$tmp"; die "HALOS_ACME_EMAIL in $conf isn't an email address"; fi
