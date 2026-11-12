@@ -23,10 +23,16 @@ PodmanArgs=--ipc=host --group-add=keep-groups
 DropCapability=all
 NoNewPrivileges=true
 # The image itself is read-only while it runs (security audit, owner agreed): Halogen's start writes
-# only to /tmp and /var/tmp (its tuning-plan copy, NPU output, a prompt-cache snapshot), and the
-# GPU runtime may cache under /root. Those stay writable, on disk as before (anonymous volumes,
-# removed with the container), not in memory, so nothing about memory use changes.
+# only to /tmp and /var/tmp (its tuning-plan copy, NPU output, a prompt-cache snapshot of up to
+# 26.6 GiB), and the GPU runtime may cache under /root. Those stay writable on disk as before
+# (anonymous volumes, removed with the container), never in memory. podman's own read-only tmpfs is
+# off: it mounts a tmpfs on /tmp and /var/tmp beside a volume there, and which one wins changes from
+# start to start (code review, reproduced). So /run gets its tmpfs here, and the host's /dev/shm
+# (--ipc=host) is bound again, since --read-only alone remounts it read-only.
 ReadOnly=true
+ReadOnlyTmpfs=false
+Tmpfs=/run
+Volume=/dev/shm:/dev/shm
 Volume=/tmp
 Volume=/var/tmp
 Volume=/root
@@ -40,6 +46,9 @@ Volume=/srv/models:/models:ro
 Volume=/srv/configs/api-key:/run/secrets/halogen-api-key:ro
 
 [Service]
+# A container left behind by a hard reboot is replaced at the next start, but podman's --replace
+# keeps its anonymous volumes (up to 26.6 GiB in /var/tmp): remove it with them first.
+ExecStartPre=-/usr/bin/podman rm -v -f -i halogen
 ExecStartPre=/usr/libexec/halogen/render-config
 ExecStartPre=/usr/libexec/halogen/preflight
 LimitMEMLOCK=infinity

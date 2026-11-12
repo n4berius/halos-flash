@@ -464,7 +464,12 @@ name, but allows saying halOS runs Halogen.
   volumes (on disk, removed with the container) for `/tmp`, `/var/tmp` (the entrypoint's only write
   places: the tuning-plan copy, NPU output, `HALOGEN_CACHE_FILE`'s default snapshot, up to 26.6 GiB)
   and `/root` (the image runs as root, HOME unset; ROCm may cache there), never tmpfs, so memory use
-  stays as before; podman's read-only tmpfs still covers `/run`. Checked in the VM only as the
+  stays as before. `ReadOnlyTmpfs=false`: podman's `addReadWriteTmpfsMounts` skips only binds and
+  tmpfs already at a destination, not volumes, so it mounted a tmpfs beside the volume on /tmp and
+  /var/tmp and the winner varied per start (code review: about half in memory over 30 runs);
+  `Tmpfs=/run` and `Volume=/dev/shm:/dev/shm` (`--read-only` alone remounts the host's shm
+  read-only, even with `--ipc=host`) replace it. `ExecStartPre=-podman rm -v -f -i halogen`: the
+  generated `--replace` drops a leftover container (hard reboot) without its anonymous volumes. Checked in the VM only as the
   generated unit's `--read-only`; Halogen's start and speed under it need freyja.
 
 ## Lessons already learned

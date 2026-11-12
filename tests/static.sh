@@ -87,9 +87,11 @@ assert "GOFLAGS=-mod=readonly" in cf and "COPY --from=caddy /out/caddy /usr/libe
   and 'cp "$goli" "$lic/go-LICENSE"' in cf, "Caddy isn't built from src/caddy or its licences don't ship"
 # Halogen's container runs read-only, with only /tmp, /var/tmp and /root writable, on disk.
 quadlet = open("files/etc/containers/systemd/users/970/halogen.container").read()
-for line in ("ReadOnly=true", "Volume=/tmp", "Volume=/var/tmp", "Volume=/root"):
+# podman's own read-only tmpfs would race the volumes on /tmp and /var/tmp, so it is off.
+for line in ("ReadOnly=true", "ReadOnlyTmpfs=false", "Tmpfs=/run", "Volume=/dev/shm:/dev/shm", "Volume=/tmp",
+             "Volume=/var/tmp", "Volume=/root", "ExecStartPre=-/usr/bin/podman rm -v -f -i halogen"):
     assert "\n" + line + "\n" in quadlet, f"halogen.container lacks {line}"
-assert "ReadOnlyTmpfs" not in quadlet and "Tmpfs=" not in quadlet, "Halogen's scratch folders must stay on disk, not in memory"
+assert not re.search(r"^Tmpfs=/(var/)?tmp", quadlet, re.M), "Halogen's scratch folders must stay on disk, not in memory"
 assert "systemctl enable halos-https-refresh.timer" in cf, "the HTTPS address refresh isn't enabled"
 assert "caddy adapt --config /usr/share/halos/proxy/Caddyfile.https" in cf and "for tls in internal custom" in cf, "the HTTPS Caddyfile isn't checked at build"
 assert "caddy adapt --config /usr/share/halos/proxy/Caddyfile.letsencrypt" in cf and "for dns in cloudflare duckdns porkbun namecheap" in cf, "the Let's Encrypt Caddyfile isn't checked at build for every DNS provider"

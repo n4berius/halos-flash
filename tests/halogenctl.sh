@@ -326,7 +326,7 @@ if [ -e "$work/dropin.d/20-records.conf" ] || ! grep -q "next starts" "$work/out
 # Off (or stopped): the records kept before are still reached, in a one-off container of the
 # pinned image with only that folder, no network and nothing writable but it.
 : > "$work/log"; "$ctl" records prune --all --yes > /dev/null
-if ! grep -q 'podman run --rm --pull=never --network=none --read-only --cap-drop=all --security-opt no-new-privileges -v /srv/logs/halogen:/records --entrypoint python3 ghcr.io/peonist-ai/halogen-flash-server@sha256:abc /halogen/tools/request_records.py prune /records --all$' "$work/log"; then
+if ! grep -q 'podman run --rm --pull=never --network=none --read-only --cap-drop=all --security-opt no-new-privileges -v /srv/logs/halogen:/records:noexec,nosuid,nodev --entrypoint python3 ghcr.io/peonist-ai/halogen-flash-server@sha256:abc /halogen/tools/request_records.py prune /records --all$' "$work/log"; then
   cat "$work/log" >&2; echo "prune after off didn't reach the kept records" >&2; exit 1
 fi
 if grep -q 'podman exec' "$work/log"; then echo "prune after off ran in the server's container" >&2; exit 1; fi
