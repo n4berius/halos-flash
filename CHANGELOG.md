@@ -13,7 +13,7 @@ promoted.
 - Request records: `sudo halogenctl records on` makes Halogen keep a line per request it answers
   (which app sent it, its size, how it finished, timings), counts only unless you choose to keep
   text, in `/srv/logs/halogen`. `records stats` sums them up and `records prune` deletes them. New
-  installs give `/srv/logs` a 4 GiB volume of its own. (#PR)
+  installs give `/srv/logs` a 4 GiB volume of its own. (#113)
 - Halogen 0.20.4: in a cached conversation a short follow-up message is read 15 to 50% faster;
   10 to 20% more throughput when Halogen is set to serve more than 8 requests at once
   (`HALOGEN_KV_SLOTS` above 8; the default is 4); `d3-nano` 7 to 9% faster on the NPU (0.20.3), whose
