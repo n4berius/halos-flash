@@ -131,6 +131,12 @@ for wf in ("build", "release", "refresh"):
         for step in job.get("steps", []):
             if any(k.startswith("COSIGN_") for k in (step.get("env") or {})):
                 assert step.get("name") == "Sign" and "sign-image.sh" in step["run"] and "\n" not in step["run"].strip(), (wf, step.get("name"))
+# udisks2 (kept for fwupd, #106) is root's alone: a polkit rule refuses everyone else, and halogen
+# can't reach it on the bus.
+rules = open("files/usr/share/polkit-1/rules.d/10-halos-udisks2.rules").read()
+assert 'org.freedesktop.udisks2.' in rules and 'subject.user != "root"' in rules and "polkit.Result.NO" in rules, "the udisks2 polkit rule is missing"
+bus = open("files/usr/share/dbus-1/system.d/halos-udisks2.conf").read()
+assert '<policy user="halogen">' in bus and '<deny send_destination="org.freedesktop.UDisks2"/>' in bus, "the udisks2 D-Bus policy for halogen is missing"
 print("static checks ok")
 P
 python3 -c "import glob, yaml; [yaml.safe_load(open(f)) for f in glob.glob('.github/**/*.yml', recursive=True)]"

@@ -10,6 +10,9 @@ promoted.
 
 ## Unreleased
 
+- Only root may use the disk service udisks2, kept for firmware updates: an admin uses `sudo`,
+  and the `halogen` user that runs Halogen can't call it at all. Firmware updates with
+  `sudo fwupdmgr` work as before. (#110)
 - Halogen 0.20.2: slightly faster with several requests at once (up to about 1%), a sooner first
   token on long conversations (up to about 4%), NPU decisions on long prompts start a little
   sooner, and `d3-lite` answers 14 to 18% faster on the NPU. The Flash checkpoints and your settings are unchanged. (#100)

@@ -422,6 +422,16 @@ name, but allows saying halOS runs Halogen.
   already has a valid certificate (INSTALL says so). Real issuance can't run in CI; first checked
   on freyja.
 
+- udisks2 (kept for fwupd's EFI partition lookup, #106; disabled, D-Bus activated) is root's alone
+  (security audit, owner agreed): `/usr/share/polkit-1/rules.d/10-halos-udisks2.rules` returns NO for
+  every `org.freedesktop.udisks2.*` action to a non-root subject (polkit allows uid 0 before rules,
+  so fwupd works), and `/usr/share/dbus-1/system.d/halos-udisks2.conf` denies the `halogen` user
+  any send to `org.freedesktop.UDisks2` (no call, no properties; dbus-broker still activates the
+  service for the message, then refuses it at delivery). The VM test checks the admin gets polkit's
+  `Error.NotAuthorized:` from `udisksctl loop-setup -r` (without `-r` udisksctl opens the file
+  read-write itself and fails before asking), halogen's `busctl call` (through `runuser -u halogen`: `systemd-run --pipe` with its output in a file in /tmp fails under SELinux, since PID 1 may not write user_tmp_t) gets "Access denied" (busctl's words; dbus-broker logs "A security policy denied … to send")
+  while the admin's same call answers (`a{sv}`), besides fwupd's ESPRC.
+
 ## Lessons already learned
 
 - The initramfs must be built with `--no-hostonly` and the `crypt systemd-cryptsetup tpm2-tss

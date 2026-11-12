@@ -1,0 +1,10 @@
+// halOS: udisks2 is in the image only so fwupd (root) can find the EFI partition (#106). No other
+// user may use it, not even an admin at the machine's own screen, who would otherwise mount or
+// unlock USB sticks and loop files without a password: they use sudo. Root never reaches this
+// rule (polkit allows uid 0 before reading rules), so fwupd and sudo udisksctl keep working.
+// Low number: the first rule to answer wins.
+polkit.addRule(function(action, subject) {
+    if (action.id.indexOf("org.freedesktop.udisks2.") == 0 && subject.user != "root") {
+        return polkit.Result.NO;
+    }
+});
