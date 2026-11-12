@@ -471,7 +471,12 @@ name, but allows saying halOS runs Halogen.
   /var/tmp and the winner varied per start (code review: about half in memory over 30 runs);
   `Tmpfs=/run` and `Volume=/dev/shm:/dev/shm` (`--read-only` alone remounts the host's shm
   read-only, even with `--ipc=host`) replace it. `ExecStartPre=-podman rm -v -f -i halogen`: the
-  generated `--replace` drops a leftover container (hard reboot) without its anonymous volumes. Checked in the VM only as the
+  generated `--replace` drops a leftover container (hard reboot) without its anonymous volumes.
+  Checked with Fedora 45's podman 6.1.3 and its quadlet (rootful harness, busybox, no SELinux):
+  35 of 35 starts had all three on disk, `/run` a writable tmpfs with the API key readable,
+  `/dev/shm` the host's and writable, device nodes writable though `/dev` is mounted read-only, and
+  no dangling volumes after a leftover container. The selftest's `scratch` line asks the running
+  container (`podman exec halogen stat -f`) and FAILs on tmpfs. Checked in the VM only as the
   generated unit's `--read-only`; Halogen's start and speed under it need freyja.
 
 ## Lessons already learned
