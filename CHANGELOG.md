@@ -11,7 +11,7 @@ promoted.
 ## Unreleased
 
 - Firmware updates: fwupd now finds the EFI partition, so `sudo fwupdmgr update` can also update
-  the Secure Boot revocation list (dbx) instead of saying "UEFI ESP partition not detected". (#PR)
+  the Secure Boot revocation list (dbx) instead of saying "UEFI ESP partition not detected". (#106)
 - The dashboard moved from port 8790 to **8732**, next to the API on 8731: `http://<machine>:8732`.
   The firewall follows by itself on upgrade; only a bookmark changes. (#103)
 - [Caddy](https://caddyserver.com) now answers on ports 8731 (API) and 8732 (dashboard) and passes
