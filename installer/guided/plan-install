@@ -357,6 +357,8 @@ umask 077
   echo "logvol /var/log/audit   --vgname=halos --name=audit   --fstype=xfs --size=$((5 * mib))"
   echo "logvol /home            --vgname=halos --name=home    --fstype=xfs --size=$((50 * mib))"
   echo "logvol /var/srv/configs --vgname=halos --name=configs --fstype=xfs --size=$((1 * mib))"
+  # Halogen's request records (#107), above its 2 GiB default cap, so they can't fill /var.
+  echo "logvol /var/srv/logs    --vgname=halos --name=logs    --fstype=xfs --size=$((4 * mib))"
   echo "logvol /var/srv/models  --vgname=halos --name=models  --fstype=xfs --size=1 --grow"
   echo "$finish"
   # How an encrypted disk unlocks (#13): a %post of its own, with the choice and the keys in it,

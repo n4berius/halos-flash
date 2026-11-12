@@ -3,6 +3,8 @@
 # image allows pass through, so a typo or a locked setting cannot reach the server.
 # The Flash checkpoint comes from /srv/configs/flash-checkpoint, which only halogenctl flash use
 # writes: the official one, or a checkpoint flash pull downloaded and Halogen's verify passed.
+# Request records (#107) are on only while sudo halogenctl records on has mounted /srv/logs/halogen
+# at /records (a Quadlet drop-in only root writes); then the text kept defaults to none.
 # Prints the path of the result. With --show, prints its contents instead.
 set -uo pipefail
 config="${HALOGEN_CONFIG_FILE:-/srv/configs/halogen.env}"
@@ -10,6 +12,7 @@ flash_choice="${HALOGEN_FLASH_FILE:-/srv/configs/flash-checkpoint}"
 models="${HALOGEN_MODELS_DIR:-/srv/models}"
 official=/models/qwen38-flash-next-v2.hgn
 allowed="${HALOGEN_ALLOWED_FILE:-/usr/share/halogen/options.allowed}"
+records_dropin="${HALOGEN_RECORDS_DROPIN:-/etc/containers/systemd/users/970/halogen.container.d/20-records.conf}"
 runtime="${XDG_RUNTIME_DIR:-/run/user/970}/halogen"
 output="$runtime/effective.env"
 mkdir -p "$runtime" || exit 1
@@ -78,6 +81,26 @@ case "$choice" in
     fi ;;
 esac
 values[HALOGEN_CHECKPOINT]="$checkpoint"
+
+# Request records. Halogen refuses to start on a text field it doesn't know, so check them here.
+if [ -n "${values[HALOGEN_RECORD_GIB]:-}" ] && ! [[ "${values[HALOGEN_RECORD_GIB]}" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+  ignore HALOGEN_RECORD_GIB "it must be a number of GiB, such as 2 or 0.5"; unset 'values[HALOGEN_RECORD_GIB]'
+fi
+if [ -n "${values[HALOGEN_RECORD_DAYS]:-}" ] && ! [[ "${values[HALOGEN_RECORD_DAYS]}" =~ ^[0-9]+$ ]]; then
+  ignore HALOGEN_RECORD_DAYS "it must be a whole number of days (0 keeps everything)"; unset 'values[HALOGEN_RECORD_DAYS]'
+fi
+text="${values[HALOGEN_RECORD_TEXT]:-}"
+if [ -n "$text" ] && ! [[ "$text" =~ ^(all|none|(prompt|reply|reasoning|args|results)(,(prompt|reply|reasoning|args|results))*)$ ]]; then
+  ignore HALOGEN_RECORD_TEXT "use all, none, or a comma list of prompt, reply, reasoning, args and results; keeping none"
+  text=""
+fi
+if [ -f "$records_dropin" ]; then
+  values[HALOGEN_RECORD_DIR]=/records
+  values[HALOGEN_RECORD_TEXT]="${text:-none}"
+else
+  # Off: nothing is mounted, so nothing about records reaches Halogen.
+  unset 'values[HALOGEN_RECORD_TEXT]' 'values[HALOGEN_RECORD_GIB]' 'values[HALOGEN_RECORD_DAYS]'
+fi
 
 tmp="$output.new"
 : > "$tmp" || exit 1

@@ -141,8 +141,8 @@ name, but allows saying halOS runs Halogen.
   would need Halogen stopped, so they aren't used. Reports (text + JSON, with versions, BIOS, kargs,
   fabric clock, platform profile, checkpoint and settings minus keys) go to `/srv/configs/bench/`.
 - `/srv` is `/var/srv` on bootc. The installer makes LVM volumes for `/`, `/var`, `/var/log`,
-  `/var/log/audit`, `/var/home`, `/var/srv/configs` and `/var/srv/models`. The guided install
-  names them `halos-root`, `-var`, `-log`, `-audit`, `-home`, `-configs`, `-models` (VG `halos`);
+  `/var/log/audit`, `/var/home`, `/var/srv/configs`, `/var/srv/logs` (4 GiB, #107) and `/var/srv/models`. The guided install
+  names them `halos-root`, `-var`, `-log`, `-audit`, `-home`, `-configs`, `-logs`, `-models` (VG `halos`);
   older installs keep Anaconda's `<product>_<hostname>` names (freyja: `halogen_freyja`).
 - Updates are manual, since a reboot stops inference. `halosctl` (`files/usr/bin/halosctl`)
   handles the OS: `version`, `switch <channel>`, `upgrade`, `rollback [--to]`, `history`
@@ -435,6 +435,34 @@ name, but allows saying halOS runs Halogen.
   `Error.NotAuthorized:` from `udisksctl loop-setup -r` (without `-r` udisksctl opens the file
   read-write itself and fails before asking), halogen's `busctl call` (through `runuser -u halogen`: `systemd-run --pipe` with its output in a file in /tmp fails under SELinux, since PID 1 may not write user_tmp_t) gets "Access denied" (busctl's words; dbus-broker logs "A security policy denied … to send")
   while the admin's same call answers (`a{sv}`), besides fwupd's ESPRC.
+
+- Request records (#107 part A): Halogen's own feature (`HALOGEN_RECORD_*`, configuration.md
+  "Request records"). `halogenctl records on|off` writes or removes root's Quadlet drop-in
+  `/etc/containers/systemd/users/970/halogen.container.d/20-records.conf` (`Volume=/srv/logs/halogen:/records`),
+  reloads halogen's manager (as halogen with `setpriv` and `systemctl --user` on its private socket,
+  as login-status does; through `--machine=halogen@.host` the VM test's reload and `is-active` failed
+  with "Transport endpoint is not connected", cause not established; its output then went to a file
+  in /tmp, now a pipe), treats any `is-active` answer but running or stopped as an error (never as
+  "stopped", which would skip the restart), checks the generated `halogen.service` gained or lost the
+  mount, and restarts Halogen if running; a Quadlet volume can't be conditional
+  otherwise, and off means nothing is mounted. `render-config` sets `HALOGEN_RECORD_DIR=/records` only
+  while that drop-in exists (`HALOGEN_RECORD_DIR` stays in gen-options' BLOCKED), defaults
+  `HALOGEN_RECORD_TEXT` to `none` (owner's decision; Halogen's own default is `all`), checks TEXT
+  (Halogen refuses to start on an unknown field), GIB and DAYS, and drops all three while off.
+  `prepare` makes `/srv/logs` (halogen, 0750, `container_file_t`) and `logs/halogen` (0700, as
+  halogen); `halogen-prepare.service` may write there. `records stats|prune` run Halogen's
+  `request_records.py <cmd> /records` through `halogen_run` (the output carries client names):
+  `podman exec` while on and running (one writer), else a one-off `podman run --rm --network=none
+  --read-only --cap-drop=all` of the pinned image with only the folder (so records kept before
+  `off` can still be pruned); prune only with `--days/--gib/--session/--unit/--all` and plain
+  values, after asking; on/off/prune need root; `off` restarts Halogen when its `/health` still
+  shows `request_records` (an off cut short); the drop-in folder is `install -d -m 0755` (no-NPU
+  doesn't ship it). The selftest's `folder-logs` (own volume or /var) and `records`
+  (INFO off; PASS with `/health`'s `request_records`; WARN when on but /health has none or
+  halogen's generated unit lacks the mount, and when off but /health still has them). Earlier
+  installs keep `/srv/logs` on `/var`: the guided install leaves no free extents (models `--grow`,
+  XFS can't shrink). The VM test checks the volume, the folder, on/off, the mount in the generated
+  unit and the rendered settings; recording itself needs Halogen running, so freyja checks it.
 
 ## Lessons already learned
 

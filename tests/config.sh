@@ -5,6 +5,7 @@ repo="$(cd "$(dirname "$0")/.." && pwd)"
 work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
 export XDG_RUNTIME_DIR="$work/run" HALOGEN_CONFIG_FILE="$work/config"
 export HALOGEN_FLASH_FILE="$work/flash-checkpoint" HALOGEN_MODELS_DIR="$work/models"
+export HALOGEN_RECORDS_DROPIN="$work/20-records.conf"
 official=HALOGEN_CHECKPOINT=/models/qwen38-flash-next-v2.hgn
 export HALOGEN_ALLOWED_FILE="$repo/variants/npu/usr/share/halogen/options.allowed"
 render="$repo/files/usr/libexec/halogen/render-config"
@@ -76,3 +77,28 @@ ln -s /etc/hostname "$work/models/flash/linked/model.hgn"; echo linked > "$work/
 grep -q 'holds links' "$work/log" || exit 1
 echo "ok: a checkpoint folder holding links falls back to the official checkpoint"
 
+
+# Request records (#107): off unless halogenctl records on put its mount in place; then counts only
+# unless HALOGEN_RECORD_TEXT says otherwise, and a value Halogen would refuse never reaches it.
+rm -f "$work/flash-checkpoint"
+printf 'HALOGEN_RECORD_TEXT=all\nHALOGEN_RECORD_DAYS=7\n' > "$work/config"
+"$render" --show 2> /dev/null > "$work/out"
+if grep -q '^HALOGEN_RECORD' "$work/out"; then echo "records settings passed while recording is off" >&2; exit 1; fi
+touch "$work/20-records.conf"
+rm "$work/config"
+"$render" --show 2> /dev/null > "$work/out"
+if ! { grep -qx 'HALOGEN_RECORD_DIR=/records' "$work/out" && grep -qx 'HALOGEN_RECORD_TEXT=none' "$work/out"; }; then
+  cat "$work/out" >&2; echo "recording on didn't default to counts only" >&2; exit 1
+fi
+printf 'HALOGEN_RECORD_TEXT=prompt,reply\nHALOGEN_RECORD_GIB=0.5\nHALOGEN_RECORD_DAYS=7\n' > "$work/config"
+"$render" --show 2> /dev/null > "$work/out"
+if ! { grep -qx 'HALOGEN_RECORD_TEXT=prompt,reply' "$work/out" && grep -qx 'HALOGEN_RECORD_GIB=0.5' "$work/out" \
+  && grep -qx 'HALOGEN_RECORD_DAYS=7' "$work/out"; }; then cat "$work/out" >&2; echo "valid records settings were dropped" >&2; exit 1; fi
+for bad in 'TEXT=prompt,bogus' 'TEXT=prompt, reply' 'TEXT=,prompt' 'GIB=2GiB' 'DAYS=-1'; do
+  echo "HALOGEN_RECORD_$bad" > "$work/config"
+  "$render" --show 2> "$work/log" > "$work/out"
+  grep -q "ignored HALOGEN_RECORD_${bad%%=*}" "$work/log" || { echo "no warning for $bad" >&2; exit 1; }
+  if grep -qx "HALOGEN_RECORD_$bad" "$work/out"; then echo "$bad reached Halogen" >&2; exit 1; fi
+done
+grep -qx 'HALOGEN_RECORD_TEXT=none' "$work/out" || { echo "a bad text list didn't fall back to none" >&2; exit 1; }
+echo "ok: request records are off until turned on, then counts only by default, and bad values never reach Halogen"

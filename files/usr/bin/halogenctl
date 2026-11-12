@@ -450,11 +450,125 @@ case "${1:-status}" in
       *) echo "usage: halogenctl model pull <hf-repo> [--revision <rev>] [--as <name>] | list | remove <name>" >&2; exit 2 ;;
     esac
     ;;
+  records)
+    # Halogen's request records (#107): one JSON line per request in /srv/logs/halogen, counts only
+    # unless HALOGEN_RECORD_TEXT says otherwise. On means a Quadlet drop-in (root's, in /etc) mounts
+    # that folder at /records; render-config then sets HALOGEN_RECORD_DIR. Off removes the mount.
+    dropin="${HALOGEN_RECORDS_DROPIN:-/etc/containers/systemd/users/970/halogen.container.d/20-records.conf}"
+    logdir="${HALOGEN_LOGS_DIR:-/srv/logs}/halogen"
+    yes=0; args=()
+    for a in "${@:2}"; do if [ "$a" = --yes ]; then yes=1; else args+=("$a"); fi; done
+    confirm() {
+      [ "$yes" != 1 ] || return 0
+      [ -t 0 ] || { echo "Nothing changed: add --yes to confirm without a terminal." >&2; exit 1; }
+      read -rp "$1 [y/N] " answer
+      [ "$answer" = y ] || [ "$answer" = Y ] || { echo "Nothing changed."; exit 1; }
+    }
+    # Whether Halogen runs, asked over halogen's own socket (as_manager below). An answer other than
+    # running or stopped stops here: taking "couldn't ask" for "stopped" would skip a restart and leave
+    # Halogen recording after off (VM test: the --machine route failed with "Transport endpoint is not
+    # connected").
+    running() {
+      local s; s="$(as_manager is-active halogen.service 2> /dev/null)" || true
+      case "$s" in
+        active|reloading|activating|deactivating) return 0 ;;
+        inactive|failed) return 1 ;;
+        *) echo "Couldn't ask halogen's service manager whether Halogen runs (${s:-no answer}); nothing restarted. Try again, or: sudo halogenctl restart" >&2; exit 1 ;;
+      esac
+    }
+    # halogen's own manager over its private socket, as login-status reads it: a daemon-reload
+    # through --machine=halogen@.host fails with "Transport endpoint is not connected" (VM test).
+    huid="$(id -u halogen 2> /dev/null || echo 970)"
+    as_manager() { setpriv --reuid="$huid" --regid="$huid" --clear-groups env XDG_RUNTIME_DIR="/run/user/$huid" systemctl --user "$@"; }
+    mounted() { as_manager cat halogen.service 2> /dev/null | grep -q -F 'srv/logs/halogen:/records'; }
+    # Whether the running Halogen keeps records (its /health says so), whatever the drop-in says.
+    recording() { curl -sS -m 5 "http://127.0.0.1:${HALOS_API_LOCAL_PORT:-18731}/health" 2> /dev/null | jq -e '.request_records' > /dev/null 2>&1; }
+    # Halogen's own tool, as halogen; its output is filtered (the client names in it come from
+    # requests). While Halogen records, inside its container, so two writers never meet; otherwise
+    # (off, or stopped) in a one-off container of the pinned image with only the folder mounted,
+    # so records kept before can still be read and deleted.
+    tool() {
+      local c="$1" image; shift
+      if [ -f "$dropin" ] && running; then
+        halogen_run podman exec halogen python3 /halogen/tools/request_records.py "$c" /records "$@"
+      else
+        image="$(sed -n 's/^HALOGEN_IMAGE=//p' "${HALOGEN_RELEASE_FILE:-/usr/share/halogen/release.env}" | tail -n 1 | tr -d "\"'")"
+        [ -n "$image" ] || { echo "No Halogen image named in the release file." >&2; exit 1; }
+        halogen_run podman run --rm --pull=never --network=none --read-only --cap-drop=all \
+          --security-opt no-new-privileges -v /srv/logs/halogen:/records --entrypoint python3 \
+          "$image" /halogen/tools/request_records.py "$c" /records "$@"
+      fi
+    }
+    case "${args[0]:-}" in on|off|prune) [ "$(id -u)" = 0 ] || { echo "Run it with sudo: sudo halogenctl records ${args[*]}" >&2; exit 1; } ;; esac
+    case "${args[0]:-}" in
+      '')
+        if [ -f "$dropin" ]; then
+          text="$(halogen_run /usr/libexec/halogen/render-config --show | sed -n 's/^HALOGEN_RECORD_TEXT=//p' | tail -n 1)"
+          echo "Request records: on, text kept: ${text:-none} (counts only when none)."
+        else
+          echo "Request records: off. On: sudo halogenctl records on"
+        fi
+        echo "Folder: $logdir, $(as_owner du -sh "$logdir" 2> /dev/null | cut -f1 | tr -cd '[:print:]') used."
+        echo "Size cap HALOGEN_RECORD_GIB (default 2), days kept HALOGEN_RECORD_DAYS (default 90), in /srv/configs/halogen.env."
+        ;;
+      on|off)
+        if [ "${args[0]}" = on ]; then
+          [ ! -f "$dropin" ] || { echo "Request records are already on."; exit 0; }
+          confirm "Keep a record of every request Halogen answers (counts and settings, no text unless HALOGEN_RECORD_TEXT says so) in $logdir? Halogen restarts."
+          # Readable by halogen whatever root's umask: its Quadlet generator and render-config read it.
+          install -d -m 0755 "${dropin%/*}"
+          printf '%s\n' "# Written by sudo halogenctl records on; removed by records off." "[Container]" \
+            "Volume=/srv/logs/halogen:/records" > "$dropin.new"
+          chmod 0644 "$dropin.new"; mv -f "$dropin.new" "$dropin"
+        else
+          if [ ! -f "$dropin" ]; then
+            # Already off, unless an earlier off was cut short before Halogen restarted.
+            if running && recording; then echo "Off, but Halogen still records: restarting it."; start_halogen restart; fi
+            echo "Request records are already off."; exit 0
+          fi
+          confirm "Stop keeping request records? What is kept stays in $logdir (sudo halogenctl records prune --all deletes it). Halogen restarts."
+          rm -f "$dropin"
+        fi
+        as_manager daemon-reload
+        # Quadlet makes halogen.service at the reload: check the mount came or went with it.
+        if [ "${args[0]}" = on ] && ! mounted; then
+          echo "The records folder isn't in Halogen's service after the reload; see: sudo halogenctl selftest" >&2; exit 1
+        elif [ "${args[0]}" = off ] && mounted; then
+          echo "Halogen's service still mounts the records folder after the reload; see: sudo halogenctl selftest" >&2; exit 1
+        fi
+        if running; then start_halogen restart; echo "Done; Halogen restarted."
+        else echo "Done; it applies when Halogen next starts (sudo halogenctl start)."; fi
+        ;;
+      stats)
+        [ -f "$dropin" ] || echo "(Request records are off; showing what was kept before.)"
+        tool stats
+        ;;
+      prune)
+        # Only the options Halogen's tool documents, each with a plain value.
+        p=(); i=1
+        while [ "$i" -lt "${#args[@]}" ]; do
+          o="${args[$i]}"; v="${args[$((i + 1))]:-}"
+          case "$o" in
+            --all) p+=(--all); i=$((i + 1)); continue ;;
+            --days) [[ "$v" =~ ^[0-9]+$ ]] || { echo "--days takes a whole number" >&2; exit 2; } ;;
+            --gib) [[ "$v" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "--gib takes a number" >&2; exit 2; } ;;
+            --session|--unit) [[ "$v" =~ ^[0-9A-Za-z_][0-9A-Za-z_-]{0,127}$ ]] || { echo "$o takes a hash, as shown in the records" >&2; exit 2; } ;;
+            *) echo "usage: halogenctl records prune --days <n> | --gib <g> | --session <hash> | --unit <hash> | --all [--yes]" >&2; exit 2 ;;
+          esac
+          p+=("$o" "$v"); i=$((i + 2))
+        done
+        [ "${#p[@]}" -gt 0 ] || { echo "usage: halogenctl records prune --days <n> | --gib <g> | --session <hash> | --unit <hash> | --all [--yes]" >&2; exit 2; }
+        confirm "Delete request records (${p[*]})?"
+        tool prune "${p[@]}"
+        ;;
+      *) echo "usage: halogenctl records [on|off|stats|prune ...] [--yes]" >&2; exit 2 ;;
+    esac
+    ;;
   bench)
     # Halogen's own sweep against the running server; the report goes to /srv/configs/bench.
     case "${2:-}" in ''|--quick) ;; *) echo "usage: halogenctl bench [--quick]" >&2; exit 2 ;; esac
     [ "$(id -u)" = 0 ] || { echo "Run it with sudo: sudo halogenctl bench ${2:-}" >&2; exit 1; }
     halogen_run /usr/libexec/halogen/bench ${2:+"$2"}
     ;;
-  *) echo "usage: halogenctl status|start|stop|restart|logs [lines]|fetch-logs [lines]|doctor|selftest|bench [--quick]|config|options [--new]|api-key|hf-token [--remove]|model pull|list|remove|flash pull|convert|convert-logs|convert-stop|list|use|verify|check|remove" >&2; exit 2 ;;
+  *) echo "usage: halogenctl status|start|stop|restart|logs [lines]|fetch-logs [lines]|doctor|selftest|bench [--quick]|config|options [--new]|api-key|hf-token [--remove]|records [on|off|stats|prune]|model pull|list|remove|flash pull|convert|convert-logs|convert-stop|list|use|verify|check|remove" >&2; exit 2 ;;
 esac

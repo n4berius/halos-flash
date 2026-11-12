@@ -79,20 +79,25 @@ if [ "$variant" = npu ]; then grep -q 'iommu=pt' "$out/report.txt"; else grep -q
 grep -qi 'secure boot.*enabled\|Secure Boot: enabled' "$out/report.txt"
 grep -q 'Linger=yes' "$out/report.txt"
 # bootc mounts the root volume at /sysroot; / itself is the read-only image.
-for m in /sysroot /var /var/log /var/log/audit /var/home /var/srv/configs /var/srv/models; do
+for m in /sysroot /var /var/log /var/log/audit /var/home /var/srv/configs /var/srv/logs /var/srv/models; do
   grep -qE "^$m " "$out/report.txt" || { echo "no separate volume for $m" >&2; exit 1; }
 done
 # The guided install's fixed names (#42), whatever the hostname.
 for v in /sysroot:root /var:var /var/log:log /var/log/audit:audit /var/home:home \
-         /var/srv/configs:configs /var/srv/models:models; do
+         /var/srv/configs:configs /var/srv/logs:logs /var/srv/models:models; do
   grep -qx "${v%%:*} /dev/mapper/halos-${v#*:}" "$out/report.txt" || { echo "${v%%:*} is not on halos-${v#*:}" >&2; exit 1; }
 done
-# The models volume takes the rest: about 308 GiB of a 512 GB disk, 1690 GiB of a 2 TB one.
+# The models volume takes the rest: about 304 GiB of a 512 GB disk, 1686 GiB of a 2 TB one.
 models_gib="$(awk '$1 == "models" { printf "%d", $2 }' "$out/report.txt")"
 if [ "$variant" = npu ]; then want=290; else want=1650; fi
 [ "${models_gib:-0}" -ge "$want" ] || { echo "the models volume is ${models_gib:-missing} GiB, expected $want or more" >&2; exit 1; }
 grep -qF "$target" "$out/report.txt" || { echo "the installed system doesn't follow $target" >&2; exit 1; }
 grep -qx halostest "$out/report.txt" || { echo "the hostname was not set" >&2; exit 1; }
+# Request records (#107): on mounts /srv/logs/halogen and sends counts only; off removes the mount.
+# (The generated unit names the mount twice: podman's -v and Quadlet's copy of the drop-in.)
+for l in 'RECCONF 2 [1-9][0-9]*' 'RECOFF 0' 'RECDIR halogen 700'; do
+  grep -qxE "$l" "$out/report.txt" || { echo "request records: expected '$l'" >&2; grep -E '^REC|records' "$out/report.txt" >&2; exit 1; }
+done
 grep -qE '^uid=[0-9]+\(admin\).*\(wheel\)' "$out/report.txt" || { echo "the admin user is missing or not in wheel" >&2; exit 1; }
 # No password or passphrase in a file or the journal on the installed system.
 if grep -q '^PWLEAK ' "$out/report.txt"; then grep '^PWLEAK ' "$out/report.txt" >&2; echo "a password was written to disk" >&2; exit 1; fi
@@ -143,6 +148,8 @@ selftest_has 'PASS firewall:'
 # The dashboard (halos-dashboard.service) runs sandboxed, its start found a key to hand over, and it
 # answers on 8732, though Halogen itself isn't up in the VM (so the key itself isn't tried).
 selftest_has 'PASS proxy:'
+selftest_has 'PASS folder-logs: .* on its own volume'
+selftest_has 'INFO records: off'
 selftest_has 'PASS dashboard:'
 selftest_has 'PASS dashboard-filter:'
 selftest_has 'PASS dashboard-nodump:'

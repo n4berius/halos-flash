@@ -10,6 +10,10 @@ promoted.
 
 ## Unreleased
 
+- Request records: `sudo halogenctl records on` makes Halogen keep a line per request it answers
+  (which app sent it, its size, how it finished, timings), counts only unless you choose to keep
+  text, in `/srv/logs/halogen`. `records stats` sums them up and `records prune` deletes them. New
+  installs give `/srv/logs` a 4 GiB volume of its own. (#113)
 - Let's Encrypt: your DNS provider's credential now reaches Caddy through systemd's credentials
   (read-only, in memory, removed when Caddy stops) instead of a copy in Caddy's own folder, and the
   build stops if the Cloudflare plugin ever changes which token shapes it accepts, since it prints a

@@ -1,17 +1,21 @@
 #!/bin/bash
 # Runs as root on every boot. Safe to repeat.
 #
-# /srv/models and /srv/configs belong to the halogen user, and the fetch containers can write in
-# /srv/models. So root only creates those two folders (their parent, /var/srv, is root's), and
+# /srv/models, /srv/configs and /srv/logs belong to the halogen user, and the fetch containers can
+# write in /srv/models. So root only creates those three folders (their parent, /var/srv, is root's), and
 # everything inside them is created as halogen: a link planted there can then only reach what
 # halogen could reach anyway, never a root-owned file.
 set -euo pipefail
 models="${HALOGEN_MODELS_DIR:-/var/srv/models}"
 configs="${HALOGEN_CONFIGS_DIR:-/var/srv/configs}"
+logs="${HALOGEN_LOGS_DIR:-/var/srv/logs}"
 state="${HALOGEN_STATE_DIR:-/var/lib/halogen}"
 as_halogen() { runuser -u halogen -- "$@"; }
 
-install -d -o halogen -g halogen -m 0750 "$models" "$configs" "$state"
+install -d -o halogen -g halogen -m 0750 "$models" "$configs" "$logs" "$state"
+# Halogen's request records (sudo halogenctl records on mounts it at /records). On installs made
+# before #107 /srv/logs is a folder on /var; newer guided installs give it a volume of its own.
+as_halogen install -d -m 0700 "$logs/halogen"
 # shellcheck source=/dev/null
 . "${HALOGEN_RELEASE_FILE:-/usr/share/halogen/release.env}"
 # Your own Flash checkpoints (halogenctl flash pull), on both editions.
@@ -44,7 +48,7 @@ as_halogen sh -c 'umask 077; [ -e "$1" ] || [ -L "$1" ] || head -c 32 /dev/urand
   sh "$configs/api-key"
 
 if command -v selinuxenabled >/dev/null && selinuxenabled; then
-  for dir in "$models" "$configs"; do
+  for dir in "$models" "$configs" "$logs"; do
     case "$(stat -c %C "$dir")" in
       *:container_file_t:*) ;;
       # -R does not follow links (-P is the default), so this stays inside the folder.

@@ -17,7 +17,7 @@ Common options:
 
 - `--yes` answers yes to the question a command asks before it changes something, where the
   table shows it. Without a terminal (a script, `ssh host cmd`), those commands refuse unless it
-  is given. Commands without it (`start`, `stop`, `restart`, `power`, `dashboard`) don't ask;
+  is given. Commands without it (`start`, `stop`, `restart`, `power`, `dashboard`, `records stats`) don't ask;
   `model remove` always asks, in a terminal.
 - `--reboot` restarts the machine at once after an OS change, instead of at your next reboot.
   A reboot stops Halogen until it is back. It waits for you instead while models are downloading,
@@ -83,6 +83,9 @@ after a change, the previous setting comes back by itself.
 | `halogenctl logs [lines]` | Halogen's log and the download step's together (100 lines by default), following them on a terminal. |
 | `halogenctl fetch-logs [lines]` | Only the download-and-check step's log. |
 | `halogenctl api-key` | Prints the API key apps need (`/srv/configs/api-key`). |
+| `halogenctl records [on\|off] [--yes]` | Halogen's [request records](../INSTALL.md#request-records): a line per request in `/srv/logs/halogen`, counts only unless `HALOGEN_RECORD_TEXT` says otherwise. `on` and `off` restart Halogen. Alone, it shows the state and space used. |
+| `halogenctl records stats` | Counts by API, client, finish, the cache's share and tool errors, from Halogen's own tool (Halogen must be running). |
+| `halogenctl records prune --days <n>\|--gib <g>\|--session <hash>\|--unit <hash>\|--all [--yes]` | Deletes records, after asking. |
 | `halogenctl hf-token [--remove]` | Saves your Hugging Face read token (asked for, not shown), for gated models; `--remove` deletes it. |
 
 ### Settings
@@ -138,6 +141,7 @@ passphrase once. Keep the passphrase: it is your recovery key.
 | `/srv/configs/halogen.env.example` | This release's template, with every option |
 | `/srv/configs/api-key` | The API key |
 | `/srv/configs/bench/` | Benchmark reports |
+| `/srv/logs/halogen/` | Halogen's request records, when on |
 | `/srv/models/` | The models, and your own checkpoints |
 | `/etc/halos/https.env` | The HTTPS setting (only root can change it) |
 | `/etc/halos/https/` | Your certificate and key, and the DNS provider's credential for Let's Encrypt (root only) |
