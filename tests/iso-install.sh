@@ -104,7 +104,9 @@ grep -qE '^ESPRC 0 [1-9][0-9]* disabled' "$out/report.txt" \
 # the default's "needs a password"), and halogen's call is refused by the bus while the same call
 # from the admin gets an answer, so the refusal is halogen's own.
 grep -qE '^UDLOOP [1-9]' "$out/report.txt" || { echo "the admin wasn't refused udisks2 by halOS's rule:" >&2; grep '^UDLOOP' "$out/report.txt" >&2; exit 1; }
-grep -qE '^UDBUS [1-9]' "$out/report.txt" || { echo "the halogen user could call udisks2:" >&2; grep '^UDBUS' "$out/report.txt" >&2; exit 1; }
+# busctl says "Access denied"; dbus-broker's own log names the policy, so it was this refusal.
+grep -qE '^UDBUS [1-9]' "$out/report.txt" && grep -q '^UDBUSLOG .*security policy denied' "$out/report.txt" \
+  || { echo "the halogen user could call udisks2:" >&2; grep '^UDBUS' "$out/report.txt" >&2; exit 1; }
 grep -qE '^UDBUSADMIN [1-9]' "$out/report.txt" || { echo "the control call to udisks2 got no answer, so the halogen check proves nothing:" >&2; grep '^UDBUS' "$out/report.txt" >&2; exit 1; }
 # The serial login prompt has the port check and still starts where the port answers (ttyS0).
 grep -qx 'SERIALGETTY active 1' "$out/report.txt" \
