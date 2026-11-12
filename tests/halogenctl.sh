@@ -301,6 +301,7 @@ f id 'if [ "$1" = -u ]; then echo "${FAKE_UID:-0}"; else exec /usr/bin/id "$@"; 
 f setpriv 'echo "setpriv $*" >> "$FAKE/log"; while [ $# -gt 0 ] && [ "$1" != env ]; do shift; done; exec "$@"'
 f curl 'h="${FAKE_HEALTH:-}"; [ -n "$h" ] || h="{\"status\":\"ok\"}"; echo "$h"'
 f systemctl 'echo "systemctl $*" >> "$FAKE/log"; case "$*" in *"is-active --quiet halogen.service"*) [ -z "${FAKE_INACTIVE:-}" ] ;;
+  *"--user is-active halogen.service"*) if [ -n "${FAKE_NOANSWER:-}" ]; then exit 1; elif [ -n "${FAKE_INACTIVE:-}" ]; then echo inactive; exit 3; else echo active; fi ;;
   *"cat halogen.service"*) if [ -z "${FAKE_NOMOUNT:-}" ] && [ -f "$HALOGEN_RECORDS_DROPIN" ]; then echo "ExecStart=podman run -v /srv/logs/halogen:/records x"; fi ;; esac'
 f systemd-run 'echo "systemd-run $*" >> "$FAKE/log"; case "$*" in *render-config*) echo HALOGEN_RECORD_TEXT=none ;; *request_records*) echo "turns 3" ;; esac'
 : > "$work/log"
@@ -337,6 +338,9 @@ grep -q 'restart halogen.service' "$work/log" || { echo "a server still recordin
 if grep -q 'restart halogen.service' "$work/log"; then echo "off restarted a server that doesn't record" >&2; exit 1; fi
 if FAKE_UID=1000 "$ctl" records on --yes > "$work/out" 2>&1 || ! grep -q 'Run it with sudo' "$work/out"; then echo "records on ran without root" >&2; exit 1; fi
 "$ctl" records prune --session ab_C-12 --yes > /dev/null || { echo "a base64url hash was refused" >&2; exit 1; }
+# A manager that doesn't answer is an error, never "not running" (which would skip the restart).
+if FAKE_NOANSWER=1 "$ctl" records on --yes > "$work/out" 2>&1 || ! grep -q "Couldn't ask" "$work/out"; then cat "$work/out" >&2; echo "no answer was taken for stopped" >&2; exit 1; fi
+rm -f "$work/dropin.d/20-records.conf"
 # A reload that doesn't bring the mount is reported, not called done.
 if FAKE_NOMOUNT=1 "$ctl" records on --yes > "$work/out" 2>&1 || ! grep -q "isn't in Halogen's service" "$work/out"; then cat "$work/out" >&2; echo "a missing mount after on wasn't reported" >&2; exit 1; fi
 rm -f "$work/dropin.d/20-records.conf"
