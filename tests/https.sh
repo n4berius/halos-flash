@@ -230,6 +230,7 @@ if "$h" dns-forget 2> /dev/null; then fail "dns-forget removed the credentials L
 # Back to self-signed: the public names aren't kept as extra names.
 "$h" set self-signed
 grep -qx 'HALOS_HTTPS_NAMES=' "$work/etc/https.env" || fail "self-signed kept the Let's Encrypt names: $(cat "$work/etc/https.env")"
-"$h" dns-forget; [ ! -e "$work/etc/https/dns" ] || fail "dns-forget left the credentials"
+"$h" dns-forget
+if [ ! -d "$work/etc/https/dns" ] || [ -n "$(ls -A "$work/etc/https/dns")" ]; then fail "dns-forget didn't leave the folder, empty"; fi
 ok "a pasted or hand-edited token is never printed or given to Caddy; set --check; forget"
 

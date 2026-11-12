@@ -33,7 +33,8 @@ EnvironmentFile=-/run/halos-https/proxy.env
 # Let's Encrypt: the DNS provider's credentials, from root's folder, as systemd credentials Caddy
 # reads through {file.{$CREDENTIALS_DIRECTORY}/dns_<field>}: read-only, in memory, gone when it stops,
 # and never in a folder Caddy's user owns. Hidden entries (.pending, .prev) and links are skipped.
-# SetCredential= is only the fallback that lets Caddy start if the folder is missing. Loaded in every
+# SetCredential= is meant as the fallback for a missing folder, but in the VM test Caddy didn't
+# start without it, so tmpfiles makes the folder at boot and forget-dns only empties it. Loaded in every
 # mode, so put nothing else there: a file systemd can't load (a name with ":", a socket, one too
 # big) stops Caddy's start. Never load /etc/halos/https as a whole: it would take dns/ with it.
 LoadCredential=dns:/etc/halos/https/dns
