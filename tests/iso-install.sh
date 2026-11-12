@@ -153,6 +153,9 @@ selftest_has 'PASS prepare:'
 https_has() { grep -qE "$1" "$out/https.txt" || { echo "https: expected '$1'" >&2; cat "$out/https.txt" >&2; exit 1; }; }
 https_has '^HTTPS-RC=0'; https_has '^CURL 503'; https_has '^REDIRECT 308'; https_has '^PASS https: on, self-signed'
 https_has '^PASS proxy:'; https_has '^PASS dashboard:'; https_has '^OFF-RC=0'; https_has '^BACK 503'
+# The DNS credential: loaded by systemd (root's file, read-only, Caddy's user by ACL: no "other"
+# bits), none in Caddy's runtime folder, gone after forget-dns, and Caddy starts with the folder empty.
+https_has '^CRED [0-7][0-7]0 [a-z-]+ 0$'; https_has '^CREDGONE 0 active$'
 selftest_has '(PASS|SKIP) power-profile:'   # QEMU likely has no ACPI platform profile
 selftest_has 'PASS folder-flash:'
 selftest_has 'INFO flash: serving the official Flash checkpoint'

@@ -85,6 +85,21 @@ for mod in ("duckdns", "namecheap"):
 assert "GOFLAGS=-mod=readonly" in cf and "COPY --from=caddy /out/caddy /usr/libexec/halogen/caddy" in cf \
   and "COPY --from=caddy /out/licenses/ /usr/share/licenses/halos-caddy/" in cf and "-iname 'notice*'" in cf \
   and 'cp "$goli" "$lic/go-LICENSE"' in cf, "Caddy isn't built from src/caddy or its licences don't ship"
+# The https helper lets through exactly the Cloudflare token shapes the plugin accepts (it prints a
+# token it refuses), and the build checks the plugin still uses those two (H1).
+helper = open("files/usr/libexec/halogen/https").read()
+for rx in ("^[A-Za-z0-9_-]{35,50}$", "^cf(ut|at)_[A-Za-z0-9_-]{32,256}$"):
+    assert f"grep -qF 'regexp.MustCompile(`{rx}`)'" in cf, f"the build doesn't check caddy-dns/cloudflare still uses {rx}"
+    assert f'"$3" =~ {rx}' in helper, f"dns_value_ok doesn't use the Cloudflare shape {rx}"
+# DNS credentials reach Caddy through systemd's credentials, read from root's folder (H5), never
+# copied into Caddy's own runtime folder.
+proxy = open("files/usr/lib/systemd/system/halos-proxy.service").read()
+assert "\nLoadCredential=dns:/etc/halos/https/dns\n" in proxy and "\nSetCredential=dns:\n" in proxy, "halos-proxy doesn't load the DNS credentials as credentials"
+for f in glob.glob("files/usr/share/halos/proxy/acme/dns-*.caddy"):
+    body = open(f).read()
+    assert "{file.{$CREDENTIALS_DIRECTORY}/dns_" in body and "RUNTIME_DIRECTORY" not in body, f"{f} doesn't read the credentials from CREDENTIALS_DIRECTORY"
+assert ".dns_$f." not in helper, "the https helper still copies DNS credentials into Caddy's runtime folder"
+assert re.search(r"^d /etc/halos/https/dns 0700 root root", open("files/usr/lib/tmpfiles.d/halos.conf").read(), re.M), "/etc/halos/https/dns isn't made at boot"
 assert "systemctl enable halos-https-refresh.timer" in cf, "the HTTPS address refresh isn't enabled"
 assert "caddy adapt --config /usr/share/halos/proxy/Caddyfile.https" in cf and "for tls in internal custom" in cf, "the HTTPS Caddyfile isn't checked at build"
 assert "caddy adapt --config /usr/share/halos/proxy/Caddyfile.letsencrypt" in cf and "for dns in cloudflare duckdns porkbun namecheap" in cf, "the Let's Encrypt Caddyfile isn't checked at build for every DNS provider"

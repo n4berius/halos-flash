@@ -141,6 +141,14 @@ if mode in ("plain", "luks-stale"):   # the first boot only
           + "systemctl status halos-proxy --no-pager -n 0 >> /tmp/https-diag 2>&1; journalctl -b -u halos-proxy --no-pager -o cat -n 25 >> /tmp/https-diag 2>&1; "
           + step("off") + "halosctl https off --yes >> /tmp/https 2>&1; echo OFF-RC=$? >> /tmp/https; "
           + step("back") + c + "-w 'BACK %{http_code}' http://127.0.0.1:8731/health >> /tmp/https 2>&1; echo >> /tmp/https; "
+          # DNS credentials reach Caddy as systemd credentials (LoadCredential=), owned by its user,
+          # never copied into its runtime folder, and gone after forget-dns. A made-up DuckDNS token:
+          # the mode stays off, so nothing is asked of DuckDNS.
+          + step("cred") + "printf 'api_token=0123abcd-0123-abcd-0123-0123456789ab' | /usr/libexec/halogen/https dns-stage duckdns >> /tmp/https 2>&1; "
+          + "/usr/libexec/halogen/https dns-commit; systemctl restart halos-proxy; sleep 3; "
+          + "echo CRED $(stat -c '%a %U' /run/credentials/halos-proxy.service/dns_api_token) $(ls -A /run/halos-proxy | grep -c dns) >> /tmp/https 2>&1; "
+          + "halosctl https forget-dns --yes >> /tmp/https 2>&1; systemctl restart halos-proxy; sleep 3; "
+          + "echo CREDGONE $(ls -A /run/credentials/halos-proxy.service | grep -c api_token) $(systemctl is-active halos-proxy) >> /tmp/https 2>&1; "
           # Each switch changes the login screen's line, and agetty's reload on the serial console
           # can swallow what is written meanwhile (login-status runs every 30 s): wait it out.
           + step("print") + "sleep 35; cat /tmp/https /tmp/https-diag > /dev/ttyS0; echo HTTPS-END > /dev/ttyS0\n")
