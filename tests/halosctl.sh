@@ -385,12 +385,12 @@ f systemctl 'echo "systemctl $*" >> "$FAKE/log"; d="$FAKE/dash-on"
 f firewall-cmd 'echo "firewall-cmd $*" >> "$FAKE/log"; exit 252'
 f hostname 'echo "192.0.2.7 fd00::7"'
 : > "$work/log"; "$ctl" dashboard > "$work/out"; has '^Dashboard: off' "$work/out"
-"$ctl" dashboard on > "$work/out"; has 'http://192.0.2.7:8790' "$work/out"; has 'no login' "$work/out"
+"$ctl" dashboard on > "$work/out"; has 'http://192.0.2.7:8732' "$work/out"; has 'no login' "$work/out"
 has 'enable --now halos-dashboard.service' "$work/log"; has 'dashboard +off -> on +\(by owner\)' "$work/history"
-"$ctl" dashboard > "$work/out"; has '^Dashboard: on \(active\), at http://192.0.2.7:8790' "$work/out"
+"$ctl" dashboard > "$work/out"; has '^Dashboard: on \(active\), at http://192.0.2.7:8732' "$work/out"
 "$ctl" dashboard on > "$work/out"; has 'already on' "$work/out"
 [ "$(grep -cE 'dashboard +off -> on' "$work/history")" = 1 ] || { echo "a second on was recorded" >&2; exit 1; }
-"$ctl" dashboard off > "$work/out"; has 'nothing answers on port 8790' "$work/out"; [ ! -e "$work/dash-on" ]
+"$ctl" dashboard off > "$work/out"; has 'port 8732 now says so' "$work/out"; [ ! -e "$work/dash-on" ]
 has 'dashboard +on -> off' "$work/history"
 "$ctl" dashboard off > "$work/out"; has 'already off' "$work/out"
 hasnt 'firewall-cmd' "$work/log"
@@ -402,3 +402,100 @@ for bad in "on off" "maybe" "on --reboot" "on --yes"; do
 done
 if FAKE_UID=1000 "$ctl" dashboard on > /dev/null 2>&1; then echo "ran without root" >&2; exit 1; fi
 ok "dashboard on/off starts or stops it without touching the firewall, records changes, and shows the address"
+
+# https: the mode is written by the https helper, Caddy restarted, and the old mode put back if
+# Caddy won't start with the new one, so the API never stays down.
+export HALOS_HTTPS_HELPER="$repo/files/usr/libexec/halogen/https" HALOS_HTTPS_ETC="$work/etc-https" \
+  HALOS_PROXY_STATE="$work/proxy-state"
+f hostname 'case "${1:-}" in -I) echo "192.0.2.7 fd00::7" ;; *) echo box ;; esac'
+f ip 'echo "2: eth0    inet 192.0.2.7/24 scope global eth0\\       valid_lft forever preferred_lft forever"'
+# FAKE_PROXY_FAIL=<mode>: Caddy's restart fails in that mode; FAKE_PROXY_DEAF=<name>: it starts
+# but never answers with that certificate in use (what systemctl alone can't see).
+f systemctl 'echo "systemctl $*" >> "$FAKE/log"
+  case "$*" in *"restart halos-proxy"*) if [ -n "${FAKE_PROXY_FAIL:-}" ] && grep -q "=$FAKE_PROXY_FAIL" "$FAKE/etc-https/https.env" 2> /dev/null; then exit 1; fi ;;
+    *"is-active halos-proxy"*) echo active ;; esac'
+# FAKE_ACME_FAIL=1: Let's Encrypt never gives a certificate, so the public names never answer.
+f curl 'echo "curl $*" >> "$FAKE/log"
+  case "$*" in *--resolve*) if [ -n "${FAKE_ACME_FAIL:-}" ]; then printf 000; exit 35; fi ;; esac
+  if [ -n "${FAKE_PROXY_DEAF:-}" ] && openssl x509 -in "$FAKE/etc-https/https/cert.pem" -noout -subject 2> /dev/null | grep -q "$FAKE_PROXY_DEAF"; then printf 000; exit 7; fi; printf 503'
+f sleep 'exit 0'
+f journalctl 'echo "{\"level\":\"error\",\"msg\":\"could not get certificate\",\"error\":\"DNS problem: NXDOMAIN looking up TXT for _acme-challenge.halos.example.com\"}"'
+ca_dir="$work/proxy-state/caddy/pki/authorities/local"; mkdir -p "$ca_dir"
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout "$work/ca.key" -out "$ca_dir/root.crt" -subj "/CN=Test Root" -days 30 2> /dev/null
+: > "$work/log"; "$ctl" https > "$work/out"; has '^HTTPS: off. Apps use http://192.0.2.7:8731/v1' "$work/out"
+if "$ctl" https self-signed < /dev/null > "$work/out" 2>&1; then echo "switched without --yes or a terminal" >&2; exit 1; fi
+"$ctl" https self-signed laptop.example --yes > "$work/out"
+has 'restart halos-proxy.service' "$work/log"; has 'https +off -> self-signed' "$work/history"
+has '^HTTPS: on, with halOS.s own authority' "$work/out"; has 'Authority.s fingerprint \(SHA-256\): ([0-9A-F]{2}:){31}[0-9A-F]{2}' "$work/out"
+has 'Names and addresses covered: .*192\.0\.2\.7.*laptop\.example' "$work/out"
+"$ctl" https ca > "$work/out"; has 'BEGIN CERTIFICATE' "$work/out"
+"$ctl" dashboard on > "$work/out"; has 'https://192.0.2.7:8732' "$work/out"
+ok "https self-signed switches, records, and shows the authority's fingerprint and the names it covers"
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout "$work/my.key" -out "$work/my.crt" -subj /CN=box.example -days 60 2> /dev/null
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout "$work/wrong.key" -out "$work/wrong.crt" -subj /CN=x -days 60 2> /dev/null
+if "$ctl" https custom "$work/my.crt" "$work/wrong.key" --yes > "$work/out" 2>&1; then echo "a wrong key was taken" >&2; exit 1; fi
+has "doesn't belong" "$work/out"
+: > "$work/log"
+if FAKE_PROXY_FAIL=custom "$ctl" https custom "$work/my.crt" "$work/my.key" --yes > "$work/out" 2>&1; then echo "a failed start passed" >&2; exit 1; fi
+has "previous setting is back" "$work/out"; grep -qx 'HALOS_HTTPS=self-signed' "$work/etc-https/https.env" || { echo "the old mode wasn't put back" >&2; exit 1; }
+[ "$(grep -c 'restart halos-proxy' "$work/log")" = 2 ] || { echo "Caddy wasn't restarted with the old mode" >&2; exit 1; }
+"$ctl" https custom "$work/my.crt" "$work/my.key" --yes > "$work/out"
+has '^HTTPS: on, with your certificate for CN=box.example' "$work/out"; has 'https +self-signed -> custom' "$work/history"
+"$ctl" https off --yes > "$work/out"; has '^HTTPS: off' "$work/out"; has 'https +custom -> off' "$work/history"
+"$ctl" https off > "$work/out"; has 'already off' "$work/out"
+if "$ctl" https self-signed 'a b' --yes > /dev/null 2>&1; then echo "took a name with a space" >&2; exit 1; fi
+for bad in "maybe" "custom $work/my.crt" "self-signed --reboot" "off --check"; do
+  # shellcheck disable=SC2086 # the words are the arguments
+  if "$ctl" https $bad --yes > /dev/null 2>&1; then echo "took https $bad" >&2; exit 1; fi
+done
+# A Caddy that starts but never answers is caught too, and with custom the old certificate comes back.
+"$ctl" https custom "$work/my.crt" "$work/my.key" --yes > /dev/null
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout "$work/new.key" -out "$work/new.crt" -subj /CN=new.example -days 60 2> /dev/null
+if FAKE_PROXY_DEAF=new.example "$ctl" https custom "$work/new.crt" "$work/new.key" --yes > "$work/out" 2>&1; then echo "a deaf Caddy passed" >&2; exit 1; fi
+has "previous setting is back" "$work/out"
+openssl x509 -in "$work/etc-https/https/cert.pem" -noout -subject | grep -q box.example || { echo "the old certificate wasn't put back" >&2; exit 1; }
+# No: nothing in use changes, and nothing stays staged.
+if "$ctl" https custom "$work/new.crt" "$work/new.key" < /dev/null > "$work/out" 2>&1; then echo "custom passed without --yes or a terminal" >&2; exit 1; fi
+openssl x509 -in "$work/etc-https/https/cert.pem" -noout -subject | grep -q box.example || { echo "a refused certificate went in use" >&2; exit 1; }
+[ ! -e "$work/etc-https/https/.pending" ] || { echo "a refused certificate stayed staged" >&2; exit 1; }
+"$ctl" https off --yes > /dev/null
+printf 'HALOS_HTTPS=selfsigned\n' > "$work/etc-https/https.env"
+"$ctl" https > "$work/out"; has "isn't off, self-signed, custom or letsencrypt" "$work/out"
+"$ctl" https off --yes > /dev/null
+ok "https custom checks the key, changes nothing on no, and puts the old mode and certificate back if Caddy won't start or answer"
+
+# Let's Encrypt: the provider's credentials come from stdin (or a hidden prompt), never arguments.
+if "$ctl" https letsencrypt route53 halos.example.com --yes < /dev/null > /dev/null 2>&1; then echo "took an unknown DNS provider" >&2; exit 1; fi
+if "$ctl" https letsencrypt cloudflare halos.example.com --yes < /dev/null > "$work/out" 2>&1; then echo "letsencrypt passed without credentials" >&2; exit 1; fi
+has 'field=value lines on stdin' "$work/out"
+if "$ctl" https self-signed --staging --yes > /dev/null 2>&1; then echo "--staging was taken outside letsencrypt" >&2; exit 1; fi
+: > "$work/log"
+printf 'api_token=secret-cf-token-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n' | "$ctl" https letsencrypt cloudflare halos.example.com --email admin@example.com --staging --yes > "$work/out"
+has 'Certificate Transparency' "$work/out"; has 'https +off -> letsencrypt' "$work/history"
+has '^HTTPS: on, with Let.s Encrypt certificates for halos.example.com \(DNS: cloudflare\)' "$work/out"; has 'staging' "$work/out"
+has 'resolve halos.example.com:8731:127.0.0.1' "$work/log"
+grep -qx 'HALOS_ACME_STAGING=1' "$work/etc-https/https.env" || { echo "--staging wasn't saved" >&2; exit 1; }
+if grep -rq secret-cf-token "$work/log" "$work/history" "$work/out" "$work/etc-https/https.env"; then echo "the token leaked outside its file" >&2; exit 1; fi
+# Again without --staging: the saved credentials are used when stdin gives none.
+"$ctl" https letsencrypt cloudflare halos.example.com --yes < /dev/null > "$work/out"
+grep -qx 'HALOS_ACME_STAGING=0' "$work/etc-https/https.env" || { echo "production wasn't saved" >&2; exit 1; }
+# No certificate in time: the previous mode and credentials come back, with Let's Encrypt's reason.
+if printf 'api_token=other-token-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC\n' | FAKE_ACME_FAIL=1 HALOS_ACME_WAIT=2 "$ctl" https letsencrypt cloudflare other.example.com --yes > "$work/out" 2>&1; then
+  echo "letsencrypt passed without a certificate" >&2; exit 1; fi
+has 'NXDOMAIN' "$work/out"; has 'previous setting is back' "$work/out"
+grep -qx 'HALOS_HTTPS_NAMES=halos.example.com' "$work/etc-https/https.env" || { echo "the old names weren't put back" >&2; exit 1; }
+[ "$(cat "$work/etc-https/https/dns/api_token")" = secret-cf-token-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBB ] || { echo "the old token wasn't put back" >&2; exit 1; }
+# A bad name or email is refused before any credential is read or replaced (code review, audit).
+if printf 'api_token=new-token-DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD\n' | "$ctl" https letsencrypt cloudflare halos.lan --yes > "$work/out" 2>&1; then echo "took halos.lan" >&2; exit 1; fi
+if printf 'api_token=new-token-DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD\n' | "$ctl" https letsencrypt cloudflare halos.example.com --email bad@ --yes > "$work/out" 2>&1; then echo "took a bad email" >&2; exit 1; fi
+[ "$(cat "$work/etc-https/https/dns/api_token")" = secret-cf-token-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBB ] || { echo "a refused command replaced the token" >&2; exit 1; }
+# Another provider that never gets a certificate: the first provider's credentials come back.
+if printf 'api_key=pk1_x\napi_secret_key=sk1_y\n' | FAKE_ACME_FAIL=1 HALOS_ACME_WAIT=2 "$ctl" https letsencrypt porkbun halos.example.com --yes > "$work/out" 2>&1; then echo "porkbun passed without a certificate" >&2; exit 1; fi
+[ "$(cat "$work/etc-https/https/dns/provider")" = cloudflare ] || { echo "the provider switch wasn't put back" >&2; exit 1; }
+# A new credential that works replaces the old one for good (no copy kept).
+printf 'api_token=new-token-DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD\n' | "$ctl" https letsencrypt cloudflare halos.example.com --yes > /dev/null
+[ ! -e "$work/etc-https/https/dns/.prev" ] || { echo "the replaced token was kept" >&2; exit 1; }
+if "$ctl" https forget-dns --yes > /dev/null 2>&1; then echo "forget-dns ran while in use" >&2; exit 1; fi
+"$ctl" https off --yes > /dev/null
+"$ctl" https forget-dns --yes > /dev/null; [ ! -e "$work/etc-https/https/dns" ] || { echo "forget-dns left the credentials" >&2; exit 1; }
+ok "https letsencrypt takes credentials from stdin only, waits for the certificate by name, and puts everything back if none comes"

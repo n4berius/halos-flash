@@ -1,0 +1,26 @@
+# halOS's front door (halos-proxy.service), HTTP mode: Caddy answers on Halogen's API port (8731)
+# and the dashboard's (8732), and passes requests on to them on this machine only
+# (127.0.0.1:18731 and 127.0.0.1:18732). Checked with `caddy validate` when the image is built.
+# The sites themselves are in sites.caddy; Caddyfile.https is the HTTPS mode (sudo halosctl https).
+{
+	# No admin API (it would let any local process change this configuration), no saved copy of the
+	# configuration, no HTTPS, no HTTP/3.
+	admin off
+	persist_config off
+	auto_https off
+	servers {
+		protocols h1 h2
+	}
+	# Open replies (a long generation) get 10 s to finish when Caddy stops, not forever.
+	grace_period 10s
+}
+
+import /usr/share/halos/proxy/sites.caddy
+
+http://:8731 {
+	import api
+}
+
+http://:8732 {
+	import dashboard
+}

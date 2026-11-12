@@ -42,6 +42,7 @@ name, but allows saying halOS runs Halogen.
 | `variants/npu`, `variants/no-npu` | Per-edition kernel arguments, Quadlet drop-ins, the allowed-options list and default `halogen.env` |
 | `scripts/` | `build.sh`, `build-iso.sh`, `package-iso.sh` (single-file release ISO), `release-info.sh`, `gen-options.py` (options from upstream `FLAGS.md`), `halogen-update.sh` (pins a new Halogen release), `size-report.sh`, `channels.sh` (which channel tags a release moves), `next-tag.sh` (the next release tag), `push-image.sh`, `sign-image.sh` (cosign signing) |
 | `CHANGELOG.md`, `ROADMAP.md` | What each release changed (PRs add to Unreleased), and the order of the work ahead |
+| `src/` | halOS's own source: `dashboard-nodump.c` (built in the Containerfile's dashboard stage) and `caddy/` (`main.go`, `go.mod`, `go.sum`: Caddy with the DNS providers, built in the caddy stage; Dependabot `gomod`) |
 | `tests/` | `run.sh` (fast checks, no GPU or network), `iso-install.sh` + `vm-login.py` (QEMU install test) |
 | `.claude/agents/` | Subagents: `code-reviewer` (QA review before merge) and `security-auditor` (audit, zero-cost hardening ideas). Both only read and report |
 | `.github/workflows/` | `build.yml` (image, edge tag; also weekly, Thursday 05:37 UTC), `iso.yml` (ISO + VM install test), `release.yml`, `refresh.yml` (weekly rebuild of stable), `halogen-update.yml` (daily: opens a PR for a new Halogen release) |
@@ -285,7 +286,8 @@ name, but allows saying halOS runs Halogen.
   `fake-halogen`), into `/usr/libexec/halogen/halogen-dashboard`. Licences in
   `/usr/share/licenses/halogen-dashboard/`: its own, `web/` (IBM Plex Sans OFL 1.1, uPlot, Svelte, the
   bundled parts) and `crates.txt` (`cargo metadata`). `halos-dashboard.service` (enabled, firewalld
-  service `halos-dashboard`, 8790/tcp open by default, no login, GET routes only): `DynamicUser`,
+  service `halos-dashboard`, 8732/tcp open by default (8790 in v0.20.1-alpha.1 and alpha.2, until #103; the firewalld service file
+  moves the port on upgrade, since zones name the service), no login, GET routes only): `DynamicUser`,
   `StateDirectory=halos-dashboard` (SQLite: raw samples 48 h, one-minute rollups and events 30 d; about 430 MB full, from upstream's `seed --days 30`),
   `MemoryMax=256M` (measured 12 MB RSS against the simulator), `HALOGEN_URL=http://127.0.0.1:8731`
   (the binary's defaults are upstream's LAN address and 0.0.0.0). `/metrics`, `/cache` and
@@ -308,6 +310,116 @@ name, but allows saying halOS runs Halogen.
   key included),
   `PrivateUsers=yes`, and `pnpm install --ignore-scripts` in the build stage (the page builds
   without them, checked on Fedora 45).
+  Then (#101): `dashboard-run` preloads `/usr/lib64/halos/dashboard-nodump.so` (`src/dashboard-nodump.c`,
+  built with gcc in the dashboard stage: a constructor calling `prctl(PR_SET_DUMPABLE, 0)`, exit 70 if
+  it fails; a wrapper can't, since execve makes a process dumpable again), so the kernel never hands
+  a crash to systemd-coredump (which journals `COREDUMP_ENVIRON`, the key) and gives its `/proc` files
+  to root; dashboard-run refuses to start unless the library loads (ld.so skips a broken one with a
+  warning), and the dashboard stage checks a nobody process with it can't read its own environ.
+  `SocketBindAllow=tcp:8732` + `SocketBindDeny=any` (skipped quietly without systemd's BPF framework
+  or libbpf; not checked by the selftest). `IPAccounting=yes` uses the same cgroup BPF program as
+  `IPAddressDeny`, which systemd skips quietly when it can't load or attach it: the selftest's
+  `dashboard-filter` passes only when `IPIngressBytes` is above 0 after its own curl and
+  `IPAddressDeny` holds `0.0.0.0/0`, and prints the allow list; `dashboard-nodump` passes when
+  `/proc/<MainPID>/environ` belongs to uid 0. `iso.yml` also runs for `src/**`.
+
+- Front door (#102 step 2, #104): `halos-proxy.service` runs Caddy (`/usr/libexec/halogen/caddy`, built
+  in the Containerfile's `caddy` stage from `src/caddy` with Fedora's Go, `GOTOOLCHAIN=local`,
+  `-mod=readonly`, `CGO_ENABLED=0`; Fedora's caddy package has no DNS providers). DNS providers: caddy-dns
+  cloudflare and porkbun; DuckDNS and Namecheap through halOS's own modules in `src/caddy/dnsproviders`
+  on the MIT libdns libraries, because caddy-dns/duckdns and /namecheap carry no licence (owner's call;
+  `tests/static.sh` keeps them out). Their values take placeholders (`{file.…}` for credentials). It is the only
+  listener on 8731 and 8732, on HTTP or (later) HTTPS: Halogen is published on `127.0.0.1:18731`
+  only (Quadlet), the dashboard listens on `127.0.0.1:18732` with `IPAddressAllow=localhost` and
+  reads Halogen at 18731. Caddyfile `/usr/share/halos/proxy/Caddyfile` (`caddy validate` at build):
+  `admin off`, `persist_config off`, `auto_https off`, `protocols h1 h2`, `grace_period 10s`,
+  `flush_interval -1` (SSE, checked unbuffered), 503 notes from `handle_errors` when an upstream
+  is down, an access log for 8731 only (journal; `format filter` deletes request headers and the query,
+  since Caddy redacts only `Authorization` and `x-api-key`/`?api_key=` would be kept: security audit;
+  fail2ban #92 will read it), `bind 0.0.0.0` on 8732 (IPv4 only as before), and the dashboard's private-ranges rule (`remote_ip` + `abort`, plus `{$HALOS_DASHBOARD_ALLOW}`
+  from root's optional `/etc/halos/proxy.env`). The unit: `DynamicUser`, `StateDirectory=halos-proxy`
+  (HOME/XDG there), `GOMEMLIMIT=192MiB` under `MemoryMax=256M` (no `MemoryHigh`: Caddy's automemlimit
+  would aim above it), no capabilities (ports above 1024), the dashboard's sandbox, `SocketBindAllow`
+  8731 and 8732. Prototype (Fedora 45 container, as nobody): only TCP 8731/8732 listen (no 2019,
+  no :80, no UDP). `login-status`, `bench` and the selftest's `api-ipv4`/`api-models` ask Halogen at
+  18731 directly (Halogen's own numbers, no access-log lines, no TLS later); the selftest's `proxy`
+  curls 8731 (any HTTP code: Caddy answers) and `api-ipv6` goes through Caddy on `[::1]:8731`.
+  `ExecStartPre` runs `caddy validate`, so a bad `proxy.env` range fails once with a reason.
+  The 8731 503 note is JSON with `Retry-After`. Licences:
+  `/usr/share/licenses/halos-caddy/` (`modules.txt` from `go list -deps`, each module's licence and
+  NOTICE files, and Go's own `go-LICENSE` for the standard library).
+
+- HTTPS (#102 step 3, #105): `/usr/libexec/halogen/https` (root, `set -f`) reads `/etc/halos/https.env`
+  as data (`HALOS_HTTPS=off|self-signed|custom`, `HALOS_HTTPS_NAMES`; no file or empty = off, also on
+  upgrades; any other value = `invalid`, which stops Caddy's start, never plain HTTP) and is
+  halos-proxy's `ExecStartPre=+`: it writes `/run/halos-https/proxy.env` (a folder only root writes,
+  since PID 1 reads `EnvironmentFile`s as root and Caddy's runtime folder is Caddy's; the unit's own
+  default `HALOS_PROXY_CONFIG` is a missing file, so no env file fails closed) with
+  `HALOS_PROXY_CONFIG` (`Caddyfile` or `Caddyfile.https`), `HALOS_TLS` (`internal|custom`, imported
+  as `tls_<mode>` from `sites.caddy`) and quoted `HALOS_API_SITES`/`HALOS_DASH_SITES` (self-signed:
+  `https://<name>:port` for localhost, 127.0.0.1, ::1, the host name, short name, `.local`, every
+  global address (`ip -o addr show scope global`, minus temporary/deprecated/tentative IPv6, else
+  `hostname -I`) and the extra names (`set self-signed` alone keeps them), IPv6 bracketed, the
+  dashboard IPv4 only; custom:
+  `https://:port`). systemd re-reads `EnvironmentFile` for each command, so `caddy validate --config
+  ${HALOS_PROXY_CONFIG}` and `run` see it. Custom: `stage <cert> <key>` reads each file once (1 MiB
+  at most) into `/etc/halos/https/.pending/`, checks the copies (key matches, not expired, no
+  passphrase) and re-encodes them (`crl2pkcs7 | pkcs7 -print_certs`, `pkey`); `commit` moves them in,
+  keeping `.prev-*`; `discard`, `restore`. `env` copies them into `$RUNTIME_DIRECTORY` (`mktemp` +
+  `chown -h --reference`) and fails closed without them. Names are validated (host-name characters or
+  an IP) before reaching the Caddyfile. `Caddyfile.https`: `auto_https disable_redirects`,
+  `skip_install_trust`, `listener_wrappers { http_redirect tls }` (308 on the same port, no :80).
+  Caddy's authority (`/var/lib/private/halos-proxy/caddy/pki/authorities/local/root.crt`, key beside
+  it in Caddy's state) is checked by root to lie inside Caddy's state (realpath, a regular file), then read from inside that folder as Caddy's own user with `setpriv` (relative path, so a link swapped in later is followed only with Caddy's rights), `timeout 5` and `head -c 64K`,
+  then re-encoded by openssl (a link, FIFO or endless file can't make root print or hang). Checked in
+  a container as nobody: certs per name and address, unknown SNI refused, custom cert for any SNI,
+  the redirect. `halosctl https [self-signed [<name>...]|custom <cert> <key>|off|ca]`: custom stages,
+  shows the subject, asks (no: `discard`, nothing in use changes), commits; every switch restarts the
+  proxy and then needs `is-active` plus an HTTP answer on 8731 within 10 s (systemd counts the start
+  as done before Caddy binds), else puts back `https.env` and with custom the previous certificate.
+  The selftest's `https` (INFO off; FAIL invalid; PASS when `--cacert` the authority, or `-k` for
+  custom, gets an answer; WARN within 14 days of a custom certificate's end) and `https-names` (an
+  address not in the sites: `https uncovered`); `halos-https-refresh.timer` (every minute, root,
+  sandboxed) runs `https refresh`, which in self-signed mode try-restarts halos-proxy only when an
+  address isn't covered (Caddy now waits for `network-online.target`, but Tailscale and new leases
+  come later: code review found IP clients without SNI failed after a reboot); its API-over-Caddy and dashboard checks use the mode's scheme
+  with `-k`; login-status and `halosctl dashboard` show `https://`. INSTALL advises trusting the
+  authority per app, not system-wide (it isn't name-constrained). The VM test turns self-signed on,
+  curls with the authority (Caddy's 503 note, Halogen being down), checks the 308, the selftest
+  lines, and `off`. Not done, for the owner to agree (security audit): a name-constrained root kept
+  by root with Caddy holding only an intermediate, and the selftest comparing the served
+  certificate in custom mode.
+  Let's Encrypt (#102 step 4): `HALOS_HTTPS=letsencrypt` with `HALOS_ACME_DNS` (cloudflare, duckdns,
+  porkbun, namecheap), `HALOS_HTTPS_NAMES` (public names only: two labels or more, no address,
+  no `.local`/`.lan`/`.home`/`.internal`), `HALOS_ACME_EMAIL`, `HALOS_ACME_STAGING`. Config
+  `Caddyfile.letsencrypt`: global `acme_ca`, `cert_issuer acme` and `import acme/dns-<provider>.caddy`
+  plus `acme/email-<yes|no>.caddy` (one policy for both ports: two `tls` blocks for the same name on
+  8731 and 8732 are refused as ambiguous); the public names' sites get ACME, the local names
+  (`names` minus the public ones) keep `tls internal`, so IP clients, the selftest and `proxy_up`
+  still work. Credentials: `https dns-stage <provider>` reads `field=value` lines from stdin only
+  (4 KiB, one printable word each, a Cloudflare token in the shape caddy-dns/cloudflare accepts,
+  since its refusal prints the token; DuckDNS 36 characters; Namecheap's `client_ip` an IPv4), into
+  `/etc/halos/https/dns/.pending` (root, 0700/0600); `dns-commit` keeps `.prev`, `dns-restore`; `env`
+  copies them into `$RUNTIME_DIRECTORY/dns_<field>` (as custom's certificate; `LoadCredential` was
+  not used, its behaviour for a missing folder unchecked) and fails closed without them; Caddy reads
+  them through `{file.…}`. halOS's DuckDNS and Namecheap modules check the values after
+  replacement in `Provision` and wrap the four record methods to replace the secret (raw and
+  URL-encoded) with `REDACTED` in errors (`go test ./dnsproviders/` runs in the caddy stage).
+  `halosctl https letsencrypt <provider> <name>... [--email] [--staging]` prompts (hidden) on a
+  terminal or reads stdin with `--yes`, offers to reuse the saved credential, waits up to
+  `HALOS_ACME_WAIT` (300 s) for each name to answer by SNI (`curl --resolve`, no `--retry`),
+  and otherwise prints Caddy's last errors and restores the mode and credentials. The selftest
+  checks the name against the system trust store (WARN staging or within 10 days, FAIL none or
+  ended). Namecheap's API replaces a domain's whole record list (libdns/namecheap `SetHosts`):
+  INSTALL warns. Review and audit fixes: `dns_value_ok` (provider shapes) runs in `dns-stage` and
+  again in `env` (a hand-edited token never reaches Caddy); `dns-stage` never echoes a line without
+  `field=`; `halosctl` runs `https set --check` (names, email) before asking for any secret, puts
+  back the credentials if `set` refuses, traps INT/TERM/HUP during the wait to revert, reads
+  Caddy's errors with `jq` (escaped quotes), and drops `.prev` once the new credentials work
+  (`https forget-dns` removes them all, refused while in use); `set self-signed` alone doesn't keep
+  the Let's Encrypt names. A new credential is first used at Caddy's next renewal when the name
+  already has a valid certificate (INSTALL says so). Real issuance can't run in CI; first checked
+  on freyja.
 
 ## Lessons already learned
 

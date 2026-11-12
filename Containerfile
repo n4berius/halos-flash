@@ -47,6 +47,48 @@ RUN set -eu; \
     } > "$lic/crates.txt"; \
     grep -q '^axum ' "$lic/crates.txt" && grep -q '^rusqlite ' "$lic/crates.txt" \
       || { echo "the crate list is incomplete" >&2; exit 1; }
+# halOS's own small library, preloaded into the dashboard so a crash can't put the API key in the
+# journal (src/dashboard-nodump.c). Same base image, so the same glibc as the os stage.
+COPY src/dashboard-nodump.c /halos-src/
+RUN set -eu; \
+    gcc -O2 -shared -fPIC -Wall -Wextra -Werror -o /out/dashboard-nodump.so /halos-src/dashboard-nodump.c; \
+    [ -z "$(LD_PRELOAD=/out/dashboard-nodump.so /usr/bin/true 2>&1)" ]; \
+    chmod 0755 /out; \
+    setpriv --reuid=65534 --regid=65534 --clear-groups cat /proc/self/environ > /dev/null; \
+    ! LD_PRELOAD=/out/dashboard-nodump.so setpriv --reuid=65534 --regid=65534 --clear-groups cat /proc/self/environ > /dev/null 2>&1
+
+# Caddy, halOS's front door (halos-proxy.service): Halogen's API on 8731 and the dashboard on 8732,
+# over HTTP or HTTPS. Built from src/caddy, whose go.mod and go.sum pin every module by version and
+# hash, because Fedora's caddy package has no DNS providers for Let's Encrypt's DNS-01 challenge.
+# DuckDNS and Namecheap go through halOS's own modules (src/caddy/dnsproviders), since their
+# caddy-dns plugins carry no licence. Also gathers the licence files of every module linked in.
+FROM ${FEDORA_BOOTC_IMAGE} AS caddy
+COPY src/caddy/ /src/caddy/
+RUN set -eu; \
+    dnf -y --setopt=install_weak_deps=False install golang; \
+    mkdir -p "$(realpath /root)"; \
+    cd /src/caddy; \
+    export GOTOOLCHAIN=local GOFLAGS=-mod=readonly CGO_ENABLED=0 GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org; \
+    go test ./dnsproviders/; \
+    go build -trimpath -ldflags='-s -w' -o /out/caddy .; \
+    /out/caddy version; \
+    for p in cloudflare duckdns namecheap porkbun; do /out/caddy list-modules | grep -qx "dns.providers.$p"; done; \
+    lic=/out/licenses; mkdir -p "$lic/modules"; \
+    { echo "Go modules linked into halOS's Caddy (path, version), from src/caddy/go.sum."; \
+      echo "Each module's licence file, where it has one, is under modules/<path>/."; echo; } > "$lic/modules.txt"; \
+    go list -deps -f '{{with .Module}}{{if .Version}}{{.Path}} {{.Version}} {{.Dir}}{{end}}{{end}}' . | sort -u \
+      | while read -r m v d; do \
+          echo "$m $v" >> "$lic/modules.txt"; \
+          f="$(find "$d" -maxdepth 1 -type f \( -iname 'licen[cs]e*' -o -iname 'copying*' -o -iname 'notice*' \) | sort)"; \
+          if [ -n "$f" ]; then mkdir -p "$lic/modules/$m"; echo "$f" | while read -r g; do cp "$g" "$lic/modules/$m/"; done; fi; \
+        done; \
+    echo "go $(go env GOVERSION) (the standard library): go-LICENSE" >> "$lic/modules.txt"; \
+    goli="$(go env GOROOT)/LICENSE"; [ -r "$goli" ] || goli=/usr/share/licenses/golang/LICENSE; \
+    cp "$goli" "$lic/go-LICENSE"; \
+    for m in github.com/caddyserver/caddy/v2 github.com/caddy-dns/cloudflare github.com/caddy-dns/porkbun \
+      github.com/libdns/duckdns github.com/libdns/namecheap; do \
+      ls "$lic/modules/$m/"* > /dev/null || { echo "no licence file for $m" >&2; exit 1; }; \
+    done
 
 FROM ${FEDORA_BOOTC_IMAGE} AS os
 ARG HALOGEN_VARIANT
@@ -61,7 +103,9 @@ ARG HALOGEN_WEIGHTS_REVISION
 
 # A headless AMD server: AMD GPU, NPU and CPU firmware, the network firmware Strix Halo boards
 # use (Realtek, MediaTek, Qualcomm), the Wi-Fi channel rules (wireless-regdb, small, with iw;
-# the Wi-Fi driver asks for them at boot) and a few admin tools. fwupd stays for firmware updates.
+# the Wi-Fi driver asks for them at boot) and a few admin tools. fwupd stays for firmware updates,
+# with udisks2: fwupd finds the EFI partition only through it (EspLocation only picks among what it
+# lists), so without it the Secure Boot revocation list (dbx) can't be updated. It starts on demand.
 RUN dnf -y --setopt=install_weak_deps=False install \
       amd-gpu-firmware firewalld linux-firmware tpm2-tss \
       amdsmi nvtop htop pciutils usbutils tmux wireless-regdb nano bash-completion && \
@@ -70,12 +114,13 @@ RUN dnf -y --setopt=install_weak_deps=False install \
       cirrus-audio-firmware brcmfmac-firmware tiwilink-firmware nxpwireless-firmware \
       qcom-wwan-firmware microcode_ctl \
       'qemu-user-static*' toolbox sos python3-boto3 python3-botocore python3-s3transfer \
-      'sssd*' adcli libsmbclient 'samba-*' nfs-utils udisks2 libudisks2 \
+      'sssd*' adcli libsmbclient 'samba-*' nfs-utils \
       btrfs-progs nilfs-utils f2fs-tools ntfsprogs ntfs-3g exfatprogs udftools \
       fwupd-plugin-modem-manager ModemManager-glib libqmi libmbim && \
     dnf clean all && \
     rm -rf /var/log/dnf5.log /var/lib/dnf /var/cache/libdnf5 /run/dnf && \
-    rpm -q bash-completion fwupd skopeo jq amd-ucode-firmware realtek-firmware mt7xxx-firmware atheros-firmware && \
+    rpm -q bash-completion fwupd udisks2 skopeo jq amd-ucode-firmware realtek-firmware mt7xxx-firmware atheros-firmware && \
+    systemctl disable udisks2.service && ls /usr/share/dbus-1/system-services/org.freedesktop.UDisks2.service && \
     ls -d /usr/lib/firmware/amdgpu /usr/lib/firmware/amdnpu && \
     command -v runuser setpriv nano
 
@@ -88,6 +133,9 @@ COPY --from=bf16-to-hgn /src/native/LICENSE /usr/share/licenses/bf16-to-hgn/nati
 COPY --from=bf16-to-hgn /src/native/NOTICE /usr/share/licenses/bf16-to-hgn/native/NOTICE
 COPY --from=dashboard /src/target/release/halogen-dashboard /usr/libexec/halogen/halogen-dashboard
 COPY --from=dashboard /out/licenses/ /usr/share/licenses/halogen-dashboard/
+COPY --from=dashboard /out/dashboard-nodump.so /usr/lib64/halos/dashboard-nodump.so
+COPY --from=caddy /out/caddy /usr/libexec/halogen/caddy
+COPY --from=caddy /out/licenses/ /usr/share/licenses/halos-caddy/
 
 # Upstream's clock script and terms, unmodified and checked by hash.
 RUN set -eu; \
@@ -107,6 +155,20 @@ ARG HALOGEN_DASHBOARD_COMMIT
 RUN set -eu; \
     /usr/libexec/halogen/bf16-to-hgn --version; \
     /usr/libexec/halogen/halogen-dashboard --version; \
+    [ -z "$(LD_PRELOAD=/usr/lib64/halos/dashboard-nodump.so /usr/bin/true 2>&1)" ]; \
+    HOME=/tmp XDG_DATA_HOME=/tmp XDG_CONFIG_HOME=/tmp /usr/libexec/halogen/caddy validate --config /usr/share/halos/proxy/Caddyfile --adapter caddyfile; \
+    for tls in internal custom; do \
+      HOME=/tmp XDG_DATA_HOME=/tmp XDG_CONFIG_HOME=/tmp HALOS_TLS=$tls RUNTIME_DIRECTORY=/tmp/halos-tls \
+        HALOS_API_SITES="https://localhost:8731, https://127.0.0.1:8731" HALOS_DASH_SITES="https://localhost:8732" \
+        /usr/libexec/halogen/caddy adapt --config /usr/share/halos/proxy/Caddyfile.https --adapter caddyfile > /dev/null; \
+    done; \
+    for dns in cloudflare duckdns porkbun namecheap; do for mail in yes no; do \
+      HOME=/tmp XDG_DATA_HOME=/tmp XDG_CONFIG_HOME=/tmp RUNTIME_DIRECTORY=/tmp/halos-tls HALOS_ACME_DNS=$dns \
+        HALOS_ACME_EMAIL_SET=$mail HALOS_ACME_EMAIL=admin@example.com HALOS_ACME_CA=https://acme-staging-v02.api.letsencrypt.org/directory \
+        HALOS_ACME_API_SITES="https://halos.example.com:8731" HALOS_ACME_DASH_SITES="https://halos.example.com:8732" \
+        HALOS_API_SITES="https://localhost:8731, https://127.0.0.1:8731" HALOS_DASH_SITES="https://localhost:8732" \
+        /usr/libexec/halogen/caddy adapt --config /usr/share/halos/proxy/Caddyfile.letsencrypt --adapter caddyfile > /dev/null; \
+    done; done; \
     chmod 0755 /usr/bin/halosctl /usr/bin/halogenctl /usr/bin/halogen-enroll-tpm /usr/libexec/halogen/*; \
     find /etc/containers/systemd/users/970 -type f -exec sed -i \
       -e "s|@HALOGEN_IMAGE@|${HALOGEN_IMAGE}|g" -e "s|@HALOGEN_VERSION@|${HALOGEN_VERSION}|g" {} +; \
@@ -125,6 +187,8 @@ RUN set -eu; \
     firewall-offline-cmd --add-service=halos-dashboard; \
     systemctl enable firewalld.service halogen-prepare.service halos-status.timer halos-platform-profile.service; \
     systemctl enable halos-dashboard.service; \
+    systemctl enable halos-proxy.service; \
+    systemctl enable halos-https-refresh.timer; \
     if [ "$HALOGEN_VARIANT" = npu ]; then \
       systemctl enable halogen-fabric-clock.service; \
     else \

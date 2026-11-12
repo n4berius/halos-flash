@@ -191,7 +191,7 @@ sudo halogenctl flash list   # the official Flash checkpoint and your own; flash
 checkpoint](INSTALL.md#your-own-flash-checkpoint) explain `model` and `flash`.
 
 A live dashboard of Halogen's load and health (speed, slots, queue, KV pool, prompt cache, NPU,
-30 days of charts) is at `http://<host>:8790`: [halogen-dashboard](https://github.com/Quat3rnion/halogen-dashboard)
+30 days of charts) is at `http://<host>:8732`: [halogen-dashboard](https://github.com/Quat3rnion/halogen-dashboard)
 by Quaternion, built in. It has no login and only reads; `sudo halosctl dashboard off` turns it
 off ([details](INSTALL.md#the-dashboard)).
 
@@ -202,8 +202,10 @@ any staged update. The first time Halogen answers after a boot, logged-in users 
 `logs` and `fetch-logs` follow new lines in a terminal until you press Ctrl+C. Piped into
 `tail` or `grep`, or saved to a file, they print and stop.
 
-Clients use `http://<host>:8731/v1` with `Authorization: Bearer <api-key>`. The API listens on
-IPv4 and IPv6.
+Clients use `http://<host>:8731/v1`, or `https://` once `sudo halosctl https` turns it on, with
+`Authorization: Bearer <api-key>`, on IPv4 and IPv6.
+[Caddy](https://caddyserver.com) answers on 8731 and 8732 and passes requests on to Halogen and the
+dashboard, which listen on the machine only.
 
 ## Upgrade and roll back
 

@@ -65,8 +65,31 @@ assert '--build-arg "BF16_TO_HGN_COMMIT=$BF16_TO_HGN_COMMIT"' in open("scripts/b
 assert re.fullmatch(r"[0-9a-f]{40}", pins["HALOGEN_DASHBOARD_COMMIT"]), "HALOGEN_DASHBOARD_COMMIT must be a full commit"
 assert 'git checkout -q "$HALOGEN_DASHBOARD_COMMIT"' in cf and "pnpm install --frozen-lockfile" in cf \
   and "cargo build --release --locked --bin halogen-dashboard" in cf and "pnpm install --frozen-lockfile --ignore-scripts && pnpm build" in cf, "halogen-dashboard isn't built from its pin"
+assert "COPY src/dashboard-nodump.c" in cf and "COPY --from=dashboard /out/dashboard-nodump.so /usr/lib64/halos/dashboard-nodump.so" in cf \
+  and "PR_SET_DUMPABLE, 0" in open("src/dashboard-nodump.c").read(), "the dashboard's not-dumpable library isn't built or shipped"
 assert "/usr/share/licenses/halogen-dashboard/" in cf and "ibm-plex-sans" in cf and "crates.txt" in cf, "halogen-dashboard's licences aren't shipped"
 notices = open("THIRD-PARTY-NOTICES.md").read()
+# Caddy (halos-proxy) is built from src/caddy's pinned modules, with its four DNS providers, and its
+# licences ship.
+gomod = open("src/caddy/go.mod").read()
+gosrc = open("src/caddy/main.go").read() + "".join(open(f).read() for f in glob.glob("src/caddy/dnsproviders/*.go"))
+for m in ("github.com/caddyserver/caddy/v2", "github.com/caddy-dns/cloudflare", "github.com/caddy-dns/porkbun",
+          "github.com/libdns/duckdns", "github.com/libdns/namecheap"):
+    assert re.search(r"^\t" + re.escape(m) + r" v\d+\.\d+\.\d+$", gomod, re.M), f"{m} isn't pinned in src/caddy/go.mod"
+    assert f'"{m}' in gosrc, f"src/caddy doesn't link {m}"
+    assert m + " " in open("src/caddy/go.sum").read(), f"src/caddy/go.sum has no hash for {m}"
+# caddy-dns/duckdns and caddy-dns/namecheap carry no licence, so halOS uses its own modules instead.
+assert "caddy-dns/duckdns" not in gomod and "caddy-dns/namecheap" not in gomod, "an unlicensed caddy-dns plugin is back"
+for mod in ("duckdns", "namecheap"):
+    assert f'ID:  "dns.providers.{mod}"' in gosrc, f"halOS's {mod} module is missing"
+assert "GOFLAGS=-mod=readonly" in cf and "COPY --from=caddy /out/caddy /usr/libexec/halogen/caddy" in cf \
+  and "COPY --from=caddy /out/licenses/ /usr/share/licenses/halos-caddy/" in cf and "-iname 'notice*'" in cf \
+  and 'cp "$goli" "$lic/go-LICENSE"' in cf, "Caddy isn't built from src/caddy or its licences don't ship"
+assert "systemctl enable halos-https-refresh.timer" in cf, "the HTTPS address refresh isn't enabled"
+assert "caddy adapt --config /usr/share/halos/proxy/Caddyfile.https" in cf and "for tls in internal custom" in cf, "the HTTPS Caddyfile isn't checked at build"
+assert "caddy adapt --config /usr/share/halos/proxy/Caddyfile.letsencrypt" in cf and "for dns in cloudflare duckdns porkbun namecheap" in cf, "the Let's Encrypt Caddyfile isn't checked at build for every DNS provider"
+assert "caddy validate --config /usr/share/halos/proxy/Caddyfile" in cf and "systemctl enable halos-proxy.service" in cf, "the proxy isn't checked or enabled"
+assert "caddyserver/caddy" in notices and "halos-caddy/modules.txt" in notices, "THIRD-PARTY-NOTICES doesn't credit Caddy"
 assert "Quat3rnion/halogen-dashboard" in notices and "IBM Plex" in notices, "THIRD-PARTY-NOTICES doesn't credit halogen-dashboard and its font"
 assert '--build-arg "HALOGEN_DASHBOARD_COMMIT=$HALOGEN_DASHBOARD_COMMIT"' in open("scripts/build.sh").read(), "build.sh doesn't pass the dashboard pin"
 assert "--add-service=halos-dashboard" in cf and "halos-dashboard.service" in cf, "the dashboard isn't enabled with its port"

@@ -1,0 +1,2 @@
+# Imported into Caddyfile.letsencrypt's global options when an email address is set (HALOS_ACME_EMAIL).
+email {$HALOS_ACME_EMAIL}

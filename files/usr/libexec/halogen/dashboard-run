@@ -5,4 +5,11 @@
 set -euo pipefail
 HALOGEN_API_KEY="$(cat "${RUNTIME_DIRECTORY:?run by halos-dashboard.service}/api-key")"
 export HALOGEN_API_KEY
+# Not dumpable (src/dashboard-nodump.c): a crash then never writes the environment, key included,
+# to the journal. It doesn't start unless the library loads: ld.so would skip a broken one quietly.
+nodump="${HALOS_DASHBOARD_NODUMP:-/usr/lib64/halos/dashboard-nodump.so}"
+if [ ! -r "$nodump" ] || [ -n "$(LD_PRELOAD="$nodump" /usr/bin/true 2>&1)" ]; then
+  echo "dashboard-run: $nodump is missing or doesn't load" >&2; exit 1
+fi
+export LD_PRELOAD="$nodump"
 exec "${HALOS_DASHBOARD_BIN:-/usr/libexec/halogen/halogen-dashboard}"

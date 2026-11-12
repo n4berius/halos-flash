@@ -1,0 +1,24 @@
+[Unit]
+Description=halOS HTTPS: new certificates for this machine's new addresses
+Documentation=file:///usr/libexec/halogen/https
+# Only in self-signed mode, and only when an address isn't covered yet: then it restarts
+# halos-proxy (Caddy started before DHCP or Tailscale gave the address, or the address changed).
+ConditionPathExists=/etc/halos/https.env
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/halogen/https refresh
+# Reads settings and addresses, and asks systemd to restart one unit; writes nothing.
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native

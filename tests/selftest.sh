@@ -37,13 +37,15 @@ f amd-smi 'if [ -n "${FAKE_NOGPU:-}" ]; then echo "ERROR:root:Unable to detect a
 f systemd-run 'case "$*" in *render-config*) printf "%s\n" "${FAKE_RENDER:-HALOGEN_CHECKPOINT=/models/qwen38-flash-next-v2.hgn}" ;; *) echo "preflight: ok" ;; esac'
 f bootc 'case "$*" in *json*) echo "{\"spec\":{\"image\":{\"image\":\"${FAKE_FOLLOWS:-ghcr.io/n4berius/halos-flash:stable}\",\"signature\":\"${FAKE_SIG:-containerPolicy}\"}}}" ;; *) echo "Booted image: ghcr.io/n4berius/halos-flash:9.9.9" ;; esac'
 f systemctl 'case "$*" in *--failed*) cat "$FAKE/failed" 2>/dev/null ;; *"show -p Job"*) echo "${FAKE_JOB:-}" ;;
-  *"is-enabled halos-dashboard"*) echo "${FAKE_DASH:-enabled}" ;;
+  *"is-enabled halos-dashboard"*) echo "${FAKE_DASH:-enabled}" ;; *"is-active halos-proxy"*) echo "${FAKE_PROXY:-active}" ;;
+  *"IPIngressBytes --value halos-dashboard"*) echo "${FAKE_DASH_IPIN-1234}" ;; *"IPAddressDeny --value halos-dashboard"*) echo "${FAKE_DASH_DENY-0.0.0.0/0 ::/0}" ;;
+  *"IPAddressAllow --value halos-dashboard"*) echo "127.0.0.0/8 ::1/128" ;; *"MainPID --value halos-dashboard"*) echo "${FAKE_DASH_PID-4242}" ;;
   *halogen-fetch*) echo "${FAKE_FETCH:-inactive}" ;; *) echo "${FAKE_STATE:-active}" ;; esac'
 f fabric-clock 'exit 0'
 f ssh-unlock 'case "$1" in verify) exit "${FAKE_VERIFY:-0}" ;; *) echo "${FAKE_SSHU:-on 2}" ;; esac'
 # Group, owner and label as the real image sets them.
-f stat 'case "$2" in %G|%U) echo halogen ;; %C) case "$3" in *accel*) echo system_u:object_r:dri_device_t:s0 ;; *) echo system_u:object_r:container_file_t:s0 ;; esac ;; *) exec /usr/bin/stat "$@" ;; esac'
-f curl 'echo "curl $*" >> "$FAKE/curl.log"; case "$*" in *8790/healthz*) printf "${FAKE_DASH_CODE:-200}" ;; *models*) echo "{\"data\":[{\"id\":\"halogen-qwen3.8-flash-next\"},{\"id\":\"qwen3.5-2b\"}]}" ;; *::1*) [ -n "${FAKE_NOIPV6:-}" ] && printf 000 || printf 200 ;; *) printf 200 ;; esac'
+f stat 'case "$2" in %G|%U) echo halogen ;; %u) case "$3" in /proc/4242/environ) echo "${FAKE_DASH_DUMP_UID:-0}" ;; *) exec /usr/bin/stat "$@" ;; esac ;; %C) case "$3" in *accel*) echo system_u:object_r:dri_device_t:s0 ;; *) echo system_u:object_r:container_file_t:s0 ;; esac ;; *) exec /usr/bin/stat "$@" ;; esac'
+f curl 'echo "curl $*" >> "$FAKE/curl.log"; case "$*" in *8732/healthz*) printf "${FAKE_DASH_CODE:-200}" ;; *models*) echo "{\"data\":[{\"id\":\"halogen-qwen3.8-flash-next\"},{\"id\":\"qwen3.5-2b\"}]}" ;; *::1*) [ -n "${FAKE_NOIPV6:-}" ] && printf 000 || printf 200 ;; *) printf 200 ;; esac'
 echo "halogen" > "$work/services"
 # Files halogen owns are read through runuser (security audit P2/P7); log it, then run the command.
 f runuser 'echo "runuser $*" >> "$FAKE/runuser.log"; [ "$1 $2 $3" = "-u halogen --" ] || exit 9; shift 3; exec "$@"'
@@ -54,7 +56,22 @@ export PATH="$fake:$sysbin" HALOGEN_RELEASE_FILE="$work/release.env" HALOGEN_SYS
   HALOGEN_DEV="$work/dev" HALOGEN_CMDLINE="$work/cmdline" HALOGEN_MEMINFO="$work/meminfo" \
   HALOGEN_MODELS_DIR="$work/models" HALOGEN_CONFIGS_DIR="$work/configs" HALOGEN_CLOCK="$fake/fabric-clock" \
   HALOS_POLICY="$repo/files/etc/containers/policy.json" HALOS_SSH_UNLOCK="$fake/ssh-unlock" \
-  HALOS_ETC="$work/etc" HALOS_USR_ETC="$work/usretc" HALOS_ROOT_POLICY="$work/root-policy.json"
+  HALOS_ETC="$work/etc" HALOS_USR_ETC="$work/usretc" HALOS_ROOT_POLICY="$work/root-policy.json" \
+  HALOS_HTTPS_HELPER="$fake/https" HALOS_HTTPS_RUN="$work/run-halos"
+# The https helper: off unless FAKE_HTTPS says otherwise.
+f https 'case "$1" in
+  describe) case "${FAKE_HTTPS:-off}" in
+      self-signed) echo "mode self-signed"; echo "ca ${FAKE_CA-AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89}"; echo "ca_until Jan 1 2036" ;;
+      invalid) echo "mode invalid" ;;
+      custom) echo "mode custom"; echo "subject CN=box.example"; echo "until Jan 1 2027"; echo "expires ${FAKE_EXPIRES:-later}" ;;
+      letsencrypt) echo "mode letsencrypt"; echo "provider cloudflare"; echo "public halos.example.com"; echo "staging ${FAKE_STAGING:-no}"
+        echo "names localhost 127.0.0.1"; echo "until ${FAKE_UNTIL:-Feb 1 2027}"; echo "issuer CN=R12,O=Let'"'"'s Encrypt"; echo "expires ${FAKE_EXPIRES:-later}" ;;
+      *) echo "mode off" ;; esac ;;
+  ca) [ "${FAKE_CA-x}" != none ] && echo "-----BEGIN CERTIFICATE-----" ;;
+  uncovered) [ -z "${FAKE_UNCOVERED:-}" ] || echo "$FAKE_UNCOVERED" ;;
+  *) exit 1 ;; esac'
+f hostname 'echo "192.168.1.20 "'
+mkdir -p "$work/run-halos"; printf 'HALOS_API_SITES="https://localhost:8731, https://192.168.1.20:8731"\n' > "$work/run-halos/proxy.env"
 # /etc and the image's /usr/etc copy, alike to start with.
 for d in etc usretc; do
   mkdir -p "$work/$d/containers/registries.d" "$work/$d/pki/containers"
@@ -69,13 +86,42 @@ refuse() { if grep -qE "$1" "$work/out"; then echo "did not expect '$1' in:" >&2
 
 "$selftest" > "$work/out" 2>&1 || { cat "$work/out" >&2; echo "a healthy machine failed" >&2; exit 1; }
 for id in secure-boot image-signatures signature-files ssh-unlock kernel-iommu memory selinux-denials firewall luks-tpm gpu-kfd npu-device npu-label \
-  fabric-clock server preflight api-ipv4 api-ipv6 api-models dashboard npu-folder folder-LFM folder-flash; do
+  fabric-clock server preflight api-ipv4 api-ipv6 proxy api-models dashboard dashboard-filter dashboard-nodump npu-folder folder-LFM folder-flash; do
   expect "^PASS $id:"
 done
 expect '^Summary: [0-9]+ passed, 0 warnings, 0 failed'
 expect 'serving: halogen-qwen3.8-flash-next qwen3.5-2b'
 FAKE_DASH=disabled "$selftest" > "$work/out" 2>&1 || true; expect '^INFO dashboard: off; .*halosctl dashboard on'
 FAKE_DASH_CODE=000 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN dashboard: .*journalctl -u halos-dashboard'
+refuse '^(PASS|WARN) dashboard-(filter|nodump)'
+for ipin in '' 0 '[not set]' 18446744073709551615; do
+  FAKE_DASH_IPIN="$ipin" "$selftest" > "$work/out" 2>&1 || true; expect '^WARN dashboard-filter: .*from anywhere'
+done
+FAKE_DASH_DENY='' "$selftest" > "$work/out" 2>&1 || true; expect '^WARN dashboard-filter: .*from anywhere'
+FAKE_DASH_DUMP_UID=61234 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN dashboard-nodump: .*dumpable.*restart halos-dashboard.*systemctl cat halos-dashboard'
+FAKE_DASH_PID=0 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN dashboard-nodump:'
+ok "the selftest checks the dashboard's address filter is on and that it isn't dumpable"
+FAKE_PROXY=failed "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL proxy: .*nothing answers on 8731 or 8732'
+ok "the selftest fails when Caddy (halos-proxy) isn't running"
+"$selftest" > "$work/out" 2>&1 || true; expect '^INFO https: off'
+FAKE_HTTPS=self-signed "$selftest" > "$work/out" 2>&1 || true; expect '^PASS https: on, self-signed; authority.s fingerprint AB:CD:EF'
+refuse 'https-names'; expect '^PASS dashboard:'; grep -q 'curl .*-k .*https://127.0.0.1:8732/healthz' "$work/curl.log" || { echo "the dashboard check didn't use https" >&2; exit 1; }
+FAKE_HTTPS=self-signed FAKE_CA=none "$selftest" > "$work/out" 2>&1 || true; expect '^WARN https: .*hasn.t made its authority'
+FAKE_HTTPS=self-signed FAKE_UNCOVERED=192.168.1.20 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN https-names: not covered by the certificate yet: 192.168.1.20'
+FAKE_HTTPS=custom "$selftest" > "$work/out" 2>&1 || true; expect '^PASS https: on, with your certificate for CN=box.example'
+FAKE_HTTPS=custom FAKE_EXPIRES=soon "$selftest" > "$work/out" 2>&1 || true; expect '^WARN https: your certificate .* within 14 days'
+FAKE_HTTPS=custom FAKE_EXPIRES=ended "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL https: your certificate .* ended'
+FAKE_HTTPS=invalid "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL https: .*isn.t off, self-signed, custom or letsencrypt'
+# Let's Encrypt: checked by name, against the system's trust store (no -k, no --cacert).
+: > "$work/curl.log"
+FAKE_HTTPS=letsencrypt "$selftest" > "$work/out" 2>&1 || true; expect '^PASS https: on, Let.s Encrypt for halos.example.com \(DNS: cloudflare\)'
+grep -q -- '--resolve halos.example.com:8731:127.0.0.1 .*https://halos.example.com:8731/health' "$work/curl.log" || { echo "the Let's Encrypt check didn't ask by name" >&2; exit 1; }
+if grep 'https://halos.example.com:8731/health' "$work/curl.log" | grep -q -e ' -k ' -e cacert; then echo "the Let's Encrypt check didn't use the system's trust store" >&2; exit 1; fi
+FAKE_HTTPS=letsencrypt FAKE_STAGING=yes "$selftest" > "$work/out" 2>&1 || true; expect '^WARN https: .*staging'
+FAKE_HTTPS=letsencrypt FAKE_UNTIL=none "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL https: .*serves no certificate'
+FAKE_HTTPS=letsencrypt FAKE_EXPIRES=soon "$selftest" > "$work/out" 2>&1 || true; expect '^WARN https: .*renewing is failing'
+FAKE_HTTPS=letsencrypt FAKE_EXPIRES=ended "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL https: .*renewing failed'
+ok "the selftest names the HTTPS mode, checks Caddy answers in it, and warns of a missing authority, an uncovered address or an ending certificate"
 "$selftest" > "$work/out" 2>&1 || true
 expect '^INFO weights: downloaded from weights commit 8ef7ad828f7f'
 if ! { grep -q "runuser -u halogen -- cat $work/configs/api-key" "$work/runuser.log" &&

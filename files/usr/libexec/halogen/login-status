@@ -10,6 +10,12 @@ release="${HALOGEN_RELEASE_FILE:-/usr/share/halogen/release.env}"
 models="${HALOGEN_MODELS_DIR:-/srv/models}"
 run="${HALOS_RUN_DIR:-/run}"
 port="${HALOGEN_API_PORT:-8731}"
+# Halogen itself, on this machine only (behind halos-proxy): asking it every 30 s through Caddy would
+# add an access-log line each time.
+local_port="${HALOS_API_LOCAL_PORT:-18731}"
+# http:// or https:// in the address shown (sudo halosctl https).
+scheme=http
+case "$("${HALOS_HTTPS_HELPER:-/usr/libexec/halogen/https}" mode 2>/dev/null)" in self-signed|custom|letsencrypt) scheme=https ;; esac
 needed_gib="${HALOGEN_MODELS_NEEDED_GIB:-125}"
 halogen_state="${HALOGEN_STATE_DIR:-/var/lib/halogen}"
 # shellcheck source=/dev/null
@@ -21,7 +27,7 @@ mkdir -p "$state_dir" "$run/issue.d" "$run/motd.d" || exit 1
 # (runuser and systemctl --machine both go through a full login, too much every 30 s.)
 uid="${HALOGEN_UID:-970}"
 as_halogen() { setpriv --reuid="$uid" --regid="$uid" --clear-groups -- "$@"; }
-health() { curl -s -m 3 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$port/health" 2>/dev/null; }
+health() { curl -s -m 3 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$local_port/health" 2>/dev/null; }
 
 # What Halogen is doing, in the words the login screen shows. "ready" ends in agetty's \4,
 # which the console fills in with this machine's IPv4 address; the SSH message says the name.
@@ -52,10 +58,28 @@ elif [ -z "$server" ]; then state="starting up"
 else state="stopped: sudo halogenctl logs"
 fi
 
+# The address apps should use, as other machines can reach it: Let's Encrypt's public name, else
+# this machine's fully qualified name, else its first IPv4 address. A bare host name ("freyja")
+# works only where the network's DNS knows it.
+where() {
+  local n
+  n="$("${HALOS_HTTPS_HELPER:-/usr/libexec/halogen/https}" public 2>/dev/null | head -n 1)"
+  if [ -z "$n" ]; then
+    n="$(hostname 2>/dev/null)"
+    [[ "$n" == *.* ]] || n="$(timeout 2 hostname -f 2>/dev/null)"
+    case "$n" in *.*) case "$n" in *.localdomain|*.localhost) n="" ;; esac ;; *) n="" ;; esac
+  fi
+  [ -n "$n" ] || n="$(hostname -I 2>/dev/null | tr ' ' '\n' | grep -m 1 -E '^[0-9]+(\.[0-9]+){3}$')"
+  [ -n "$n" ] || n="$(hostname 2>/dev/null)"
+  # Only host-name characters: this text goes to every terminal (wall).
+  [[ "$n" =~ ^[A-Za-z0-9.-]+$ ]] || n="<this machine>"
+  echo "$n"
+}
 name="halOS ${HALOS_RELEASE:-} (${HALOGEN_VARIANT:-} edition)"
 if [ "$state" = ready ]; then
-  console="$name - ready: http://\\4:$port/v1"
-  remote="$name - ready: http://$(hostname):$port/v1"
+  host="$(where)"
+  console="$name - ready: $scheme://\\4:$port/v1"
+  remote="$name - ready: $scheme://$host:$port/v1"
 else
   console="$name - $state"; remote="$console"
 fi
@@ -87,6 +111,6 @@ put "$run/motd.d/50-halos" "$motd" || true
 # Tell logged-in terminals once per boot, the first time Halogen answers.
 if [ "$state" = ready ] && [ ! -e "$state_dir/announced" ]; then
   : > "$state_dir/announced"
-  wall "halOS: Halogen is ready at http://$(hostname):$port/v1" 2>/dev/null || true
+  wall "halOS: Halogen is ready at $scheme://$host:$port/v1" 2>/dev/null || true
 fi
 exit 0

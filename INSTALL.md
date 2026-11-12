@@ -267,7 +267,9 @@ After setup, the first boot runs in this order:
    downloads resume, and network failures retry until they succeed.
 4. Halogen's `verify` mode checks the Flash checkpoint. NPU files are checked against the
    hashes in the pinned container.
-5. Halogen starts on port 8731, with its models read-only. It never downloads anything itself.
+5. Halogen starts, with its models read-only. It never downloads anything itself. The network
+   reaches it on port 8731 through [Caddy](https://caddyserver.com) (`halos-proxy.service`), see
+   [The front door](#the-front-door).
 
 You can watch it without logging in. Above the login prompt, the machine's screen shows one line
 that updates by itself every 30 seconds. Before setup it reads `waiting for setup: sudo halosctl
@@ -329,7 +331,8 @@ curl -H "Authorization: Bearer $(sudo halogenctl api-key)" http://127.0.0.1:8731
 ```
 
 The API should list the Flash model, plus the NPU models on that edition. Clients connect to
-`http://<host>:8731/v1` with the same key.
+`http://<host>:8731/v1` with the same key (`https://` once you turn [HTTPS](#https) on; then add
+`--cacert halos-ca.crt` to the curl above and use `https://`).
 
 Please confirm these on the first install:
 
@@ -368,9 +371,15 @@ Firmware updates use [fwupd](https://fwupd.org/). Check for them with
 `sudo fwupdmgr refresh && sudo fwupdmgr get-updates`, and apply them with
 `sudo fwupdmgr update`. A BIOS update reboots the machine, which stops Halogen until it is back.
 
+fwupd can also update the Secure Boot revocation list (dbx), the firmware's list of start-up
+programs it must refuse. The disk's TPM unlock is tied to the Secure Boot settings, so after a dbx
+update the next boot asks for the disk passphrase (at the screen, or over SSH if you set that up).
+Have it ready, and once the machine is up run `sudo halogen-enroll-tpm` to make it unlock on its
+own again. Without the TPM unlock, nothing changes at boot.
+
 ### The dashboard
 
-Open `http://<this machine's address>:8790` in a browser on your network for a live view of
+Open `http://<this machine's address>:8732` (next to the API on 8731) in a browser on your network for a live view of
 Halogen: whether it is up, generation and prefill speed, busy slots, queued requests, the KV pool,
 the prompt cache, the NPU, and charts from the last five minutes to the last 30 days.
 `sudo halosctl dashboard` shows its state and address.
@@ -381,25 +390,171 @@ second with your API key, and keeps its history in `/var/lib/halos-dashboard` (4
 then one-minute summaries for 30 days: about 430 MB once full). It uses about 12 MB of memory and almost no CPU.
 It runs as a user of its own, with no access to Halogen's files, models or tokens.
 
-- **No login.** Anyone who can reach port 8790 on your network can view it, but nobody can change
+- **No login.** Anyone who can reach port 8732 on your network can view it, but nobody can change
   anything through it, and it never shows your API key or anything sent to Halogen. It does show
   when and how much the server is used. If you don't want that, turn it off:
-  `sudo halosctl dashboard off` stops it (nothing answers on 8790 then); `on` turns it back on.
+  `sudo halosctl dashboard off` stops it (port 8732 then only says it's off); `on` turns it back on.
 - **On by default**, also on machines that upgrade to a release with it.
 - **Private networks only.** It answers this machine and private addresses only: 10.x, 172.16-31.x,
   192.168.x, link-local, and 100.64.0.0 to 100.127.255.255 (Tailscale; also some internet
   providers' shared addresses). A computer on a public address, such as through a port forward,
   gets no answer, unless something on your network passes it on (a reverse proxy, a tunnel or
-  `tailscale serve`). If your network uses other addresses, browsers time out: add your range with
-  `sudo systemctl edit halos-dashboard`, as `[Service]` and `IPAddressAllow=<range>`.
+  `tailscale serve`). Caddy applies this rule, on IPv4 (as before). If your network uses other addresses, browsers get
+  no answer: add your ranges to `/etc/halos/proxy.env` as `HALOS_DASHBOARD_ALLOW=<range> <range>`,
+  then `sudo systemctl restart halos-proxy` and check it with `sudo systemctl status halos-proxy`:
+  a mistyped range stops Caddy, and with it the API, until it is fixed. The dashboard itself takes connections only from this
+  machine.
+- **The API key stays out of crash reports.** The dashboard can't be dumped, so if it ever
+  crashes, nothing it holds (the key included) lands on disk or in the system log. It may also
+  listen on its own local port only, and takes connections only from this machine (Caddy).
+  `sudo halogenctl selftest` checks the crash-report protection, and that this address filter is
+  really active.
 - **Memory is capped at 256 MB**, so it can never take memory from Halogen. Its own 30-day view
   needs about 100 MB. A request crafted to read far more makes it restart after 30 seconds, and
   Halogen is unaffected.
 - **Only one reader of `/metrics`.** Halogen resets two of its speed figures each time something
   reads `/metrics`, so the dashboard must be the only reader. Don't point Prometheus or a script at
-  Halogen's `/metrics`; the dashboard serves its own copy at `http://<address>:8790/metrics`.
+  Halogen's `/metrics`; the dashboard serves its own copy at `http://<address>:8732/metrics`.
 - If you change the API key in `/srv/configs/api-key`, restart the dashboard:
   `sudo systemctl restart halos-dashboard`.
+
+### The front door
+
+[Caddy](https://caddyserver.com) (`halos-proxy.service`) answers the network on both ports:
+**8731** for Halogen's API and **8732** for the dashboard. Halogen and the dashboard themselves
+listen on this machine only (`127.0.0.1:18731` and `127.0.0.1:18732`), so every connection from
+another computer goes through Caddy, over plain HTTP or [HTTPS](#https).
+
+- Replies stream through as Halogen sends them; Caddy adds no buffering.
+- While Halogen starts, downloads or is stopped, the API answers `503` with a short note (JSON, as
+  Halogen's own errors are) instead of refusing the connection.
+- Caddy writes one line per API request to the journal (`sudo journalctl -u halos-proxy`): the
+  time, the client's address, the path and the status. It writes no request headers and no
+  query string, so the API key never lands there, whichever way an app sends it.
+- Caddy runs as a user of its own with no access to your files, and with no admin interface.
+  `sudo halogenctl selftest` checks it answers (`proxy`); its other API checks and `halogenctl
+  bench` talk to Halogen directly, so their numbers are Halogen's own.
+- Halogen's own [docs](https://github.com/peonist-ai/halogen-flash-server/tree/main/docs) list no
+  setting that depends on the client's address, so Halogen behaves the same behind Caddy.
+
+### HTTPS
+
+Plain HTTP sends prompts, replies and the API key across your network as they are. HTTPS
+encrypts them. It is off until you turn it on; machines that upgrade stay on HTTP, so no app
+breaks by surprise.
+
+```bash
+sudo halosctl https                        # the state, and what apps use
+sudo halosctl https self-signed            # on, with halOS's own authority
+sudo halosctl https custom cert.pem key.pem   # on, with your certificate (PEM, key without a passphrase)
+sudo halosctl https letsencrypt cloudflare halos.example.com   # on, with Let's Encrypt (see below)
+sudo halosctl https off                    # back to plain HTTP
+```
+
+With HTTPS on, both ports speak it: apps use `https://<address>:8731/v1`, and the dashboard is
+`https://<address>:8732`. A plain `http://` request on either port is redirected to `https://`.
+Apps that send the key over `http://` still send it once before they follow the redirect, so
+change their address to `https://`.
+
+**Self-signed** makes halOS's own certificate authority (Caddy's, kept by the machine) and a
+certificate for each of this machine's names and addresses: `localhost`, its host name, the
+`.local` name and every address it has, including Tailscale's. Apps and browsers must trust the
+authority once:
+
+```bash
+sudo halosctl https ca > halos-ca.crt
+```
+
+Then give `halos-ca.crt` to each app that talks to the machine: most have a setting for a CA
+file (such as `SSL_CERT_FILE` or `REQUESTS_CA_BUNDLE`, or a field in the app's settings).
+Prefer that over adding it to your computer's trusted certificates: an authority trusted
+system-wide can vouch for any website, so anyone who stole it from this machine could pass for
+any site on that computer. For a browser and the dashboard, accepting the warning once for
+`https://<address>:8732` is enough. `sudo halosctl https` shows the authority's fingerprint, to
+compare with the file you copied. For other names (a DNS name
+you gave the machine), list them: `sudo halosctl https self-signed freyja.example`. If the
+machine's address changes, `sudo systemctl restart halos-proxy` adds it; the selftest warns until
+then.
+
+**Your own certificate** must name the address apps use (a DNS name, usually). halOS checks the
+key belongs to it and that it hasn't expired, shows you whose it is and asks before using it, keeps
+both in `/etc/halos/https/` (root only, with the previous pair), and `sudo halogenctl selftest`
+warns two weeks before it ends. If Caddy doesn't answer with a new setting, `halosctl` puts the
+previous one back, certificate included. Renewing is running `https custom`
+again with the new files.
+
+**Let's Encrypt** gives certificates every app and browser already trusts, and renews them by
+itself, for a public DNS name you own (such as `halos.example.com`). Nothing is opened to the
+internet: Caddy proves the name is yours by writing a temporary TXT record through your DNS
+provider's API (the DNS-01 challenge). The name only has to point to this machine, and a private
+address such as `192.168.1.20` is fine. Some home routers block public names that point to private
+addresses ("DNS rebinding protection"); allow the name there if it doesn't resolve on your network.
+
+1. Make an API credential at your DNS provider, allowed to change that name's zone and no more.
+   A credential that can change your main domain's DNS is valuable to an attacker who got into
+   the machine; a domain (or a DuckDNS name) used only for halOS limits that:
+
+   | Provider | What `halosctl` asks for | Where |
+   |---|---|---|
+   | `cloudflare` | `api_token` | My Profile > API Tokens > Create Token, template "Edit zone DNS", for that zone only |
+   | `duckdns` | `api_token` | The token at the top of duckdns.org once you sign in; the name is `<yours>.duckdns.org` |
+   | `porkbun` | `api_key`, `api_secret_key` | Account > API Access; then turn on "API Access" on the domain itself |
+   | `namecheap` | `api_key`, `user`, `client_ip` | Profile > Tools > Business & Dev Tools > API Access; add this network's public IPv4 address to its allowed list, and give the same address as `client_ip` |
+
+   Namecheap's API can only replace a domain's whole list of records, so each certificate rewrites
+   the list. Note your records first, or use a domain (or a DuckDNS name) only for this.
+
+2. Try it against Let's Encrypt's test service first, whose limits are generous (its certificates
+   aren't trusted, so apps will still warn):
+
+   ```bash
+   sudo halosctl https letsencrypt cloudflare halos.example.com --staging
+   ```
+
+   `halosctl` asks for the credential (it isn't shown while you type), then waits for the
+   certificate, usually under a minute. If none comes within five minutes, it says what Let's
+   Encrypt answered and puts the previous setting back.
+
+3. Then for real; it offers to reuse the credential you gave:
+
+   ```bash
+   sudo halosctl https letsencrypt cloudflare halos.example.com --email you@example.com
+   ```
+
+   `--email` is optional: Let's Encrypt uses it only for important notices about your account.
+
+Apps then use `https://halos.example.com:8731/v1`, and the dashboard is
+`https://halos.example.com:8732`. This machine's own names and addresses keep halOS's authority
+(as with self-signed), so apps that connect by address keep working once they trust it.
+Certificates are public: every name you certify appears in the
+[Certificate Transparency](https://certificate.transparency.dev/) logs anyone can search, so
+don't use a name you want to keep private. The credential is kept in `/etc/halos/https/dns/`,
+readable by root only, and Caddy gets a copy each time it starts; it never appears in a command
+line, the settings file or the journal (halOS removes it from DuckDNS's and Namecheap's error
+messages, and refuses a Cloudflare token whose shape Caddy's plugin would print back).
+`sudo halogenctl selftest` checks the certificate as an app would, and warns ten days before it
+ends, which means renewing has failed.
+
+To give a new credential, run the same command and answer no to reusing the old one. halOS
+deletes the old one once the new setting works; revoke it at the provider too. When the name
+already has a valid certificate, Caddy keeps using that one, so a new credential is first used at
+the next renewal (Caddy renews about a month before the end); the selftest warns if that fails.
+`sudo halosctl https forget-dns` deletes the saved credential once you no longer use Let's Encrypt.
+
+Without a terminal, `--yes` reads the credential as `field=value` lines on standard input. Put
+them in a file readable only by you, never in the command itself (the shell's history keeps it),
+and delete the file afterwards:
+
+```bash
+sudo halosctl https letsencrypt cloudflare halos.example.com --yes < cloudflare.txt   # api_token=...
+```
+
+halOS releases before this one don't know `letsencrypt`: after `sudo halosctl rollback` to one of
+them, Caddy won't start until you run `sudo halosctl https off` or `self-signed` (it never falls
+back to plain HTTP by itself).
+
+halOS's own tools (`halogenctl bench`, the selftest's API checks, the login line's check) talk to
+Halogen directly on the machine, so they work the same in either mode.
 
 ### Measuring speed
 

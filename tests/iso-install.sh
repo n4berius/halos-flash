@@ -97,6 +97,9 @@ grep -qE '^uid=[0-9]+\(admin\).*\(wheel\)' "$out/report.txt" || { echo "the admi
 # No password or passphrase in a file or the journal on the installed system.
 if grep -q '^PWLEAK ' "$out/report.txt"; then grep '^PWLEAK ' "$out/report.txt" >&2; echo "a password was written to disk" >&2; exit 1; fi
 grep -qx 'PWJOURNAL 0' "$out/report.txt" || { echo "a password is in the journal" >&2; exit 1; }
+# fwupd finds the EFI partition through udisks2 (#106), which starts only when asked; both editions.
+grep -qE '^ESPRC 0 [1-9][0-9]* disabled' "$out/report.txt" \
+  || { echo "fwupd did not find the EFI partition at /boot/efi, or udisks2 is enabled:" >&2; grep '^ESPRC' "$out/report.txt" >&2; exit 1; }
 # The serial login prompt has the port check and still starts where the port answers (ttyS0).
 grep -qx 'SERIALGETTY active 1' "$out/report.txt" \
   || { grep SERIALGETTY "$out/report.txt" >&2; echo "the serial getty check is wrong" >&2; exit 1; }
@@ -129,9 +132,18 @@ selftest_has 'PASS kernel-amdgpu.gttsize:'
 selftest_has 'PASS kernel-iommu:'
 selftest_has 'PASS firewall:'
 # The dashboard (halos-dashboard.service) runs sandboxed, its start found a key to hand over, and it
-# answers on 8790, though Halogen itself isn't up in the VM (so the key itself isn't tried).
+# answers on 8732, though Halogen itself isn't up in the VM (so the key itself isn't tried).
+selftest_has 'PASS proxy:'
 selftest_has 'PASS dashboard:'
+selftest_has 'PASS dashboard-filter:'
+selftest_has 'PASS dashboard-nodump:'
 selftest_has 'PASS prepare:'
+# HTTPS (#102): switched on with halOS's own authority, a client trusting it got an answer
+# (Caddy's 503 note, since Halogen isn't up), plain http:// was redirected, the selftest passed
+# it, and off went back to plain HTTP.
+https_has() { grep -qE "$1" "$out/https.txt" || { echo "https: expected '$1'" >&2; cat "$out/https.txt" >&2; exit 1; }; }
+https_has '^HTTPS-RC=0'; https_has '^CURL 503'; https_has '^REDIRECT 308'; https_has '^PASS https: on, self-signed'
+https_has '^PASS proxy:'; https_has '^PASS dashboard:'; https_has '^OFF-RC=0'; https_has '^BACK 503'
 selftest_has '(PASS|SKIP) power-profile:'   # QEMU likely has no ACPI platform profile
 selftest_has 'PASS folder-flash:'
 selftest_has 'INFO flash: serving the official Flash checkpoint'

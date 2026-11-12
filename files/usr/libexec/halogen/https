@@ -1,0 +1,426 @@
+#!/bin/bash
+# HTTPS for halOS's front door (halos-proxy.service, Caddy on 8731 and 8732). Root only.
+#
+#   https mode                 off, self-signed, custom or letsencrypt (from /etc/halos/https.env)
+#   https names                the names and addresses halOS's own authority covers (self-signed,
+#                              and with letsencrypt the local ones beside the public names)
+#   https env                  halos-proxy's ExecStartPre=+: writes /run/halos-https/proxy.env (which
+#                              Caddyfile, which sites; root's folder, as systemd reads it as root)
+#                              and, for custom, copies the certificate and key into
+#                              $RUNTIME_DIRECTORY for Caddy's own user
+#   https set <mode> [<name>...] writes /etc/halos/https.env
+#   https set letsencrypt <provider> [--email <address>] [--staging] <name>...
+#                              Let's Encrypt through the DNS provider's API (DNS-01), for public
+#                              names; the provider's credentials must be in place first (dns-*)
+#   https dns-stage <provider> reads the provider's credentials as field=value lines on stdin, never
+#                              as arguments (sudo, shell history), into /etc/halos/https/dns/.pending/
+#   https dns-commit | dns-discard | dns-restore
+#                              as commit, discard and restore, for the DNS credentials
+#   https dns-forget-prev | dns-forget
+#                              removes the replaced credentials, or all of them (not in letsencrypt)
+#   https stage <cert> <key>   reads a certificate (chain) and key once, checks the copies, and
+#                              keeps them in /etc/halos/https/.pending/ until commit or discard
+#   https commit | discard     puts the staged pair in place (the previous one kept as .prev) or drops it
+#   https restore              puts the previous pair back (halosctl, when Caddy won't start)
+#   https ca                   the self-signed authority's root certificate (PEM), to trust it
+#   https describe             one line per fact, for halosctl and the selftest
+#   https public               the Let's Encrypt names (nothing in other modes)
+#   https refresh              halos-https-refresh.timer, every minute: in self-signed (and
+#                              letsencrypt) mode,
+#                              restarts Caddy when this machine has an address its certificates
+#                              don't cover yet (Caddy may start before DHCP or Tailscale, and
+#                              addresses change); otherwise does nothing
+#
+# /etc/halos/https.env is read as data, never sourced; a mode it doesn't know stops Caddy's start
+# rather than fall back to plain HTTP. Caddy's own state (the self-signed authority) belongs to its
+# dynamic user: root reads the authority's certificate only as a regular file inside that state,
+# with a time and size limit, and passes on only what openssl re-encodes as a certificate.
+set -euo pipefail
+set -f   # no file-name globbing: names come from a file and from hostname
+LC_ALL=C
+etc="${HALOS_HTTPS_ETC:-/etc/halos}"
+conf="$etc/https.env"
+certdir="$etc/https"
+dnsdir="$certdir/dns"
+# Let's Encrypt's directories: production, and staging (untrusted certificates, generous limits).
+acme_prod=https://acme-v02.api.letsencrypt.org/directory
+acme_staging=https://acme-staging-v02.api.letsencrypt.org/directory
+state="${HALOS_PROXY_STATE:-/var/lib/private/halos-proxy}"
+root_ca="$state/caddy/pki/authorities/local/root.crt"
+share="${HALOS_PROXY_SHARE:-/usr/share/halos/proxy}"
+run="${HALOS_HTTPS_RUN:-/run/halos-https}"
+die() { echo "https: $*" >&2; exit 1; }
+
+value() { # value KEY: the last KEY=... line of the settings file, quotes stripped
+  [ -r "$conf" ] || return 0
+  sed -n "s/^[[:space:]]*$1=//p" "$conf" | tail -n 1 | tr -d "\"'" | tr -cd '[:graph:] '
+}
+mode() { # off, self-signed, custom, letsencrypt, or invalid (a value it doesn't know)
+  local m; m="$(value HALOS_HTTPS)"
+  case "$m" in ''|off) echo off ;; self-signed|custom|letsencrypt) echo "$m" ;; *) echo invalid ;; esac
+}
+# The DNS providers halOS's Caddy carries, and the credential fields each one needs.
+dns_fields() {
+  case "$1" in
+    cloudflare|duckdns) echo api_token ;;
+    porkbun) echo api_key api_secret_key ;;
+    namecheap) echo api_key user client_ip ;;
+    *) return 1 ;;
+  esac
+}
+# A public DNS name Let's Encrypt can certify: at least two labels, not .local, not an address.
+public_name() {
+  valid_name "$1" && [[ "$1" == *.* && "$1" != *:* && "$1" != *. ]] || return 1
+  [[ ! "$1" =~ ^[0-9.]+$ ]] || return 1
+  case "${1,,}" in *.local|*.localhost|localhost.*|*.lan|*.home|*.internal|*.home.arpa) return 1 ;; esac
+}
+# A credential's value: one printable word, in the shape its provider uses. Checked when staged and
+# again at every start: caddy-dns/cloudflare refuses any other token shape and prints the token in
+# its refusal (journal), so no other shape may reach Caddy, even a hand-edited file.
+dns_value_ok() { # dns_value_ok <provider> <field> <value>; prints the reason when not
+  [[ "$3" =~ ^[!-~]{1,512}$ ]] || { echo "the value for $2 must be one word of printable characters"; return 1; }
+  case "$1/$2" in
+    cloudflare/api_token)
+      [[ "$3" =~ ^[A-Za-z0-9_-]{35,50}$ || "$3" =~ ^cf(ut|at)_[A-Za-z0-9_-]{32,256}$ ]] \
+        || { echo "that isn't a Cloudflare API token (35 to 50 letters, digits, - and _, or one starting cfut_ or cfat_)"; return 1; } ;;
+    duckdns/api_token)
+      [[ "$3" =~ ^[0-9a-fA-F-]{36}$ ]] || { echo "a DuckDNS token is 36 characters (letters, digits and dashes)"; return 1; } ;;
+    namecheap/client_ip)
+      [[ "$3" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || { echo "client_ip must be this machine's public IPv4 address"; return 1; } ;;
+  esac
+}
+valid_email() { [[ "$1" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?\.[A-Za-z]{2,}$ ]]; }
+# A host name or an IP address, nothing a Caddyfile could read as more than one word or a directive.
+valid_name() {
+  [[ "$1" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$ ]] || [[ "$1" =~ ^[0-9A-Fa-f:.]+$ && "$1" == *:* ]]
+}
+# This machine's addresses: global scope only, and not IPv6 privacy addresses, which change daily
+# and which no app is told to use.
+addrs() {
+  if command -v ip > /dev/null; then
+    ip -o addr show scope global 2> /dev/null | grep -v -e ' temporary' -e ' deprecated' -e ' tentative' \
+      | awk '{print $4}' | cut -d/ -f1
+  else
+    local a; for a in $(hostname -I 2> /dev/null || true); do echo "$a"; done
+  fi
+}
+# Addresses not yet among the sites Caddy started with (/run/halos-https/proxy.env).
+uncovered() {
+  local a b sites
+  sites="$(sed -n 's/^HALOS_API_SITES=//p' "$run/proxy.env" 2> /dev/null)"
+  while read -r a; do
+    valid_name "$a" || continue
+    if [[ "$a" == *:* ]]; then b="[$a]"; else b="$a"; fi
+    [[ "$sites" == *"https://$b:"* ]] || echo "$a"
+  done < <(addrs)
+}
+names() {
+  local h n seen=" " public=""
+  h="$(hostname 2> /dev/null || true)"
+  # With Let's Encrypt, the public names get its certificates; halOS's authority keeps the rest.
+  if [ "$(mode)" = letsencrypt ]; then
+    for n in $(value HALOS_HTTPS_NAMES); do public+=" ${n,,} "; done
+  fi
+  {
+    echo localhost; echo 127.0.0.1; echo ::1
+    if [ -n "$h" ]; then echo "$h"; echo "${h%%.*}"; echo "${h%%.*}.local"; fi
+    addrs
+    for n in $(value HALOS_HTTPS_NAMES); do echo "$n"; done
+  } | while read -r n; do
+    valid_name "$n" || continue
+    case "$seen$public" in *" $n "*|*" ${n,,} "*) continue ;; esac
+    seen+="$n "; echo "$n"
+  done
+}
+sites() { # sites PORT [v4]: Caddy site addresses for the self-signed names
+  local n out=""
+  while read -r n; do
+    if [[ "$n" == *:* ]]; then [ "${2:-}" = v4 ] && continue; n="[$n]"; fi
+    out+="${out:+, }https://$n:$1"
+  done < <(names)
+  echo "$out"
+}
+acme_sites() { # acme_sites PORT: Caddy site addresses for the public names
+  local n out=""
+  for n in $(value HALOS_HTTPS_NAMES); do public_name "$n" && out+="${out:+, }https://${n,,}:$1"; done
+  echo "$out"
+}
+# The certificate Caddy serves for a name, as openssl sees it ("" if none yet).
+served() { # served NAME [openssl x509 options...]
+  local n="$1"; shift
+  timeout 10 openssl s_client -connect 127.0.0.1:8731 -servername "$n" < /dev/null 2> /dev/null \
+    | openssl x509 -noout "$@" 2> /dev/null
+}
+
+pem_cert() { openssl x509 -in "$1" -outform PEM 2> /dev/null; }
+pubkey_of_cert() { openssl x509 -in "$1" -noout -pubkey 2> /dev/null; }
+pubkey_of_key() { openssl pkey -in "$1" -pubout -passin pass: 2> /dev/null < /dev/null; }
+# The authority's certificate, into "$1". Caddy's state is its dynamic user's, under
+# /var/lib/private, which only root may enter. Root checks the file really lies inside that state,
+# then enters the state folder and reads it from there as Caddy's own user, by a relative path, so
+# a link Caddy swaps in after the check is followed only with Caddy's own rights. A time and size
+# limit stop a FIFO or an endless file, and only what openssl re-encodes as a certificate is passed on.
+read_ca() {
+  local real uid gid
+  real="$(realpath -e -- "$root_ca" 2> /dev/null)" || return 1
+  case "$real" in "$(realpath -e -- "$state")"/*) ;; *) return 1 ;; esac
+  if [ ! -f "$real" ] || [ -L "$real" ]; then return 1; fi
+  uid="$(stat -c %u -- "$state")" && gid="$(stat -c %g -- "$state")" || return 1
+  (
+    cd -P -- "$state" || exit 1
+    rel="${real#"$(pwd -P)"/}"
+    if [ "$uid" = "$EUID" ]; then exec timeout 5 head -c 65536 -- "$rel"; fi
+    exec timeout 5 setpriv --reuid="$uid" --regid="$gid" --clear-groups -- head -c 65536 -- "$rel"
+  ) > "$1" 2> /dev/null || return 1
+  pem_cert "$1" > /dev/null
+}
+
+case "${1:-}" in
+  mode) mode ;;
+  names) names ;;
+  env)
+    dir="${RUNTIME_DIRECTORY:?run by halos-proxy.service}"
+    mkdir -p "$run"; chmod 0755 "$run"
+    umask 077
+    tmp="$(mktemp "$run/.proxy.env.XXXXXX")"
+    case "$(mode)" in
+      invalid)
+        rm -f "$tmp"; die "HALOS_HTTPS in $conf is neither off, self-signed, custom nor letsencrypt: sudo halosctl https off, or self-signed" ;;
+      letsencrypt)
+        # Fail closed, as for custom: a missing provider, name or credential stops Caddy's start.
+        p="$(value HALOS_ACME_DNS)"
+        fields="$(dns_fields "$p")" || { rm -f "$tmp"; die "HTTPS is set to letsencrypt, but the DNS provider '$p' isn't one halOS knows: sudo halosctl https letsencrypt <provider> <name>..., or sudo halosctl https off"; }
+        api="$(acme_sites 8731)"
+        [ -n "$api" ] || { rm -f "$tmp"; die "HTTPS is set to letsencrypt, but no public name is set: sudo halosctl https letsencrypt $p <name>..."; }
+        for f in $fields; do
+          if [ ! -s "$dnsdir/$f" ] || [ -L "$dnsdir/$f" ]; then
+            rm -f "$tmp"; die "HTTPS is set to letsencrypt, but the $p credential '$f' is missing: sudo halosctl https letsencrypt $p <name>..., or sudo halosctl https off"
+          fi
+          # Never printed: only whether it has its provider's shape.
+          if ! dns_value_ok "$p" "$f" "$(head -c 513 "$dnsdir/$f")" > /dev/null; then
+            rm -f "$tmp"; die "HTTPS is set to letsencrypt, but the $p credential '$f' isn't in the shape $p uses: sudo halosctl https letsencrypt $p <name>... to give it again"
+          fi
+          # For Caddy's own user, in its runtime folder; Caddy reads it there through {file.…}.
+          c="$(mktemp "$dir/.dns_$f.XXXXXX")"
+          cat "$dnsdir/$f" > "$c"
+          chown -h --reference="$dir" "$c"
+          mv -fT "$c" "$dir/dns_$f"
+        done
+        email="$(value HALOS_ACME_EMAIL)"
+        if [ -n "$email" ] && ! valid_email "$email"; then rm -f "$tmp"; die "HALOS_ACME_EMAIL in $conf isn't an email address"; fi
+        ca=$acme_prod; [ "$(value HALOS_ACME_STAGING)" = 1 ] && ca=$acme_staging
+        { echo "HALOS_PROXY_CONFIG=$share/Caddyfile.letsencrypt"
+          echo "HALOS_API_SITES=\"$(sites 8731)\""
+          echo "HALOS_DASH_SITES=\"$(sites 8732 v4)\""
+          echo "HALOS_ACME_API_SITES=\"$api\""
+          echo "HALOS_ACME_DASH_SITES=\"$(acme_sites 8732)\""
+          echo "HALOS_ACME_DNS=$p"
+          echo "HALOS_ACME_CA=$ca"
+          if [ -n "$email" ]; then echo "HALOS_ACME_EMAIL_SET=yes"; echo "HALOS_ACME_EMAIL=$email"
+          else echo "HALOS_ACME_EMAIL_SET=no"; fi; } > "$tmp" ;;
+      off)
+        echo "HALOS_PROXY_CONFIG=$share/Caddyfile" > "$tmp" ;;
+      self-signed)
+        { echo "HALOS_PROXY_CONFIG=$share/Caddyfile.https"
+          echo "HALOS_TLS=internal"
+          echo "HALOS_API_SITES=\"$(sites 8731)\""
+          echo "HALOS_DASH_SITES=\"$(sites 8732 v4)\""; } > "$tmp" ;;
+      custom)
+        # Fail closed: without its certificate, Caddy doesn't start, rather than serve the key in clear.
+        for f in cert.pem key.pem; do
+          if [ ! -f "$certdir/$f" ] || [ -L "$certdir/$f" ]; then
+            rm -f "$tmp"; die "HTTPS is set to custom, but $certdir/$f is missing: sudo halosctl https custom <cert> <key>, or sudo halosctl https off"
+          fi
+          c="$(mktemp "$dir/.$f.XXXXXX")"
+          cat "$certdir/$f" > "$c"
+          chown -h --reference="$dir" "$c"
+          mv -fT "$c" "$dir/$f"
+        done
+        { echo "HALOS_PROXY_CONFIG=$share/Caddyfile.https"
+          echo "HALOS_TLS=custom"
+          echo "HALOS_API_SITES=https://:8731"
+          echo "HALOS_DASH_SITES=https://:8732"; } > "$tmp" ;;
+    esac
+    chmod 0644 "$tmp"
+    mv -fT "$tmp" "$run/proxy.env"
+    ;;
+  set)
+    # set --check ...: only checks what set would refuse (halosctl, before asking for any secret).
+    check=0; if [ "${2:-}" = --check ]; then check=1; shift; fi
+    m="${2:-}"; shift 2 || true
+    p="" email="" staging=0
+    case "$m" in
+      off|self-signed|custom) ;;
+      letsencrypt)
+        p="${1:-}"; shift || true
+        dns_fields "$p" > /dev/null || die "set letsencrypt <cloudflare|duckdns|porkbun|namecheap> [--email <address>] [--staging] <name>..."
+        names=()
+        while [ $# -gt 0 ]; do
+          case "$1" in
+            --email) email="${2:-}"; valid_email "$email" || die "not an email address: $email"; shift ;;
+            --staging) staging=1 ;;
+            *) public_name "$1" || die "not a public DNS name Let's Encrypt can certify (such as halos.example.com): $1"; names+=("${1,,}") ;;
+          esac
+          shift
+        done
+        [ "${#names[@]}" -gt 0 ] || die "set letsencrypt $p needs at least one name"
+        if [ "$check" = 0 ]; then
+          for f in $(dns_fields "$p"); do [ -s "$dnsdir/$f" ] || die "no $p credentials in place yet (dns-stage, dns-commit)"; done
+        fi
+        set -- "${names[@]}" ;;
+      *) die "set off|self-signed|custom|letsencrypt [<name>...]" ;;
+    esac
+    for n in "$@"; do valid_name "$n" || die "not a host name or address: $n"; done
+    [ "$check" = 0 ] || exit 0
+    # self-signed with no names keeps the extra names set before; names given replace them.
+    if [ $# = 0 ] && [ "$(mode)" != letsencrypt ]; then
+      keep="$(value HALOS_HTTPS_NAMES)"
+      # shellcheck disable=SC2086 # the saved names, one word each (no globbing: set -f)
+      set -- $keep
+    fi
+    if [ "$m" = custom ]; then
+      if [ ! -f "$certdir/cert.pem" ] || [ ! -f "$certdir/key.pem" ]; then die "no certificate installed yet"; fi
+    fi
+    mkdir -p "$etc"; umask 022
+    tmp="$(mktemp "$etc/.https.env.XXXXXX")"
+    { echo "# halOS HTTPS for 8731 and 8732: off, self-signed, custom or letsencrypt. Change with sudo halosctl https."
+      echo "HALOS_HTTPS=$m"
+      echo "HALOS_HTTPS_NAMES=$*"
+      if [ "$m" = letsencrypt ]; then
+        echo "HALOS_ACME_DNS=$p"
+        echo "HALOS_ACME_EMAIL=$email"
+        echo "HALOS_ACME_STAGING=$staging"
+      fi; } > "$tmp"
+    chmod 0644 "$tmp"; mv -fT "$tmp" "$conf"
+    ;;
+  stage)
+    cert="${2:?stage <cert> <key>}"; key="${3:?stage <cert> <key>}"
+    pending="$certdir/.pending"
+    mkdir -p "$certdir"; chmod 0700 "$certdir"; rm -rf "$pending"; mkdir -m 0700 "$pending"
+    umask 077
+    # Each file read once, at most 1 MiB, then checked and re-encoded from that copy: what Caddy
+    # gets is only certificates and one key, never whatever else the file held.
+    head -c 1048576 -- "$cert" > "$pending/in-cert" 2> /dev/null || { rm -rf "$pending"; die "can't read $cert"; }
+    head -c 1048576 -- "$key" > "$pending/in-key" 2> /dev/null || { rm -rf "$pending"; die "can't read $key"; }
+    fail() { rm -rf "$pending"; die "$1"; }
+    pem_cert "$pending/in-cert" > /dev/null || fail "$cert isn't a PEM certificate"
+    pubkey_of_key "$pending/in-key" > /dev/null || fail "$key isn't a private key (PEM, without a passphrase)"
+    [ "$(pubkey_of_cert "$pending/in-cert")" = "$(pubkey_of_key "$pending/in-key")" ] || fail "the key doesn't belong to the certificate"
+    openssl x509 -in "$pending/in-cert" -noout -checkend 0 > /dev/null 2>&1 || fail "the certificate has expired"
+    openssl crl2pkcs7 -nocrl -certfile "$pending/in-cert" 2> /dev/null | openssl pkcs7 -print_certs 2> /dev/null \
+      | grep -v -e '^subject=' -e '^issuer=' -e '^$' > "$pending/cert.pem" || fail "the certificate chain can't be read"
+    openssl pkey -in "$pending/in-key" -passin pass: -out "$pending/key.pem" 2> /dev/null < /dev/null || fail "the key can't be read"
+    rm -f "$pending/in-cert" "$pending/in-key"
+    ;;
+  commit)
+    pending="$certdir/.pending"
+    if [ ! -f "$pending/cert.pem" ] || [ ! -f "$pending/key.pem" ]; then die "nothing staged"; fi
+    for f in cert.pem key.pem; do
+      if [ -f "$certdir/$f" ]; then cp -p "$certdir/$f" "$certdir/.prev-$f"; else rm -f "$certdir/.prev-$f"; fi
+      mv -fT "$pending/$f" "$certdir/$f"
+    done
+    rm -rf "$pending"
+    ;;
+  discard) rm -rf "$certdir/.pending" ;;
+  restore)
+    for f in cert.pem key.pem; do
+      if [ -f "$certdir/.prev-$f" ]; then mv -fT "$certdir/.prev-$f" "$certdir/$f"; else rm -f "$certdir/$f"; fi
+    done
+    ;;
+  dns-stage)
+    p="${2:-}"; fields="$(dns_fields "$p")" || die "dns-stage <cloudflare|duckdns|porkbun|namecheap> (field=value lines on stdin)"
+    pending="$dnsdir/.pending"
+    mkdir -p "$dnsdir"; chmod 0700 "$certdir" "$dnsdir"; rm -rf "$pending"; mkdir -m 0700 "$pending"
+    umask 077
+    fail() { rm -rf "$pending"; die "$1"; }
+    # field=value, one per line, at most 4 KiB in all; values are one printable word (tokens, keys,
+    # a user name, an address), and never printed back.
+    i=0
+    while IFS= read -r line || [ -n "$line" ]; do
+      i=$((i + 1))
+      [ -n "$line" ] || continue
+      # A line without field= (a token pasted alone) is never echoed back: it may be the secret.
+      [[ "$line" == *=* && "${line%%=*}" =~ ^[a-z_]{1,32}$ ]] || fail "line $i isn't field=value (fields for $p: $fields)"
+      f="${line%%=*}"; v="${line#*=}"
+      [[ " $fields " == *" $f "* ]] || fail "$p has no credential field '$f' (it takes: $fields)"
+      why="$(dns_value_ok "$p" "$f" "$v")" || fail "$why"
+      [ ! -e "$pending/$f" ] || fail "$f given twice"
+      printf '%s' "$v" > "$pending/$f"
+    done < <(head -c 4096)
+    for f in $fields; do [ -s "$pending/$f" ] || fail "$p needs $f"; done
+    echo "$p" > "$pending/provider"
+    ;;
+  dns-commit)
+    pending="$dnsdir/.pending"
+    [ -s "$pending/provider" ] || die "no DNS credentials staged"
+    rm -rf "$dnsdir/.prev"; mkdir -m 0700 "$dnsdir/.prev"
+    set +f   # the folders' own files (root's), nothing from a setting
+    for f in "$dnsdir"/*; do if [ -f "$f" ]; then mv -fT "$f" "$dnsdir/.prev/${f##*/}"; fi; done
+    for f in "$pending"/*; do mv -fT "$f" "$dnsdir/${f##*/}"; done
+    set -f
+    rm -rf "$pending"
+    ;;
+  dns-discard) rm -rf "$dnsdir/.pending" ;;
+  dns-forget-prev) rm -rf "$dnsdir/.prev" ;;   # once the new credentials work
+  dns-forget)   # all saved DNS credentials, when Let's Encrypt isn't in use
+    [ "$(mode)" != letsencrypt ] || die "Let's Encrypt is in use: sudo halosctl https off (or self-signed) first"
+    rm -rf "$dnsdir" ;;
+  dns-restore)
+    [ -d "$dnsdir/.prev" ] || exit 0
+    set +f
+    for f in "$dnsdir"/*; do if [ -f "$f" ]; then rm -f "$f"; fi; done
+    for f in "$dnsdir/.prev"/*; do if [ -f "$f" ]; then mv -fT "$f" "$dnsdir/${f##*/}"; fi; done
+    set -f
+    rm -rf "$dnsdir/.prev"
+    ;;
+  ca)
+    t="$(mktemp)"; trap 'rm -f "$t"' EXIT
+    read_ca "$t" || die "no self-signed authority yet, or it can't be read (sudo halosctl https self-signed makes one)"
+    pem_cert "$t"
+    ;;
+  describe)
+    m="$(mode)"; echo "mode $m"
+    case "$m" in
+      self-signed)
+        t="$(mktemp)"; trap 'rm -f "$t"' EXIT
+        if read_ca "$t" && f="$(openssl x509 -in "$t" -noout -fingerprint -sha256 2> /dev/null)"; then
+          echo "ca ${f#*=}"
+          echo "ca_until $(openssl x509 -in "$t" -noout -enddate | cut -d= -f2)"
+        else echo "ca none"; fi
+        echo "names $(names | paste -sd' ' -)" ;;
+      custom)
+        if [ -f "$certdir/cert.pem" ]; then
+          echo "subject $(openssl x509 -in "$certdir/cert.pem" -noout -subject -nameopt RFC2253 2> /dev/null | cut -d= -f2-)"
+          echo "until $(openssl x509 -in "$certdir/cert.pem" -noout -enddate 2> /dev/null | cut -d= -f2)"
+          if openssl x509 -in "$certdir/cert.pem" -noout -checkend 1209600 > /dev/null 2>&1; then echo "expires later"
+          elif openssl x509 -in "$certdir/cert.pem" -noout -checkend 0 > /dev/null 2>&1; then echo "expires soon"
+          else echo "expires ended"; fi
+        else echo "subject none"; fi ;;
+      letsencrypt)
+        echo "provider $(value HALOS_ACME_DNS)"
+        echo "public $(value HALOS_HTTPS_NAMES)"
+        if [ "$(value HALOS_ACME_STAGING)" = 1 ]; then echo "staging yes"; else echo "staging no"; fi
+        echo "names $(names | paste -sd' ' -)"
+        n="$(value HALOS_HTTPS_NAMES)"; n="${n%% *}"
+        if [ -n "$n" ] && u="$(served "$n" -enddate)" && [ -n "$u" ]; then
+          echo "until ${u#*=}"
+          echo "issuer $(served "$n" -issuer -nameopt RFC2253 | cut -d= -f2-)"
+          if served "$n" -checkend 864000 > /dev/null; then echo "expires later"
+          elif served "$n" -checkend 0 > /dev/null; then echo "expires soon"
+          else echo "expires ended"; fi
+        else echo "until none"; fi ;;
+    esac
+    ;;
+  uncovered) uncovered ;;
+  public) # the public names, only in letsencrypt mode (login-status shows the first)
+    if [ "$(mode)" = letsencrypt ]; then for n in $(value HALOS_HTTPS_NAMES); do public_name "$n" && echo "$n"; done; fi ;;
+  refresh)
+    case "$(mode)" in self-signed|letsencrypt) ;; *) exit 0 ;; esac
+    [ "$(systemctl is-active halos-proxy.service 2> /dev/null)" = active ] || exit 0
+    new="$(uncovered | paste -sd' ' -)"
+    [ -n "$new" ] || exit 0
+    echo "https: certificates for $new: restarting halos-proxy"
+    systemctl try-restart halos-proxy.service
+    ;;
+  *) die "mode, names, public, env, set, stage, commit, discard, restore, dns-stage, dns-commit, dns-discard, dns-restore, dns-forget-prev, dns-forget, ca, describe, uncovered or refresh" ;;
+esac

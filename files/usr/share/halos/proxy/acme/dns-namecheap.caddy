@@ -1,0 +1,7 @@
+# Imported into Caddyfile.letsencrypt's global options for HALOS_ACME_DNS=namecheap: the credentials are
+# files the https helper copies into Caddy's runtime folder (from root's /etc/halos/https/dns).
+acme_dns namecheap {
+	api_key {file.{$RUNTIME_DIRECTORY}/dns_api_key}
+	user {file.{$RUNTIME_DIRECTORY}/dns_user}
+	client_ip {file.{$RUNTIME_DIRECTORY}/dns_client_ip}
+}

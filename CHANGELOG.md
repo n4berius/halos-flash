@@ -10,6 +10,38 @@ promoted.
 
 ## Unreleased
 
+- Firmware updates: `sudo fwupdmgr update` can now also update the Secure Boot revocation list
+  (dbx), instead of saying "UEFI ESP partition not detected". On a machine that unlocks its disk
+  with the TPM, such an update asks for the disk passphrase at the next boot; then run
+  `sudo halogen-enroll-tpm` once. (#106)
+- HTTPS with Let's Encrypt: `sudo halosctl https letsencrypt <provider> <name>` gets certificates
+  every app already trusts, and renews them, for a public name you own, through Cloudflare's,
+  DuckDNS's, Porkbun's or Namecheap's API. No port is opened to the internet. `--staging` tries
+  Let's Encrypt's test service first. The machine's own addresses keep halOS's authority. (#108)
+- The SSH login message and the "Halogen is ready" notice show an address other machines can use:
+  the Let's Encrypt name, the machine's full name (such as `freyja.home.example`), or its IPv4
+  address, instead of a bare host name like `freyja`. (#108)
+- The dashboard moved from port 8790 to **8732**, next to the API on 8731: `http://<machine>:8732`.
+  The firewall follows by itself on upgrade; only a bookmark changes. (#103)
+- [Caddy](https://caddyserver.com) now answers on ports 8731 (API) and 8732 (dashboard) and passes
+  requests on to Halogen and the dashboard, which listen on the machine only: the first step to
+  HTTPS (#102). Nothing changes for apps: same address, same key, replies still stream. While
+  Halogen starts, the API answers with a short note instead of refusing the connection. If you let
+  other networks see the dashboard with `systemctl edit halos-dashboard` (`IPAddressAllow=`), put
+  those ranges in `/etc/halos/proxy.env` as `HALOS_DASHBOARD_ALLOW=` instead: the old setting no
+  longer lets them in. (#104)
+- HTTPS for the API and the dashboard: `sudo halosctl https self-signed` turns it on with halOS's
+  own certificate authority (copy it to your apps once with `sudo halosctl https ca`), or `sudo
+  halosctl https custom <certificate> <key>` with yours. Plain `http://` then redirects. It is off
+  until you turn it on, also after upgrading. (#105)
+
+## v0.20.1-alpha.2 (2026-11-11)
+
+- The dashboard can no longer leak the API key in a crash report, may listen only on its own port,
+  and the selftest checks that its private-networks rule is really on. (#101)
+
+## v0.20.1-alpha.1 (2026-11-10)
+
 - A live dashboard of Halogen at `http://<machine>:8790`: whether it is up, speed, busy slots,
   queue, KV pool, prompt cache and NPU, with charts up to 30 days. It is
   [halogen-dashboard](https://github.com/Quat3rnion/halogen-dashboard) by Quaternion, built in

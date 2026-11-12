@@ -21,7 +21,7 @@ KEYS = {" ": "spc", "-": "minus", "=": "equal", ".": "dot", "/": "slash", ";": "
         "[": "bracket_left", "]": "bracket_right", "\\": "backslash"}
 SHIFT = {"_": "minus", "|": "backslash", ">": "dot", "{": "bracket_left", "}": "bracket_right",
          "&": "7", "*": "8", "(": "9", ")": "0", "$": "4", "?": "slash", '"': "apostrophe", "!": "1",
-         "@": "2", "#": "3", ":": "semicolon", "+": "equal", "<": "comma"}
+         "@": "2", "#": "3", ":": "semicolon", "+": "equal", "<": "comma", "%": "5"}
 
 time.sleep(5)
 mon = socket.socket(socket.AF_UNIX)
@@ -74,7 +74,7 @@ typed("{ echo RESULT-START; cat /proc/cmdline; dmesg | grep -i secure; bootctl s
       "lsblk -f | grep -i crypto; sysctl kernel.dmesg_restrict kernel.kptr_restrict kernel.yama.ptrace_scope; sshd -T | grep -i x11forwarding; "
       "for d in $(lsblk -rno PATH,FSTYPE | awk '$2==\"crypto_LUKS\"{print $1}'); do cryptsetup luksDump $d | grep -i systemd-tpm2; done; vgs --noheadings -o vg_name; findmnt -rn -o TARGET,SOURCE -t xfs; sestatus | head -3; id halogen; loginctl show-user halogen -p Linger; "
       "systemctl status user@970.service --no-pager | head -4; journalctl --no-pager -n 8 -o cat _SYSTEMD_USER_UNIT=halogen-fetch.service; systemctl --failed --no-legend --no-pager; "
-      "systemctl is-active firewalld halogen-prepare; halosctl version; ls /etc/ssh/sshd_config.d; sshd -T | grep -i permitrootlogin; journalctl -b -o cat -u bootc-fstab-edit; echo FSTABMARK $(grep -c Updated.by.bootc-fstab-edit /etc/fstab); "
+      "systemctl is-active firewalld halogen-prepare; halosctl version; ls /etc/ssh/sshd_config.d; sshd -T | grep -i permitrootlogin; journalctl -b -o cat -u bootc-fstab-edit; echo FSTABMARK $(grep -c Updated.by.bootc-fstab-edit /etc/fstab); fwupdtool esp-list --json > /tmp/esp 2>&1; echo ESPRC $? $(grep -c /boot/efi /tmp/esp) $(systemctl is-enabled udisks2); "
       # Security audit P1: a link planted in /srv/models must not let root hand its target to halogen.
       # Only the NPU edition makes model folders, so on no-NPU this passes without testing much.
       "mkdir -p -m 755 /var/tmp/victim; mv /var/srv/models/custom /var/srv/models/custom.x; ln -s /var/tmp/victim /var/srv/models/custom; "
@@ -121,6 +121,31 @@ typed("halogenctl selftest > /tmp/st 2>&1; rc=$?; cat /tmp/st > /dev/ttyS0; "
 log = wait_serial("SELFTEST-RC=", 300)
 selftest = log.split("RESULT-END")[-1].split("SELFTEST-RC=")[0]
 (out / "selftest.txt").write_text(re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", selftest))
+
+# HTTPS (#102): self-signed, then back to plain HTTP. Halogen isn't up in the VM, so Caddy's own
+# 503 note answers /health: CURL 503 means the TLS handshake passed with halOS's authority.
+if mode in ("plain", "luks-stale"):   # the first boot only
+    # Each step says when it starts on the serial console, so a slow step shows; what Caddy was
+    # given, what listens, its status and log come at the end.
+    step = lambda n: "echo HTTPS-STEP-" + n + " $(date +%s) > /dev/ttyS0; "
+    # No --retry: curl retries a 503 and obeys its Retry-After (30 s), and a 503 is the answer
+    # expected here; halosctl has already waited for Caddy to answer.
+    c = "curl -sS -m 10 -o /dev/null "
+    typed(step("on") + "halosctl https self-signed --yes > /tmp/https 2>&1; echo HTTPS-RC=$? >> /tmp/https; "
+          + step("ca") + "/usr/libexec/halogen/https ca > /tmp/ca.pem; "
+          # What Caddy was given and what listens, before any request.
+          + "{ cat /run/halos-https/proxy.env; ss -tlnp; systemctl show halos-proxy -p ActiveState -p SubState -p NRestarts; } > /tmp/https-diag 2>&1; "
+          + step("curl") + c + "-w 'CURL %{http_code}' --cacert /tmp/ca.pem https://127.0.0.1:8731/health >> /tmp/https 2>&1; echo >> /tmp/https; "
+          + c + "-w 'REDIRECT %{http_code}' http://127.0.0.1:8731/health >> /tmp/https 2>&1; echo >> /tmp/https; "
+          + step("selftest") + "halogenctl selftest 2>&1 | grep -E 'https|proxy:|dashboard:|api-ipv6' >> /tmp/https; "
+          + "systemctl status halos-proxy --no-pager -n 0 >> /tmp/https-diag 2>&1; journalctl -b -u halos-proxy --no-pager -o cat -n 25 >> /tmp/https-diag 2>&1; "
+          + step("off") + "halosctl https off --yes >> /tmp/https 2>&1; echo OFF-RC=$? >> /tmp/https; "
+          + step("back") + c + "-w 'BACK %{http_code}' http://127.0.0.1:8731/health >> /tmp/https 2>&1; echo >> /tmp/https; "
+          # Each switch changes the login screen's line, and agetty's reload on the serial console
+          # can swallow what is written meanwhile (login-status runs every 30 s): wait it out.
+          + step("print") + "sleep 35; cat /tmp/https /tmp/https-diag > /dev/ttyS0; echo HTTPS-END > /dev/ttyS0\n")
+    log = wait_serial("HTTPS-END", 600)
+    (out / "https.txt").write_text(re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", log.split("SELFTEST-RC=")[-1].split("HTTPS-END")[0]))
 
 if mode == "luks-stale" and os.environ.get("HALOS_TEST_SSH_UNLOCK"):
     # Unlock over SSH (#13), set up by the installer (TPM and SSH): the next boot asks over SSH too.
