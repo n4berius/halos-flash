@@ -156,6 +156,11 @@ RUN set -eu; \
     /usr/libexec/halogen/halogen-dashboard --version; \
     [ -z "$(LD_PRELOAD=/usr/lib64/halos/dashboard-nodump.so /usr/bin/true 2>&1)" ]; \
     HOME=/tmp XDG_DATA_HOME=/tmp XDG_CONFIG_HOME=/tmp /usr/libexec/halogen/caddy validate --config /usr/share/halos/proxy/Caddyfile --adapter caddyfile; \
+    for tls in internal custom; do \
+      HOME=/tmp XDG_DATA_HOME=/tmp XDG_CONFIG_HOME=/tmp HALOS_TLS=$tls RUNTIME_DIRECTORY=/tmp/halos-tls \
+        HALOS_API_SITES="https://localhost:8731, https://127.0.0.1:8731" HALOS_DASH_SITES="https://localhost:8732" \
+        /usr/libexec/halogen/caddy adapt --config /usr/share/halos/proxy/Caddyfile.https --adapter caddyfile > /dev/null; \
+    done; \
     chmod 0755 /usr/bin/halosctl /usr/bin/halogenctl /usr/bin/halogen-enroll-tpm /usr/libexec/halogen/*; \
     find /etc/containers/systemd/users/970 -type f -exec sed -i \
       -e "s|@HALOGEN_IMAGE@|${HALOGEN_IMAGE}|g" -e "s|@HALOGEN_VERSION@|${HALOGEN_VERSION}|g" {} +; \
@@ -175,6 +180,7 @@ RUN set -eu; \
     systemctl enable firewalld.service halogen-prepare.service halos-status.timer halos-platform-profile.service; \
     systemctl enable halos-dashboard.service; \
     systemctl enable halos-proxy.service; \
+    systemctl enable halos-https-refresh.timer; \
     if [ "$HALOGEN_VARIANT" = npu ]; then \
       systemctl enable halogen-fabric-clock.service; \
     else \

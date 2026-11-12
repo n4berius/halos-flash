@@ -23,6 +23,7 @@ usage: halosctl version
        halosctl ssh-unlock [on [--github|--gitlab|--codeberg <user>]... [--key '<public key>'] | off | record] [--yes]
        halosctl ssh-passwords [on|off] [--yes]
        halosctl dashboard [on|off]
+       halosctl https [self-signed [<name>...] | custom <certificate> <key> | off | ca] [--yes]
 
 Channels: alpha, beta and rc are test releases; release (stable) is for production; edge is
 every change to main. Each channel also gets newer releases of the more stable ones.
@@ -38,6 +39,9 @@ ssh-passwords off allows SSH logins only with keys (your account needs one first
 passwords again. The console login always takes the password.
 dashboard is a live web page of Halogen's load and health on port 8732 (Quaternion's
 halogen-dashboard), open to your network and without a login; off stops it.
+https turns on HTTPS for both (8731 and 8732): self-signed uses halOS's own authority, which your
+apps must trust once (ca prints it); custom takes your certificate and key (PEM). Plain http://
+then redirects to https://. off goes back to plain HTTP; alone it shows the state.
 U
 }
 
@@ -277,6 +281,9 @@ ssh_unlock_howto() {
 
 # SSH logins with keys only (security audit, #94): a drop-in ahead of Fedora's own (sshd takes the
 # first value it reads), checked with sshd -t before sshd reloads.
+https="${HALOS_HTTPS_HELPER:-/usr/libexec/halogen/https}"
+https_conf="${HALOS_HTTPS_ETC:-/etc/halos}/https.env"
+scheme() { case "$("$https" mode 2> /dev/null)" in self-signed|custom) echo https ;; *) echo http ;; esac; }
 keys_only="${HALOS_SSHD_DROPIN:-/etc/ssh/sshd_config.d/20-halos-keys-only.conf}"
 passwords_off() { [ -e "$keys_only" ]; }
 # The admin running this has a key to log in with, so turning passwords off can't lock them out.
@@ -310,7 +317,7 @@ set_passwords() { # on|off; fails (without stopping setup) when sshd won't take 
 }
 
 cmd="${1:-version}"; [ $# = 0 ] || shift
-case "$cmd" in history|setup|power|ssh-unlock|ssh-passwords|dashboard) ;; *) load ;; esac
+case "$cmd" in history|setup|power|ssh-unlock|ssh-passwords|dashboard|https) ;; *) load ;; esac
 args=(); src=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -330,7 +337,7 @@ while [ $# -gt 0 ]; do
 done
 
 [ "${#src[@]}" = 0 ] || [ "$cmd" = ssh-unlock ] || die "--github, --gitlab, --codeberg and --key go with ssh-unlock on"
-case "$cmd" in switch|npu|power|ssh-unlock|ssh-passwords|dashboard) ;; *) [ "${#args[@]}" = 0 ] ;; esac || die "unexpected ${args[0]} (for an older release: halosctl rollback --to <version>)"
+case "$cmd" in switch|npu|power|ssh-unlock|ssh-passwords|dashboard|https) ;; *) [ "${#args[@]}" = 0 ] ;; esac || die "unexpected ${args[0]} (for an older release: halosctl rollback --to <version>)"
 
 case "$cmd" in
   version)
@@ -553,7 +560,7 @@ case "$cmd" in
     if [ "$reboot$yes$check$skip" != 0000 ] || [ -n "$to" ]; then die "dashboard takes no options"; fi
     unit=halos-dashboard.service
     dash_on() { [ "$(systemctl is-enabled "$unit" 2> /dev/null)" = enabled ]; }
-    dash_url() { local ip; ip="$(hostname -I 2> /dev/null | awk '{print $1}')"; echo "http://${ip:-<this machine>}:8732"; }
+    dash_url() { local ip; ip="$(hostname -I 2> /dev/null | awk '{print $1}')"; echo "$(scheme)://${ip:-<this machine>}:8732"; }
     case "${args[0]:-}" in
       '')
         if dash_on; then echo "Dashboard: on ($(systemctl is-active "$unit" 2> /dev/null)), at $(dash_url). Off: sudo halosctl dashboard off"
@@ -570,6 +577,104 @@ case "$cmd" in
         echo "Dashboard off: port 8732 now says so, and it stays off after reboots."
         echo "Its history stays in /var/lib/halos-dashboard for when it's on again." ;;
       *) die "dashboard on, off, or nothing for its state" ;;
+    esac
+    ;;
+  https)
+    if [ "$reboot$check$skip" != 000 ] || [ -n "$to" ]; then die "https takes --yes only"; fi
+    unit=halos-proxy.service
+    addr() { local ip; ip="$(hostname -I 2> /dev/null | awk '{print $1}')"; echo "${ip:-<this machine>}"; }
+    fact() { sed -n "s/^$1 //p" <<< "$facts"; }
+    show() {
+      facts="$("$https" describe)"
+      case "$(fact mode)" in
+        invalid)
+          echo "HTTPS: the setting in $https_conf isn't off, self-signed or custom, so Caddy doesn't start."
+          echo "Fix: sudo halosctl https off, or sudo halosctl https self-signed" ;;
+        off)
+          echo "HTTPS: off. Apps use http://$(addr):8731/v1, and the dashboard is http://$(addr):8732."
+          echo "On: sudo halosctl https self-signed, or sudo halosctl https custom <certificate> <key>" ;;
+        self-signed)
+          echo "HTTPS: on, with halOS's own authority (self-signed). Apps use https://$(addr):8731/v1,"
+          echo "and the dashboard is https://$(addr):8732."
+          if [ "$(fact ca)" = none ]; then echo "  The authority isn't made yet: sudo systemctl status $unit"
+          else
+            echo "  Authority's fingerprint (SHA-256): $(fact ca)"
+            echo "  Valid until $(fact ca_until). Apps and browsers must trust it once:"
+            echo "  sudo halosctl https ca > halos-ca.crt, then add halos-ca.crt to the app or the system."
+          fi
+          echo "  Names and addresses covered: $(fact names)"
+          echo "  Other names (they replace the earlier ones; alone it keeps them): sudo halosctl https self-signed <name>..."
+          echo "  A new address of this machine is added within a minute, by restarting Caddy." ;;
+        custom)
+          echo "HTTPS: on, with your certificate for $(fact subject), valid until $(fact until)."
+          case "$(fact expires)" in
+            soon) echo "  It expires within 14 days: sudo halosctl https custom <new certificate> <key>" ;;
+            ended) echo "  It has ended, so apps refuse it: sudo halosctl https custom <new certificate> <key>" ;;
+          esac
+          echo "  Apps use https://<the name on the certificate>:8731/v1." ;;
+      esac
+    }
+    # Up means Caddy answers on 8731 (any HTTP code: Halogen may be down), not only that it started:
+    # systemd counts a start as done before Caddy has bound its ports.
+    proxy_up() {
+      local code="" s=http i
+      case "$("$https" mode)" in self-signed|custom) s=https ;; esac
+      for i in $(seq 10); do
+        if [ "$(systemctl is-active "$unit" 2> /dev/null)" = active ]; then
+          code="$(curl -sS -k -m 3 -o /dev/null -w '%{http_code}' "$s://127.0.0.1:8731/health" 2> /dev/null || true)"
+          [ -n "$code" ] && [ "$code" != 000 ] && return 0
+        fi
+        [ "$i" = 10 ] || sleep 1
+      done
+      return 1
+    }
+    # Switch, and go back to what was there (the mode, and with custom the certificate) if Caddy
+    # doesn't come up with it, so the API never stays down.
+    apply() {
+      local saved="" certs=0
+      [ -e "$https_conf" ] && saved="$(cat "$https_conf")"
+      if [ "$1" = commit ]; then shift; "$https" commit; certs=1; fi
+      "$https" set "$@"
+      if ! systemctl restart "$unit" || ! proxy_up; then
+        if [ -n "$saved" ]; then printf '%s\n' "$saved" > "$https_conf"; else rm -f "$https_conf"; fi
+        [ "$certs" = 0 ] || "$https" restore
+        if systemctl restart "$unit" && proxy_up; then
+          die "Caddy didn't come up with it, so the previous setting is back: sudo journalctl -u $unit"
+        fi
+        die "Caddy didn't come up with it, nor with the previous setting: sudo journalctl -u $unit, then sudo halosctl https off"
+      fi
+    }
+    case "${args[0]:-}" in
+      '') show ;;
+      ca) "$https" ca ;;
+      off)
+        [ "$("$https" mode)" != off ] || { echo "HTTPS is already off."; exit 0; }
+        confirm "Go back to plain HTTP on 8731 and 8732? Apps set to https:// stop working until changed back."
+        old="$("$https" mode)"; apply off
+        record https "$old" off
+        show ;;
+      self-signed)
+        old="$("$https" mode)"
+        echo "Apps must then use https:// and trust halOS's authority once (sudo halosctl https ca prints it);"
+        echo "plain http:// gets a redirect."
+        confirm "Turn on HTTPS with halOS's own authority?"
+        apply self-signed "${args[@]:1}"
+        # Caddy makes its authority at its first HTTPS start.
+        for _ in $(seq 20); do "$https" ca > /dev/null 2>&1 && break; sleep 0.5; done
+        record https "$old" self-signed
+        show ;;
+      custom)
+        [ "${#args[@]}" = 3 ] || die "https custom <certificate> <key> (PEM files; the key without a passphrase)"
+        old="$("$https" mode)"
+        # Checked from a staged copy; nothing in use changes until you say yes.
+        "$https" stage "${args[1]}" "${args[2]}"
+        staged="${HALOS_HTTPS_ETC:-/etc/halos}/https/.pending/cert.pem"
+        echo "Certificate for $(openssl x509 -in "$staged" -noout -subject -nameopt RFC2253 2> /dev/null | cut -d= -f2-), valid until $(openssl x509 -in "$staged" -noout -enddate 2> /dev/null | cut -d= -f2)."
+        if ! ( confirm "Turn on HTTPS with this certificate?" ); then "$https" discard; exit 1; fi
+        apply commit custom
+        record https "$old" custom
+        show ;;
+      *) die "https self-signed, custom <certificate> <key>, off, ca, or nothing for its state" ;;
     esac
     ;;
   history)

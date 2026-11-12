@@ -21,6 +21,7 @@ tests/selftest.sh
 tests/login-status.sh
 tests/halosctl.sh
 tests/dashboard.sh
+tests/https.sh
 tests/ssh-unlock.sh
 tests/completion.sh
 tests/setup.sh
