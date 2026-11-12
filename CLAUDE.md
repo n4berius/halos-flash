@@ -526,6 +526,16 @@ and tracked on the owner's project board. [ROADMAP.md](ROADMAP.md) holds the ord
   fork rows and image tags in examples changed: Quadlet, kernel arguments, host-setup, the Flash
   checkpoints and weights revision stay. The image's `/opt/halogen/npu/models.txt` is byte-identical
   to 0.20.0's (read from the layer, anonymously from ghcr.io), so no NPU program downloads again.
+- **Halogen 0.20.2** (#100): a little faster with concurrent requests and on long conversations'
+  first token, and `d3-lite` 14 to 18% faster on the NPU (whether its NPU programs changed, and so
+  download again, wasn't checked: the image's `models.txt` wasn't compared with 0.20.1's; the
+  fetch checks whatever it downloads against it). Between source commits d2f4286 and
+  2e05e1f, FLAGS.md and host-setup's requirements are unchanged (only image tags in examples), so
+  `options.allowed`, the templates, the Quadlet and kernel arguments stay. `deploy/entrypoint.sh`
+  passes two more names through, `HALOGEN_RENDER_ONCE` and `HALOGEN_TOKENIZE_SPLIT`, which aren't
+  in FLAGS.md, so they aren't allowed here (as `HALOGEN_CACHE_REPLY`). The Flash checkpoints and
+  weights revision are unchanged. Upstream has 0.20.3 since (only `d3-nano` faster on the NPU);
+  the daily update workflow offers it.
 - The ISO install test also runs when `versions.env` changes (#78), so every Halogen update PR
   gets the LUKS + TPM install in a VM, about 30 minutes for both editions.
 - Known upstream: bootc 1.17.1 rewrites `/etc/fstab` at every boot on Anaconda installs

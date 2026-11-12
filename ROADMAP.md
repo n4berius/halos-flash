@@ -36,8 +36,8 @@ HTTPS with a self-signed certificate or your own (#105).
 
 1. HTTPS for Halogen's API and the dashboard (#102), with Caddy in front of both: Caddy on HTTP
    (#104), then HTTPS with a self-signed certificate or your own (#105), then Let's Encrypt
-   through DNS-01 (in review), then HTTPS by default for new installs.
-2. Halogen 0.20.2 (#100), once the two pull requests in review are in.
+   through DNS-01 (#108), then HTTPS by default for new installs.
+2. Halogen 0.20.2 (#100, in review); 0.20.3 (faster `d3-nano` on the NPU) after it.
 3. fail2ban for SSH and the Halogen API (#92), once HTTPS is in.
 4. Logging (#107): Halogen's request records in `/srv/logs`, journal limits, audit logging and
    rotation.
