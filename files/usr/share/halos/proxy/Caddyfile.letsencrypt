@@ -22,7 +22,8 @@
 	# Every site without tls internal below (the public names) gets its certificate from this CA
 	# (Let's Encrypt, or its staging directory), through the DNS provider's API: DNS-01 needs no
 	# port open to the internet. The credentials are never in this file, the environment or a
-	# command line: Caddy reads them from its runtime folder when it starts.
+	# command line: Caddy reads them as systemd credentials (LoadCredential= in
+	# halos-proxy.service, from root's /etc/halos/https/dns) when it starts.
 	acme_ca {$HALOS_ACME_CA}
 	cert_issuer acme
 	import /usr/share/halos/proxy/acme/dns-{$HALOS_ACME_DNS}.caddy

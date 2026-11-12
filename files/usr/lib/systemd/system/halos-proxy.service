@@ -13,7 +13,8 @@ StartLimitIntervalSec=0
 [Service]
 # HTTP or HTTPS (sudo halosctl https): as root, outside the sandbox, the https helper writes which
 # Caddyfile and sites to use into /run/halos-https, and for your own certificate copies it into the
-# runtime folder for Caddy's user. Root reads only its own /etc/halos.
+# runtime folder for Caddy's user; for Let's Encrypt it checks the DNS credentials loaded below.
+# Root reads only its own /etc/halos.
 ExecStartPre=+/usr/libexec/halogen/https env
 # A bad setting (such as a mistyped range in /etc/halos/proxy.env) fails here once, with Caddy's
 # reason in the journal, instead of a silent restart loop.
@@ -29,6 +30,15 @@ EnvironmentFile=-/etc/halos/proxy.env
 # folder is Caddy's, and systemd reads this as root). Read again for each command, so the two below
 # see it; "-" only because the helper itself runs before the file exists.
 EnvironmentFile=-/run/halos-https/proxy.env
+# Let's Encrypt: the DNS provider's credentials, from root's folder, as systemd credentials Caddy
+# reads through {file.{$CREDENTIALS_DIRECTORY}/dns_<field>}: read-only, in memory, gone when it stops,
+# and never in a folder Caddy's user owns. Hidden entries (.pending, .prev) and links are skipped.
+# The folder must exist: systemd 262 refuses the start without it (243/CREDENTIALS, "No such file
+# or directory", seen in the VM test, also with SetCredential=dns: as a fallback), so tmpfiles makes
+# it at boot and forget-dns only empties it. Loaded in every
+# mode, so put nothing else there: a file systemd can't load (a name with ":", a socket, one too
+# big) stops Caddy's start. Never load /etc/halos/https as a whole: it would take dns/ with it.
+LoadCredential=dns:/etc/halos/https/dns
 RuntimeDirectory=halos-proxy
 RuntimeDirectoryMode=0700
 Restart=always

@@ -64,6 +64,8 @@ RUN set -eu; \
 # caddy-dns plugins carry no licence. Also gathers the licence files of every module linked in.
 FROM ${FEDORA_BOOTC_IMAGE} AS caddy
 COPY src/caddy/ /src/caddy/
+# caddy-dns/cloudflare prints a token it refuses (journal), so the https helper's dns_value_ok lets
+# only the two shapes it accepts through. The build stops if the plugin's check ever changes.
 RUN set -eu; \
     dnf -y --setopt=install_weak_deps=False install golang; \
     mkdir -p "$(realpath /root)"; \
@@ -73,6 +75,10 @@ RUN set -eu; \
     go build -trimpath -ldflags='-s -w' -o /out/caddy .; \
     /out/caddy version; \
     for p in cloudflare duckdns namecheap porkbun; do /out/caddy list-modules | grep -qx "dns.providers.$p"; done; \
+    cf="$(go list -m -f '{{.Dir}}' github.com/caddy-dns/cloudflare)/cloudflare.go"; \
+    if ! grep -qF 'regexp.MustCompile(`^[A-Za-z0-9_-]{35,50}$`)' "$cf" \
+      || ! grep -qF 'regexp.MustCompile(`^cf(ut|at)_[A-Za-z0-9_-]{32,256}$`)' "$cf" \
+      || [ "$(grep -c 'regexp.MustCompile' "$cf")" != 2 ]; then echo "caddy-dns/cloudflare's token check changed: update dns_value_ok in files/usr/libexec/halogen/https" >&2; exit 1; fi; \
     lic=/out/licenses; mkdir -p "$lic/modules"; \
     { echo "Go modules linked into halOS's Caddy (path, version), from src/caddy/go.sum."; \
       echo "Each module's licence file, where it has one, is under modules/<path>/."; echo; } > "$lic/modules.txt"; \
@@ -163,7 +169,7 @@ RUN set -eu; \
         /usr/libexec/halogen/caddy adapt --config /usr/share/halos/proxy/Caddyfile.https --adapter caddyfile > /dev/null; \
     done; \
     for dns in cloudflare duckdns porkbun namecheap; do for mail in yes no; do \
-      HOME=/tmp XDG_DATA_HOME=/tmp XDG_CONFIG_HOME=/tmp RUNTIME_DIRECTORY=/tmp/halos-tls HALOS_ACME_DNS=$dns \
+      HOME=/tmp XDG_DATA_HOME=/tmp XDG_CONFIG_HOME=/tmp CREDENTIALS_DIRECTORY=/tmp/halos-creds HALOS_ACME_DNS=$dns \
         HALOS_ACME_EMAIL_SET=$mail HALOS_ACME_EMAIL=admin@example.com HALOS_ACME_CA=https://acme-staging-v02.api.letsencrypt.org/directory \
         HALOS_ACME_API_SITES="https://halos.example.com:8731" HALOS_ACME_DASH_SITES="https://halos.example.com:8732" \
         HALOS_API_SITES="https://localhost:8731, https://127.0.0.1:8731" HALOS_DASH_SITES="https://localhost:8732" \
