@@ -534,8 +534,16 @@ and tracked on the owner's project board. [ROADMAP.md](ROADMAP.md) holds the ord
   `options.allowed`, the templates, the Quadlet and kernel arguments stay. `deploy/entrypoint.sh`
   passes two more names through, `HALOGEN_RENDER_ONCE` and `HALOGEN_TOKENIZE_SPLIT`, which aren't
   in FLAGS.md, so they aren't allowed here (as `HALOGEN_CACHE_REPLY`). The Flash checkpoints and
-  weights revision are unchanged. Upstream has 0.20.3 since (only `d3-nano` faster on the NPU);
-  the daily update workflow offers it.
+  weights revision are unchanged.
+- **Halogen 0.20.4** (#111, includes 0.20.3): `d3-nano` 7 to 9% faster on the NPU (0.20.3); short
+  follow-up turns read 15 to 50% faster, 10 to 20% more throughput above 8 KV slots, and
+  `tool_choice: "none"` no longer leaks `<tool_call>` markup (halogen-flash-server#253). Between
+  source commits 2e05e1f and de6e7f8, FLAGS.md is unchanged and host-setup changes only image tags,
+  so `options.allowed`, the templates, the Quadlet and kernel arguments stay. `deploy/entrypoint.sh`
+  passes one more name through, `HALOGEN_TOOL_NONE_MASK`, not in FLAGS.md, so not allowed here (as
+  `HALOGEN_CACHE_REPLY`). The Flash checkpoints and weights revision are unchanged. The image's
+  `models.txt` differs from 0.20.2's only in `d3-nano`'s NPU programs (new revision, about 135 MB,
+  fetched again only where `d3-nano` is in `HALOGEN_NPU_MODELS`; not in the default templates).
 - The ISO install test also runs when `versions.env` changes (#78), so every Halogen update PR
   gets the LUKS + TPM install in a VM, about 30 minutes for both editions.
 - Known upstream: bootc 1.17.1 rewrites `/etc/fstab` at every boot on Anaconda installs

@@ -10,6 +10,12 @@ promoted.
 
 ## Unreleased
 
+- Halogen 0.20.4: in a cached conversation a short follow-up message is read 15 to 50% faster;
+  10 to 20% more throughput when Halogen is set to serve more than 8 requests at once
+  (`HALOGEN_KV_SLOTS` above 8; the default is 4); `d3-nano` 7 to 9% faster on the NPU (0.20.3), whose
+  NPU programs (about 135 MB) download again where it is used; and in a conversation that already
+  used tools, a tool call no longer arrives as raw text when the app asked for none
+  (`tool_choice: "none"`). The Flash checkpoints and your settings are unchanged. (#111)
 - Only root may use the disk service udisks2, kept for firmware updates: an admin uses `sudo`,
   and the `halogen` user that runs Halogen can't call it at all. Firmware updates with
   `sudo fwupdmgr` work as before. (#110)
