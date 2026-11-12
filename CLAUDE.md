@@ -541,8 +541,9 @@ and tracked on the owner's project board. [ROADMAP.md](ROADMAP.md) holds the ord
   source commits 2e05e1f and de6e7f8, FLAGS.md is unchanged and host-setup changes only image tags,
   so `options.allowed`, the templates, the Quadlet and kernel arguments stay. `deploy/entrypoint.sh`
   passes one more name through, `HALOGEN_TOOL_NONE_MASK`, not in FLAGS.md, so not allowed here (as
-  `HALOGEN_CACHE_REPLY`). The Flash checkpoints and weights revision are unchanged; the NPU
-  `models.txt` wasn't compared with 0.20.2's.
+  `HALOGEN_CACHE_REPLY`). The Flash checkpoints and weights revision are unchanged. The image's
+  `models.txt` differs from 0.20.2's only in `d3-nano`'s NPU programs (new revision, about 135 MB,
+  fetched again only where `d3-nano` is in `HALOGEN_NPU_MODELS`; not in the default templates).
 - The ISO install test also runs when `versions.env` changes (#78), so every Halogen update PR
   gets the LUKS + TPM install in a VM, about 30 minutes for both editions.
 - Known upstream: bootc 1.17.1 rewrites `/etc/fstab` at every boot on Anaconda installs
