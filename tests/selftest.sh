@@ -27,6 +27,9 @@ echo 'BOOT_IMAGE=x amdgpu.gttsize=126976 ttm.pages_limit=32505856 iommu=pt' > "$
 printf 'HALOGEN_VARIANT=npu\nHALOGEN_VERSION=9.9.9\nHALOGEN_WEIGHTS_REVISION=abc\n' > "$work/release.env"
 
 f() { printf '#!/bin/bash\n%s\n' "$2" > "$fake/$1"; chmod +x "$fake/$1"; }
+# setpriv as halogen: run what follows env.
+f setpriv 'while [ $# -gt 0 ] && [ "$1" != env ]; do shift; done; exec "$@"'
+f podman 'case "$*" in *"exec halogen stat"*) printf "/tmp xfs\n/var/tmp %s\n/root xfs\n" "${FAKE_VARTMP:-xfs}" ;; *) exit 1 ;; esac'
 f mokutil 'echo "SecureBoot ${FAKE_SB:-enabled}"'
 f getenforce 'echo "${FAKE_SELINUX:-Enforcing}"'
 f journalctl 'cat "$FAKE/kernel.log" 2>/dev/null; true'
@@ -34,7 +37,7 @@ f firewall-cmd 'case "$1" in --state) echo "${FAKE_FIREWALL:-running}" ;; --get-
 f lsblk 'echo "/dev/nvme0n1p3 crypto_LUKS"'
 f cryptsetup 'printf "Tokens:\n  0: systemd-tpm2\n"'
 f amd-smi 'if [ -n "${FAKE_NOGPU:-}" ]; then echo "ERROR:root:Unable to detect any GPU devices"; exit 255; fi; printf "GPU: 0\n    BDF: 0000:c3:00.0\n"'
-f systemd-run 'case "$*" in *"podman exec halogen stat"*) printf "/tmp xfs\n/var/tmp %s\n/root xfs\n" "${FAKE_VARTMP:-xfs}" ;; *render-config*) printf "%s\n" "${FAKE_RENDER:-HALOGEN_CHECKPOINT=/models/qwen38-flash-next-v2.hgn}" ;; *) echo "preflight: ok" ;; esac'
+f systemd-run 'case "$*" in *render-config*) printf "%s\n" "${FAKE_RENDER:-HALOGEN_CHECKPOINT=/models/qwen38-flash-next-v2.hgn}" ;; *) echo "preflight: ok" ;; esac'
 f bootc 'case "$*" in *json*) echo "{\"spec\":{\"image\":{\"image\":\"${FAKE_FOLLOWS:-ghcr.io/n4berius/halos-flash:stable}\",\"signature\":\"${FAKE_SIG:-containerPolicy}\"}}}" ;; *) echo "Booted image: ghcr.io/n4berius/halos-flash:9.9.9" ;; esac'
 f systemctl 'case "$*" in *--failed*) cat "$FAKE/failed" 2>/dev/null ;; *"show -p Job"*) echo "${FAKE_JOB:-}" ;;
   *"is-enabled halos-dashboard"*) echo "${FAKE_DASH:-enabled}" ;; *"is-active halos-proxy"*) echo "${FAKE_PROXY:-active}" ;;
