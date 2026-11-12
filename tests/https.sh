@@ -161,3 +161,73 @@ timeout 20 "$h" describe > "$work/d" || true
 [ $((SECONDS - start)) -lt 15 ] || fail "a FIFO at the authority's path held the helper"
 grep -qx 'ca none' "$work/d" || fail "describe with a FIFO: $(cat "$work/d")"
 ok "ca prints only a certificate, never a file the authority's path was pointed at"
+
+# Let's Encrypt: the DNS provider's credentials are staged from stdin, kept root's, and copied for
+# Caddy only when the mode needs them; anything missing stops Caddy's start.
+printf 'HALOS_HTTPS=\n' > "$work/etc/https.env"
+if "$h" set letsencrypt cloudflare halos.example.com 2> /dev/null; then fail "letsencrypt was set without credentials"; fi
+if printf 'api_key=x\n' | "$h" dns-stage cloudflare 2> "$work/err"; then fail "a field cloudflare doesn't take was staged"; fi
+if printf 'api_token=two words\n' | "$h" dns-stage cloudflare 2> "$work/err"; then fail "a value with a space was staged"; fi
+if grep -q 'two words' "$work/err"; then fail "a refused value was printed back"; fi
+if printf 'api_key=pk1_x\n' | "$h" dns-stage porkbun 2> /dev/null; then fail "porkbun was staged without its secret key"; fi
+if printf 'api_token=short\n' | "$h" dns-stage duckdns 2> /dev/null; then fail "a DuckDNS token of the wrong length was staged"; fi
+if printf 'api_key=k\nuser=u\nclient_ip=example.com\n' | "$h" dns-stage namecheap 2> /dev/null; then fail "namecheap took a client_ip that isn't an address"; fi
+if printf 'api_token=cf-token-1\n' | "$h" dns-stage cloudflare 2> /dev/null; then fail "a token caddy-dns/cloudflare would refuse (printing it) was staged"; fi
+printf 'api_token=cf-token-1-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' | "$h" dns-stage cloudflare   # no final newline: still read
+"$h" dns-commit
+[ "$(cat "$work/etc/https/dns/api_token")" = cf-token-1-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA ] || fail "the staged token wasn't put in place"
+if ! { [ "$(stat -c %a "$work/etc/https/dns")" = 700 ] && [ "$(stat -c %a "$work/etc/https/dns/api_token")" = 600 ]; }; then fail "the credentials aren't root's alone"; fi
+for bad in 192.168.1.20 freyja freyja.local box.lan 2001:db8::20 'a.example.com;b' '*.example.com'; do
+  if "$h" set letsencrypt cloudflare "$bad" 2> /dev/null; then fail "letsencrypt took $bad, which it can't certify"; fi
+done
+if "$h" set letsencrypt cloudflare halos.example.com --email not-an-address 2> /dev/null; then fail "a bad email address was set"; fi
+"$h" set letsencrypt cloudflare Halos.Example.com --email admin@example.com
+if ! { grep -qx 'HALOS_HTTPS_NAMES=halos.example.com' "$work/etc/https.env" && grep -qx 'HALOS_ACME_DNS=cloudflare' "$work/etc/https.env" && grep -qx 'HALOS_ACME_STAGING=0' "$work/etc/https.env"; }; then fail "set letsencrypt wrote: $(cat "$work/etc/https.env")"; fi
+"$h" env
+if ! { grep -qx 'HALOS_PROXY_CONFIG=/usr/share/halos/proxy/Caddyfile.letsencrypt' "$work/run/proxy.env"   && grep -qx 'HALOS_ACME_API_SITES="https://halos.example.com:8731"' "$work/run/proxy.env"   && grep -qx 'HALOS_ACME_DASH_SITES="https://halos.example.com:8732"' "$work/run/proxy.env"   && grep -qx 'HALOS_ACME_DNS=cloudflare' "$work/run/proxy.env"   && grep -qx 'HALOS_ACME_CA=https://acme-v02.api.letsencrypt.org/directory' "$work/run/proxy.env"   && grep -qx 'HALOS_ACME_EMAIL_SET=yes' "$work/run/proxy.env" && grep -qx 'HALOS_ACME_EMAIL=admin@example.com' "$work/run/proxy.env"; }; then fail "letsencrypt's proxy.env: $(env_of)"; fi
+grep -q '^HALOS_API_SITES="https://localhost:8731, .*https://192.168.1.20:8731' "$work/run/proxy.env" || fail "the local names lost halOS's authority: $(env_of)"
+if grep '^HALOS_API_SITES=' "$work/run/proxy.env" | grep -q halos.example.com; then fail "a public name is also a local site"; fi
+if grep -q cf-token-1- "$work/run/proxy.env"; then fail "the token is in proxy.env"; fi
+[ "$(cat "$work/rt/dns_api_token")" = cf-token-1-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA ] || fail "Caddy's runtime folder has no token"
+ok "Let's Encrypt: credentials only from stdin, checked, root's, copied for Caddy; public names only"
+
+"$h" set letsencrypt cloudflare halos.example.com --staging
+if ! { "$h" env; grep -qx 'HALOS_ACME_CA=https://acme-staging-v02.api.letsencrypt.org/directory' "$work/run/proxy.env" && grep -qx 'HALOS_ACME_EMAIL_SET=no' "$work/run/proxy.env"; }; then fail "staging, without email: $(env_of)"; fi
+# A second provider's credentials replace the first; restore puts them back (halosctl, on failure).
+printf 'api_key=pk1_a\napi_secret_key=sk1_b\n' | "$h" dns-stage porkbun
+"$h" dns-commit
+if ! { [ "$(cat "$work/etc/https/dns/provider")" = porkbun ] && [ ! -e "$work/etc/https/dns/api_token" ]; }; then fail "the old provider's token stayed"; fi
+"$h" dns-restore
+if ! { [ "$(cat "$work/etc/https/dns/provider")" = cloudflare ] && [ "$(cat "$work/etc/https/dns/api_token")" = cf-token-1-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA ]; }; then fail "restore didn't put cloudflare's back"; fi
+# Fail closed: a missing credential or provider stops Caddy's start.
+cp "$work/run/proxy.env" "$work/before"
+rm "$work/etc/https/dns/api_token"
+if "$h" env 2> "$work/err"; then fail "letsencrypt without its token started"; fi
+cmp -s "$work/before" "$work/run/proxy.env" || fail "a failed start changed proxy.env"
+grep -q 'halosctl https' "$work/err" || fail "the failure doesn't say what to do"
+sed -i 's/^HALOS_ACME_DNS=.*/HALOS_ACME_DNS=route53/' "$work/etc/https.env"
+if "$h" env 2> /dev/null; then fail "an unknown DNS provider started"; fi
+[ "$("$h" describe | sed -n 's/^mode //p')" = letsencrypt ] || fail "describe doesn't name the mode"
+ok "staging, a second provider and restore, and fail-closed on a missing credential or provider"
+# Audit (#108): a token pasted without field= is never printed back; a malformed token in the file
+# (hand-edited) stops the start without reaching Caddy, whose Cloudflare plugin would print it.
+if printf 'cfut_PASTEDSECRETPASTEDSECRETPASTEDSECRET\n' | "$h" dns-stage cloudflare 2> "$work/err"; then fail "a bare token was staged"; fi
+if grep -q PASTEDSECRET "$work/err"; then fail "a bare token was printed back"; fi
+printf 'api_token=cf-token-1-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' | "$h" dns-stage cloudflare; "$h" dns-commit
+"$h" set letsencrypt cloudflare halos.example.com
+printf 'bad token HANDEDITED' > "$work/etc/https/dns/api_token"; rm -f "$work/rt/dns_api_token"
+if "$h" env 2> "$work/err"; then fail "a malformed token on disk started Caddy"; fi
+if grep -q HANDEDITED "$work/err"; then fail "a malformed token was printed"; fi
+[ ! -e "$work/rt/dns_api_token" ] || fail "a malformed token was copied for Caddy"
+# set --check: names and email checked without credentials, nothing written.
+cp "$work/etc/https.env" "$work/before"
+"$h" set --check letsencrypt porkbun other.example.com || fail "set --check needed credentials"
+if "$h" set --check letsencrypt porkbun box.local 2> /dev/null; then fail "set --check took .local"; fi
+cmp -s "$work/before" "$work/etc/https.env" || fail "set --check wrote the settings"
+if "$h" dns-forget 2> /dev/null; then fail "dns-forget removed the credentials Let's Encrypt is using"; fi
+# Back to self-signed: the public names aren't kept as extra names.
+"$h" set self-signed
+grep -qx 'HALOS_HTTPS_NAMES=' "$work/etc/https.env" || fail "self-signed kept the Let's Encrypt names: $(cat "$work/etc/https.env")"
+"$h" dns-forget; [ ! -e "$work/etc/https/dns" ] || fail "dns-forget left the credentials"
+ok "a pasted or hand-edited token is never printed or given to Caddy; set --check; forget"
+

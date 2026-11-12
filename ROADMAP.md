@@ -29,16 +29,20 @@ In `v0.20.1-alpha.1` and `alpha.2` (2026-11-10 and 11), for the next beta:
 - `halogenctl flash convert` (#97), Halogen 0.20.1 (#95);
 - the dashboard (#98, #99, #101), running on the test machine.
 
-On edge: the dashboard on port 8732, next to the API (#103), and Caddy in front of both (#104).
+On edge: the dashboard on port 8732, next to the API (#103), Caddy in front of both (#104), and
+HTTPS with a self-signed certificate or your own (#105).
 
 ## Next
 
 1. HTTPS for Halogen's API and the dashboard (#102), with Caddy in front of both: Caddy on HTTP
    (#104), then HTTPS with a self-signed certificate or your own (#105), then Let's Encrypt
-   through DNS-01, then HTTPS by default for new installs.
-2. fail2ban for SSH and the Halogen API (#92), once HTTPS is in.
-3. Unlock the disk from a tang server on the network (#44).
-4. GGUF repositories in `flash pull` (#61).
+   through DNS-01 (in review), then HTTPS by default for new installs.
+2. Halogen 0.20.2 (#100), once the two pull requests in review are in.
+3. fail2ban for SSH and the Halogen API (#92), once HTTPS is in.
+4. Logging (#107): Halogen's request records in `/srv/logs`, journal limits, audit logging and
+   rotation.
+5. Unlock the disk from a tang server on the network (#44).
+6. GGUF repositories in `flash pull` (#61).
 
 Later: a first real `flash convert` on the test machine (time and quality), then its GPU (HIP)
 build and the Qwen4 models.

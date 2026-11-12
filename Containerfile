@@ -69,6 +69,7 @@ RUN set -eu; \
     mkdir -p "$(realpath /root)"; \
     cd /src/caddy; \
     export GOTOOLCHAIN=local GOFLAGS=-mod=readonly CGO_ENABLED=0 GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org; \
+    go test ./dnsproviders/; \
     go build -trimpath -ldflags='-s -w' -o /out/caddy .; \
     /out/caddy version; \
     for p in cloudflare duckdns namecheap porkbun; do /out/caddy list-modules | grep -qx "dns.providers.$p"; done; \
@@ -158,6 +159,13 @@ RUN set -eu; \
         HALOS_API_SITES="https://localhost:8731, https://127.0.0.1:8731" HALOS_DASH_SITES="https://localhost:8732" \
         /usr/libexec/halogen/caddy adapt --config /usr/share/halos/proxy/Caddyfile.https --adapter caddyfile > /dev/null; \
     done; \
+    for dns in cloudflare duckdns porkbun namecheap; do for mail in yes no; do \
+      HOME=/tmp XDG_DATA_HOME=/tmp XDG_CONFIG_HOME=/tmp RUNTIME_DIRECTORY=/tmp/halos-tls HALOS_ACME_DNS=$dns \
+        HALOS_ACME_EMAIL_SET=$mail HALOS_ACME_EMAIL=admin@example.com HALOS_ACME_CA=https://acme-staging-v02.api.letsencrypt.org/directory \
+        HALOS_ACME_API_SITES="https://halos.example.com:8731" HALOS_ACME_DASH_SITES="https://halos.example.com:8732" \
+        HALOS_API_SITES="https://localhost:8731, https://127.0.0.1:8731" HALOS_DASH_SITES="https://localhost:8732" \
+        /usr/libexec/halogen/caddy adapt --config /usr/share/halos/proxy/Caddyfile.letsencrypt --adapter caddyfile > /dev/null; \
+    done; done; \
     chmod 0755 /usr/bin/halosctl /usr/bin/halogenctl /usr/bin/halogen-enroll-tpm /usr/libexec/halogen/*; \
     find /etc/containers/systemd/users/970 -type f -exec sed -i \
       -e "s|@HALOGEN_IMAGE@|${HALOGEN_IMAGE}|g" -e "s|@HALOGEN_VERSION@|${HALOGEN_VERSION}|g" {} +; \

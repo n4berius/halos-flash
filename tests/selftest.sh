@@ -64,6 +64,8 @@ f https 'case "$1" in
       self-signed) echo "mode self-signed"; echo "ca ${FAKE_CA-AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89}"; echo "ca_until Jan 1 2036" ;;
       invalid) echo "mode invalid" ;;
       custom) echo "mode custom"; echo "subject CN=box.example"; echo "until Jan 1 2027"; echo "expires ${FAKE_EXPIRES:-later}" ;;
+      letsencrypt) echo "mode letsencrypt"; echo "provider cloudflare"; echo "public halos.example.com"; echo "staging ${FAKE_STAGING:-no}"
+        echo "names localhost 127.0.0.1"; echo "until ${FAKE_UNTIL:-Feb 1 2027}"; echo "issuer CN=R12,O=Let'"'"'s Encrypt"; echo "expires ${FAKE_EXPIRES:-later}" ;;
       *) echo "mode off" ;; esac ;;
   ca) [ "${FAKE_CA-x}" != none ] && echo "-----BEGIN CERTIFICATE-----" ;;
   uncovered) [ -z "${FAKE_UNCOVERED:-}" ] || echo "$FAKE_UNCOVERED" ;;
@@ -109,7 +111,16 @@ FAKE_HTTPS=self-signed FAKE_UNCOVERED=192.168.1.20 "$selftest" > "$work/out" 2>&
 FAKE_HTTPS=custom "$selftest" > "$work/out" 2>&1 || true; expect '^PASS https: on, with your certificate for CN=box.example'
 FAKE_HTTPS=custom FAKE_EXPIRES=soon "$selftest" > "$work/out" 2>&1 || true; expect '^WARN https: your certificate .* within 14 days'
 FAKE_HTTPS=custom FAKE_EXPIRES=ended "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL https: your certificate .* ended'
-FAKE_HTTPS=invalid "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL https: .*isn.t off, self-signed or custom'
+FAKE_HTTPS=invalid "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL https: .*isn.t off, self-signed, custom or letsencrypt'
+# Let's Encrypt: checked by name, against the system's trust store (no -k, no --cacert).
+: > "$work/curl.log"
+FAKE_HTTPS=letsencrypt "$selftest" > "$work/out" 2>&1 || true; expect '^PASS https: on, Let.s Encrypt for halos.example.com \(DNS: cloudflare\)'
+grep -q -- '--resolve halos.example.com:8731:127.0.0.1 .*https://halos.example.com:8731/health' "$work/curl.log" || { echo "the Let's Encrypt check didn't ask by name" >&2; exit 1; }
+if grep 'https://halos.example.com:8731/health' "$work/curl.log" | grep -q -e ' -k ' -e cacert; then echo "the Let's Encrypt check didn't use the system's trust store" >&2; exit 1; fi
+FAKE_HTTPS=letsencrypt FAKE_STAGING=yes "$selftest" > "$work/out" 2>&1 || true; expect '^WARN https: .*staging'
+FAKE_HTTPS=letsencrypt FAKE_UNTIL=none "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL https: .*serves no certificate'
+FAKE_HTTPS=letsencrypt FAKE_EXPIRES=soon "$selftest" > "$work/out" 2>&1 || true; expect '^WARN https: .*renewing is failing'
+FAKE_HTTPS=letsencrypt FAKE_EXPIRES=ended "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL https: .*renewing failed'
 ok "the selftest names the HTTPS mode, checks Caddy answers in it, and warns of a missing authority, an uncovered address or an ending certificate"
 "$selftest" > "$work/out" 2>&1 || true
 expect '^INFO weights: downloaded from weights commit 8ef7ad828f7f'
