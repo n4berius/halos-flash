@@ -125,15 +125,19 @@ selftest = log.split("RESULT-END")[-1].split("SELFTEST-RC=")[0]
 # HTTPS (#102): self-signed, then back to plain HTTP. Halogen isn't up in the VM, so Caddy's own
 # 503 note answers /health: CURL 503 means the TLS handshake passed with halOS's authority.
 if mode in ("plain", "luks-stale"):   # the first boot only
-    typed("halosctl https self-signed --yes > /tmp/https 2>&1; echo HTTPS-RC=$? >> /tmp/https; "
-          "/usr/libexec/halogen/https ca > /tmp/ca.pem; "
-          "curl -sS -m 10 --retry 10 --retry-connrefused --retry-delay 1 -o /dev/null -w 'CURL %{http_code}' --cacert /tmp/ca.pem https://127.0.0.1:8731/health >> /tmp/https 2>&1; echo >> /tmp/https; "
-          "curl -sS -m 10 --retry 10 --retry-connrefused --retry-delay 1 -o /dev/null -w 'REDIRECT %{http_code}' http://127.0.0.1:8731/health >> /tmp/https 2>&1; echo >> /tmp/https; "
-          "halogenctl selftest 2>&1 | grep -E 'https|proxy:|dashboard:|api-ipv6' >> /tmp/https; "
-          "halosctl https off --yes >> /tmp/https 2>&1; echo OFF-RC=$? >> /tmp/https; "
-          "curl -sS -m 10 --retry 10 --retry-connrefused --retry-delay 1 -o /dev/null -w 'BACK %{http_code}' http://127.0.0.1:8731/health >> /tmp/https 2>&1; echo >> /tmp/https; "
-          "cat /tmp/https > /dev/ttyS0; echo HTTPS-END > /dev/ttyS0\n")
-    log = wait_serial("HTTPS-END", 300)
+    # Each step says when it starts on the serial console, so a hang shows where; Caddy's status and
+    # log come at the end.
+    step = lambda n: "echo HTTPS-STEP-" + n + " $(date +%s) > /dev/ttyS0; "
+    typed(step("on") + "halosctl https self-signed --yes > /tmp/https 2>&1; echo HTTPS-RC=$? >> /tmp/https; "
+          + step("ca") + "/usr/libexec/halogen/https ca > /tmp/ca.pem; "
+          + step("curl") + "curl -sS -m 10 --retry 10 --retry-connrefused --retry-delay 1 -o /dev/null -w 'CURL %{http_code}' --cacert /tmp/ca.pem https://127.0.0.1:8731/health >> /tmp/https 2>&1; echo >> /tmp/https; "
+          + "curl -sS -m 10 --retry 10 --retry-connrefused --retry-delay 1 -o /dev/null -w 'REDIRECT %{http_code}' http://127.0.0.1:8731/health >> /tmp/https 2>&1; echo >> /tmp/https; "
+          + step("selftest") + "halogenctl selftest 2>&1 | grep -E 'https|proxy:|dashboard:|api-ipv6' >> /tmp/https; "
+          + "systemctl status halos-proxy --no-pager -n 0 >> /tmp/https 2>&1; journalctl -b -u halos-proxy --no-pager -o cat -n 15 >> /tmp/https 2>&1; "
+          + step("off") + "halosctl https off --yes >> /tmp/https 2>&1; echo OFF-RC=$? >> /tmp/https; "
+          + step("back") + "curl -sS -m 10 --retry 10 --retry-connrefused --retry-delay 1 -o /dev/null -w 'BACK %{http_code}' http://127.0.0.1:8731/health >> /tmp/https 2>&1; echo >> /tmp/https; "
+          + "cat /tmp/https > /dev/ttyS0; echo HTTPS-END > /dev/ttyS0\n")
+    log = wait_serial("HTTPS-END", 600)
     (out / "https.txt").write_text(re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", log.split("SELFTEST-RC=")[-1].split("HTTPS-END")[0]))
 
 if mode == "luks-stale" and os.environ.get("HALOS_TEST_SSH_UNLOCK"):
