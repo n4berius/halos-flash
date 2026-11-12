@@ -332,7 +332,9 @@ curl -H "Authorization: Bearer $(sudo halogenctl api-key)" http://127.0.0.1:8731
 
 The API should list the Flash model, plus the NPU models on that edition. Clients connect to
 `http://<host>:8731/v1` with the same key (`https://` once you turn [HTTPS](#https) on; then add
-`--cacert halos-ca.crt` to the curl above and use `https://`).
+`--cacert halos-ca.crt` to the curl above and use `https://`). [Connecting apps](docs/CLIENTS.md)
+has the settings for Claude Code, Codex, Pi, oh-my-pi, opencode, Cline, aider and others, and
+the [command reference](docs/CLI.md) lists every halOS command.
 
 Please confirm these on the first install:
 
@@ -459,7 +461,8 @@ sudo halosctl https ca > halos-ca.crt
 ```
 
 Then give `halos-ca.crt` to each app that talks to the machine: most have a setting for a CA
-file (such as `SSL_CERT_FILE` or `REQUESTS_CA_BUNDLE`, or a field in the app's settings).
+file, and [Connecting apps](docs/CLIENTS.md) lists it for each coding agent (Pi, oh-my-pi,
+opencode, Codex, Claude Code, Cline, aider and others).
 Prefer that over adding it to your computer's trusted certificates: an authority trusted
 system-wide can vouch for any website, so anyone who stole it from this machine could pass for
 any site on that computer. For a browser and the dashboard, accepting the warning once for
