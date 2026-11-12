@@ -516,8 +516,9 @@ and tracked on the owner's project board. [ROADMAP.md](ROADMAP.md) holds the ord
   checkpoints and weights revision stay. The image's `/opt/halogen/npu/models.txt` is byte-identical
   to 0.20.0's (read from the layer, anonymously from ghcr.io), so no NPU program downloads again.
 - **Halogen 0.20.2** (#100): a little faster with concurrent requests and on long conversations'
-  first token, and `d3-lite` 14 to 18% faster on the NPU (its NPU programs may download again;
-  the fetch checks them against the image's `models.txt`). Between source commits d2f4286 and
+  first token, and `d3-lite` 14 to 18% faster on the NPU (whether its NPU programs changed, and so
+  download again, wasn't checked: the image's `models.txt` wasn't compared with 0.20.1's; the
+  fetch checks whatever it downloads against it). Between source commits d2f4286 and
   2e05e1f, FLAGS.md and host-setup's requirements are unchanged (only image tags in examples), so
   `options.allowed`, the templates, the Quadlet and kernel arguments stay. `deploy/entrypoint.sh`
   passes two more names through, `HALOGEN_RENDER_ONCE` and `HALOGEN_TOKENIZE_SPLIT`, which aren't
