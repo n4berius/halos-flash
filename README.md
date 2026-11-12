@@ -74,6 +74,16 @@ See **[INSTALL.md](INSTALL.md)**. In short: write the ISO for your edition to US
 answer the guided installer's few questions (the disk, LUKS or not, root or not, your admin
 account). Then run `sudo halosctl setup` and let the first boot download the models.
 
+## Documentation
+
+| Guide | What's in it |
+|---|---|
+| [INSTALL.md](INSTALL.md) | Installing, first boot, and every feature with its reasons |
+| [docs/CLI.md](docs/CLI.md) | Every `halosctl`, `halogenctl` and `halogen-enroll-tpm` command |
+| [docs/CLIENTS.md](docs/CLIENTS.md) | Connecting apps and coding agents, and trusting halOS's certificate |
+| [CHANGELOG.md](CHANGELOG.md), [ROADMAP.md](ROADMAP.md) | What each release changed, and what comes next |
+| [SECURITY.md](SECURITY.md) | Reporting a security problem |
+
 ## What lives where
 
 | Location | Contents | Changes through |
@@ -188,7 +198,9 @@ sudo halogenctl flash list   # the official Flash checkpoint and your own; flash
 ```
 
 [Your own NPU checkpoints](INSTALL.md#your-own-npu-checkpoints) and [your own Flash
-checkpoint](INSTALL.md#your-own-flash-checkpoint) explain `model` and `flash`.
+checkpoint](INSTALL.md#your-own-flash-checkpoint) explain `model` and `flash`; the [command
+reference](docs/CLI.md) lists everything, and [Connecting apps](docs/CLIENTS.md) how to point
+Claude Code, Codex, Pi and other agents at the machine.
 
 A live dashboard of Halogen's load and health (speed, slots, queue, KV pool, prompt cache, NPU,
 30 days of charts) is at `http://<host>:8732`: [halogen-dashboard](https://github.com/Quat3rnion/halogen-dashboard)
