@@ -10,6 +10,9 @@ promoted.
 
 ## Unreleased
 
+- New guides: [the command reference](docs/CLI.md) lists every halOS command, and [Connecting
+  apps](docs/CLIENTS.md) shows how to point Claude Code, Codex, Pi, oh-my-pi, opencode, Cline,
+  aider and others at the machine, and how each one trusts halOS's certificate. (#109)
 - Firmware updates: `sudo fwupdmgr update` can now also update the Secure Boot revocation list
   (dbx), instead of saying "UEFI ESP partition not detected". On a machine that unlocks its disk
   with the TPM, such an update asks for the disk passphrase at the next boot; then run
