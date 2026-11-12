@@ -429,7 +429,7 @@ name, but allows saying halOS runs Halogen.
   any send to `org.freedesktop.UDisks2` (no call, no properties; dbus-broker still activates the
   service for the message, then refuses it at delivery). The VM test checks the admin gets polkit's
   `Error.NotAuthorized:` from `udisksctl loop-setup -r` (without `-r` udisksctl opens the file
-  read-write itself and fails before asking), halogen's `busctl call` gets "not authorized to send"
+  read-write itself and fails before asking), halogen's `busctl call` (through `runuser -u halogen`: `systemd-run --pipe` with its output in a file in /tmp fails under SELinux, since PID 1 may not write user_tmp_t) gets "not authorized to send"
   while the admin's same call answers (`a{sv}`), besides fwupd's ESPRC.
 
 ## Lessons already learned
