@@ -128,15 +128,21 @@ if mode in ("plain", "luks-stale"):   # the first boot only
     # Each step says when it starts on the serial console, so a hang shows where; Caddy's status and
     # log come at the end.
     step = lambda n: "echo HTTPS-STEP-" + n + " $(date +%s) > /dev/ttyS0; "
+    c = "curl -sS -m 5 --retry 5 --retry-connrefused --retry-delay 1 -o /dev/null "
     typed(step("on") + "halosctl https self-signed --yes > /tmp/https 2>&1; echo HTTPS-RC=$? >> /tmp/https; "
           + step("ca") + "/usr/libexec/halogen/https ca > /tmp/ca.pem; "
-          + step("curl") + "curl -sS -m 10 --retry 10 --retry-connrefused --retry-delay 1 -o /dev/null -w 'CURL %{http_code}' --cacert /tmp/ca.pem https://127.0.0.1:8731/health >> /tmp/https 2>&1; echo >> /tmp/https; "
-          + "curl -sS -m 10 --retry 10 --retry-connrefused --retry-delay 1 -o /dev/null -w 'REDIRECT %{http_code}' http://127.0.0.1:8731/health >> /tmp/https 2>&1; echo >> /tmp/https; "
+          # What Caddy was given and what listens, before any request.
+          + "{ cat /run/halos-https/proxy.env; ss -tlnp; systemctl show halos-proxy -p ActiveState -p SubState -p NRestarts; } > /tmp/https-diag 2>&1; "
+          + step("curl") + c + "-w 'CURL %{http_code}' --cacert /tmp/ca.pem https://127.0.0.1:8731/health >> /tmp/https 2>&1; echo >> /tmp/https; "
+          + c + "-w 'REDIRECT %{http_code}' http://127.0.0.1:8731/health >> /tmp/https 2>&1; echo >> /tmp/https; "
+          + "curl -v -m 5 -o /dev/null --cacert /tmp/ca.pem https://127.0.0.1:8731/health >> /tmp/https-diag 2>&1; "
           + step("selftest") + "halogenctl selftest 2>&1 | grep -E 'https|proxy:|dashboard:|api-ipv6' >> /tmp/https; "
-          + "systemctl status halos-proxy --no-pager -n 0 >> /tmp/https 2>&1; journalctl -b -u halos-proxy --no-pager -o cat -n 15 >> /tmp/https 2>&1; "
+          + "systemctl status halos-proxy --no-pager -n 0 >> /tmp/https-diag 2>&1; journalctl -b -u halos-proxy --no-pager -o cat -n 25 >> /tmp/https-diag 2>&1; "
           + step("off") + "halosctl https off --yes >> /tmp/https 2>&1; echo OFF-RC=$? >> /tmp/https; "
-          + step("back") + "curl -sS -m 10 --retry 10 --retry-connrefused --retry-delay 1 -o /dev/null -w 'BACK %{http_code}' http://127.0.0.1:8731/health >> /tmp/https 2>&1; echo >> /tmp/https; "
-          + "cat /tmp/https > /dev/ttyS0; echo HTTPS-END > /dev/ttyS0\n")
+          + step("back") + c + "-w 'BACK %{http_code}' http://127.0.0.1:8731/health >> /tmp/https 2>&1; echo >> /tmp/https; "
+          # Each switch changes the login screen's line, and agetty's reload on the serial console
+          # can swallow what is written meanwhile (login-status runs every 30 s): wait it out.
+          + step("print") + "sleep 35; cat /tmp/https /tmp/https-diag > /dev/ttyS0; echo HTTPS-END > /dev/ttyS0\n")
     log = wait_serial("HTTPS-END", 600)
     (out / "https.txt").write_text(re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", log.split("SELFTEST-RC=")[-1].split("HTTPS-END")[0]))
 
