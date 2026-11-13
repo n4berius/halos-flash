@@ -38,7 +38,7 @@ HTTPS with a self-signed certificate or your own (#105).
    (#104), then HTTPS with a self-signed certificate or your own (#105), then Let's Encrypt
    through DNS-01 (#108), then HTTPS by default for new installs.
 2. Logging (#107): Halogen's request records in `/srv/logs` on a volume of their own (#113, done),
-   then journal limits, audit logging with auditd, and rotation (#PR, in review).
+   then journal limits, audit logging with auditd, and rotation (#118, in review).
 3. fail2ban for SSH and the Halogen API (#92), once HTTPS is in.
 4. Unlock the disk from a tang server on the network (#44).
 5. GGUF repositories in `flash pull` (#61).
