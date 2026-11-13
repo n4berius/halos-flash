@@ -128,7 +128,7 @@ RUN dnf -y --setopt=install_weak_deps=False install \
     rpm -q bash-completion fwupd udisks2 skopeo jq amd-ucode-firmware realtek-firmware mt7xxx-firmware atheros-firmware && \
     systemctl disable udisks2.service && ls /usr/share/dbus-1/system-services/org.freedesktop.UDisks2.service && \
     ls -d /usr/lib/firmware/amdgpu /usr/lib/firmware/amdnpu && \
-    command -v runuser setpriv nano
+    for c in runuser setpriv prlimit nano; do command -v "$c" > /dev/null || { echo "missing: $c" >&2; exit 1; }; done
 
 COPY files/ /
 COPY variants/${HALOGEN_VARIANT}/ /

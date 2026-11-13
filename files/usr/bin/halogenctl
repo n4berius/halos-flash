@@ -8,7 +8,9 @@ unit() { systemctl --user --machine=halogen@.host "$@"; }
 start_halogen() { unit reset-failed halogen.service 2>/dev/null || true; unit "$1" halogen.service; }
 # Files under /srv/configs and /srv/models belong to halogen, so read and write them as halogen, never as root:
 # a link planted there then can't reach anything halogen couldn't already.
-as_owner() { runuser -u halogen -- "$@"; }
+# From /: runuser keeps root's working folder, and halogen can't enter an admin's home (find then
+# fails and, under 2>/dev/null, deletes nothing).
+as_owner() { runuser -u halogen -- env -C / "$@"; }
 # Run one of halOS's scripts as halogen, under its user manager. The script never gets root's
 # terminal: its input is /dev/null, and its output comes back through a pipe with control
 # characters (other than tab) removed, in a fixed UTF-8 locale so accented letters and symbols
@@ -479,7 +481,7 @@ case "${1:-status}" in
     # halogen's own manager over its private socket, as login-status reads it: a daemon-reload
     # through --machine=halogen@.host fails with "Transport endpoint is not connected" (VM test).
     huid="$(id -u halogen 2> /dev/null || echo 970)"
-    as_manager() { setpriv --reuid="$huid" --regid="$huid" --clear-groups env XDG_RUNTIME_DIR="/run/user/$huid" systemctl --user "$@"; }
+    as_manager() { setpriv --reuid="$huid" --regid="$huid" --clear-groups env -C / XDG_RUNTIME_DIR="/run/user/$huid" systemctl --user "$@"; }
     mounted() { as_manager cat halogen.service 2> /dev/null | grep -q -F 'srv/logs/halogen:/records'; }
     # Whether the running Halogen keeps records (its /health says so), whatever the drop-in says.
     recording() { curl -sS -m 5 "http://127.0.0.1:${HALOS_API_LOCAL_PORT:-18731}/health" 2> /dev/null | jq -e '.request_records' > /dev/null 2>&1; }
