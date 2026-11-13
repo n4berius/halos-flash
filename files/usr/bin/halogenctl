@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -p
 # Admin wrapper for the rootless Halogen service. Run with sudo.
 set -euo pipefail
 unit() { systemctl --user --machine=halogen@.host "$@"; }
@@ -130,7 +130,11 @@ case "${1:-status}" in
   selftest)
     # The beta checklist in one go. It changes nothing and prints nothing private.
     [ "$(id -u)" = 0 ] || { echo "Run it with sudo: sudo halogenctl selftest" >&2; exit 1; }
-    exec /usr/libexec/halogen/selftest
+    # With an empty environment: the selftest takes its paths from HALOS_* and HALOGEN_* variables
+    # for its own tests, and one set for root (in /etc/environment, say) would point its checks at
+    # other files and make them pass (security audit). This script itself runs as bash -p, so a
+    # BASH_ENV file or an exported function can't run before this line either.
+    exec /usr/bin/env -i PATH=/usr/sbin:/usr/bin LANG=C.UTF-8 /usr/libexec/halogen/selftest
     ;;
   api-key) as_owner cat "$configs/api-key" | tr -cd '[:print:]'; echo ;;
   hf-token)

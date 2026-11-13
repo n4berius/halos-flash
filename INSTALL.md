@@ -682,7 +682,8 @@ halOS keeps three kinds of log, each with its own size limit, so none can fill t
   sudo ausearch -i -k signature-policy # which images updates are taken from
   sudo ausearch -i -k sshd-config      # also sudoers, accounts, pam, luks-tpm, os-update, halosctl, halogenctl
   sudo ausearch -i -k quadlet          # how Halogen's container is started; also containers, systemd-config,
-                                       # audit-config, modules, preload, udev, firewall, sysctl
+                                       # audit-config, modules, preload, udev, firewall, sysctl,
+                                       # environment, mounts
   sudo aureport --summary              # counts, and sudo aureport --login for logins
   ```
 
