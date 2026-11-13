@@ -490,7 +490,9 @@ case "${1:-status}" in
     tool() {
       local c="$1" image; shift
       if [ -f "$dropin" ] && running; then
-        halogen_run podman exec halogen python3 /halogen/tools/request_records.py "$c" /records "$@"
+        # podman exec gives the tool the container's memlock limit (unlimited), which halogen's
+        # manager allows only when asked for, as halogen.service does.
+        halogen_run --property=LimitMEMLOCK=infinity podman exec halogen python3 /halogen/tools/request_records.py "$c" /records "$@"
       else
         image="$(sed -n 's/^HALOGEN_IMAGE=//p' "${HALOGEN_RELEASE_FILE:-/usr/share/halogen/release.env}" | tail -n 1 | tr -d "\"'")"
         [ -n "$image" ] || { echo "No Halogen image named in the release file." >&2; exit 1; }

@@ -310,12 +310,12 @@ if "$ctl" records on < /dev/null > /dev/null 2>&1; then echo "records on ran wit
 [ ! -e "$work/dropin.d/20-records.conf" ] || { echo "records on changed something before asking" >&2; exit 1; }
 "$ctl" records on --yes > /dev/null
 grep -qx 'Volume=/srv/logs/halogen:/records:noexec,nosuid,nodev' "$work/dropin.d/20-records.conf" || { echo "no records mount" >&2; exit 1; }
-if ! { grep -q 'setpriv --reuid=.* env XDG_RUNTIME_DIR=/run/user/.* systemctl --user daemon-reload' "$work/log" && grep -q 'restart halogen.service' "$work/log"; }; then
+if ! { grep -q 'setpriv --reuid=.* env -C / XDG_RUNTIME_DIR=/run/user/.* systemctl --user daemon-reload' "$work/log" && grep -q 'restart halogen.service' "$work/log"; }; then
   cat "$work/log" >&2; echo "records on didn't reload and restart" >&2; exit 1
 fi
 "$ctl" records > "$work/out"; grep -q '^Request records: on, text kept: none' "$work/out" || { cat "$work/out" >&2; exit 1; }
 "$ctl" records stats > "$work/out"
-grep -q 'podman exec halogen python3 /halogen/tools/request_records.py stats /records' "$work/log" || { echo "stats didn't run Halogen's tool" >&2; exit 1; }
+grep -q 'LimitMEMLOCK=infinity podman exec halogen python3 /halogen/tools/request_records.py stats /records' "$work/log" || { echo "stats didn't run Halogen's tool" >&2; exit 1; }
 "$ctl" records prune --days 7 --yes > /dev/null
 grep -q 'request_records.py prune /records --days 7$' "$work/log" || { cat "$work/log" >&2; echo "prune didn't pass --days" >&2; exit 1; }
 for bad in '--days x' '--gib 1;id' '--session ../x' '--path /etc' ''; do

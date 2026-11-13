@@ -417,7 +417,10 @@ if [ "${running:-0}" = 1 ]; then
   # from / : setpriv keeps the caller's folder, and podman stops when halogen can't enter it (sudo
   # from an admin's home did that on freyja).
   huid="$(id -u halogen 2> /dev/null || echo 970)"
-  fstypes="$(run setpriv --reuid="$huid" --regid="$huid" --clear-groups env -C / HOME=/var/lib/halogen XDG_RUNTIME_DIR="/run/user/$huid" \
+  # prlimit: podman exec applies the container's memlock limit (unlimited) to what it starts, and
+  # halogen may not raise its own; root raises it before dropping to halogen (freyja: "crun:
+  # setrlimit RLIMIT_MEMLOCK: Operation not permitted").
+  fstypes="$(run prlimit --memlock=unlimited:unlimited -- setpriv --reuid="$huid" --regid="$huid" --clear-groups env -C / HOME=/var/lib/halogen XDG_RUNTIME_DIR="/run/user/$huid" \
     podman exec halogen stat -f -c '%n %T' /tmp /var/tmp /root | tr -cd '[:print:]\n')"
   if [ "$(grep -c -E '^/(tmp|var/tmp|root) ' <<< "$fstypes")" != 3 ]; then say WARN scratch "couldn't see where Halogen's /tmp, /var/tmp and /root are: ${fstypes:-no answer}"
   elif grep -q tmpfs <<< "$fstypes"; then say FAIL scratch "Halogen's scratch folders are in memory, not on disk: $(tr '\n' ' ' <<< "$fstypes")"
