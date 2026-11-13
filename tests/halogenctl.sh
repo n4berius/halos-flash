@@ -309,7 +309,7 @@ f systemd-run 'echo "systemd-run $*" >> "$FAKE/log"; case "$*" in *render-config
 if "$ctl" records on < /dev/null > /dev/null 2>&1; then echo "records on ran without --yes or a terminal" >&2; exit 1; fi
 [ ! -e "$work/dropin.d/20-records.conf" ] || { echo "records on changed something before asking" >&2; exit 1; }
 "$ctl" records on --yes > /dev/null
-grep -qx 'Volume=/srv/logs/halogen:/records' "$work/dropin.d/20-records.conf" || { echo "no records mount" >&2; exit 1; }
+grep -qx 'Volume=/srv/logs/halogen:/records:noexec,nosuid,nodev' "$work/dropin.d/20-records.conf" || { echo "no records mount" >&2; exit 1; }
 if ! { grep -q 'setpriv --reuid=.* env XDG_RUNTIME_DIR=/run/user/.* systemctl --user daemon-reload' "$work/log" && grep -q 'restart halogen.service' "$work/log"; }; then
   cat "$work/log" >&2; echo "records on didn't reload and restart" >&2; exit 1
 fi
@@ -327,7 +327,7 @@ if [ -e "$work/dropin.d/20-records.conf" ] || ! grep -q "next starts" "$work/out
 # Off (or stopped): the records kept before are still reached, in a one-off container of the
 # pinned image with only that folder, no network and nothing writable but it.
 : > "$work/log"; "$ctl" records prune --all --yes > /dev/null
-if ! grep -q 'podman run --rm --pull=never --network=none --read-only --cap-drop=all --security-opt no-new-privileges -v /srv/logs/halogen:/records --entrypoint python3 ghcr.io/peonist-ai/halogen-flash-server@sha256:abc /halogen/tools/request_records.py prune /records --all$' "$work/log"; then
+if ! grep -q 'podman run --rm --pull=never --network=none --read-only --cap-drop=all --security-opt no-new-privileges -v /srv/logs/halogen:/records:noexec,nosuid,nodev --entrypoint python3 ghcr.io/peonist-ai/halogen-flash-server@sha256:abc /halogen/tools/request_records.py prune /records --all$' "$work/log"; then
   cat "$work/log" >&2; echo "prune after off didn't reach the kept records" >&2; exit 1
 fi
 if grep -q 'podman exec' "$work/log"; then echo "prune after off ran in the server's container" >&2; exit 1; fi

@@ -27,8 +27,9 @@ echo 'BOOT_IMAGE=x amdgpu.gttsize=126976 ttm.pages_limit=32505856 iommu=pt' > "$
 printf 'HALOGEN_VARIANT=npu\nHALOGEN_VERSION=9.9.9\nHALOGEN_WEIGHTS_REVISION=abc\n' > "$work/release.env"
 
 f() { printf '#!/bin/bash\n%s\n' "$2" > "$fake/$1"; chmod +x "$fake/$1"; }
-# setpriv as halogen: run what follows env (the fake systemctl).
+# setpriv as halogen: run what follows env (the fake systemctl, or podman).
 f setpriv 'while [ $# -gt 0 ] && [ "$1" != env ]; do shift; done; exec "$@"'
+f podman 'case "$*" in *"exec halogen stat"*) printf "/tmp xfs\n/var/tmp %s\n/root xfs\n" "${FAKE_VARTMP:-xfs}" ;; *) exit 1 ;; esac'
 f mokutil 'echo "SecureBoot ${FAKE_SB:-enabled}"'
 f getenforce 'echo "${FAKE_SELINUX:-Enforcing}"'
 f journalctl 'cat "$FAKE/kernel.log" 2>/dev/null; true'
@@ -97,6 +98,9 @@ done
 expect '^Summary: [0-9]+ passed, 0 warnings, 0 failed'
 expect 'serving: halogen-qwen3.8-flash-next qwen3.5-2b'
 expect '^INFO records: off'
+expect '^PASS scratch: '
+FAKE_VARTMP=tmpfs "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL scratch: .*in memory'
+FAKE_STATE=inactive "$selftest" > "$work/out" 2>&1 || true; refuse '^(PASS|FAIL|WARN) scratch:'
 # Request records on (#107): Halogen's own counts from /health, or a warning when it has none.
 : > "$work/20-records.conf"
 FAKE_HEALTH='{"request_records":{"written":3,"dropped_cap":0}}' "$selftest" > "$work/out" 2>&1 || true

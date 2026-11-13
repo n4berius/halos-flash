@@ -410,6 +410,17 @@ meta="$models/.cache/huggingface/download/qwen38-flash-next-v2.hgn.metadata"
 [ ! -r "$meta" ] || say INFO weights "downloaded from weights commit $(as_owner head -n 1 "$meta" | cut -c1-12); pinned: ${HALOGEN_WEIGHTS_REVISION:-unknown}"
 free="$(df --output=avail --block-size=1G "$models" 2>/dev/null | tail -n 1 | tr -d ' ')"
 [ -z "$free" ] || say INFO disk "${free} GiB free for models"
+# Halogen's container is read-only; its scratch folders must be on disk, not in memory (a prompt-cache
+# snapshot there can reach 26.6 GiB). Asked inside the running container, as halogen.
+if [ "${running:-0}" = 1 ]; then
+  # As halogen with setpriv, not through --machine=halogen@.host (that route failed on freyja).
+  huid="$(id -u halogen 2> /dev/null || echo 970)"
+  fstypes="$(run setpriv --reuid="$huid" --regid="$huid" --clear-groups env HOME=/var/lib/halogen XDG_RUNTIME_DIR="/run/user/$huid" \
+    podman exec halogen stat -f -c '%n %T' /tmp /var/tmp /root | tr -cd '[:print:]\n')"
+  if [ "$(grep -c -E '^/(tmp|var/tmp|root) ' <<< "$fstypes")" != 3 ]; then say WARN scratch "couldn't see where Halogen's /tmp, /var/tmp and /root are: ${fstypes:-no answer}"
+  elif grep -q tmpfs <<< "$fstypes"; then say FAIL scratch "Halogen's scratch folders are in memory, not on disk: $(tr '\n' ' ' <<< "$fstypes")"
+  else say PASS scratch "Halogen's /tmp, /var/tmp and /root are on disk"; fi
+fi
 
 # Halogen's request records (#107): the folder prepare makes, and whether recording is on.
 d="$logs/halogen"

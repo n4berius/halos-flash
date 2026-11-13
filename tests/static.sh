@@ -85,6 +85,13 @@ for mod in ("duckdns", "namecheap"):
 assert "GOFLAGS=-mod=readonly" in cf and "COPY --from=caddy /out/caddy /usr/libexec/halogen/caddy" in cf \
   and "COPY --from=caddy /out/licenses/ /usr/share/licenses/halos-caddy/" in cf and "-iname 'notice*'" in cf \
   and 'cp "$goli" "$lic/go-LICENSE"' in cf, "Caddy isn't built from src/caddy or its licences don't ship"
+# Halogen's container runs read-only, with only /tmp, /var/tmp and /root writable, on disk.
+quadlet = open("files/etc/containers/systemd/users/970/halogen.container").read()
+# podman's own read-only tmpfs would race the volumes on /tmp and /var/tmp, so it is off.
+for line in ("ReadOnly=true", "ReadOnlyTmpfs=false", "Tmpfs=/run", "Volume=/dev/shm:/dev/shm", "Volume=/tmp",
+             "Volume=/var/tmp", "Volume=/root", "ExecStartPre=-/usr/bin/podman rm -v -f -i halogen"):
+    assert "\n" + line + "\n" in quadlet, f"halogen.container lacks {line}"
+assert not re.search(r"^Tmpfs=/(var/)?tmp", quadlet, re.M), "Halogen's scratch folders must stay on disk, not in memory"
 # The https helper lets through exactly the Cloudflare token shapes the plugin accepts (it prints a
 # token it refuses), and the build checks the plugin still uses those two (H1).
 helper = open("files/usr/libexec/halogen/https").read()

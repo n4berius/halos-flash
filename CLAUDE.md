@@ -468,6 +468,25 @@ name, but allows saying halOS runs Halogen.
   XFS can't shrink). The VM test checks the volume, the folder, on/off, the mount in the generated
   unit and the rendered settings; recording itself needs Halogen running, so freyja checks it.
 
+- Records hardening (owner agreed): the records drop-in mounts `/srv/logs/halogen:/records:noexec,nosuid,nodev`;
+  the guided install's `logs` LV has `--fsoptions=nodev,nosuid,noexec` (custom partitioning's
+  Anaconda defaults can't set options). `halogen.container` has `ReadOnly=true` with anonymous
+  volumes (on disk, removed with the container) for `/tmp`, `/var/tmp` (the entrypoint's only write
+  places: the tuning-plan copy, NPU output, `HALOGEN_CACHE_FILE`'s default snapshot, up to 26.6 GiB)
+  and `/root` (the image runs as root, HOME unset; ROCm may cache there), never tmpfs, so memory use
+  stays as before. `ReadOnlyTmpfs=false`: podman's `addReadWriteTmpfsMounts` skips only binds and
+  tmpfs already at a destination, not volumes, so it mounted a tmpfs beside the volume on /tmp and
+  /var/tmp and the winner varied per start (code review: about half in memory over 30 runs);
+  `Tmpfs=/run` and `Volume=/dev/shm:/dev/shm` (`--read-only` alone remounts the host's shm
+  read-only, even with `--ipc=host`) replace it. `ExecStartPre=-podman rm -v -f -i halogen`: the
+  generated `--replace` drops a leftover container (hard reboot) without its anonymous volumes.
+  Checked with Fedora 45's podman 6.1.3 and its quadlet (rootful harness, busybox, no SELinux):
+  35 of 35 starts had all three on disk, `/run` a writable tmpfs with the API key readable,
+  `/dev/shm` the host's and writable, device nodes writable though `/dev` is mounted read-only, and
+  no dangling volumes after a leftover container. The selftest's `scratch` line asks the running
+  container (`podman exec halogen stat -f`) and FAILs on tmpfs. Checked in the VM only as the
+  generated unit's `--read-only`; Halogen's start and speed under it need freyja.
+
 ## Lessons already learned
 
 - The initramfs must be built with `--no-hostonly` and the `crypt systemd-cryptsetup tpm2-tss

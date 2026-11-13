@@ -495,7 +495,7 @@ case "${1:-status}" in
         image="$(sed -n 's/^HALOGEN_IMAGE=//p' "${HALOGEN_RELEASE_FILE:-/usr/share/halogen/release.env}" | tail -n 1 | tr -d "\"'")"
         [ -n "$image" ] || { echo "No Halogen image named in the release file." >&2; exit 1; }
         halogen_run podman run --rm --pull=never --network=none --read-only --cap-drop=all \
-          --security-opt no-new-privileges -v /srv/logs/halogen:/records --entrypoint python3 \
+          --security-opt no-new-privileges -v /srv/logs/halogen:/records:noexec,nosuid,nodev --entrypoint python3 \
           "$image" /halogen/tools/request_records.py "$c" /records "$@"
       fi
     }
@@ -518,7 +518,7 @@ case "${1:-status}" in
           # Readable by halogen whatever root's umask: its Quadlet generator and render-config read it.
           install -d -m 0755 "${dropin%/*}"
           printf '%s\n' "# Written by sudo halogenctl records on; removed by records off." "[Container]" \
-            "Volume=/srv/logs/halogen:/records" > "$dropin.new"
+            "Volume=/srv/logs/halogen:/records:noexec,nosuid,nodev" > "$dropin.new"
           chmod 0644 "$dropin.new"; mv -f "$dropin.new" "$dropin"
         else
           if [ ! -f "$dropin" ]; then
