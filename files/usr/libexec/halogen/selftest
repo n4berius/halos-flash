@@ -97,7 +97,7 @@ extra=""
 while IFS= read -r f; do
   [ -e "$usretc/$f" ] || [ "$f" = "$rec" ] || [ "$f" = "$pcoff" ] || extra+="/etc/$f "
 done < <(cd "$etc" 2>/dev/null && find audit containers/systemd ! -type d 2>/dev/null | head -n 200 | tr -cd '[:print:]\n')
-if [ -e "$etc/$rec" ] && [ "$(grep -v -e '^#' -e '^$' -e '^\[Container\]$' "$etc/$rec")" != 'Volume=/srv/logs/halogen:/records:noexec,nosuid,nodev' ]; then extra+="/etc/$rec (not what halogenctl records on writes) "; fi
+if [ -e "$etc/$rec" ] && [ "$(grep -v -e '^#' -e '^$' -e '^\[Container\]$' "$etc/$rec")" != 'Volume=/srv/logs/halogen:/records:noexec,nosuid,nodev' ]; then extra+="/etc/$rec (not what halogenctl records on writes now; if an older version wrote it: sudo halogenctl records off, then sudo halogenctl records on) "; fi
 if [ -e "$etc/$pcoff" ] && [ "$(grep -v -e '^#' -e '^$' -e '^\[Container\]$' "$etc/$pcoff")" != 'Volume=/srv/models/.prompt-cache:/models/.prompt-cache:ro,noexec,nosuid,nodev' ]; then extra+="/etc/$pcoff (not what halogenctl cache off writes) "; fi
 if [ ! -e "$usretc/audit/rules.d/50-halos.rules" ]; then
   say SKIP config-files "the image's copies in $usretc are missing, so there is nothing to compare with"

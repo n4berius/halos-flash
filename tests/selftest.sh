@@ -192,7 +192,7 @@ echo Privileged > "$work/etc/containers/systemd/users/970/halogen.container"
 echo unit > "$work/etc/containers/systemd/users/970/halogen.container"; : > "$work/etc/audit/rules.d/99-off.rules"
 "$selftest" > "$work/out" 2>&1 || true; expect "^WARN config-files: files halOS didn't put there .*99-off.rules"
 /usr/bin/rm "$work/etc/audit/rules.d/99-off.rules"; echo 'Volume=/:/host' >> "$work/etc/containers/systemd/users/970/halogen.container.d/20-records.conf"
-"$selftest" > "$work/out" 2>&1 || true; expect "^WARN config-files: .*20-records.conf \\(not what halogenctl records on writes\\)"
+"$selftest" > "$work/out" 2>&1 || true; expect "^WARN config-files: .*20-records.conf \\(not what halogenctl records on writes now"
 # The drop-in cache off writes is excused with exactly its content, and flagged with any other.
 mkdir -p "$work/etc/containers/systemd/users/halogen.container.d"
 printf '%s\n' '# Written by sudo halogenctl cache off; removed by cache on.' '[Container]' 'Volume=/srv/models/.prompt-cache:/models/.prompt-cache:ro,noexec,nosuid,nodev' \
