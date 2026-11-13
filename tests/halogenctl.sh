@@ -390,7 +390,7 @@ grep -q '2 cache mounts' "$work/err" || { cat "$work/err" >&2; echo "two cache m
 if FAKE_STUCK=none "$ctl" cache off --yes > /dev/null 2>&1; then echo "cache off said already off without a read-only mount" >&2; exit 1; fi
 "$ctl" cache off --yes > "$work/out"; grep -q 'already off' "$work/out" || { cat "$work/out" >&2; exit 1; }
 if FAKE_NORELOAD=1 "$ctl" cache on --yes > /dev/null 2> "$work/err"; then echo "cache on passed though the reload failed" >&2; exit 1; fi
-grep -q "didn't reload" "$work/err" && [ "$(cat "$work/configs/prompt-cache")" = off ] || { cat "$work/err" >&2; echo "a failed reload wasn't explained, or left the cache on" >&2; exit 1; }
+if ! grep -q "didn't reload" "$work/err" || [ "$(cat "$work/configs/prompt-cache")" != off ]; then cat "$work/err" >&2; echo "a failed reload wasn't explained, or left the cache on" >&2; exit 1; fi
 # A stale state (the read-only drop-in there, the choice file saying on): a failed on must not
 # leave Halogen told about a read-only folder.
 "$ctl" cache off --yes > /dev/null; echo on > "$work/configs/prompt-cache"
