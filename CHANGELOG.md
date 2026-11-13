@@ -15,7 +15,7 @@ promoted.
   user is recorded), and more is watched: how Halogen's container is started, the audit rules
   themselves, system services, PAM, kernel modules, the firewall and `crypttab`. The selftest
   gains `config-files` and `halogen-autostart`, and its `audit` line reports dropped records.
-  (#PR)
+  (#125)
 - Logs: an audit trail (auditd) records logins, `sudo`, changes an admin or root makes to halOS's
   settings, update signatures, SSH and sudo settings, and runs of the disk-encryption and update tools.
   Read it with `sudo ausearch -i -k halos-config` and the other keys in the install guide. It keeps
