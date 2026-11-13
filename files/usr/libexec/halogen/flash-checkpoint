@@ -41,9 +41,14 @@ online() {
 # Halogen's own tools on a downloaded file: offline, no capabilities, read-only models, and
 # exactly the flags the fetch gives the official verify. --ipc=host stays: Halogen's docs run
 # its tools with it, because without it SELinux refuses the container the GPU on Fedora.
+# Halogen's prompt cache (conversation state) is hidden from these containers: none of them needs
+# it, and the download one has network. An empty read-only tmpfs takes its place; notmpcopyup,
+# or podman copies the folder's files into it. Only when the folder exists: podman can't make the
+# mount point on a read-only /models.
+hide_cache=(); [ ! -d "$models/.prompt-cache" ] || hide_cache=(--tmpfs "/models/.prompt-cache:ro,size=4k,notmpcopyup")
 offline() {
   podman run --rm --pull=never --device /dev/kfd --device /dev/dri --group-add keep-groups \
-    --ipc=host --ulimit memlock=-1:-1 -v "$models:/models:ro" \
+    --ipc=host --ulimit memlock=-1:-1 -v "$models:/models:ro" "${hide_cache[@]}" \
     --network=none --cap-drop=all --security-opt no-new-privileges "$@"
 }
 info_get() { sed -n "s/^$2=//p" "$1" 2>/dev/null | tail -n 1; }
@@ -139,7 +144,7 @@ get_corpus() {
 ppl() {
   local json="$1" mode="$2"; shift 2
   podman run --rm --pull=never --device /dev/kfd --device /dev/dri --group-add keep-groups \
-    --ipc=host --ulimit memlock=-1:-1 -v "$models:/models:ro" -v "$check_dir:/models/flash/.check:$mode" \
+    --ipc=host --ulimit memlock=-1:-1 -v "$models:/models:ro" "${hide_cache[@]}" -v "$check_dir:/models/flash/.check:$mode" \
     -v "$models/tokenizer:/tokenizer:ro" -e HALOGEN_TOKENIZER=/tokenizer \
     --network=none --cap-drop=all --security-opt no-new-privileges "$HALOGEN_IMAGE" ppl "$@" --json > "$json"
 }
@@ -282,7 +287,7 @@ sandboxed() {
     -p BindsTo=halogen-flash-convert.service -p After=halogen-flash-convert.service \
     -p PrivateNetwork=yes -p RestrictAddressFamilies=none -p NoNewPrivileges=yes \
     -p ProtectSystem=strict -p "ReadOnlyPaths=$m" -p "ReadWritePaths=$w" \
-    -p "InaccessiblePaths=-$c -${HOME:-/var/lib/halogen} -/run/user/$(id -u)" \
+    -p "InaccessiblePaths=-$c -${HOME:-/var/lib/halogen} -/run/user/$(id -u) -$m/.prompt-cache" \
     -p PrivateTmp=yes -p PrivateIPC=yes -p RestrictNamespaces=yes -p LockPersonality=yes \
     -p MemoryDenyWriteExecute=yes -p Nice=10 -p CPUWeight=20 -p OOMScoreAdjust=900 \
     "$@" < /dev/null

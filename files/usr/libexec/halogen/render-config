@@ -15,6 +15,8 @@ models="${HALOGEN_MODELS_DIR:-/srv/models}"
 official=/models/qwen38-flash-next-v2.hgn
 allowed="${HALOGEN_ALLOWED_FILE:-/usr/share/halogen/options.allowed}"
 cache_choice="${HALOGEN_CACHE_CHOICE_FILE:-/srv/configs/prompt-cache}"
+# Root's drop-in that mounts the cache folder read-only while it is off (halogenctl cache off).
+cache_off_dropin="${HALOGEN_CACHE_OFF_DROPIN:-/etc/containers/systemd/users/halogen.container.d/15-prompt-cache.conf}"
 records_dropin="${HALOGEN_RECORDS_DROPIN:-/etc/containers/systemd/users/970/halogen.container.d/20-records.conf}"
 runtime="${XDG_RUNTIME_DIR:-/run/user/970}/halogen"
 output="$runtime/effective.env"
@@ -113,7 +115,9 @@ fi
 if [ -n "${values[HALOGEN_CACHE_PRUNE_OLD]:-}" ] && ! [[ "${values[HALOGEN_CACHE_PRUNE_OLD]}" =~ ^[01]$ ]]; then
   ignore HALOGEN_CACHE_PRUNE_OLD "it must be 0 or 1; using 1"; unset 'values[HALOGEN_CACHE_PRUNE_OLD]'
 fi
-if [ "$(head -n 1 "$cache_choice" 2>/dev/null | tr -cd '[:lower:]')" != off ] && [ -d "$models/.prompt-cache" ]; then
+# Halogen is told about the folder only while it is mounted writable: off is the choice file or
+# the read-only drop-in, whichever is there (what Halogen does with a read-only cache folder isn't known).
+if [ "$(head -n 1 "$cache_choice" 2>/dev/null | tr -cd '[:lower:]')" != off ] && [ ! -e "$cache_off_dropin" ] && [ -d "$models/.prompt-cache" ]; then
   values[HALOGEN_CACHE_DIR]=/models/.prompt-cache
   values[HALOGEN_CACHE_PRUNE_OLD]="${values[HALOGEN_CACHE_PRUNE_OLD]:-1}"
 else

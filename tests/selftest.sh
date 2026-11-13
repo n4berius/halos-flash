@@ -70,7 +70,7 @@ f runuser 'echo "runuser $*" >> "$FAKE/runuser.log"; [ "$1 $2 $3" = "-u halogen 
 mkdir -p "$work/models/.cache/huggingface/download"
 printf '8ef7ad828f7fa715cba0721a8ef9f9ab20d44e50\n' > "$work/models/.cache/huggingface/download/qwen38-flash-next-v2.hgn.metadata"
 
-mkdir -p "$work/models/.prompt-cache"
+mkdir -p "$work/models/.prompt-cache"; /usr/bin/chmod 700 "$work/models/.prompt-cache"
 mkdir -p "$work/audit"
 mkdir -p "$work/audit" "$work/proc/4711" "$work/home/.config"
 # The rules halOS ships, as the selftest reads them: two paths that exist, one that doesn't.
@@ -120,7 +120,18 @@ expect 'serving: halogen-qwen3.8-flash-next qwen3.5-2b'
 expect '^INFO records: off'
 # The prompt cache on disk: on by default, off on request, and a missing folder is a warning.
 expect '^PASS prompt-cache: on, '
-echo off > "$work/configs/prompt-cache"; "$selftest" > "$work/out" 2>&1 || true; expect '^INFO prompt-cache: off'
+# Off is two halves: the choice file, and root's drop-in that mounts the folder read-only.
+pcoff="$work/etc/containers/systemd/users/halogen.container.d/15-prompt-cache.conf"
+echo off > "$work/configs/prompt-cache"; "$selftest" > "$work/out" 2>&1 || true; expect '^WARN prompt-cache: half off'
+mkdir -p "${pcoff%/*}"; printf '%s\n' '# Written by sudo halogenctl cache off; removed by cache on.' '[Container]' \
+  'Volume=/srv/models/.prompt-cache:/models/.prompt-cache:ro,noexec,nosuid,nodev' > "$pcoff"
+"$selftest" > "$work/out" 2>&1 || true; expect '^INFO prompt-cache: off, and Halogen can only read'
+/usr/bin/rm "$pcoff"
+# A link in place of the folder, or a folder others can read.
+/usr/bin/mv "$work/models/.prompt-cache" "$work/models/.pc"; /usr/bin/ln -s "$work/configs" "$work/models/.prompt-cache"
+"$selftest" > "$work/out" 2>&1 || true; expect '^FAIL prompt-cache: .* is a link'
+/usr/bin/rm "$work/models/.prompt-cache"; /usr/bin/mv "$work/models/.pc" "$work/models/.prompt-cache"; /usr/bin/chmod 755 "$work/models/.prompt-cache"
+"$selftest" > "$work/out" 2>&1 || true; expect '^WARN prompt-cache: .* has mode 755'; /usr/bin/chmod 700 "$work/models/.prompt-cache"
 rm "$work/configs/prompt-cache"; /usr/bin/mv "$work/models/.prompt-cache" "$work/models/.pc"
 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN prompt-cache: .* is missing'; /usr/bin/mv "$work/models/.pc" "$work/models/.prompt-cache"
 # Logs (#107): auditd with halOS's watches, the journal's size and room on /var/log.
@@ -155,8 +166,18 @@ echo unit > "$work/etc/containers/systemd/users/970/halogen.container"; : > "$wo
 "$selftest" > "$work/out" 2>&1 || true; expect "^WARN config-files: files halOS didn't put there .*99-off.rules"
 /usr/bin/rm "$work/etc/audit/rules.d/99-off.rules"; echo 'Volume=/:/host' >> "$work/etc/containers/systemd/users/970/halogen.container.d/20-records.conf"
 "$selftest" > "$work/out" 2>&1 || true; expect "^WARN config-files: .*20-records.conf \\(not what halogenctl records on writes\\)"
+# The drop-in cache off writes is excused with exactly its content, and flagged with any other.
+mkdir -p "$work/etc/containers/systemd/users/halogen.container.d"
+printf '%s\n' '# Written by sudo halogenctl cache off; removed by cache on.' '[Container]' 'Volume=/srv/models/.prompt-cache:/models/.prompt-cache:ro,noexec,nosuid,nodev' \
+  > "$work/etc/containers/systemd/users/halogen.container.d/15-prompt-cache.conf"
+echo off > "$work/configs/prompt-cache"
+/usr/bin/rm -f "$work/etc/containers/systemd/users/970/halogen.container.d/20-records.conf"
+"$selftest" > "$work/out" 2>&1 || true; expect '^PASS config-files:'
+echo 'Volume=/srv/configs:/models/.prompt-cache' > "$work/etc/containers/systemd/users/halogen.container.d/15-prompt-cache.conf"
+"$selftest" > "$work/out" 2>&1 || true; expect "^WARN config-files: .*15-prompt-cache.conf \\(not what halogenctl cache off writes\\)"
+/usr/bin/rm "$work/etc/containers/systemd/users/halogen.container.d/15-prompt-cache.conf" "$work/configs/prompt-cache"
 # A file is excused by its full path only: the same name elsewhere, and auditd plugins, are flagged.
-/usr/bin/rm "$work/etc/containers/systemd/users/970/halogen.container.d/20-records.conf"
+/usr/bin/rm -f "$work/etc/containers/systemd/users/970/halogen.container.d/20-records.conf"
 mkdir -p "$work/etc/containers/systemd/users/halogen.container.d" "$work/etc/audit/plugins.d"
 echo 'Volume=/:/host' > "$work/etc/containers/systemd/users/halogen.container.d/20-records.conf"
 "$selftest" > "$work/out" 2>&1 || true; expect "^WARN config-files: files halOS didn't put there .*/etc/containers/systemd/users/halogen.container.d/20-records.conf"

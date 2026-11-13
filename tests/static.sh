@@ -27,7 +27,7 @@ class Multi(dict):
         if isinstance(v, list) and k in self: self[k].extend(v)
         else: super().__setitem__(k, v)
 units = glob.glob("variants/npu/usr/lib/systemd/system/*.d/*.conf") + glob.glob("variants/npu/etc/containers/systemd/users/970/*.d/*") + glob.glob("files/usr/lib/systemd/system/*.service") + glob.glob("files/usr/lib/systemd/user/*.service") \
-      + glob.glob("files/usr/lib/systemd/system/*.d/*.conf") + glob.glob("files/etc/containers/systemd/users/970/*")
+      + glob.glob("files/usr/lib/systemd/system/*.d/*.conf") + glob.glob("files/etc/containers/systemd/users/970/*.container") + glob.glob("files/etc/containers/systemd/users/970/*.d/*.conf")
 for path in units:
     c = configparser.RawConfigParser(dict_type=Multi, strict=False, interpolation=None)
     c.optionxform = str
@@ -126,6 +126,18 @@ assert rules.index("-w /etc/containers/policy.json") < rules.index("-w /etc/cont
 assert "\n-a always,exit -F path=/usr/bin/kmod -F perm=x -k modules\n" in rules, "runs of modprobe/insmod aren't recorded"
 ctl = open("files/usr/bin/halogenctl").read()
 assert ctl.startswith("#!/bin/bash -p\n") and "exec /usr/bin/env -i PATH=/usr/sbin:/usr/bin LANG=C.UTF-8 /usr/libexec/halogen/selftest" in ctl, "the selftest's test variables work for root in production"
+# Cache hardening: the cache mount lives in a drop-in (so cache off can replace it), and every
+# container that mounts all of /srv/models hides the cache folder behind an empty tmpfs.
+assert ".prompt-cache" not in "\n".join(l for l in open("files/etc/containers/systemd/users/970/halogen.container").read().splitlines() if not l.startswith("#")), "the cache mount is back in halogen.container: cache off can't make it read-only"
+assert "\nVolume=/srv/models/.prompt-cache:/models/.prompt-cache:noexec,nosuid,nodev\n" in open("files/etc/containers/systemd/users/970/halogen.container.d/15-prompt-cache.conf").read()
+for path in glob.glob("files/usr/libexec/halogen/*"):
+    body = open(path).read()
+    for line in body.splitlines():
+        if re.search(r'-v "\$models:/models(:ro)?"', line):
+            assert '"${hide_cache[@]}"' in line, f"{path} mounts all of /srv/models without hiding the prompt cache: {line.strip()}"
+    if "hide_cache" in body:
+        assert 'hide_cache=(--tmpfs "/models/.prompt-cache:ro,size=4k,notmpcopyup")' in body, f"{path}: the tmpfs must not copy the folder's files up"
+assert "-$m/.prompt-cache" in open("files/usr/libexec/halogen/flash-checkpoint").read(), "the convert sandbox can read the prompt cache"
 assert "= '-e 2' ]" in cf, "the build doesn't check the audit rules end locked"
 assert "SystemMaxUse=4G" in open("files/usr/lib/systemd/journald.conf.d/60-halos.conf").read(), "the journal has no cap"
 assert "systemctl enable halos-https-refresh.timer" in cf, "the HTTPS address refresh isn't enabled"

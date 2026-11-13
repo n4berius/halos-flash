@@ -91,11 +91,14 @@ done < <(cd "$usretc" 2>/dev/null && find audit containers/systemd ! -type d 2>/
 # Excused by full path, not by name: only the one drop-in "halogenctl records on" writes, and it
 # must hold exactly that mount.
 rec="containers/systemd/users/970/halogen.container.d/20-records.conf"
+# The same for the drop-in "halogenctl cache off" writes, which mounts the cache folder read-only.
+pcoff="containers/systemd/users/halogen.container.d/15-prompt-cache.conf"
 extra=""
 while IFS= read -r f; do
-  [ -e "$usretc/$f" ] || [ "$f" = "$rec" ] || extra+="/etc/$f "
+  [ -e "$usretc/$f" ] || [ "$f" = "$rec" ] || [ "$f" = "$pcoff" ] || extra+="/etc/$f "
 done < <(cd "$etc" 2>/dev/null && find audit containers/systemd ! -type d 2>/dev/null | head -n 200 | tr -cd '[:print:]\n')
 if [ -e "$etc/$rec" ] && [ "$(grep -v -e '^#' -e '^$' -e '^\[Container\]$' "$etc/$rec")" != 'Volume=/srv/logs/halogen:/records:noexec,nosuid,nodev' ]; then extra+="/etc/$rec (not what halogenctl records on writes) "; fi
+if [ -e "$etc/$pcoff" ] && [ "$(grep -v -e '^#' -e '^$' -e '^\[Container\]$' "$etc/$pcoff")" != 'Volume=/srv/models/.prompt-cache:/models/.prompt-cache:ro,noexec,nosuid,nodev' ]; then extra+="/etc/$pcoff (not what halogenctl cache off writes) "; fi
 if [ ! -e "$usretc/audit/rules.d/50-halos.rules" ]; then
   say SKIP config-files "the image's copies in $usretc are missing, so there is nothing to compare with"
 elif [ -n "$cchanged" ]; then
@@ -481,10 +484,22 @@ fi
 # The prompt cache on disk (Halogen's HALOGEN_CACHE_DIR): on unless sudo halogenctl cache off.
 # Halogen refuses a folder on tmpfs or an overlay and then keeps the cache in memory only.
 pc="$models/.prompt-cache"
-if [ "$(as_owner head -n 1 "$configs/prompt-cache" | tr -cd '[:lower:]')" = off ]; then
-  say INFO prompt-cache "off: conversations are read again in full after a restart (sudo halogenctl cache on)"
+pcchoice="$(as_owner head -n 1 "$configs/prompt-cache" | tr -cd '[:lower:]')"
+pcro=0; [ ! -e "$etc/$pcoff" ] || pcro=1
+# A link here would hand Halogen's container whatever it points to, writable; the folder must be
+# halogen's own. (Halogen's preflight refuses to start on the first three as well.)
+if as_owner test -L "$pc"; then
+  say FAIL prompt-cache "$pc is a link, not a folder: remove it, then sudo systemctl restart halogen-prepare.service"
 elif ! as_owner test -d "$pc"; then
-  say WARN prompt-cache "$pc is missing, so Halogen can't start with it: sudo systemctl restart halogen-prepare.service"
+  say WARN prompt-cache "$pc is missing, so Halogen can't start: sudo systemctl restart halogen-prepare.service"
+elif ! as_owner test -O "$pc"; then
+  say FAIL prompt-cache "$pc belongs to $(as_owner stat -c %U "$pc" | tr -cd '[:alnum:]_-'), not to halogen"
+elif [ "$(as_owner stat -c %a "$pc")" != 700 ]; then
+  say WARN prompt-cache "$pc has mode $(as_owner stat -c %a "$pc" | tr -cd '0-9'), not 700, so others may read saved conversation state (the next boot resets it)"
+elif [ "$pcchoice" = off ] && [ "$pcro" = 1 ]; then
+  say INFO prompt-cache "off, and Halogen can only read the folder: conversations are read again in full after a restart (sudo halogenctl cache on)"
+elif [ "$pcchoice" = off ] || [ "$pcro" = 1 ]; then
+  say WARN prompt-cache "half off (a switch cut short): finish it with sudo halogenctl cache off, or sudo halogenctl cache on"
 else
   pcfs="$(as_owner stat -f -c %T "$pc" | tr -cd '[:alnum:]')"; pcused="$(run runuser -u halogen -- du -sh "$pc" 2>/dev/null | cut -f1 | tr -cd '[:alnum:].,')"
   case "$pcfs" in

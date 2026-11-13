@@ -105,7 +105,7 @@ echo "ok: request records are off until turned on, then counts only by default, 
 
 # The prompt cache on disk: on (with old versions' files pruned) while the folder exists, unless
 # halogenctl cache off; its limit passes only as a whole number, and nothing passes while off.
-export HALOGEN_CACHE_CHOICE_FILE="$work/prompt-cache"
+export HALOGEN_CACHE_CHOICE_FILE="$work/prompt-cache" HALOGEN_CACHE_OFF_DROPIN="$work/cache-off.conf"
 rm -f "$work/config" "$work/prompt-cache"; rm -rf "$work/models/.prompt-cache"
 "$render" --show 2> /dev/null > "$work/out"
 if grep -q '^HALOGEN_CACHE_DIR' "$work/out"; then echo "the disk cache is on without its folder" >&2; exit 1; fi
@@ -121,5 +121,9 @@ if grep -q '^HALOGEN_CACHE_DISK_GIB' "$work/out" || ! grep -qx 'HALOGEN_CACHE_PR
 echo off > "$work/prompt-cache"
 "$render" --show 2> /dev/null > "$work/out"
 if grep -q '^HALOGEN_CACHE_\(DIR\|DISK_GIB\|PRUNE_OLD\)' "$work/out"; then cat "$work/out" >&2; echo "cache settings passed while off" >&2; exit 1; fi
-rm -f "$work/config" "$work/prompt-cache"
+# The read-only drop-in alone (the choice file says on, or is gone) also keeps Halogen from being told.
+rm -f "$work/prompt-cache"; : > "$work/cache-off.conf"
+"$render" --show 2> /dev/null > "$work/out"
+if grep -q '^HALOGEN_CACHE_DIR' "$work/out"; then echo "Halogen is told about a cache folder mounted read-only" >&2; exit 1; fi
+rm -f "$work/config" "$work/prompt-cache" "$work/cache-off.conf"
 echo "ok: the prompt cache on disk is on by default, off on request, and only a valid limit reaches Halogen"
