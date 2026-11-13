@@ -218,10 +218,13 @@ RUN set -eu; \
     fail2ban-client -d > /tmp/f2b.conf; \
     grep -q "'add', 'sshd', 'systemd'" /tmp/f2b.conf; grep -q "'add', 'halos-api', 'systemd'" /tmp/f2b.conf; \
     grep -q "'halos-api', 'addaction', 'firewallcmd-rich-rules'" /tmp/f2b.conf; \
-    grep -q "'halos-api', 'addjournalmatch', '_SYSTEMD_UNIT=halos-proxy.service'" /tmp/f2b.conf; rm -f /tmp/f2b.conf; \
-    printf '%s\n' '{"level":"info","ts":1.5,"logger":"http.log.access.log0","msg":"handled request","request":{"remote_ip":"203.0.113.7","remote_port":"1","uri":"/v1/models"},"status":401,"resp_headers":{}}' \
-      '{"level":"info","ts":1.5,"logger":"http.log.access.log0","msg":"handled request","request":{"remote_ip":"203.0.113.8","remote_port":"1","uri":"/x\"remote_ip\":\"198.51.100.1\",\"status\":401,"},"status":404,"resp_headers":{}}' > /tmp/f2b.log; \
-    fail2ban-regex /tmp/f2b.log /etc/fail2ban/filter.d/halos-api.conf > /tmp/f2b.out; grep -q '^Lines: 2 lines, 0 ignored, 1 matched, 1 missed' /tmp/f2b.out; rm -f /tmp/f2b.log /tmp/f2b.out; \
+    grep -q "'halos-api', 'addjournalmatch', '_SYSTEMD_UNIT=halos-proxy.service'" /tmp/f2b.conf; \
+    grep -q "'halos-api', 'usedns', 'no'" /tmp/f2b.conf; grep -q "'set', 'loglevel', 'NOTICE'" /tmp/f2b.conf; \
+    grep -q "'set', 'logtarget', 'SYSTEMD-JOURNAL'" /tmp/f2b.conf; rm -f /tmp/f2b.conf; \
+    printf '%s\n' 'host caddy[1]: {"level":"info","ts":1.5,"logger":"http.log.access.log0","msg":"handled request","request":{"remote_ip":"203.0.113.7","remote_port":"1","uri":"/v1/models"},"status":401,"resp_headers":{}}' \
+      'host caddy[1]: {"level":"info","ts":1.5,"logger":"http.log.access.log0","msg":"handled request","request":{"remote_ip":"203.0.113.8","remote_port":"1","uri":"/x\"remote_ip\":\"198.51.100.1\",\"status\":401,"},"status":404,"resp_headers":{}}' \
+      '{"level":"info","ts":1.5,"logger":"http.log.access.log0","msg":"handled request","request":{"remote_ip":"203.0.113.9","remote_port":"1","uri":"/v1/models"},"status":401,"resp_headers":{}}' > /tmp/f2b.log; \
+    fail2ban-regex /tmp/f2b.log /etc/fail2ban/filter.d/halos-api.conf > /tmp/f2b.out; grep -q '^Lines: 3 lines, 0 ignored, 1 matched, 2 missed' /tmp/f2b.out; rm -f /tmp/f2b.log /tmp/f2b.out; \
     augenrules; \
     grep -q -- '-w /etc/halos -p wa -k halos-config' /etc/audit/audit.rules; \
     grep -qx -- '-a task,never -F uid=970 -F auid=970' /etc/audit/audit.rules; \

@@ -141,8 +141,14 @@ typed("{ echo RESULT-START; cat /proc/cmdline; dmesg | grep -i secure; bootctl s
       "fail2ban-client set halos-api banip 203.0.113.9 > /dev/null 2>&1; sleep 2; echo F2BBAN $(firewall-cmd --list-rich-rules | grep -c -F 203.0.113.9); "
       "halosctl fail2ban unban 203.0.113.9 > /dev/null 2>&1; sleep 2; echo F2BUN $(firewall-cmd --list-rich-rules | grep -c -F 203.0.113.9); "
       "curl -s -k -o /dev/null http://127.0.0.1:8731/v1/models; sleep 2; "
-      "journalctl -u halos-proxy -o cat | grep -e 'handled request' | tail -n 1 | sed -e 's/status.:[0-9]*/status\\x22:401/' > /tmp/f2bline; "
+      # Twice: the line as journalctl prints it less its date (host, program[pid], message: what
+      # fail2ban's journal reader hands the filter; with the date left on, fail2ban-regex's own
+      # date handling leaves a leading space and nothing matches), and fail2ban reading
+      # the journal itself (F2BJ counts the front door's lines it was handed: more than 0 shows
+      # the journal match works; they are 503s, so none may match).
+      "journalctl -u halos-proxy -o short-iso | grep -e 'handled request' | tail -n 1 | cut -d ' ' -f 2- | sed -e 's/status.:[0-9]*/status\\x22:401/' > /tmp/f2bline; "
       "echo F2BRE $(fail2ban-regex /tmp/f2bline /etc/fail2ban/filter.d/halos-api.conf | grep -c -e '1 matched'); "
+      "fail2ban-regex systemd-journal /etc/fail2ban/filter.d/halos-api.conf > /tmp/f2bj 2>&1; echo F2BJ $(grep -c -E -e '^Lines: [1-9][0-9]* lines, 0 ignored, 0 matched' /tmp/f2bj); grep -e '^Lines' /tmp/f2bj; "
       "echo F2BMEM $(systemctl show -p MemoryCurrent --value fail2ban); "
       # The guided install (#42): volume sizes, hostname, admin user, and no password left behind.
       "lvs --noheadings --units g --nosuffix -o lv_name,lv_size halos; cat /etc/hostname; id admin; "

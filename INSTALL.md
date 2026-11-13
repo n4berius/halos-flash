@@ -904,7 +904,27 @@ sudo halosctl fail2ban off                   # turn it off (on again: fail2ban o
   ```
 - It can't cover the [SSH unlock at boot](#unlock-over-ssh-at-boot): fail2ban starts only once
   the disk is unlocked.
-- Its own messages are in the journal: `sudo journalctl -u fail2ban`.
+- Its own messages (who was shut out and let back in) are in the journal:
+  `sudo journalctl -u fail2ban`.
+
+What it can't do:
+
+- **Several people behind one address share its fate.** If you reach the server from an office,
+  a mobile network or a VPN, someone else behind the same public address can get it shut out for
+  ten minutes with a few wrong keys. SSH stays open when the API is shut (and the reverse), so
+  `sudo halosctl fail2ban unban <address>` is always in reach.
+- **A proxy or tunnel in front hides the real addresses.** With a reverse proxy on another machine,
+  every client has the proxy's address and one bad client shuts out all of them. With a tunnel
+  that ends on this machine (cloudflared and the like), every client is this machine, which is
+  never shut out, so fail2ban does nothing for the API.
+- **A connection that is already open isn't cut.** The firewall stops new connections from a
+  shut-out address; one that is open keeps working until it closes.
+- **IPv6 is counted per address,** and one network has many, so a determined sender isn't slowed.
+- After `sudo firewall-cmd --reload`, run `sudo systemctl restart fail2ban`: the reload drops the
+  firewall rules without fail2ban knowing.
+
+The API key is 64 random characters, so guessing it isn't feasible either way. What fail2ban
+buys for the API is fewer junk requests reaching Halogen, and for SSH less noise.
 
 ## 8. Optional: unlock LUKS with the TPM
 

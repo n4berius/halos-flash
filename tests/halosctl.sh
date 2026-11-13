@@ -424,6 +424,9 @@ for bad in '--all' 'sshd; id' '$(id)' ''; do
   if "$ctl" fail2ban unban "$bad" > /dev/null 2>&1; then echo "unban accepted: $bad" >&2; exit 1; fi
 done
 if grep -q 'fail2ban-client unban' "$work/log"; then echo "something that isn't an address reached fail2ban-client" >&2; exit 1; fi
+f firewall-cmd 'echo "firewall-cmd $*" >> "$FAKE/log"; [ -z "${FAKE_LEFT:-}" ] || echo "rule family=\"ipv4\" source address=\"203.0.113.9\" port port=\"8731\" protocol=\"tcp\" reject type=\"icmp-port-unreachable\""'
+FAKE_LEFT=1 "$ctl" fail2ban off > "$work/out"; has '1 of its firewall rules remain' "$work/out"; [ ! -e "$work/f2b-on" ]
+"$ctl" fail2ban on > /dev/null
 "$ctl" fail2ban off > "$work/out"; has 'let back in' "$work/out"; [ ! -e "$work/f2b-on" ]
 "$ctl" fail2ban off > "$work/out"; has 'already off' "$work/out"
 if FAKE_F2B_FAIL=1 "$ctl" fail2ban on > /dev/null 2>&1; then echo "a failed start was reported as on" >&2; exit 1; fi

@@ -608,7 +608,22 @@ name, but allows saying halOS runs Halogen.
   10 min (its filter matches `sshd-session` too), `[halos-api]` 10 in 10 min / 10 min on port 8731.
   `filter.d/halos-api.conf` reads halos-proxy's journal (Caddy's JSON access log): anchored at the
   line's start, the address is the first field of `request` (`"remote_ip":"<ADDR>"`), status 401
-  (Halogen's answer to a missing or wrong key, api.md; Caddy passes it through). Client text (the
+  (Halogen's answer to a missing or wrong key, api.md; Caddy passes it through). The pattern
+  begins `^\S+ caddy\[\d+\]: \{`: fail2ban's systemd backend hands a filter `<host>
+  <program>[<pid>]: <message>` (`formatJournalEntry`), not the bare message; the first version
+  began `^\{` and matched every test fed from a file (`journalctl -o cat`, the build's sample
+  lines) and nothing from the journal (security audit, which ran Caddy and a real journal file).
+  The build's sample lines carry the prefix (a bare-JSON line must not match), and the VM test
+  feeds `journalctl -o short-iso` less its date (with the date on, fail2ban-regex's own date
+  handling leaves a leading space) and also runs `fail2ban-regex systemd-journal` (`F2BJ`).
+  `usedns = no`, `maxmatches = 1`, `dbmaxmatches = 0`, `loglevel = NOTICE` (the audit measured
+  about 5 KB per failing address and 17 KB per ban with the defaults, and one journal line per
+  401), and `CPUQuota=50%`, `Nice=10`, `TasksMax=64` in the drop-in. Known limits, in INSTALL:
+  rich rules sit after firewalld's established-accept, so an open connection survives a ban;
+  bans are per address (IPv6 /64); shared addresses and proxies; `firewall-cmd --reload` drops
+  the rules unnoticed; with hundreds of bans `off` can leave rules (halosctl counts them).
+  Not done, for the owner: the `nftables` action (cuts open connections, cheaper bans, needs
+  `CAP_NET_ADMIN` and a bench), `LineMax`/`max_header_size` against 48K line splits, more sandbox. Client text (the
   uri) comes later with its quotes escaped, so it can't forge that field; the Containerfile runs
   `fail2ban-client -t`, checks both jails in `-d`'s output and runs `fail2ban-regex` on a 401 line
   and a forged one. `fail2ban.d/50-halos.conf`: `logtarget = SYSTEMD-JOURNAL`.
