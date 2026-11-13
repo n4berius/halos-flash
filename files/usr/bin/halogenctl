@@ -486,7 +486,9 @@ case "${1:-status}" in
     # through --machine=halogen@.host fails with "Transport endpoint is not connected" (VM test).
     huid="$(id -u halogen 2> /dev/null || echo 970)"
     as_manager() { setpriv --reuid="$huid" --regid="$huid" --clear-groups env -C / XDG_RUNTIME_DIR="/run/user/$huid" systemctl --user "$@"; }
-    mounted() { as_manager cat halogen.service 2> /dev/null | grep -q -F 'srv/logs/halogen:/records'; }
+    # Read into a variable first: grep -q stops at its match, systemctl then dies of SIGPIPE, and
+    # under pipefail the pipe counted as "not mounted" (the VM test's records on said so wrongly).
+    mounted() { local u; u="$(as_manager cat halogen.service 2> /dev/null)" || true; grep -q -F 'srv/logs/halogen:/records' <<< "$u"; }
     # Whether the running Halogen keeps records (its /health says so), whatever the drop-in says.
     recording() { curl -sS -m 5 "http://127.0.0.1:${HALOS_API_LOCAL_PORT:-18731}/health" 2> /dev/null | jq -e '.request_records' > /dev/null 2>&1; }
     # Halogen's own tool, as halogen; its output is filtered (the client names in it come from
@@ -572,12 +574,17 @@ case "${1:-status}" in
     ;;
   cache)
     # Halogen's prompt cache on disk (its HALOGEN_CACHE_DIR): conversations survive a restart of
-    # Halogen. On unless "off" is in /srv/configs/prompt-cache, which render-config reads.
+    # Halogen. On unless "off" is in /srv/configs/prompt-cache or root's read-only drop-in exists;
+    # render-config reads both.
     cdir="$models/.prompt-cache"; cchoice="$configs/prompt-cache"
     yes=0; args=()
     for a in "${@:2}"; do if [ "$a" = --yes ]; then yes=1; else args+=("$a"); fi; done
     csize() { timeout 20 runuser -u halogen -- env -C / du -sh "$cdir" 2>/dev/null | cut -f1 | tr -cd '[:alnum:].,' || true; }
+    # Off also means the folder is mounted read-only: root's drop-in in the all-users Quadlet
+    # folder takes the place of the image's own of the same name (which mounts it writable).
+    coff="${HALOGEN_CACHE_OFF_DROPIN:-/etc/containers/systemd/users/halogen.container.d/15-prompt-cache.conf}"
     cstate="on"; [ "$(as_owner head -n 1 "$cchoice" 2>/dev/null | tr -cd '[:lower:]')" != off ] || cstate="off"
+    [ ! -e "$coff" ] || cstate="off"
     cask() {
       [ "$yes" != 1 ] || return 0
       [ -t 0 ] || { echo "Nothing changed: add --yes to confirm without a terminal." >&2; exit 1; }
@@ -602,13 +609,60 @@ case "${1:-status}" in
         if [ "$cstate" = on ]; then echo "Conversations survive a restart of Halogen. Limit: HALOGEN_CACHE_DISK_GIB in halogen.env (64 GiB unless set)."
         else echo "Conversations are read again in full after a restart. Turn it on: sudo halogenctl cache on"; fi ;;
       on|off)
-        [ "${args[0]}" != "$cstate" ] || { echo "The prompt cache on disk is already ${args[0]}. If Halogen didn't restart since: sudo halogenctl restart"; exit 0; }
-        cask "Turn the prompt cache on disk ${args[0]}?"
+        want="${args[0]}"
+        cchosen="$(as_owner head -n 1 "$cchoice" 2>/dev/null | tr -cd '[:lower:]')" || true
+        cwrite() {
+          # shellcheck disable=SC2016 # expanded by the halogen shell, from its arguments
+          printf '%s\n' "$1" | as_owner sh -c 'umask 027; cat > "$1.new" && mv -f "$1.new" "$1"' sh "$cchoice"
+        }
+        # The mount as halogen's generated unit has it, read whole before matching (no SIGPIPE).
+        # Two mounts (a future podman reading both drop-ins, or a copy of the line elsewhere) would
+        # stop Halogen starting, so they count as a wrong answer, not as the first of them.
+        cmount() {
+          local u n; u="$(as_manager cat halogen.service 2> /dev/null)" || true
+          n="$({ grep -o -- '-v [^ ]*\.prompt-cache:[^ ]*' <<< "$u" || true; } | wc -l)"
+          if [ "$n" -gt 1 ]; then echo "$n cache mounts"; else { grep -o -- '-v [^ ]*\.prompt-cache:[^ ]*' <<< "$u" || true; } | head -n 1; fi
+        }
+        # Already there only when every half is: the choice, the drop-in and the generated unit's
+        # mount. Anything else (a switch cut short, or "off" from before the folder went read-only)
+        # is finished below.
+        m="$(cmount)"
+        if [ "$want" = off ] && [ "$cchosen" = off ] && [ -e "$coff" ] && [[ "$m" == -v*:ro,* ]]; then
+          echo "The prompt cache on disk is already off. If Halogen didn't restart since: sudo halogenctl restart"; exit 0
+        elif [ "$want" = on ] && [ "$cstate" = on ] && [[ "$m" == -v* ]] && [[ "$m" != *:ro,* ]]; then
+          echo "The prompt cache on disk is already on. If Halogen didn't restart since: sudo halogenctl restart"; exit 0
+        fi
+        cask "Turn the prompt cache on disk $want?"
         was=0; if crunning; then was=1; fi
-        # shellcheck disable=SC2016 # expanded by the halogen shell, from its arguments
-        printf '%s\n' "${args[0]}" | as_owner sh -c 'umask 027; cat > "$1.new" && mv -f "$1.new" "$1"' sh "$cchoice" || exit 1
-        echo "The prompt cache on disk is ${args[0]}."
-        [ "${args[0]}" = on ] || echo "What it saved stays in $cdir; delete it with: sudo halogenctl cache clear"
+        # Halogen is told about the folder only while it is writable. Both ways start by saving
+        # "off", so a step that fails leaves the cache off; on saves "on" last.
+        cwrite off || exit 1
+        if [ "$want" = off ]; then
+          install -d -m 0755 "${coff%/*}"
+          printf '%s\n' "# Written by sudo halogenctl cache off; removed by cache on." "[Container]" \
+            "Volume=/srv/models/.prompt-cache:/models/.prompt-cache:ro,noexec,nosuid,nodev" > "$coff.new"
+          chmod 0644 "$coff.new"; mv -f "$coff.new" "$coff"
+        else
+          rm -f "$coff"
+        fi
+        problem=""
+        as_manager daemon-reload || problem="halogen's service manager didn't reload"
+        m="$(cmount)"
+        if [ -z "$problem" ] && [ "$want" = off ] && [[ "$m" != -v*:ro,* ]]; then
+          problem="Halogen's service doesn't mount the folder read-only after the reload (${m:-no cache mount})"
+        elif [ -z "$problem" ] && [ "$want" = on ] && { [[ "$m" != -v* ]] || [[ "$m" == *:ro,* ]]; }; then
+          problem="Halogen's service doesn't mount the folder writable after the reload (${m:-no cache mount})"
+        fi
+        if [ -n "$problem" ]; then
+          # The choice says off, so a restart makes that true for a running Halogen too (it still
+          # has the settings it started with).
+          if [ "$was" = 1 ]; then start_halogen restart || true; fi
+          echo "$problem. The cache is off: Halogen isn't told about the folder$([ "$was" != 1 ] || echo ', and was restarted')." >&2
+          echo "Look at: sudo halogenctl selftest, then run this command again." >&2; exit 1
+        fi
+        [ "$want" = off ] || cwrite on || exit 1
+        echo "The prompt cache on disk is $want."
+        [ "$want" = on ] || echo "What it saved stays in $cdir, which Halogen can now only read; delete it with: sudo halogenctl cache clear"
         # Restart only a running Halogen: a stopped one reads the choice at its next start.
         if [ "$was" = 1 ]; then start_halogen restart; echo "Halogen is restarting; follow it with: sudo halogenctl logs"; fi ;;
       clear)

@@ -95,6 +95,15 @@ typed("{ echo RESULT-START; cat /proc/cmdline; dmesg | grep -i secure; bootctl s
       "stat -c 'PCDIR %U %a' /var/srv/models/.prompt-cache; "
       "echo PCACHE $(halogenctl config 2>/dev/null | grep -c -x -e HALOGEN_CACHE_DIR=/models/.prompt-cache -e HALOGEN_CACHE_PRUNE_OLD=1) "
       "$(setpriv --reuid=halogen --regid=halogen --init-groups env -C / XDG_RUNTIME_DIR=/run/user/970 systemctl --user cat halogen.service 2>/dev/null | grep -c -F .prompt-cache:/models/.prompt-cache:noexec); "
+      # Off mounts the folder read-only and stops telling Halogen about it; on puts both back and
+      # leaves no file behind.
+      "halogenctl cache off --yes > /tmp/pc 2>&1; "
+      "echo PCOFF $(setpriv --reuid=halogen --regid=halogen --init-groups env -C / XDG_RUNTIME_DIR=/run/user/970 systemctl --user cat halogen.service 2>/dev/null | grep -c -F .prompt-cache:/models/.prompt-cache:ro,noexec) "
+      "$(halogenctl config 2>/dev/null | grep -c -e HALOGEN_CACHE_DIR) "
+      "$(setpriv --reuid=halogen --regid=halogen --init-groups env -C / XDG_RUNTIME_DIR=/run/user/970 systemctl --user cat halogen.service 2>/dev/null | grep -e ExecStart= | grep -o -F .prompt-cache:/models/.prompt-cache: | grep -c -e prompt); "
+      "halogenctl cache on --yes >> /tmp/pc 2>&1; "
+      "echo PCON $(setpriv --reuid=halogen --regid=halogen --init-groups env -C / XDG_RUNTIME_DIR=/run/user/970 systemctl --user cat halogen.service 2>/dev/null | grep -c -F .prompt-cache:/models/.prompt-cache:noexec) "
+      "$(halogenctl config 2>/dev/null | grep -c -x -e HALOGEN_CACHE_DIR=/models/.prompt-cache) $(ls /etc/containers/systemd/users/halogen.container.d | grep -c prompt); cat /tmp/pc; "
       # Hardening: the logs volume can't hold programs, and Halogen's container is read-only.
       "echo RECMNT $(findmnt -n -o OPTIONS /var/srv/logs | tr , ' ' | xargs -n 1 | grep -c -x -e nodev -e nosuid -e noexec) "
       "$(setpriv --reuid=halogen --regid=halogen --init-groups env XDG_RUNTIME_DIR=/run/user/970 systemctl --user cat halogen.service 2>/dev/null | grep -c -e --read-only); "

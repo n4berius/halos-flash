@@ -142,6 +142,17 @@ fi
 # the models read-only and no token: a checkpoint is untrusted input to Halogen's parser, so it
 # never sees the network or your token. The download container is only told the answers.
 own_bases=""
+# Halogen's prompt cache (conversation state) is hidden from these containers: none of them needs
+# it, and the download one has network. An empty read-only tmpfs takes its place; notmpcopyup,
+# or podman copies the folder's files into it. podman can't make the
+# mount point on a read-only /models, so a missing folder is made first (this runs as halogen, as
+# prepare does at boot). A link in its place is refused: the tmpfs would land on whatever it points
+# to, and Halogen's start refuses it anyway (preflight).
+if [ -L "$models/.prompt-cache" ]; then
+  echo "$models/.prompt-cache is a link, not a folder. Remove it, then start again: sudo halogenctl restart" >&2; exit 1
+fi
+[ -d "$models/.prompt-cache" ] || mkdir -m 0700 "$models/.prompt-cache" || exit 1
+hide_cache=(--tmpfs "/models/.prompt-cache:ro,size=4k,notmpcopyup")
 need_probe=""
 # Split the way the download container does (commas and spaces), so no path slips past.
 for id in ${npu_models//,/ }; do case "$id" in /*) need_probe=1 ;; esac; done
@@ -149,7 +160,7 @@ if [ -n "$need_probe" ]; then
   own_bases="$(podman run --rm --pull=never --read-only --tmpfs /tmp --network=none \
     --cap-drop=all --security-opt no-new-privileges --entrypoint bash \
     -e HOME=/tmp -e HF_HOME=/tmp/hf -e HF_HUB_OFFLINE=1 -e FETCH_MODE=probe -e "NPU_MODELS=$npu_models" \
-    -v "$models:/models:ro" -v "$helper:/fetch.sh:ro" "$HALOGEN_IMAGE" /fetch.sh)"
+    -v "$models:/models:ro" "${hide_cache[@]}" -v "$helper:/fetch.sh:ro" "$HALOGEN_IMAGE" /fetch.sh)"
   case "$?" in
     0) ;;
     3) echo "halogen-fetch: the configured models cannot be fetched; fix /srv/configs/halogen.env" >&2; exit 1 ;;
@@ -173,7 +184,7 @@ while :; do
     -e HF_HOME=/tmp/hf -e HF_HUB_OFFLINE=0 -e HF_HUB_DISABLE_TELEMETRY=1 -e HF_HUB_DISABLE_PROGRESS_BARS=1 \
     -e "WEIGHTS_REPO=$HALOGEN_WEIGHTS_REPO" -e "WEIGHTS_REVISION=$HALOGEN_WEIGHTS_REVISION" \
     -e "NPU_MODELS=$npu_models" -e "OWN_BASES=$own_bases" -e "VISION=$vision" "${token_args[@]}" \
-    -v "$models:/models" -v "$helper:/fetch.sh:ro" \
+    -v "$models:/models" "${hide_cache[@]}" -v "$helper:/fetch.sh:ro" \
     "$HALOGEN_IMAGE" /fetch.sh
   rc=$?
   case "$rc" in
@@ -189,7 +200,7 @@ done
 # Halogen's own checker reads back the checkpoint that was downloaded. It reads local files
 # only, so it gets no network and no capabilities.
 if ! podman run --rm --pull=never --device /dev/kfd --device /dev/dri --group-add keep-groups \
-    --ipc=host --ulimit memlock=-1:-1 -v "$models:/models:ro" \
+    --ipc=host --ulimit memlock=-1:-1 -v "$models:/models:ro" "${hide_cache[@]}" \
     --network=none --cap-drop=all --security-opt no-new-privileges \
     "$HALOGEN_IMAGE" verify /models/qwen38-flash-next-v2.hgn; then
   echo "halogen-fetch: the checkpoint failed verification; remove it and restart" >&2

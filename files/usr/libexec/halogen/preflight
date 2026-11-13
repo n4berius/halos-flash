@@ -20,6 +20,19 @@ elif [ ! -r "$dev/kfd" ] || [ ! -w "$dev/kfd" ]; then
   fail "this service cannot open $dev/kfd. Check its group with ls -l"
 fi
 
+# The prompt cache folder is mounted writable into Halogen's container, from a place the download
+# container can write: a link there would hand Halogen whatever it points to (/srv/configs, say).
+pcache="${HALOGEN_MODELS_DIR:-/srv/models}/.prompt-cache"
+if [ -L "$pcache" ]; then
+  fail "$pcache is a link, not a folder. Remove it; the next boot (or sudo systemctl restart halogen-prepare.service) makes the folder again"
+elif [ ! -d "$pcache" ]; then
+  fail "$pcache is missing. Make it with: sudo systemctl restart halogen-prepare.service"
+elif [ ! -O "$pcache" ]; then
+  fail "$pcache belongs to $(stat -c %U "$pcache" 2>/dev/null || echo someone else), not to this service's user"
+elif [ "$(stat -c %a "$pcache" 2>/dev/null)" != 700 ]; then
+  warn "$pcache has mode $(stat -c %a "$pcache" 2>/dev/null), not 700: others may read saved conversation state (the next boot resets it)"
+fi
+
 mem_gib="$(awk '$1 == "MemTotal:" { printf "%d", $2 / 1048576 }' "$meminfo")"
 [ "${mem_gib:-0}" -ge 100 ] \
   || fail "the OS sees ${mem_gib:-0} GiB. Set the BIOS UMA frame buffer to its explicit minimum, not Auto"

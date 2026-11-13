@@ -598,7 +598,7 @@ Halogen writes it behind each request, so answers don't wait for the disk.
 
 ```bash
 sudo halogenctl cache          # on or off, and the space used
-sudo halogenctl cache off      # keep the cache in memory only (restarts Halogen)
+sudo halogenctl cache off      # keep the cache in memory only; Halogen can then only read the folder (restarts Halogen)
 sudo halogenctl cache clear    # delete everything saved
 ```
 

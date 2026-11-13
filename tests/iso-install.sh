@@ -101,7 +101,7 @@ done
 # Request records (#107): on mounts /srv/logs/halogen and sends counts only; off removes the mount.
 # (The generated unit names the mount twice: podman's -v and Quadlet's copy of the drop-in.)
 # Hardening: nodev, nosuid and noexec on the logs volume; Halogen's container read-only.
-for l in 'RECCONF 2 [1-9][0-9]*' 'RECST 0 1' 'RECOFF 0' 'RECDIR halogen 700' 'RECMNT 3 [1-9][0-9]*' 'PCDIR halogen 700' 'PCACHE 2 [1-9][0-9]*'; do
+for l in 'RECCONF 2 [1-9][0-9]*' 'RECST 0 1' 'RECOFF 0' 'RECDIR halogen 700' 'RECMNT 3 [1-9][0-9]*' 'PCDIR halogen 700' 'PCACHE 2 [1-9][0-9]*' 'PCOFF [1-9][0-9]* 0 1' 'PCON [1-9][0-9]* 1 0'; do
   grep -qxE "$l" "$out/report.txt" || { echo "request records or prompt cache: expected '$l'" >&2; grep -E '^REC|^PC|records' "$out/report.txt" >&2; exit 1; }
 done
 grep -qE '^uid=[0-9]+\(admin\).*\(wheel\)' "$out/report.txt" || { echo "the admin user is missing or not in wheel" >&2; exit 1; }

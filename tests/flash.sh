@@ -265,8 +265,8 @@ grep -qE 'perplexity +3\.81 +official 3\.85 ' "$work/out" || fail "no perplexity
 grep -qE 'same next token +86\.5%' "$work/out" || fail "no agreement line"
 grep -q 'median 0.045, mean 0.136, p99 1.44' "$work/out" || fail "no KL line"
 grep 'podman run' "$work/podman.log" | grep ' ppl ' > "$work/runs"
-grep ' --ref-out ' "$work/runs" | grep -q -- "-v $work/models:/models:ro -v $work/models/flash/.check:/models/flash/.check:rw -v $work/models/tokenizer:/tokenizer:ro -e HALOGEN_TOKENIZER=/tokenizer --network=none --cap-drop=all" \
-  || fail "the official run had more than the GPU, read-only models, its own folder and the official tokenizer: $(head -n 1 "$work/runs")"
+grep ' --ref-out ' "$work/runs" | grep -q -- "-v $work/models:/models:ro --tmpfs /models/.prompt-cache:ro,size=4k,notmpcopyup -v $work/models/flash/.check:/models/flash/.check:rw -v $work/models/tokenizer:/tokenizer:ro -e HALOGEN_TOKENIZER=/tokenizer --network=none --cap-drop=all" \
+  || fail "the official run had more than the GPU, read-only models with the prompt cache hidden, its own folder and the official tokenizer: $(head -n 1 "$work/runs")"
 grep ' --ref ' "$work/runs" | grep -q -- "-v $work/models/flash/.check:/models/flash/.check:ro -v $work/models/tokenizer:/tokenizer:ro " \
   || fail "the checkpoint's run could write the reference, or read another tokenizer"
 ok "flash check measures against the official checkpoint offline, with the official tokenizer, and records the result"
