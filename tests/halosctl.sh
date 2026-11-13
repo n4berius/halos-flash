@@ -420,7 +420,7 @@ if grep -q $'\033' "$work/out"; then echo "fail2ban's state passed a control cha
 "$ctl" fail2ban unban 203.0.113.9 > "$work/out"; has 'is let back in' "$work/out"
 "$ctl" fail2ban unban 198.51.100.4 > "$work/out"; has "wasn't shut out" "$work/out"
 : > "$work/log"
-for bad in '--all' 'sshd; id' '$(id)' ''; do
+for bad in '--all' 'sshd; id' '$(id)' '' 'ab' 'dead.beef' '1.2.3'; do
   if "$ctl" fail2ban unban "$bad" > /dev/null 2>&1; then echo "unban accepted: $bad" >&2; exit 1; fi
 done
 if grep -q 'fail2ban-client unban' "$work/log"; then echo "something that isn't an address reached fail2ban-client" >&2; exit 1; fi
@@ -429,6 +429,13 @@ FAKE_LEFT=1 "$ctl" fail2ban off > "$work/out"; has '1 of its firewall rules rema
 "$ctl" fail2ban on > /dev/null
 "$ctl" fail2ban off > "$work/out"; has 'let back in' "$work/out"; [ ! -e "$work/f2b-on" ]
 "$ctl" fail2ban off > "$work/out"; has 'already off' "$work/out"
+# A client that fails (a jail turned off in a local file) is said, not a silent exit.
+"$ctl" fail2ban on > /dev/null
+f fail2ban-client 'echo "Sorry but the jail does not exist"; exit 255'
+"$ctl" fail2ban > "$work/out"; has 'sshd: not loaded' "$work/out"; has 'halos-api: not loaded' "$work/out"
+if "$ctl" fail2ban unban 203.0.113.9 > "$work/out" 2>&1; then echo "a failing unban passed" >&2; exit 1; fi
+has 'fail2ban said' "$work/out"
+"$ctl" fail2ban off > /dev/null
 if FAKE_F2B_FAIL=1 "$ctl" fail2ban on > /dev/null 2>&1; then echo "a failed start was reported as on" >&2; exit 1; fi
 if "$ctl" fail2ban unban 203.0.113.9 > /dev/null 2>&1; then echo "unban passed with fail2ban off" >&2; exit 1; fi
 ok "fail2ban turns the service on and off, shows both jails without control characters, and unban takes only an address"

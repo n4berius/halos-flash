@@ -622,6 +622,16 @@ name, but allows saying halOS runs Halogen.
   rich rules sit after firewalld's established-accept, so an open connection survives a ban;
   bans are per address (IPv6 /64); shared addresses and proxies; `firewall-cmd --reload` drops
   the rules unnoticed; with hundreds of bans `off` can leave rules (halosctl counts them).
+  Code review fixes: no `NoNewPrivileges` in the drop-in (selinux-policy 45.23 gives `init_t`
+  no `nnp_transition` to `fail2ban_t`, unlike `sshd_t`/`firewalld_t`, so the daemon would stay in
+  `init_t` and couldn't write its database; the VM prints its domain, `F2BDOM`); Caddy logs a
+  status of 500 or more at level `error`, so the VM's 503 line starts `{"level":"error"`: the VM
+  runs the shipped pattern with `info`/`401` swapped for `error`/`503` through the real journal
+  backend (`fail2ban-regex -m … systemd-journal "<pattern>"`); the access log cuts the uri at 300
+  characters (`multi_regexp`; a padded one made a line past journald's 48K `LineMax`, which split
+  it and hid the 401); `halosctl fail2ban` survives a failing client (set -e) and `unban` needs
+  dots or a colon (hex letters alone would be looked up as a name). Whether a wrong key (not only
+  a missing one) gets 401 is not in Halogen's docs: to confirm on freyja.
   Not done, for the owner: the `nftables` action (cuts open connections, cheaper bans, needs
   `CAP_NET_ADMIN` and a bench), `LineMax`/`max_header_size` against 48K line splits, more sandbox. Client text (the
   uri) comes later with its quotes escaped, so it can't forge that field; the Containerfile runs

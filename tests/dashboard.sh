@@ -85,7 +85,7 @@ done
 for want in '^\(api\) \{$' '^\(dashboard\) \{$' '^	reverse_proxy 127\.0\.0\.1:18731 \{$' \
   '^	reverse_proxy 127\.0\.0\.1:18732 \{$' '^		flush_interval -1$' \
   '^	@outside not remote_ip 127\.0\.0\.0/8 ::1/128 10\.0\.0\.0/8 172\.16\.0\.0/12 192\.168\.0\.0/16 169\.254\.0\.0/16 fe80::/10 100\.64\.0\.0/10 fc00::/7 \{\$HALOS_DASHBOARD_ALLOW\}$' \
-  '^	abort @outside$' '^			request>headers delete$' '^			request>uri regexp "\\\?\.\*" "\?\(query removed\)"$' '^	bind 0\.0\.0\.0$' \
+  '^	abort @outside$' '^			request>headers delete$' '^			request>uri multi_regexp \{$' '^				regexp "\\\?\.\*" "\?\(query removed\)"$' '^				regexp "\^\(\.\{300\}\)\.\+" "\$\{1\}\(cut\)"$' '^	bind 0\.0\.0\.0$' \
   '^	tls internal$' '^	tls \{\$RUNTIME_DIRECTORY\}/cert\.pem \{\$RUNTIME_DIRECTORY\}/key\.pem$'; do
   grep -qE "$want" "$sc" || fail "sites.caddy lacks $want"
 done

@@ -399,7 +399,7 @@ if have fail2ban-client && have systemctl; then
   f2bstate="$(run systemctl is-active fail2ban.service)"
   if [ "$f2bstate" = active ]; then
     f2bjails="$(run fail2ban-client status | sed -n 's/.*Jail list:[[:space:]]*//p' | tr -cd 'a-z0-9, -' | tr -d ',')"
-    f2bmiss=""; for j in sshd halos-api; do grep -qw -- "$j" <<< "$f2bjails" || f2bmiss+=" $j"; done
+    f2bmiss=""; for j in sshd halos-api; do tr ' ' '\n' <<< "$f2bjails" | grep -qx -- "$j" || f2bmiss+=" $j"; done
     f2bout="$(run fail2ban-client banned | grep -oE '[0-9A-Fa-f:.]{7,45}' | sort -u | wc -l)"
     if [ -n "$f2bmiss" ]; then say WARN fail2ban "running, but without its jail(s):$f2bmiss (sudo journalctl -u fail2ban says why)"
     else say PASS fail2ban "on for SSH logins and API keys; ${f2bout:-0} address(es) shut out now (sudo halosctl fail2ban)"; fi

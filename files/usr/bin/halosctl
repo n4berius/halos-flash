@@ -580,8 +580,10 @@ case "$cmd" in
         [ "${#args[@]}" -le 1 ] || die "fail2ban on, off, unban <address>, or nothing for its state"
         if ! f2b_on && ! f2b_active; then echo "fail2ban: off, so nobody is shut out for failed logins. On: sudo halosctl fail2ban on"; exit 0; fi
         echo "fail2ban: $(systemctl is-active "$unit" 2> /dev/null). Off: sudo halosctl fail2ban off"
+        f2b_active || { echo "  It is turned on but not running: sudo journalctl -u $unit"; exit 0; }
         for j in sshd halos-api; do
-          s="$(f2b status "$j")"
+          s="$(f2b status "$j")" || true
+          grep -q 'Currently banned' <<< "$s" || { echo "  $j: not loaded (changed in /etc/fail2ban/jail.d? sudo journalctl -u $unit)"; continue; }
           printf '  %-9s %s failed now, %s shut out now (%s in all): %s\n' "$j" \
             "$(sed -n 's/.*Currently failed:[[:space:]]*//p' <<< "$s" | head -n 1)" "$(sed -n 's/.*Currently banned:[[:space:]]*//p' <<< "$s" | head -n 1)" \
             "$(sed -n 's/.*Total banned:[[:space:]]*//p' <<< "$s" | head -n 1)" "$(sed -n 's/.*Banned IP list:[[:space:]]*//p' <<< "$s" | head -n 1)"
@@ -608,9 +610,12 @@ case "$cmd" in
       unban)
         [ "${#args[@]}" = 2 ] || die "fail2ban unban <address>"
         # An IPv4 or IPv6 address, nothing else reaches fail2ban-client.
-        [[ "${args[1]}" =~ ^[0-9A-Fa-f:.]{2,45}$ ]] || die "that isn't an address: ${args[1]//[^[:print:]]/}"
+        # (Hex letters alone, such as "ab", would be looked up as a name.)
+        if ! [[ "${args[1]}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] && ! { [[ "${args[1]}" =~ ^[0-9A-Fa-f:.]{2,45}$ ]] && [[ "${args[1]}" == *:* ]]; }; then
+          die "that isn't an address: ${args[1]//[^[:print:]]/}"
+        fi
         f2b_active || die "fail2ban isn't running, so nobody is shut out"
-        n="$(f2b unban "${args[1]}" | tail -n 1)"
+        n="$(f2b unban "${args[1]}" | tail -n 1)" || true
         case "$n" in 0) echo "${args[1]} wasn't shut out." ;; [1-9]*) echo "${args[1]} is let back in." ;; *) die "fail2ban said: ${n:-nothing}" ;; esac ;;
       *) die "fail2ban on, off, unban <address>, or nothing for its state" ;;
     esac

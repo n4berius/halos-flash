@@ -150,8 +150,9 @@ flt = open("files/etc/fail2ban/filter.d/halos-api.conf").read()
 assert '\nfailregex = ^\\S+ caddy\\[\\d+\\]: \\{"level"' in flt and '"remote_ip":"<ADDR>"' in flt and "journalmatch = _SYSTEMD_UNIT=halos-proxy.service" in flt, "the API filter must start at the journal line's beginning (host, program, then Caddy's JSON) and read only the front door's log"
 assert "\nusedns = no\n" in jail and "loglevel = NOTICE" in open("files/etc/fail2ban/fail2ban.d/50-halos.conf").read()
 sb = open("files/usr/lib/systemd/system/fail2ban.service.d/10-halos.conf").read()
-for opt in ("CPUQuota=", "TasksMax=", "StateDirectory=fail2ban", "ProtectSystem=strict", "ProtectHome=yes", "NoNewPrivileges=yes", "MemoryMax="):
+for opt in ("CPUQuota=", "TasksMax=", "StateDirectory=fail2ban", "ProtectSystem=strict", "ProtectHome=yes", "MemoryMax="):
     assert opt in sb, f"fail2ban's sandbox lacks {opt}"
+assert not re.search(r"^NoNewPrivileges=", sb, re.M), "NoNewPrivileges keeps fail2ban out of its own SELinux domain (fail2ban_t)"
 assert re.search(r"^-w /etc/fail2ban -p wa -k fail2ban$", rules, re.M), "fail2ban's settings aren't watched"
 assert "= '-e 2' ]" in cf, "the build doesn't check the audit rules end locked"
 assert "SystemMaxUse=4G" in open("files/usr/lib/systemd/journald.conf.d/60-halos.conf").read(), "the journal has no cap"

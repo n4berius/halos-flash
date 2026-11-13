@@ -138,17 +138,22 @@ typed("{ echo RESULT-START; cat /proc/cmdline; dmesg | grep -i secure; bootctl s
       # it; and the API filter matches the front door's real log line (a 503 here, Halogen being
       # down, with its status set to 401: the line's shape is what the filter depends on).
       "echo F2B $(systemctl is-active fail2ban) $(fail2ban-client status | grep -c -e 'halos-api, sshd'); "
-      "fail2ban-client set halos-api banip 203.0.113.9 > /dev/null 2>&1; sleep 2; echo F2BBAN $(firewall-cmd --list-rich-rules | grep -c -F 203.0.113.9); "
-      "halosctl fail2ban unban 203.0.113.9 > /dev/null 2>&1; sleep 2; echo F2BUN $(firewall-cmd --list-rich-rules | grep -c -F 203.0.113.9); "
+      # It runs in its own SELinux domain: a sandbox option that blocked the switch from systemd's
+      # domain (NoNewPrivileges did, for this policy) would leave it unable to write its database.
+      "echo F2BDOM $(ps -o label= -C fail2ban-server | grep -c -e fail2ban_t); "
+      # A ban starts a firewall-cmd under fail2ban's low CPU share, so the rule is waited for.
+      "fail2ban-client set halos-api banip 203.0.113.9 > /dev/null 2>&1; "
+      "for i in 1 2 3 4 5 6 7 8 9 10; do firewall-cmd --list-rich-rules | grep -q -F 203.0.113.9 && break; sleep 2; done; "
+      "echo F2BBAN $(firewall-cmd --list-rich-rules | grep -c -F 203.0.113.9); "
+      "halosctl fail2ban unban 203.0.113.9 > /dev/null 2>&1; "
+      "for i in 1 2 3 4 5 6 7 8 9 10; do firewall-cmd --list-rich-rules | grep -q -F 203.0.113.9 || break; sleep 2; done; "
+      "echo F2BUN $(firewall-cmd --list-rich-rules | grep -c -F 203.0.113.9); "
+      # The filter through fail2ban's real journal reader. Halogen is down here, so the front
+      # door's line is a 503, which Caddy logs at level error: the shipped pattern is run with
+      # only those two words swapped, and must match that line (1 = some line matched).
       "curl -s -k -o /dev/null http://127.0.0.1:8731/v1/models; sleep 2; "
-      # Twice: the line as journalctl prints it less its date (host, program[pid], message: what
-      # fail2ban's journal reader hands the filter; with the date left on, fail2ban-regex's own
-      # date handling leaves a leading space and nothing matches), and fail2ban reading
-      # the journal itself (F2BJ counts the front door's lines it was handed: more than 0 shows
-      # the journal match works; they are 503s, so none may match).
-      "journalctl -u halos-proxy -o short-iso | grep -e 'handled request' | tail -n 1 | cut -d ' ' -f 2- | sed -e 's/status.:[0-9]*/status\\x22:401/' > /tmp/f2bline; "
-      "echo F2BRE $(fail2ban-regex /tmp/f2bline /etc/fail2ban/filter.d/halos-api.conf | grep -c -e '1 matched'); "
-      "fail2ban-regex systemd-journal /etc/fail2ban/filter.d/halos-api.conf > /tmp/f2bj 2>&1; echo F2BJ $(grep -c -E -e '^Lines: [1-9][0-9]* lines, 0 ignored, 0 matched' /tmp/f2bj); grep -e '^Lines' /tmp/f2bj; "
+      "echo F2BRE $(fail2ban-regex -m _SYSTEMD_UNIT=halos-proxy.service systemd-journal "
+      "\"$(sed -n 's/failregex = //p' /etc/fail2ban/filter.d/halos-api.conf | sed -e 's/info/error/' -e 's/401/503/')\" | grep -c -e ' [1-9][0-9]* matched'); "
       "echo F2BMEM $(systemctl show -p MemoryCurrent --value fail2ban); "
       # The guided install (#42): volume sizes, hostname, admin user, and no password left behind.
       "lvs --noheadings --units g --nosuffix -o lv_name,lv_size halos; cat /etc/hostname; id admin; "
