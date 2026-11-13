@@ -21,7 +21,7 @@ _halogenctl() {
   else cur="${COMP_WORDS[COMP_CWORD]}"; words=("${COMP_WORDS[@]}"); cword=$COMP_CWORD; fi
   local models=/srv/models
   if [ "$cword" -eq 1 ]; then
-    _halogenctl_offer "status start stop restart logs fetch-logs doctor selftest bench config options api-key hf-token records model flash"
+    _halogenctl_offer "status start stop restart logs fetch-logs doctor selftest bench config options api-key hf-token records cache model flash"
     return
   fi
   # After an option that takes a value, there is nothing to offer.
@@ -30,6 +30,10 @@ _halogenctl() {
     options) [ "$cword" -eq 2 ] && _halogenctl_offer "--new" ;;
     bench) [ "$cword" -eq 2 ] && _halogenctl_offer "--quick" ;;
     hf-token) [ "$cword" -eq 2 ] && _halogenctl_offer "--remove" ;;
+    cache)
+      if [ "$cword" -eq 2 ]; then _halogenctl_offer "status on off clear"
+      elif [ "$cword" -eq 3 ] && [[ "${words[2]}" =~ ^(on|off|clear)$ ]]; then _halogenctl_offer "--yes"
+      fi ;;
     records)
       if [ "$cword" -eq 2 ]; then _halogenctl_offer "on off stats prune"
       elif [ "${words[2]}" = prune ]; then _halogenctl_offer "--days --gib --session --unit --all --yes"

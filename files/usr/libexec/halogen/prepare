@@ -16,6 +16,8 @@ install -d -o halogen -g halogen -m 0750 "$models" "$configs" "$logs" "$state"
 # Halogen's request records (sudo halogenctl records on mounts it at /records). On installs made
 # before #107 /srv/logs is a folder on /var; newer guided installs give it a volume of its own.
 as_halogen install -d -m 0700 "$logs/halogen"
+# Halogen's prompt cache on disk (mounted writable in Halogen's container): conversation state, so private to halogen.
+as_halogen install -d -m 0700 "$models/.prompt-cache"
 # shellcheck source=/dev/null
 . "${HALOGEN_RELEASE_FILE:-/usr/share/halogen/release.env}"
 # Your own Flash checkpoints (halogenctl flash pull), on both editions.

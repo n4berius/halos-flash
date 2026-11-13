@@ -588,6 +588,38 @@ The run uses the prompt cache as your server does, so compare `pp` with Halogen'
 cold request)" rows, not the cache-off headline figures. Its prompts also go into the cache, and
 can push out long conversations cached there, which then read their history again once.
 
+### Prompt cache on disk
+
+Halogen keeps each conversation's state so the next turn doesn't read the whole conversation
+again. halOS also keeps that state on disk, in `/srv/models/.prompt-cache`, so a conversation
+survives a restart of Halogen: its next turn starts in seconds instead of being read again in full
+(Halogen's [prompt cache on disk](https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/configuration.md#prompt-cache-on-disk-resume-a-conversation-after-a-restart)).
+Halogen writes it behind each request, so answers don't wait for the disk.
+
+```bash
+sudo halogenctl cache          # on or off, and the space used
+sudo halogenctl cache off      # keep the cache in memory only (restarts Halogen)
+sudo halogenctl cache clear    # delete everything saved
+```
+
+- It takes about 27 KiB per token of conversation: 0.9 GB at 32,000 tokens, 7.2 GB at 262,000.
+  Halogen keeps at most 64 GiB and removes the conversations used longest ago first. Change the
+  limit with `HALOGEN_CACHE_DISK_GIB` in `halogen.env`.
+- A different Halogen version, checkpoint or setting never reads another's files. halOS has
+  Halogen delete those at start (`HALOGEN_CACHE_PRUNE_OLD=1`), so nothing is left behind: the
+  cache starts empty after an upgrade to a new Halogen version, after `halogenctl flash use`
+  switches checkpoint, and after a change to a setting that alters what is saved (the context
+  size, for example). Set it to `0` in `halogen.env` to keep the other files, so that a rollback
+  or switching back finds its cache; they then count on top of the limit until you run
+  `cache clear`.
+- Halogen notes that saving very long conversations (past about 64,000 tokens) is fastest with
+  `HALOGEN_KV_POOL_POSITIONS=262144`, which the NPU edition's `halogen.env` already sets.
+- The folder holds the state of your conversations, so treat it like the conversations
+  themselves. Only the `halogen` user can read it, and it is protected at rest only if you chose
+  disk encryption when installing. A backup of `/srv/models` copies it too. `cache off` keeps
+  what was saved; `cache clear` deletes it, and is also the step to take after trying a
+  checkpoint you don't trust.
+
 ### Request records
 
 Halogen can keep a line per request it answers: which API and client sent it, its size and

@@ -29,6 +29,8 @@ grep -q "runuser -u halogen -- install -d -m 0750 $work/models/npu" "$work/log"
 grep -q "runuser -u halogen -- install -d -m 0750 $work/models/flash" "$work/log"
 grep -q "runuser -u halogen -- install -d -m 0700 $work/logs/halogen" "$work/log"
 [ "$(stat -c %a "$work/logs/halogen")" = 700 ] || { echo "the records folder isn't private" >&2; exit 1; }
+grep -q "runuser -u halogen -- install -d -m 0700 $work/models/.prompt-cache" "$work/log"
+[ "$(stat -c %a "$work/models/.prompt-cache")" = 700 ] || { echo "the prompt cache folder isn't private" >&2; exit 1; }
 grep -q "runuser -u halogen -- sh -c .* $work/configs/api-key" "$work/log"
 if ! grep -q '^# Reference only' "$work/configs/halogen.env.example" || ! grep -qx 'HALOGEN_FLASH_CTX=1' "$work/configs/halogen.env.example" ||
    ! grep -q "sh $work/configs/halogen.env.example " "$work/log"; then

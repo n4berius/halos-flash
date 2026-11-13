@@ -102,3 +102,24 @@ for bad in 'TEXT=prompt,bogus' 'TEXT=prompt, reply' 'TEXT=,prompt' 'GIB=2GiB' 'D
 done
 grep -qx 'HALOGEN_RECORD_TEXT=none' "$work/out" || { echo "a bad text list didn't fall back to none" >&2; exit 1; }
 echo "ok: request records are off until turned on, then counts only by default, and bad values never reach Halogen"
+
+# The prompt cache on disk: on (with old versions' files pruned) while the folder exists, unless
+# halogenctl cache off; its limit passes only as a whole number, and nothing passes while off.
+export HALOGEN_CACHE_CHOICE_FILE="$work/prompt-cache"
+rm -f "$work/config" "$work/prompt-cache"; rm -rf "$work/models/.prompt-cache"
+"$render" --show 2> /dev/null > "$work/out"
+if grep -q '^HALOGEN_CACHE_DIR' "$work/out"; then echo "the disk cache is on without its folder" >&2; exit 1; fi
+mkdir -p "$work/models/.prompt-cache"
+printf 'HALOGEN_CACHE_DISK_GIB=20\nHALOGEN_CACHE_DIR=/models\n' > "$work/config"
+"$render" --show 2> /dev/null > "$work/out"
+if ! { grep -qx 'HALOGEN_CACHE_DIR=/models/.prompt-cache' "$work/out" && grep -qx 'HALOGEN_CACHE_PRUNE_OLD=1' "$work/out" \
+  && grep -qx 'HALOGEN_CACHE_DISK_GIB=20' "$work/out"; }; then cat "$work/out" >&2; echo "the disk cache isn't on with its defaults" >&2; exit 1; fi
+printf 'HALOGEN_CACHE_DISK_GIB=lots\nHALOGEN_CACHE_PRUNE_OLD=0\n' > "$work/config"
+"$render" --show 2> "$work/log" > "$work/out"
+grep -q 'ignored HALOGEN_CACHE_DISK_GIB' "$work/log" || { echo "no warning for a bad cache limit" >&2; exit 1; }
+if grep -q '^HALOGEN_CACHE_DISK_GIB' "$work/out" || ! grep -qx 'HALOGEN_CACHE_PRUNE_OLD=0' "$work/out"; then cat "$work/out" >&2; echo "bad limit passed, or keeping old files was overruled" >&2; exit 1; fi
+echo off > "$work/prompt-cache"
+"$render" --show 2> /dev/null > "$work/out"
+if grep -q '^HALOGEN_CACHE_\(DIR\|DISK_GIB\|PRUNE_OLD\)' "$work/out"; then cat "$work/out" >&2; echo "cache settings passed while off" >&2; exit 1; fi
+rm -f "$work/config" "$work/prompt-cache"
+echo "ok: the prompt cache on disk is on by default, off on request, and only a valid limit reaches Halogen"

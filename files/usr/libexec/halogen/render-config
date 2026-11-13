@@ -5,6 +5,8 @@
 # writes: the official one, or a checkpoint flash pull downloaded and Halogen's verify passed.
 # Request records (#107) are on only while sudo halogenctl records on has mounted /srv/logs/halogen
 # at /records (a Quadlet drop-in only root writes); then the text kept defaults to none.
+# The prompt cache on disk (HALOGEN_CACHE_DIR=/models/.prompt-cache, the folder /srv/models/.prompt-cache) is on
+# unless sudo halogenctl cache off wrote "off" in /srv/configs/prompt-cache.
 # Prints the path of the result. With --show, prints its contents instead.
 set -uo pipefail
 config="${HALOGEN_CONFIG_FILE:-/srv/configs/halogen.env}"
@@ -12,6 +14,7 @@ flash_choice="${HALOGEN_FLASH_FILE:-/srv/configs/flash-checkpoint}"
 models="${HALOGEN_MODELS_DIR:-/srv/models}"
 official=/models/qwen38-flash-next-v2.hgn
 allowed="${HALOGEN_ALLOWED_FILE:-/usr/share/halogen/options.allowed}"
+cache_choice="${HALOGEN_CACHE_CHOICE_FILE:-/srv/configs/prompt-cache}"
 records_dropin="${HALOGEN_RECORDS_DROPIN:-/etc/containers/systemd/users/970/halogen.container.d/20-records.conf}"
 runtime="${XDG_RUNTIME_DIR:-/run/user/970}/halogen"
 output="$runtime/effective.env"
@@ -100,6 +103,21 @@ if [ -f "$records_dropin" ]; then
 else
   # Off: nothing is mounted, so nothing about records reaches Halogen.
   unset 'values[HALOGEN_RECORD_TEXT]' 'values[HALOGEN_RECORD_GIB]' 'values[HALOGEN_RECORD_DAYS]'
+fi
+
+# The prompt cache on disk. Halogen writes only under HALOGEN_CACHE_DIR; without the folder
+# (prepare makes it) or after "cache off" its settings don't reach Halogen either.
+if [ -n "${values[HALOGEN_CACHE_DISK_GIB]:-}" ] && ! [[ "${values[HALOGEN_CACHE_DISK_GIB]}" =~ ^[0-9]+$ ]]; then
+  ignore HALOGEN_CACHE_DISK_GIB "it must be a whole number of GiB (0 is unbounded); using Halogen's 64"; unset 'values[HALOGEN_CACHE_DISK_GIB]'
+fi
+if [ -n "${values[HALOGEN_CACHE_PRUNE_OLD]:-}" ] && ! [[ "${values[HALOGEN_CACHE_PRUNE_OLD]}" =~ ^[01]$ ]]; then
+  ignore HALOGEN_CACHE_PRUNE_OLD "it must be 0 or 1; using 1"; unset 'values[HALOGEN_CACHE_PRUNE_OLD]'
+fi
+if [ "$(head -n 1 "$cache_choice" 2>/dev/null | tr -cd '[:lower:]')" != off ] && [ -d "$models/.prompt-cache" ]; then
+  values[HALOGEN_CACHE_DIR]=/models/.prompt-cache
+  values[HALOGEN_CACHE_PRUNE_OLD]="${values[HALOGEN_CACHE_PRUNE_OLD]:-1}"
+else
+  unset 'values[HALOGEN_CACHE_DIR]' 'values[HALOGEN_CACHE_DISK_GIB]' 'values[HALOGEN_CACHE_PRUNE_OLD]'
 fi
 
 tmp="$output.new"

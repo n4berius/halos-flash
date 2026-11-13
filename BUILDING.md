@@ -46,8 +46,10 @@ sudo HALOGEN_VARIANT=no-npu scripts/build.sh   # without NPU
 ```
 
 It ends with `Built ghcr.io/n4berius/halos-flash:0.19.0 ...`. The image now sits in
-root's Podman storage. `versions.env` pins Halogen and the base image by digest, so your build
-contains the same Halogen container as the official one.
+root's Podman storage. `versions.env` pins Halogen by digest, so your build contains the same Halogen
+container as the official one. The Fedora base is a tag (`fedora-bootc:45`) and its packages come
+from Fedora's current repositories, so each build, the weekly rebuild included, picks up Fedora's
+latest fixes: two builds of the same commit can differ in those (#121).
 
 ## 4. Build the USB installer
 

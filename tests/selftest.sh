@@ -70,6 +70,8 @@ f runuser 'echo "runuser $*" >> "$FAKE/runuser.log"; [ "$1 $2 $3" = "-u halogen 
 mkdir -p "$work/models/.cache/huggingface/download"
 printf '8ef7ad828f7fa715cba0721a8ef9f9ab20d44e50\n' > "$work/models/.cache/huggingface/download/qwen38-flash-next-v2.hgn.metadata"
 
+mkdir -p "$work/models/.prompt-cache"
+mkdir -p "$work/audit"
 mkdir -p "$work/audit" "$work/proc/4711" "$work/home/.config"
 # The rules halOS ships, as the selftest reads them: two paths that exist, one that doesn't.
 printf '%s\n' '-w /etc/passwd -p wa -k accounts' '-w /nonexistent/preload -p wa -k preload' \
@@ -116,6 +118,11 @@ done
 expect '^Summary: [0-9]+ passed, 0 warnings, 0 failed'
 expect 'serving: halogen-qwen3.8-flash-next qwen3.5-2b'
 expect '^INFO records: off'
+# The prompt cache on disk: on by default, off on request, and a missing folder is a warning.
+expect '^PASS prompt-cache: on, '
+echo off > "$work/configs/prompt-cache"; "$selftest" > "$work/out" 2>&1 || true; expect '^INFO prompt-cache: off'
+rm "$work/configs/prompt-cache"; /usr/bin/mv "$work/models/.prompt-cache" "$work/models/.pc"
+"$selftest" > "$work/out" 2>&1 || true; expect '^WARN prompt-cache: .* is missing'; /usr/bin/mv "$work/models/.pc" "$work/models/.prompt-cache"
 # Logs (#107): auditd with halOS's watches, the journal's size and room on /var/log.
 expect '^PASS audit: auditd keeps .* 2 rules loaded and locked'
 expect '^PASS halogen-autostart:'

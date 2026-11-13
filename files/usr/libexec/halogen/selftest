@@ -478,6 +478,20 @@ else
   elif [ "${running:-0}" = 1 ]; then say WARN records "on, but Halogen's /health has no request_records: is the mount in place? sudo halogenctl restart"
   else say INFO records "on, ${used:-?} in $d (Halogen isn't running)"; fi
 fi
+# The prompt cache on disk (Halogen's HALOGEN_CACHE_DIR): on unless sudo halogenctl cache off.
+# Halogen refuses a folder on tmpfs or an overlay and then keeps the cache in memory only.
+pc="$models/.prompt-cache"
+if [ "$(as_owner head -n 1 "$configs/prompt-cache" | tr -cd '[:lower:]')" = off ]; then
+  say INFO prompt-cache "off: conversations are read again in full after a restart (sudo halogenctl cache on)"
+elif ! as_owner test -d "$pc"; then
+  say WARN prompt-cache "$pc is missing, so Halogen can't start with it: sudo systemctl restart halogen-prepare.service"
+else
+  pcfs="$(as_owner stat -f -c %T "$pc" | tr -cd '[:alnum:]')"; pcused="$(run runuser -u halogen -- du -sh "$pc" 2>/dev/null | cut -f1 | tr -cd '[:alnum:].,')"
+  case "$pcfs" in
+    tmpfs|overlayfs|ramfs) say WARN prompt-cache "$pc is on $pcfs, which Halogen refuses: the cache stays in memory only" ;;
+    *) say PASS prompt-cache "on, ${pcused:-?} in $pc (conversations survive a restart of Halogen)" ;;
+  esac
+fi
 
 # --- Logs (#107): the audit log, the journal and room on /var/log
 logdir="${HALOS_LOG_DIR:-/var/log}"

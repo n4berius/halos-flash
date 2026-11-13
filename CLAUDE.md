@@ -487,6 +487,28 @@ name, but allows saying halOS runs Halogen.
   container (`podman exec halogen stat -f`) and FAILs on tmpfs. Checked in the VM only as the
   generated unit's `--read-only`; Halogen's start and speed under it need freyja.
 
+- Prompt cache on disk (owner asked; Halogen's `HALOGEN_CACHE_DIR`, configuration.md "Prompt cache
+  on disk"): `halogen.container` always mounts `/srv/models/.prompt-cache:/models/.prompt-cache:noexec,nosuid,nodev` (over its own place: at a second path such as `/cache` the read-only `/models` mount shows the same folder without `noexec`, security audit)
+  (the one writable folder under the read-only models; `prepare` makes it as halogen, 0700, at every
+  boot, so an upgrade has it before Halogen starts; a missing source folder would fail the start).
+  `render-config` sets `HALOGEN_CACHE_DIR=/models/.prompt-cache` and `HALOGEN_CACHE_PRUNE_OLD=1` (halOS's default:
+  each build/checkpoint/setting keeps its own subtree and never reads another's, so an upgrade would
+  leave them; `0` in `halogen.env` keeps them for a rollback) unless `/srv/configs/prompt-cache`
+  says `off` (`halogenctl cache off`; the mount stays, Halogen just isn't told) or the folder is
+  missing; `HALOGEN_CACHE_DISK_GIB` (whole number, Halogen's 64) and `_PRUNE_OLD` are now in
+  `options.allowed`, `CACHE_DIR`/`CACHE_FILE` stay blocked. `halogenctl cache [status|on|off|clear]`:
+  all need root (without it runuser fails quietly and the state would always read "on"); on/off
+  ask `is-active` over halogen's own socket (setpriv, as records) before writing the choice as
+  halogen, then restart only a running Halogen; clear refuses a link in place of the folder, stops
+  Halogen (a `deactivating` one counts as running: it flushes its last turn), opens up and empties
+  the folder as halogen, and an EXIT trap starts Halogen again whatever happened (halogenctl runs
+  under `set -e`, so a bare failing command would have left it stopped); an `is-active` answer that
+  is neither running nor stopped is an error before anything changes. `PRUNE_OLD=1` also empties
+  the cache when `flash use` switches checkpoint (each checkpoint has its own subtree). The
+  fetch's and login-status's `du` of `/srv/models` exclude the folder. Selftest `prompt-cache` (INFO off, WARN folder missing or on tmpfs/overlay, which
+  Halogen refuses). About 27 KiB per token; writes happen behind the request. The VM checks the
+  folder, the mount and the rendered settings; that Halogen accepts the folder (direct I/O), the
+  restore after a restart and the speed need freyja.
 - Logs (#107 part B): `audit` and `audit-rules` are installed, auditd and audit-rules.service
   enabled. Fedora's `/etc/audit/rules.d/audit.rules` (`-a task,never`: no syscall auditing, so no
   file watches) is deleted; `files/etc/audit/rules.d/50-halos.rules` (`-D -i -b 8192
@@ -503,7 +525,7 @@ name, but allows saying halOS runs Halogen.
   image) handles btmp/wtmp. The selftest's `audit` (PASS with ≥15 watches; WARN on Fedora's rule,
   few watches, `auditctl -s` saying `enabled 0`, a second `never` rule, the uid 970 rule missing (`-i` makes `auditctl -R` return 0 past a refused rule), under 250 MB free on the audit volume, or auditd down) and `logs` (journal size; WARN under 512 MB free on /var/log, below `SystemKeepFree`). Task rules are checked at fork against the parent, so everything halogen's user manager starts is exempt (its writes in /srv/configs aren't recorded), while `runuser`/`setpriv` from root stay audited; Caddy and the dashboard (DynamicUser) are audited. In the Containerfile the rule checks are separate statements: `set -e` ignores `a && b` (but the last) and `! cmd`. The VM
   test checks auditd active with its watches, a touch in /etc/halos found by `ausearch -k
-  halos-config`, a `halosctl version` found by `-k halosctl`, the uid 970 rule, and the journal cap. Speed under auditing: to measure on freyja (`bench`).
+  halos-config`, a `halosctl version` found by `-k halosctl`, the uid 970 rule, and the journal cap. Speed under auditing, freyja, engine only (`bench` bypasses Caddy): unchanged, pp2048 1878 before and 1889 after #118, tg128 68.1 and 69.4 (2026-11-13); the cost on Caddy's path is unmeasured.
 
 - Audit hardening (security audit of #118, owner agreed): the exemption is `-a task,never -F uid=970
   -F auid=970` (Halogen's own login session: `systemd-user`'s PAM stack has `pam_loginuid`, so

@@ -43,6 +43,12 @@ StopTimeout=60
 
 # No download settings here: the server starts offline and read-only.
 Volume=/srv/models:/models:ro
+# The prompt cache on disk (Halogen's HALOGEN_CACHE_DIR): a conversation survives a restart of
+# Halogen instead of being read again in full. The one writable folder under the models; prepare
+# makes it at boot, and render-config sets HALOGEN_CACHE_DIR unless sudo halogenctl cache off (the
+# mount stays; Halogen then isn't told about it). Mounted over its own place under /models, not at
+# a second path: there the read-only /models mount would show the same folder without noexec.
+Volume=/srv/models/.prompt-cache:/models/.prompt-cache:noexec,nosuid,nodev
 Volume=/srv/configs/api-key:/run/secrets/halogen-api-key:ro
 
 [Service]

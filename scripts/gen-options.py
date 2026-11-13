@@ -7,13 +7,14 @@ Run it when moving to a new Halogen version, and review the new options.
 import pathlib, re, sys
 
 # Offered to nobody: they need a path, mount, port or check this OS controls.
-BLOCKED = set("""API API_KEY API_KEY_FILE API_LOG API_PORT BIND CACHE_DIR CACHE_DISK_GIB CACHE_FILE
-CACHE_PRUNE_OLD CHAT_TEMPLATE CHECKPOINT CK_OVERLAY DOWNLOAD ENGINE GGUF_CACHE GGUF_THREADS
+BLOCKED = set("""API API_KEY API_KEY_FILE API_LOG API_PORT BIND CACHE_DIR CACHE_FILE
+CHAT_TEMPLATE CHECKPOINT CK_OVERLAY DOWNLOAD ENGINE GGUF_CACHE GGUF_THREADS
 MATMUL_TUNING_FILE MTP_HEAD NPU_VERIFY NPU_WITH_GPU PORT RECORD_DIR
 TEMPLATE_CHECK TEMPLATE_UNCHECKED TOKENIZER""".split())
 # Where halOS's default differs from Halogen's. Recording itself is turned on with
 # sudo halogenctl records on (render-config sets HALOGEN_RECORD_DIR); the owner chose counts only.
-DEFAULTS = {"RECORD_TEXT": "none on halOS (counts only; recording is off until: sudo halogenctl records on)"}
+DEFAULTS = {"RECORD_TEXT": "none on halOS (counts only; recording is off until: sudo halogenctl records on)",
+            "CACHE_PRUNE_OLD": "1 on halOS (an upgrade removes the previous version's cache files; 0 keeps them for a rollback)"}
 NPU_ONLY = re.compile(r"^(NPU_|GUARD_|AGENT_GUARD$)")
 ACTIVE = {
     "npu": {
