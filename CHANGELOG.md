@@ -10,6 +10,11 @@ promoted.
 
 ## Unreleased
 
+- Hardening: SSH logins as the `halogen` service user are refused; on the NPU edition the model
+  and own-checkpoint folders are mounted into Halogen's container with no programs allowed; the
+  weight converter runs without devices, shared memory or the system logs in reach; and the
+  selftest looks in more of the `halogen` user's settings folders. (#130)
+
 - Hardening: Halogen refuses to start if one of the folders mounted into its container (`npu`,
   `decider`, `LFM`, `custom`) has been replaced by a link, as it already did for the prompt cache;
   the boot-time setup removes such a link and makes the folder again; the weight converter can no

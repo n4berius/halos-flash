@@ -185,6 +185,10 @@ mkdir -p "$work/home/.config/systemd/user"; : > "$work/home/.config/systemd/user
 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN halogen-autostart: .*evil.service'; rm -r "$work/home/.config/systemd"
 mkdir -p "$work/run-user/containers/systemd/halogen.container.d"; : > "$work/run-user/containers/systemd/halogen.container.d/15-prompt-cache.conf"
 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN halogen-autostart: .*run-user/containers/systemd/halogen.container.d/15-prompt-cache.conf'; rm -r "$work/run-user/containers"
+mkdir -p "$work/home/.ssh"; : > "$work/home/.ssh/authorized_keys"
+"$selftest" > "$work/out" 2>&1 || true; expect '^WARN halogen-autostart: .*home/.ssh/authorized_keys'; rm -r "$work/home/.ssh"
+mkdir -p "$work/home/.config/containers"; : > "$work/home/.config/containers/mounts.conf"
+"$selftest" > "$work/out" 2>&1 || true; expect '^WARN halogen-autostart: .*containers/mounts.conf'; rm -r "$work/home/.config/containers"
 mkdir -p "$work/run-user/systemd/user.control"; : > "$work/run-user/systemd/user.control/x.conf"
 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN halogen-autostart: .*run-user/systemd/user.control/x.conf'; rm -r "$work/run-user/systemd"
 # The audit rules and Halogen's container definition compared with the image's copies.

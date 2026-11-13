@@ -565,6 +565,10 @@ huid="$(id -u halogen 2> /dev/null || echo 970)"
 hhome="${HALOGEN_HOME:-/var/lib/halogen}"
 planted="$(as_owner timeout 20 env -C / find "$hhome/.config/systemd" "$hhome/.config/containers/systemd" "$hhome/.config/environment.d" \
   "$hhome/.config/autostart" "$hhome/.local/share/systemd" "$hhome/.config/containers/containers.conf" "$hhome/.config/containers/containers.conf.d" \
+  "$hhome/.config/containers/mounts.conf" "$hhome/.config/containers/policy.json" "$hhome/.config/containers/storage.conf" \
+  "$hhome/.config/containers/registries.conf" "$hhome/.config/containers/registries.conf.d" "$hhome/.ssh" \
+  "$hhome/.config/user-tmpfiles.d" "$hhome/.local/share/user-tmpfiles.d" "$hhome/.local/share/dbus-1/services" \
+  "${HALOGEN_RUNTIME_DIR:-/run/user/$huid}/user-tmpfiles.d" \
   "${HALOGEN_RUNTIME_DIR:-/run/user/$huid}/containers/systemd" "${HALOGEN_RUNTIME_DIR:-/run/user/$huid}/systemd/user" "${HALOGEN_RUNTIME_DIR:-/run/user/$huid}/systemd/user.control" \
   -mindepth 0 ! -type d < /dev/null | head -n 5 | tr -cd '[:print:]\n' | tr '\n' ' ')"
 if ! as_owner test -d "$hhome"; then say SKIP halogen-autostart "couldn't look in $hhome as the halogen user"

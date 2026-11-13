@@ -616,6 +616,19 @@ name, but allows saying halOS runs Halogen.
   an off drop-in the unit doesn't follow WARNs (halogen's own Quadlet folders override root's
   same-named drop-in, so the file alone isn't proof).
 
+- Hardening round 3 (#130, security audit of #128 and the NPU-folder item, owner agreed):
+  `DenyUsers halogen` in `sshd_config.d/00-halos.conf` (a key planted in `/var/lib/halogen/.ssh`
+  could otherwise open a session for port forwarding despite `nologin`; not verified, the fix is
+  free). `10-npu.conf` mounts `npu` (`ro`) and `decider`/`LFM`/`custom` with
+  `noexec,nosuid,nodev`: freyja's `/proc/<pid>/maps` of every halogen process showed no executable
+  mapping from them with OvisOCR3 and the NPU models loaded. The convert sandbox adds
+  `PrivateUsers=yes`, `PrivateDevices=yes` and `-/dev/shm -/sysroot -/var/log` to
+  `InaccessiblePaths` (the converter runs as host uid 970 in the `halogen` group, so it could open
+  `/dev/kfd`, the NPU and the shm Halogen shares with the host); the VM test runs the converter's
+  `--help` under the same properties in halogen's manager (`CONVSB`), since no conversion runs in
+  CI. `halogen-autostart` also looks at `.ssh`, `mounts.conf`, `policy.json`, `storage.conf`,
+  `registries.conf(.d)`, user-tmpfiles.d and D-Bus services.
+
 ## Lessons already learned
 
 - `setpriv` and `runuser` keep the caller's working folder. Run as halogen from an admin's home

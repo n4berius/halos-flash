@@ -138,7 +138,14 @@ for path in glob.glob("files/usr/libexec/halogen/*"):
             assert '"${hide_cache[@]}"' in line, f"{path} mounts all of /srv/models without hiding the prompt cache: {line.strip()}"
     if "hide_cache" in body:
         assert 'hide_cache=(--tmpfs "/models/.prompt-cache:ro,size=4k,notmpcopyup")' in body, f"{path}: the tmpfs must not copy the folder's files up"
-assert "-$m/.prompt-cache -$l\"" in open("files/usr/libexec/halogen/flash-checkpoint").read(), "the convert sandbox can read the prompt cache or the request records"
+fc = open("files/usr/libexec/halogen/flash-checkpoint").read()
+assert "-$m/.prompt-cache -$l -/dev/shm -/sysroot -/var/log\"" in fc and "-p PrivateUsers=yes -p PrivateDevices=yes" in fc, "the convert sandbox can read the prompt cache, the request records, devices, shared memory or the journal"
+# The folders Halogen's container can write and find again hold no programs; halogen never logs in.
+npuconf = open("variants/npu/etc/containers/systemd/users/970/halogen.container.d/10-npu.conf").read()
+for f in ("decider", "LFM", "custom"):
+    assert f"\nVolume=/srv/models/{f}:/models/{f}:noexec,nosuid,nodev\n" in npuconf, f"{f} is mounted without noexec,nosuid,nodev"
+assert "\nVolume=/srv/models/npu:/models/npu:ro,noexec,nosuid,nodev\n" in npuconf
+assert re.search(r"^DenyUsers halogen$", open("files/etc/ssh/sshd_config.d/00-halos.conf").read(), re.M), "the halogen service user could log in over SSH"
 assert "= '-e 2' ]" in cf, "the build doesn't check the audit rules end locked"
 assert "SystemMaxUse=4G" in open("files/usr/lib/systemd/journald.conf.d/60-halos.conf").read(), "the journal has no cap"
 assert "systemctl enable halos-https-refresh.timer" in cf, "the HTTPS address refresh isn't enabled"
