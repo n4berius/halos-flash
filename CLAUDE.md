@@ -527,9 +527,11 @@ name, but allows saying halOS runs Halogen.
   under the file's name, so count `nametype=CREATE` lines. `-e 2` last (the build checks): no rule change or
   `auditctl -e 0` until reboot, so no ad hoc `auditctl -w` probes, and selftest hints say reboot.
   Selftest: `audit` also WARNs on `enabled 1` (unlocked) and `lost` above 0 (since boot);
-  `config-files` compares `/etc/audit/rules.d/50-halos.rules`, `auditd.conf`, `halogen.container`
-  and `10-npu.conf` with `/usr/etc` and WARNs on other files in those two folders (but
-  `20-records.conf`); `halogen-autostart` WARNs on anything in halogen's
+  `audit` also WARNs on any `exclude`-filter rule; `config-files` compares every file under
+  `/usr/etc/audit` and `/usr/etc/containers/systemd` with `/etc`'s and WARNs on any file `/etc` has
+  there that the image doesn't (auditd `plugins.d` included), excusing by full path only
+  `users/970/halogen.container.d/20-records.conf`, which must hold exactly the mount `records on`
+  writes (the audit proved a PASS with the same file name in another drop-in folder); `halogen-autostart` WARNs on anything in halogen's
   `.config/{systemd/user,containers/systemd,environment.d,autostart}`.
 
 ## Lessons already learned

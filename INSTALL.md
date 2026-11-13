@@ -655,8 +655,8 @@ halOS keeps three kinds of log, each with its own size limit, so none can fill t
   ```
 
   The rules are locked while the system runs: nobody, root included, can switch auditing off or
-  change a rule without a reboot, and an attempt is itself recorded. So a change to the files in
-  `/etc/audit` takes effect at the next boot.
+  change a rule without a reboot, and an attempt is itself recorded. So a change to the rules in
+  `/etc/audit/rules.d` takes effect at the next boot.
 
   Halogen's own processes are left out of this tracking, so auditing adds no work to the engine.
   Only Halogen's own login session is left out: root or an admin acting as the `halogen` user

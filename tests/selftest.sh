@@ -42,6 +42,7 @@ ex="-a never,task -F uid=970 -F auid=970"; w="-w /etc/passwd -p wa -k accounts";
 case "${FAKE_AUDIT:-halos}" in
   halos) printf "%s\n" "$ex" "$w" "$x" ;;
   wide) printf "%s\n" "$ex" "-a never,task -F uid=0" "$w" "$x" ;;
+  exclude) printf "%s\n" "$ex" "-a always,exclude -F msgtype=USER_CMD" "$w" "$x" ;;
   noexempt) printf "%s\n" "-a never,task -F uid=970" "$w" "$x" ;;
   fedora) echo "-a never,task" ;;
   few) printf "%s\n" "$ex" "$w" ;; esac'
@@ -124,6 +125,7 @@ FAKE_AUDIT=few "$selftest" > "$work/out" 2>&1 || true; expect "^WARN audit: .*ar
 FAKE_AUDIT_ENABLED=0 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN audit: .*switched off in the kernel'
 FAKE_AUDIT_ENABLED=1 "$selftest" > "$work/out" 2>&1 || true; expect "^WARN audit: .*aren't locked"
 FAKE_AUDIT_LOST=7 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN audit: the kernel dropped 7 audit records since boot'
+FAKE_AUDIT=exclude "$selftest" > "$work/out" 2>&1 || true; expect '^WARN audit: a rule keeps some kinds of record out'
 FAKE_AUDIT=wide "$selftest" > "$work/out" 2>&1 || true; expect "^WARN audit: more than Halogen's own"
 FAKE_AUDIT=noexempt "$selftest" > "$work/out" 2>&1 || true; expect "^WARN audit: .*leaves Halogen's own processes out"
 # Halogen's service manager without Halogen's own login uid: the exemption wouldn't match it.
@@ -146,6 +148,13 @@ echo unit > "$work/etc/containers/systemd/users/970/halogen.container"; : > "$wo
 "$selftest" > "$work/out" 2>&1 || true; expect "^WARN config-files: files halOS didn't put there .*99-off.rules"
 /usr/bin/rm "$work/etc/audit/rules.d/99-off.rules"; echo 'Volume=/:/host' >> "$work/etc/containers/systemd/users/970/halogen.container.d/20-records.conf"
 "$selftest" > "$work/out" 2>&1 || true; expect "^WARN config-files: .*20-records.conf \\(not what halogenctl records on writes\\)"
+# A file is excused by its full path only: the same name elsewhere, and auditd plugins, are flagged.
+/usr/bin/rm "$work/etc/containers/systemd/users/970/halogen.container.d/20-records.conf"
+mkdir -p "$work/etc/containers/systemd/users/halogen.container.d" "$work/etc/audit/plugins.d"
+echo 'Volume=/:/host' > "$work/etc/containers/systemd/users/halogen.container.d/20-records.conf"
+"$selftest" > "$work/out" 2>&1 || true; expect "^WARN config-files: files halOS didn't put there .*/etc/containers/systemd/users/halogen.container.d/20-records.conf"
+/usr/bin/rm "$work/etc/containers/systemd/users/halogen.container.d/20-records.conf"; echo 'path = /tmp/x' > "$work/etc/audit/plugins.d/x.conf"
+"$selftest" > "$work/out" 2>&1 || true; expect "^WARN config-files: files halOS didn't put there .*/etc/audit/plugins.d/x.conf"
 rm -r "$work/etc/audit" "$work/usretc/audit" "$work/etc/containers/systemd" "$work/usretc/containers/systemd"
 HALOS_AUDIT_MIN_FREE_MB=99999999 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN audit: only [0-9]+ MB free'
 HALOS_LOG_MIN_FREE_MB=999999999 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN logs: only'
