@@ -479,7 +479,7 @@ case "${1:-status}" in
     # halogen's own manager over its private socket, as login-status reads it: a daemon-reload
     # through --machine=halogen@.host fails with "Transport endpoint is not connected" (VM test).
     huid="$(id -u halogen 2> /dev/null || echo 970)"
-    as_manager() { setpriv --reuid="$huid" --regid="$huid" --clear-groups env XDG_RUNTIME_DIR="/run/user/$huid" systemctl --user "$@"; }
+    as_manager() { setpriv --reuid="$huid" --regid="$huid" --clear-groups env -C / XDG_RUNTIME_DIR="/run/user/$huid" systemctl --user "$@"; }
     mounted() { as_manager cat halogen.service 2> /dev/null | grep -q -F 'srv/logs/halogen:/records'; }
     # Whether the running Halogen keeps records (its /health says so), whatever the drop-in says.
     recording() { curl -sS -m 5 "http://127.0.0.1:${HALOS_API_LOCAL_PORT:-18731}/health" 2> /dev/null | jq -e '.request_records' > /dev/null 2>&1; }

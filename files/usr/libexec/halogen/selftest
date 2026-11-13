@@ -413,9 +413,11 @@ free="$(df --output=avail --block-size=1G "$models" 2>/dev/null | tail -n 1 | tr
 # Halogen's container is read-only; its scratch folders must be on disk, not in memory (a prompt-cache
 # snapshot there can reach 26.6 GiB). Asked inside the running container, as halogen.
 if [ "${running:-0}" = 1 ]; then
-  # As halogen with setpriv, not through --machine=halogen@.host (that route failed on freyja).
+  # As halogen with setpriv, not through --machine=halogen@.host (that route failed on freyja), and
+  # from / : setpriv keeps the caller's folder, and podman stops when halogen can't enter it (sudo
+  # from an admin's home did that on freyja).
   huid="$(id -u halogen 2> /dev/null || echo 970)"
-  fstypes="$(run setpriv --reuid="$huid" --regid="$huid" --clear-groups env HOME=/var/lib/halogen XDG_RUNTIME_DIR="/run/user/$huid" \
+  fstypes="$(run setpriv --reuid="$huid" --regid="$huid" --clear-groups env -C / HOME=/var/lib/halogen XDG_RUNTIME_DIR="/run/user/$huid" \
     podman exec halogen stat -f -c '%n %T' /tmp /var/tmp /root | tr -cd '[:print:]\n')"
   if [ "$(grep -c -E '^/(tmp|var/tmp|root) ' <<< "$fstypes")" != 3 ]; then say WARN scratch "couldn't see where Halogen's /tmp, /var/tmp and /root are: ${fstypes:-no answer}"
   elif grep -q tmpfs <<< "$fstypes"; then say FAIL scratch "Halogen's scratch folders are in memory, not on disk: $(tr '\n' ' ' <<< "$fstypes")"
@@ -444,7 +446,7 @@ else
   # --machine=halogen@.host ("Cannot remotely cat units"), so that reading always came back empty
   # and the line warned about a mount that was there (freyja).
   huid="$(id -u halogen 2> /dev/null || echo 970)"
-  unit_text="$(run setpriv --reuid="$huid" --regid="$huid" --clear-groups env XDG_RUNTIME_DIR="/run/user/$huid" systemctl --user cat halogen.service)"
+  unit_text="$(run setpriv --reuid="$huid" --regid="$huid" --clear-groups env -C / XDG_RUNTIME_DIR="/run/user/$huid" systemctl --user cat halogen.service)"
   mounted="$(grep -c -F 'srv/logs/halogen:/records' <<< "$unit_text")"
   if [ "${mounted:-0}" = 0 ]; then say WARN records "on, but Halogen's service doesn't mount $d: sudo halogenctl records off, then on"
   elif [ -n "$rr" ]; then say PASS records "on, ${used:-?} in $d; Halogen reports $rr"

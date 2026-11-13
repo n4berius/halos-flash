@@ -488,6 +488,9 @@ name, but allows saying halOS runs Halogen.
   generated unit's `--read-only`; Halogen's start and speed under it need freyja.
 
 ## Lessons already learned
+- `setpriv` keeps the caller's working folder. Run as halogen from an admin's home (`sudo` from
+  `/var/home/<admin>`), podman stopped with "cannot chdir … Permission denied" (selftest `scratch`
+  on freyja), so every `setpriv … env` as halogen starts with `env -C /`.
 
 - The initramfs must be built with `--no-hostonly` and the `crypt systemd-cryptsetup tpm2-tss
   lvm` modules, or LUKS fails at boot on real hardware. The Containerfile checks this.
