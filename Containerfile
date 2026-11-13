@@ -213,7 +213,9 @@ RUN set -eu; \
     systemctl enable auditd.service audit-rules.service; \
     augenrules; \
     grep -q -- '-w /etc/halos -p wa -k halos-config' /etc/audit/audit.rules; \
-    grep -qx -- '-a task,never -F uid=970' /etc/audit/audit.rules; \
+    grep -qx -- '-a task,never -F uid=970 -F auid=970' /etc/audit/audit.rules; \
+    [ "$(grep -c -- '^-a task,never' /etc/audit/audit.rules)" = 1 ]; \
+    [ "$(grep -v -e '^#' -e '^$' /etc/audit/audit.rules | tail -n 1)" = '-e 2' ]; \
     if grep -qx -- '-a task,never' /etc/audit/audit.rules; then echo "Fedora's audit rule that turns auditing off is back" >&2; exit 1; fi; \
     if [ "$HALOGEN_VARIANT" = npu ]; then \
       systemctl enable halogen-fabric-clock.service; \

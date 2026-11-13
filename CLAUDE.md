@@ -525,7 +525,36 @@ name, but allows saying halOS runs Halogen.
   image) handles btmp/wtmp. The selftest's `audit` (PASS with ≥15 watches; WARN on Fedora's rule,
   few watches, `auditctl -s` saying `enabled 0`, a second `never` rule, the uid 970 rule missing (`-i` makes `auditctl -R` return 0 past a refused rule), under 250 MB free on the audit volume, or auditd down) and `logs` (journal size; WARN under 512 MB free on /var/log, below `SystemKeepFree`). Task rules are checked at fork against the parent, so everything halogen's user manager starts is exempt (its writes in /srv/configs aren't recorded), while `runuser`/`setpriv` from root stay audited; Caddy and the dashboard (DynamicUser) are audited. In the Containerfile the rule checks are separate statements: `set -e` ignores `a && b` (but the last) and `! cmd`. The VM
   test checks auditd active with its watches, a touch in /etc/halos found by `ausearch -k
-  halos-config`, a `halosctl version` found by `-k halosctl`, the uid 970 rule, and the journal cap. Speed under auditing: to measure on freyja (`bench`).
+  halos-config`, a `halosctl version` found by `-k halosctl`, the uid 970 rule, and the journal cap. Speed under auditing, freyja, engine only (`bench` bypasses Caddy): unchanged, pp2048 1878 before and 1889 after #118, tg128 68.1 and 69.4 (2026-11-13); the cost on Caddy's path is unmeasured.
+
+- Audit hardening (security audit of #118, owner agreed): the exemption is `-a task,never -F uid=970
+  -F auid=970` (Halogen's own login session: `systemd-user`'s PAM stack has `pam_loginuid`, so
+  `user@970` and what it starts carry login uid 970; root acting as uid 970 from an admin's login or
+  a system service, `prepare` and the status timer included, is audited, so prepare's boot writes
+  in `/srv/configs` appear under `halogen-config`). If the manager's login uid weren't 970 the rule
+  would match nothing and Halogen would be audited: the selftest's `audit` WARNs on that, and the VM
+  test prints it (`HLOGIN`) and proves both sides with the `/var/srv/configs` watch (`AUDITEX`: a
+  `systemd-run --user` touch leaves no record, a `runuser` touch does). More `-w` watches (keys
+  quadlet, containers, audit-config, systemd-config, pam, preload, modules, udev, firewall, sysctl;
+  `/etc/ssh` whole; crypttab, gshadow, subuid/subgid), the specific signature-policy lines before
+  the wider `/etc/containers`; `/usr/bin/kmod` as an exit rule with no auid filter (runs of
+  modprobe/insmod/rmmod by any process; the kernel's own modprobe is a `kernel_execve` with no
+  syscall and libkmod loads run no program, so neither is seen; a syscall rule on `finit_module`
+  would be, at a cost on every audited syscall). A file that doesn't exist yet
+  (`/etc/ld.so.preload`) is still watched through its folder (the VM loaded all 34 rules), so the
+  selftest requires every shipped rule whose folder exists (read from `rules.d/50-halos.rules`).
+  `auditctl -l` prints the kmod rule as `-w … -p x`. VM test lessons: `systemd-run --user --wait`
+  uses the D-Bus user bus and takes `DBUS_SESSION_BUS_ADDRESS` (root's, from the login) before
+  `XDG_RUNTIME_DIR`, so name halogen's bus; and root's `rm` of a probe file is itself recorded
+  under the file's name, so count `nametype=CREATE` lines. `-e 2` last (the build checks): no rule change or
+  `auditctl -e 0` until reboot, so no ad hoc `auditctl -w` probes, and selftest hints say reboot.
+  Selftest: `audit` also WARNs on `enabled 1` (unlocked) and `lost` above 0 (since boot);
+  `audit` also WARNs on any `exclude`-filter rule; `config-files` compares every file under
+  `/usr/etc/audit` and `/usr/etc/containers/systemd` with `/etc`'s and WARNs on any file `/etc` has
+  there that the image doesn't (auditd `plugins.d` included), excusing by full path only
+  `users/970/halogen.container.d/20-records.conf`, which must hold exactly the mount `records on`
+  writes (the audit proved a PASS with the same file name in another drop-in folder); `halogen-autostart` WARNs on anything in halogen's
+  `.config/{systemd/user,containers/systemd,environment.d,autostart}`.
 
 ## Lessons already learned
 

@@ -81,6 +81,28 @@ for f in containers/policy.json containers/registries.d/halos-flash.yaml pki/con
   [ -e "$usretc/$f" ] || continue
   cmp -s "$etc/$f" "$usretc/$f" || changed+=" /etc/$f"
 done
+# The same for auditd's whole folder (rules, auditd.conf, plugins: programs auditd runs as root) and
+# for how Halogen's container is started.
+cchanged=""
+while IFS= read -r f; do
+  cmp -s "$etc/$f" "$usretc/$f" || cchanged+=" /etc/$f"
+done < <(cd "$usretc" 2>/dev/null && find audit containers/systemd ! -type d 2>/dev/null | head -n 200)
+# Anything halOS's image doesn't have, in /etc/audit or among the Quadlet files, changes them too.
+# Excused by full path, not by name: only the one drop-in "halogenctl records on" writes, and it
+# must hold exactly that mount.
+rec="containers/systemd/users/970/halogen.container.d/20-records.conf"
+extra=""
+while IFS= read -r f; do
+  [ -e "$usretc/$f" ] || [ "$f" = "$rec" ] || extra+="/etc/$f "
+done < <(cd "$etc" 2>/dev/null && find audit containers/systemd ! -type d 2>/dev/null | head -n 200 | tr -cd '[:print:]\n')
+if [ -e "$etc/$rec" ] && [ "$(grep -v -e '^#' -e '^$' -e '^\[Container\]$' "$etc/$rec")" != 'Volume=/srv/logs/halogen:/records:noexec,nosuid,nodev' ]; then extra+="/etc/$rec (not what halogenctl records on writes) "; fi
+if [ ! -e "$usretc/audit/rules.d/50-halos.rules" ]; then
+  say SKIP config-files "the image's copies in $usretc are missing, so there is nothing to compare with"
+elif [ -n "$cchanged" ]; then
+  say WARN config-files "changed from halOS's copy:$cchanged (restore each with: sudo cp /usr/etc/<path> /etc/<path>, then reboot)"
+elif [ -n "$extra" ]; then
+  say WARN config-files "files halOS didn't put there add audit rules or change Halogen's container: $extra"
+else say PASS config-files "the audit rules and Halogen's container definition are the image's own"; fi
 rootpolicy="${HALOS_ROOT_POLICY:-/root/.config/containers/policy.json}"
 if [ ! -e "$usretc/containers/policy.json" ]; then
   say SKIP signature-files "the image's copies in $usretc are missing, so there is nothing to compare with"
@@ -475,17 +497,45 @@ fi
 logdir="${HALOS_LOG_DIR:-/var/log}"
 if have systemctl && have auditctl; then
   astate="$(run systemctl is-active auditd.service)"
-  rules="$(run auditctl -l)"
+  rules="$(run auditctl -l)"; astatus="$(run auditctl -s)"
   nrules="$(grep -c -E -- ' (-k |-F key=)' <<< "$rules")"
   afree="$(df --output=avail --block-size=1M "$logdir/audit" 2>/dev/null | tail -n 1 | tr -d ' ')"
+  alost="$(sed -n 's/^lost \([0-9][0-9]*\)$/\1/p' <<< "$astatus" | head -n 1)"
+  # Every rule halOS ships must be loaded (-i skips one that can't load). A file that doesn't
+  # exist yet, such as /etc/ld.so.preload, is still watched through its folder, so only a missing
+  # folder excuses a rule.
+  amissing=""
+  while read -r p; do
+    [ -d "${p%/*}" ] || continue
+    grep -q -E -- "(^-w |path=)$p " <<< "$rules" || amissing+=" $p"
+  done < <(sed -n -E -e 's/^-w ([^ ]+) .*/\1/p' -e 's/^-a always,exit -F path=([^ ]+) .*/\1/p' "${HALOS_AUDIT_RULES:-/etc/audit/rules.d/50-halos.rules}" 2>/dev/null)
+  # The login uid of Halogen's own service manager: the rule that leaves Halogen out of auditing
+  # matches it. Anything but its own uid, and Halogen's processes are audited (slower).
+  huid="$(id -u halogen 2> /dev/null || echo 970)"
+  hmgr="$(run systemctl show -p MainPID --value "user@$huid.service")"
+  hlogin="$(cat "${HALOGEN_PROC:-/proc}/$hmgr/loginuid" 2>/dev/null)"
+  # The rules are locked (-e 2), so a fix on the running system isn't possible: a reboot loads them again.
   if [ "$astate" != active ]; then say WARN audit "auditd is $astate: sudo systemctl start auditd, and sudo journalctl -u auditd"
-  elif grep -qx -- '-a never,task' <<< "$rules"; then say WARN audit "auditd runs with Fedora's rule that turns system-call auditing off, so halOS's watches see nothing: sudo augenrules --load"
-  elif [ "${nrules:-0}" -lt "${HALOS_AUDIT_MIN_RULES:-15}" ]; then say WARN audit "auditd runs, but only ${nrules:-0} of halOS's watches are loaded: sudo augenrules --load"
-  elif run auditctl -s | grep -qx 'enabled 0'; then say WARN audit "auditd runs, but auditing is switched off in the kernel, so nothing is recorded: sudo auditctl -e 1"
-  elif [ "$(grep -c -- '^-a never,' <<< "$rules")" -gt 1 ]; then say WARN audit "more than Halogen's own processes are left out of auditing (sudo auditctl -l | grep never): sudo augenrules --load"
-  elif ! grep -qx -- '-a never,task -F uid=970' <<< "$rules"; then say WARN audit "auditd runs, but the rule that leaves Halogen's own processes out isn't loaded, so auditing may slow it: sudo augenrules --load"
+  elif grep -qx -- '-a never,task' <<< "$rules"; then say WARN audit "auditd runs with Fedora's rule that turns system-call auditing off, so halOS's watches see nothing: reboot to load halOS's rules"
+  elif grep -qx 'enabled 0' <<< "$astatus"; then say WARN audit "auditd runs, but auditing is switched off in the kernel, so nothing is recorded: sudo auditctl -e 1, or reboot"
+  elif [ -n "$amissing" ]; then say WARN audit "auditd runs, but halOS's rules for these aren't loaded:$amissing (reboot to load them; sudo journalctl -b -u audit-rules says why)"
+  elif grep -q -- ',exclude' <<< "$rules"; then say WARN audit "a rule keeps some kinds of record out of the audit log (sudo auditctl -l | grep exclude), which halOS never sets: reboot to load halOS's rules"
+  elif [ "$(grep -c -- '^-a never,' <<< "$rules")" -gt 1 ]; then say WARN audit "more than Halogen's own processes are left out of auditing (sudo auditctl -l | grep never): reboot to load halOS's rules"
+  elif ! grep -qx -- "-a never,task -F uid=$huid -F auid=$huid" <<< "$rules"; then say WARN audit "auditd runs, but the rule that leaves Halogen's own processes out isn't loaded, so auditing may slow it: reboot to load halOS's rules"
+  elif [ -n "$hlogin" ] && [ "$hlogin" != "$huid" ]; then say WARN audit "Halogen's service manager has login uid $hlogin, not $huid, so Halogen's own processes are audited, which may slow it: report this"
+  elif grep -qx 'enabled 1' <<< "$astatus"; then say WARN audit "auditd runs with halOS's rules, but they aren't locked (root could switch auditing off unnoticed): reboot"
   elif [ -n "$afree" ] && [ "$afree" -lt "${HALOS_AUDIT_MIN_FREE_MB:-250}" ]; then say WARN audit "only ${afree} MB free on $logdir/audit: below 200 MB auditd stops recording until it is restarted with more room"
-  else say PASS audit "auditd keeps $logdir/audit/audit.log, ${nrules} watches loaded (read them with: sudo ausearch -i -k halos-config)"; fi
+  elif [ "${alost:-0}" -gt 0 ]; then say WARN audit "the kernel dropped ${alost} audit records since boot (a burst, or something flooding the log): sudo aureport --summary shows what is busy, and sudo auditctl --reset-lost clears the count"
+  else say PASS audit "auditd keeps $logdir/audit/audit.log, ${nrules} rules loaded and locked (read them with: sudo ausearch -i -k halos-config)"; fi
+  # Halogen's own processes aren't audited, so look for what a break-in through Halogen would leave
+  # to start again later: halOS puts nothing in these folders of halogen's (its units are in /usr and /etc).
+  hhome="${HALOGEN_HOME:-/var/lib/halogen}"
+  planted="$(as_owner timeout 20 env -C / find "$hhome/.config/systemd" "$hhome/.config/containers/systemd" "$hhome/.config/environment.d" \
+    "$hhome/.config/autostart" "$hhome/.local/share/systemd" "$hhome/.config/containers/containers.conf" "$hhome/.config/containers/containers.conf.d" \
+    -mindepth 0 ! -type d < /dev/null | head -n 5 | tr -cd '[:print:]\n' | tr '\n' ' ')"
+  if ! as_owner test -d "$hhome"; then say SKIP halogen-autostart "couldn't look in $hhome as the halogen user"
+  elif [ -n "$planted" ]; then say WARN halogen-autostart "the halogen user has its own services or settings, which halOS never creates: $planted"
+  else say PASS halogen-autostart "the halogen user has no services or start-up settings of its own"; fi
 else say SKIP audit "auditd isn't installed"; fi
 jsize="$(run journalctl --disk-usage | grep -oE '[0-9.]+[KMGT]' | head -n 1)"
 lfree="$(df --output=avail --block-size=1M "$logdir" 2>/dev/null | tail -n 1 | tr -d ' ')"

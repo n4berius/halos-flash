@@ -37,14 +37,15 @@ f mokutil 'echo "SecureBoot ${FAKE_SB:-enabled}"'
 f getenforce 'echo "${FAKE_SELINUX:-Enforcing}"'
 f journalctl 'case "$*" in *--disk-usage*) echo "Archived and active journals take up 1.2G in the file system." ;; *) cat "$FAKE/kernel.log" 2>/dev/null ;; esac; true'
 # auditd's loaded rules: halOS's watches unless FAKE_AUDIT says otherwise.
-f auditctl 'if [ "$1" = -s ]; then echo "enabled ${FAKE_AUDIT_ENABLED:-1}"; echo "lost 0"; exit 0; fi
+f auditctl 'if [ "$1" = -s ]; then echo "enabled ${FAKE_AUDIT_ENABLED:-2}"; echo "lost ${FAKE_AUDIT_LOST:-0}"; exit 0; fi
+ex="-a never,task -F uid=970 -F auid=970"; w="-w /etc/passwd -p wa -k accounts"; x="-a always,exit -S all -F path=/usr/bin/env -F perm=x -F auid!=-1 -F key=halosctl"
 case "${FAKE_AUDIT:-halos}" in
-  halos) echo "-a never,task -F uid=970"; for i in {1..12}; do echo "-w /etc/x$i -p wa -k k$i"; done
-    for i in {1..6}; do echo "-a always,exit -S all -F path=/usr/bin/x$i -F perm=x -F auid!=-1 -F key=k$i"; done ;;
-  wide) echo "-a never,task -F uid=970"; echo "-a never,task -F uid=0"; for i in {1..18}; do echo "-w /etc/x$i -p wa -k k$i"; done ;;
-  noexempt) for i in {1..18}; do echo "-w /etc/x$i -p wa -k k$i"; done ;;
+  halos) printf "%s\n" "$ex" "$w" "$x" ;;
+  wide) printf "%s\n" "$ex" "-a never,task -F uid=0" "$w" "$x" ;;
+  exclude) printf "%s\n" "$ex" "-a always,exclude -F msgtype=USER_CMD" "$w" "$x" ;;
+  noexempt) printf "%s\n" "-a never,task -F uid=970" "$w" "$x" ;;
   fedora) echo "-a never,task" ;;
-  few) echo "-w /etc/halos -p wa -k halos-config" ;; esac'
+  few) printf "%s\n" "$ex" "$w" ;; esac'
 f firewall-cmd 'case "$1" in --state) echo "${FAKE_FIREWALL:-running}" ;; --get-default-zone) echo FedoraServer ;; *) cat "$FAKE/services" ;; esac'
 f lsblk 'echo "/dev/nvme0n1p3 crypto_LUKS"'
 f cryptsetup 'printf "Tokens:\n  0: systemd-tpm2\n"'
@@ -54,7 +55,7 @@ f bootc 'case "$*" in *json*) echo "{\"spec\":{\"image\":{\"image\":\"${FAKE_FOL
 f systemctl 'case "$*" in *--failed*) cat "$FAKE/failed" 2>/dev/null ;; *"show -p Job"*) echo "${FAKE_JOB:-}" ;;
   *"is-enabled halos-dashboard"*) echo "${FAKE_DASH:-enabled}" ;; *"is-active halos-proxy"*) echo "${FAKE_PROXY:-active}" ;;
   *"IPIngressBytes --value halos-dashboard"*) echo "${FAKE_DASH_IPIN-1234}" ;; *"IPAddressDeny --value halos-dashboard"*) echo "${FAKE_DASH_DENY-0.0.0.0/0 ::/0}" ;;
-  *"IPAddressAllow --value halos-dashboard"*) echo "127.0.0.0/8 ::1/128" ;; *"MainPID --value halos-dashboard"*) echo "${FAKE_DASH_PID-4242}" ;;
+  *"IPAddressAllow --value halos-dashboard"*) echo "127.0.0.0/8 ::1/128" ;; *"MainPID --value halos-dashboard"*) echo "${FAKE_DASH_PID-4242}" ;; *"MainPID --value user@"*) echo "${FAKE_MGR_PID-0}" ;;
   *"--machine"*"cat halogen.service"*) exit 1 ;;  # that route failed on freyja: the selftest must not use it
   *"cat halogen.service"*) echo "${FAKE_UNIT-ExecStart=podman run -v /srv/logs/halogen:/records x}" ;;
   *halogen-fetch*) echo "${FAKE_FETCH:-inactive}" ;; *) echo "${FAKE_STATE:-active}" ;; esac'
@@ -71,10 +72,15 @@ printf '8ef7ad828f7fa715cba0721a8ef9f9ab20d44e50\n' > "$work/models/.cache/huggi
 
 mkdir -p "$work/models/.prompt-cache"
 mkdir -p "$work/audit"
+mkdir -p "$work/audit" "$work/proc/4711" "$work/home/.config"
+# The rules halOS ships, as the selftest reads them: two paths that exist, one that doesn't.
+printf '%s\n' '-w /etc/passwd -p wa -k accounts' '-w /nonexistent/preload -p wa -k preload' \
+  '-a always,exit -F path=/usr/bin/env -F perm=x -F auid!=unset -k halosctl' > "$work/halos.rules"
 export PATH="$fake:$sysbin" HALOGEN_RELEASE_FILE="$work/release.env" HALOGEN_SYSFS="$work/sys" \
   HALOGEN_DEV="$work/dev" HALOGEN_CMDLINE="$work/cmdline" HALOGEN_MEMINFO="$work/meminfo" \
   HALOGEN_MODELS_DIR="$work/models" HALOGEN_CONFIGS_DIR="$work/configs" HALOGEN_CLOCK="$fake/fabric-clock" \
   HALOGEN_LOGS_DIR="$work/logs" HALOGEN_RECORDS_DROPIN="$work/20-records.conf" HALOS_LOG_DIR="$work" \
+  HALOS_AUDIT_RULES="$work/halos.rules" HALOGEN_PROC="$work/proc" HALOGEN_HOME="$work/home" \
   HALOS_POLICY="$repo/files/etc/containers/policy.json" HALOS_SSH_UNLOCK="$fake/ssh-unlock" \
   HALOS_ETC="$work/etc" HALOS_USR_ETC="$work/usretc" HALOS_ROOT_POLICY="$work/root-policy.json" \
   HALOS_HTTPS_HELPER="$fake/https" HALOS_HTTPS_RUN="$work/run-halos"
@@ -118,13 +124,45 @@ echo off > "$work/configs/prompt-cache"; "$selftest" > "$work/out" 2>&1 || true;
 rm "$work/configs/prompt-cache"; /usr/bin/mv "$work/models/.prompt-cache" "$work/models/.pc"
 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN prompt-cache: .* is missing'; /usr/bin/mv "$work/models/.pc" "$work/models/.prompt-cache"
 # Logs (#107): auditd with halOS's watches, the journal's size and room on /var/log.
-expect '^PASS audit: auditd keeps .* 18 watches loaded'
+expect '^PASS audit: auditd keeps .* 2 rules loaded and locked'
+expect '^PASS halogen-autostart:'
 expect '^INFO logs: journal 1.2G, at most 4 GB'
 FAKE_AUDIT=fedora "$selftest" > "$work/out" 2>&1 || true; expect "^WARN audit: .*Fedora's rule"
-FAKE_AUDIT=few "$selftest" > "$work/out" 2>&1 || true; expect '^WARN audit: .*only 1 of'
+FAKE_AUDIT=few "$selftest" > "$work/out" 2>&1 || true; expect "^WARN audit: .*aren't loaded: /usr/bin/env \\("
 FAKE_AUDIT_ENABLED=0 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN audit: .*switched off in the kernel'
+FAKE_AUDIT_ENABLED=1 "$selftest" > "$work/out" 2>&1 || true; expect "^WARN audit: .*aren't locked"
+FAKE_AUDIT_LOST=7 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN audit: the kernel dropped 7 audit records since boot'
+FAKE_AUDIT=exclude "$selftest" > "$work/out" 2>&1 || true; expect '^WARN audit: a rule keeps some kinds of record out'
 FAKE_AUDIT=wide "$selftest" > "$work/out" 2>&1 || true; expect "^WARN audit: more than Halogen's own"
 FAKE_AUDIT=noexempt "$selftest" > "$work/out" 2>&1 || true; expect "^WARN audit: .*leaves Halogen's own processes out"
+# Halogen's service manager without Halogen's own login uid: the exemption wouldn't match it.
+echo 4294967295 > "$work/proc/4711/loginuid"
+FAKE_MGR_PID=4711 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN audit: .*login uid 4294967295, not 970'
+echo 970 > "$work/proc/4711/loginuid"
+FAKE_MGR_PID=4711 "$selftest" > "$work/out" 2>&1 || true; expect '^PASS audit:'
+mkdir -p "$work/home/.config/systemd/user"; : > "$work/home/.config/systemd/user/evil.service"
+"$selftest" > "$work/out" 2>&1 || true; expect '^WARN halogen-autostart: .*evil.service'; rm -r "$work/home/.config/systemd"
+# The audit rules and Halogen's container definition compared with the image's copies.
+expect '^SKIP config-files:'
+for d in etc usretc; do mkdir -p "$work/$d/audit/rules.d" "$work/$d/containers/systemd/users/970/halogen.container.d"
+  echo rules > "$work/$d/audit/rules.d/50-halos.rules"; echo unit > "$work/$d/containers/systemd/users/970/halogen.container"; done
+printf '%s\n' '# Written by sudo halogenctl records on; removed by records off.' '[Container]' 'Volume=/srv/logs/halogen:/records:noexec,nosuid,nodev' \
+  > "$work/etc/containers/systemd/users/970/halogen.container.d/20-records.conf"
+"$selftest" > "$work/out" 2>&1 || true; expect '^PASS config-files:'
+echo Privileged > "$work/etc/containers/systemd/users/970/halogen.container"
+"$selftest" > "$work/out" 2>&1 || true; expect '^WARN config-files: changed .*/etc/containers/systemd/users/970/halogen.container '
+echo unit > "$work/etc/containers/systemd/users/970/halogen.container"; : > "$work/etc/audit/rules.d/99-off.rules"
+"$selftest" > "$work/out" 2>&1 || true; expect "^WARN config-files: files halOS didn't put there .*99-off.rules"
+/usr/bin/rm "$work/etc/audit/rules.d/99-off.rules"; echo 'Volume=/:/host' >> "$work/etc/containers/systemd/users/970/halogen.container.d/20-records.conf"
+"$selftest" > "$work/out" 2>&1 || true; expect "^WARN config-files: .*20-records.conf \\(not what halogenctl records on writes\\)"
+# A file is excused by its full path only: the same name elsewhere, and auditd plugins, are flagged.
+/usr/bin/rm "$work/etc/containers/systemd/users/970/halogen.container.d/20-records.conf"
+mkdir -p "$work/etc/containers/systemd/users/halogen.container.d" "$work/etc/audit/plugins.d"
+echo 'Volume=/:/host' > "$work/etc/containers/systemd/users/halogen.container.d/20-records.conf"
+"$selftest" > "$work/out" 2>&1 || true; expect "^WARN config-files: files halOS didn't put there .*/etc/containers/systemd/users/halogen.container.d/20-records.conf"
+/usr/bin/rm "$work/etc/containers/systemd/users/halogen.container.d/20-records.conf"; echo 'path = /tmp/x' > "$work/etc/audit/plugins.d/x.conf"
+"$selftest" > "$work/out" 2>&1 || true; expect "^WARN config-files: files halOS didn't put there .*/etc/audit/plugins.d/x.conf"
+rm -r "$work/etc/audit" "$work/usretc/audit" "$work/etc/containers/systemd" "$work/usretc/containers/systemd"
 HALOS_AUDIT_MIN_FREE_MB=99999999 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN audit: only [0-9]+ MB free'
 HALOS_LOG_MIN_FREE_MB=999999999 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN logs: only'
 "$selftest" > "$work/out" 2>&1 || true

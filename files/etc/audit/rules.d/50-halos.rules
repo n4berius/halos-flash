@@ -16,7 +16,11 @@
 ## ones: this keeps the cost of auditing off the engine. It also means the watches below record
 ## root's and admins' changes (halogenctl run with sudo included), not what Halogen's own
 ## services write in /var/srv/configs. The selftest checks this rule is loaded (-i would hide it failing).
--a task,never -F uid=970
+## auid=970: only Halogen's own login session (its user manager, started by PAM with login uid
+## 970). Root acting as uid 970 from an admin's login or a system service stays audited, so
+## taking on Halogen's uid (runuser, setpriv, sudo -u) is no way to hide a change from the watches
+## below. What root asks Halogen's own manager to run is still left out; it has only halogen's rights.
+-a task,never -F uid=970 -F auid=970
 
 ## halOS's settings and keys
 -w /etc/halos -p wa -k halos-config
@@ -25,14 +29,37 @@
 -w /etc/containers/policy.json -p wa -k signature-policy
 -w /etc/containers/registries.d -p wa -k signature-policy
 -w /etc/pki/containers -p wa -k signature-policy
+## How Halogen's container is started (the Quadlet and its drop-ins), and the rest of the
+## container settings (registries, mirrors)
+-w /etc/containers/systemd -p wa -k quadlet
+-w /etc/containers -p wa -k containers
+## The audit rules and settings themselves, and system services and timers
+-w /etc/audit -p wa -k audit-config
+-w /etc/systemd -p wa -k systemd-config
 ## Logins and admin rights
--w /etc/ssh/sshd_config -p wa -k sshd-config
--w /etc/ssh/sshd_config.d -p wa -k sshd-config
+-w /etc/ssh -p wa -k sshd-config
+-w /etc/pam.d -p wa -k pam
+-w /etc/security -p wa -k pam
 -w /etc/sudoers -p wa -k sudoers
 -w /etc/sudoers.d -p wa -k sudoers
 -w /etc/passwd -p wa -k accounts
 -w /etc/group -p wa -k accounts
 -w /etc/shadow -p wa -k accounts
+-w /etc/gshadow -p wa -k accounts
+-w /etc/subuid -p wa -k accounts
+-w /etc/subgid -p wa -k accounts
+## Things that run code as root: a preloaded library, kernel modules, udev rules; and the
+## firewall and kernel settings
+-w /etc/ld.so.preload -p wa -k preload
+-w /etc/modprobe.d -p wa -k modules
+-w /etc/modules-load.d -p wa -k modules
+-w /etc/udev/rules.d -p wa -k udev
+-w /etc/firewalld -p wa -k firewall
+-w /etc/sysctl.d -p wa -k sysctl
+-w /etc/crypttab -p wa -k luks-tpm
+## Runs of modprobe, insmod and rmmod (all kmod) by any process, logged in or not. Loads the kernel
+## starts itself, and those udev and systemd make through the library, run no program and aren't seen.
+-a always,exit -F path=/usr/bin/kmod -F perm=x -k modules
 ## Disk encryption and the TPM, OS updates and halOS's own tools: each run by someone logged in
 ## (auid is the login the process came from; "unset" is the system's own services, such as the
 ## status timer that runs "halosctl version" every ten minutes, which would bury the rest).
@@ -43,3 +70,8 @@
 -a always,exit -F path=/usr/bin/halosctl -F perm=x -F auid!=unset -k halosctl
 -a always,exit -F path=/usr/bin/halogenctl -F perm=x -F auid!=unset -k halogenctl
 ## Logins, sudo and account changes need no rule: PAM and the tools report them themselves.
+
+## Lock the rules until the next reboot: nobody, root included, can switch auditing off or change
+## a rule on the running system (an attempt is refused and recorded). A rule change therefore
+## needs a reboot, as an OS update does. augenrules keeps this line last.
+-e 2
