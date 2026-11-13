@@ -52,3 +52,17 @@ rm "$work/configs/halogen.env"; cp "$work/configs/halogen.env.keep" "$work/confi
 grep -qx 'HALOGEN_FLASH_CTX=2' "$work/configs/halogen.env.example" || { echo "the reference was not refreshed" >&2; exit 1; }
 cmp -s "$work/configs/halogen.env" "$work/configs/halogen.env.keep" || { echo "halogen.env changed" >&2; exit 1; }
 ok "it keeps the API key on later boots and never follows a link where a file should be; the reference is refreshed and halogen.env left alone"
+
+# A link planted where one of halogen's folders belongs is removed (as halogen) and the folder
+# made, instead of install -d following it: the target keeps its mode, and a dangling link
+# doesn't fail the unit.
+mkdir -p "$work/target"; chmod 755 "$work/target"
+rmdir "$work/models/.prompt-cache"; ln -s "$work/target" "$work/models/.prompt-cache"
+rm -rf "$work/models/custom"; ln -s "$work/nowhere" "$work/models/custom"
+: > "$work/log"; "$prepare" 2> "$work/err"
+if [ -L "$work/models/.prompt-cache" ] || [ ! -d "$work/models/.prompt-cache" ]; then echo "a link in place of the prompt cache folder was kept" >&2; exit 1; fi
+if [ -L "$work/models/custom" ] || [ ! -d "$work/models/custom" ]; then echo "a dangling link in place of a checkpoint folder was kept" >&2; exit 1; fi
+[ "$(stat -c %a "$work/target")" = 755 ] || { echo "prepare changed the mode of a link's target" >&2; exit 1; }
+grep -q "runuser -u halogen -- rm -f -- $work/models/.prompt-cache" "$work/log" || { echo "the link wasn't removed as halogen" >&2; exit 1; }
+grep -q 'removing the link' "$work/err" || { echo "removing a link wasn't said" >&2; exit 1; }
+ok "a link in place of one of halogen's folders is removed and the folder made"

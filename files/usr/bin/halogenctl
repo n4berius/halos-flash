@@ -620,8 +620,9 @@ case "${1:-status}" in
         # stop Halogen starting, so they count as a wrong answer, not as the first of them.
         cmount() {
           local u n; u="$(as_manager cat halogen.service 2> /dev/null)" || true
-          n="$({ grep -o -- '-v [^ ]*\.prompt-cache:[^ ]*' <<< "$u" || true; } | wc -l)"
-          if [ "$n" -gt 1 ]; then echo "$n cache mounts"; else { grep -o -- '-v [^ ]*\.prompt-cache:[^ ]*' <<< "$u" || true; } | head -n 1; fi
+          # Counted by where it lands in the container (as the selftest does), whatever the source.
+          n="$({ grep -o -E -- '-v [^ ]*:/models/\.prompt-cache(:[^ ]*)?( |$)' <<< "$u" || true; } | wc -l)"
+          if [ "$n" -gt 1 ]; then echo "$n cache mounts"; else { grep -o -E -- '-v [^ ]*:/models/\.prompt-cache(:[^ ]*)?( |$)' <<< "$u" || true; } | head -n 1 | tr -d ' '; fi
         }
         # Already there only when every half is: the choice, the drop-in and the generated unit's
         # mount. Anything else (a switch cut short, or "off" from before the folder went read-only)
