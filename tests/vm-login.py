@@ -104,8 +104,9 @@ typed("{ echo RESULT-START; cat /proc/cmdline; dmesg | grep -i secure; bootctl s
       # (runuser from this login) does. The Quadlet folder is watched. The rules are locked.
       "echo HLOGIN $(cat /proc/$(systemctl show -p MainPID --value user@970.service)/loginuid); "
       "setpriv --reuid=970 --regid=970 --clear-groups env -C / XDG_RUNTIME_DIR=/run/user/970 "
-      "systemd-run --user --wait -q touch /srv/configs/audit-a; "
-      "runuser -u halogen -- env -C / touch /srv/configs/audit-b; rm -f /srv/configs/audit-a /srv/configs/audit-b; "
+      "systemd-run --user --wait -q sh -c 'touch /srv/configs/audit-a; rm -f /srv/configs/audit-a'; "
+      # (audit-a is also removed by that unit: root's own rm would be recorded, and was, under its name.)
+      "runuser -u halogen -- env -C / touch /srv/configs/audit-b; rm -f /srv/configs/audit-b; "
       "touch /etc/containers/systemd/audit-q; rm -f /etc/containers/systemd/audit-q; "
       "auditctl -e 0 > /dev/null 2>&1; echo AUDITLOCK $? $(auditctl -s | grep -c -x -e 'enabled 2'); "
       "echo HCONF $(runuser -u halogen -- env -C / find /var/lib/halogen/.config -maxdepth 3 | xargs); "
