@@ -125,7 +125,8 @@ pcoff="$work/etc/containers/systemd/users/halogen.container.d/15-prompt-cache.co
 echo off > "$work/configs/prompt-cache"; "$selftest" > "$work/out" 2>&1 || true; expect '^WARN prompt-cache: off, but only half'
 mkdir -p "${pcoff%/*}"; printf '%s\n' '# Written by sudo halogenctl cache off; removed by cache on.' '[Container]' \
   'Volume=/srv/models/.prompt-cache:/models/.prompt-cache:ro,noexec,nosuid,nodev' > "$pcoff"
-"$selftest" > "$work/out" 2>&1 || true; expect '^INFO prompt-cache: off, and Halogen can only read'
+FAKE_UNIT='ExecStart=podman run -v /srv/models/.prompt-cache:/models/.prompt-cache:ro,noexec,nosuid,nodev x' "$selftest" > "$work/out" 2>&1 || true
+expect '^INFO prompt-cache: off, and Halogen can only read'
 /usr/bin/rm "$pcoff"
 # Two cache mounts in Halogen's unit (podman refuses them), and a read-only drop-in the unit doesn't follow.
 two='ExecStart=podman run -v /srv/models/.prompt-cache:/models/.prompt-cache:ro,noexec -v /srv/models/.prompt-cache:/models/.prompt-cache:noexec x'
@@ -133,7 +134,18 @@ FAKE_UNIT="$two" "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL prompt-ca
 echo off > "$work/configs/prompt-cache"; mkdir -p "${pcoff%/*}"; printf '%s\n' '# Written by sudo halogenctl cache off; removed by cache on.' '[Container]' \
   'Volume=/srv/models/.prompt-cache:/models/.prompt-cache:ro,noexec,nosuid,nodev' > "$pcoff"
 FAKE_UNIT='ExecStart=podman run -v /srv/models/.prompt-cache:/models/.prompt-cache:noexec,nosuid,nodev x' "$selftest" > "$work/out" 2>&1 || true
-expect '^WARN prompt-cache: off, but .* still mounts the folder writable'; /usr/bin/rm "$pcoff"
+expect "^WARN prompt-cache: off, but Halogen's service doesn't mount the cache folder read-only"; /usr/bin/rm "$pcoff"
+# With the off drop-in there, a mount without options or from another source isn't "can only read".
+printf '%s\n' '# Written by sudo halogenctl cache off; removed by cache on.' '[Container]' 'Volume=/srv/models/.prompt-cache:/models/.prompt-cache:ro,noexec,nosuid,nodev' > "$pcoff"
+for u in 'ExecStart=podman run -v /srv/models/.prompt-cache:/models/.prompt-cache x' 'ExecStart=podman run -v /srv/configs:/models/.prompt-cache:noexec x'; do
+  FAKE_UNIT="$u" "$selftest" > "$work/out" 2>&1 || true; expect "^WARN prompt-cache: off, but Halogen's service doesn't mount the cache folder read-only"
+done
+FAKE_UNIT='Failed to connect to bus' "$selftest" > "$work/out" 2>&1 || true; expect '^INFO prompt-cache: off, and Halogen can only read'
+/usr/bin/rm "$pcoff"
+# A link in place of the NPU models folder.
+/usr/bin/mv "$work/models/npu" "$work/models/npu.x"; /usr/bin/ln -s "$work/configs" "$work/models/npu"
+"$selftest" > "$work/out" 2>&1 || true; expect '^FAIL npu-folder: .* is a link'
+/usr/bin/rm "$work/models/npu"; /usr/bin/mv "$work/models/npu.x" "$work/models/npu"
 # A link in place of an own-checkpoint folder, and a file in halogen's own runtime Quadlet folder.
 /usr/bin/mv "$work/models/custom" "$work/models/custom.x"; /usr/bin/ln -s "$work/configs" "$work/models/custom"
 "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL folder-custom: .* is a link'
@@ -166,6 +178,8 @@ mkdir -p "$work/home/.config/systemd/user"; : > "$work/home/.config/systemd/user
 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN halogen-autostart: .*evil.service'; rm -r "$work/home/.config/systemd"
 mkdir -p "$work/run-user/containers/systemd/halogen.container.d"; : > "$work/run-user/containers/systemd/halogen.container.d/15-prompt-cache.conf"
 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN halogen-autostart: .*run-user/containers/systemd/halogen.container.d/15-prompt-cache.conf'; rm -r "$work/run-user/containers"
+mkdir -p "$work/run-user/systemd/user.control"; : > "$work/run-user/systemd/user.control/x.conf"
+"$selftest" > "$work/out" 2>&1 || true; expect '^WARN halogen-autostart: .*run-user/systemd/user.control/x.conf'; rm -r "$work/run-user/systemd"
 # The audit rules and Halogen's container definition compared with the image's copies.
 expect '^SKIP config-files:'
 for d in etc usretc; do mkdir -p "$work/$d/audit/rules.d" "$work/$d/containers/systemd/users/970/halogen.container.d"

@@ -29,6 +29,7 @@ mkdir -p "$work/models/npu" "$work/models/decider"; run > /dev/null
 rmdir "$work/models/decider"; ln -s "$work/elsewhere" "$work/models/decider"; expect_fail "a link in place of an own-checkpoint folder"
 rm "$work/models/decider"; rmdir "$work/models/npu"; ln -s "$work/elsewhere" "$work/models/npu"; expect_fail "a link in place of the NPU models folder"
 rm "$work/models/npu"
+: > "$work/models/LFM"; expect_fail "a file in place of an own-checkpoint folder"; rm "$work/models/LFM"
 rm "$work/dev/accel/accel0"; expect_fail "a missing NPU"
 touch "$work/dev/accel/accel0"
 printf '#!/bin/sh\nexit 1\n' > "$work/clock"; expect_fail "an unheld fabric clock"

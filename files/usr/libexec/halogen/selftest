@@ -395,7 +395,7 @@ if have systemctl && have curl; then
 fi
 # --- Model folders
 old="$(find "$models/npu" -mindepth 1 -maxdepth 1 -type d -regex '.*/[0-9]+\.[0-9]+\.[0-9]+' -printf '%f ' 2>/dev/null)"
-if [ "$npu" = 1 ] && as_owner test -L "$models/npu"; then say FAIL npu-folder "$models/npu is a link, not a folder (it is mounted into Halogen's container): remove it, then sudo systemctl restart halogen-prepare.service"
+if [ "$npu" = 1 ] && as_owner test -L "$models/npu"; then say FAIL npu-folder "$models/npu is a link, not a folder (it is mounted into Halogen's container): sudo systemctl restart halogen-prepare.service removes it and makes the folder"
 elif [ "$npu" != 1 ] || [ ! -d "$models/npu" ]; then :
 elif [ -z "$old" ]; then say PASS npu-folder "NPU models are in one folder"
 else say WARN npu-folder "old version folders remain in $models/npu: $old(restart Halogen to move them)"; fi
@@ -403,7 +403,7 @@ if [ "$npu" = 1 ]; then
   for f in decider LFM custom; do
     d="$models/$f"
     # A link here would mount whatever it points to, writable, into Halogen's container.
-    if as_owner test -L "$d"; then say FAIL "folder-$f" "$d is a link, not a folder: remove it, then sudo systemctl restart halogen-prepare.service"; continue; fi
+    if as_owner test -L "$d"; then say FAIL "folder-$f" "$d is a link, not a folder: sudo systemctl restart halogen-prepare.service removes it and makes the folder"; continue; fi
     if [ ! -d "$d" ]; then say FAIL "folder-$f" "$d is missing"; continue; fi
     owner="$(stat -c %U "$d")"; label="$(stat -c %C "$d" 2>/dev/null)"
     if [ "$owner" != halogen ]; then say FAIL "folder-$f" "$d belongs to $owner, not halogen"
@@ -493,7 +493,8 @@ pcro=0; [ ! -e "$etc/$pcoff" ] || pcro=1
 # root's drop-in can be overridden from halogen's own Quadlet folders, so the file alone isn't proof.
 huid="$(id -u halogen 2> /dev/null || echo 970)"
 pcunit="$(run setpriv --reuid="$huid" --regid="$huid" --clear-groups env -C / XDG_RUNTIME_DIR="/run/user/$huid" systemctl --user cat halogen.service | grep -e '^ExecStart=')"
-pcn="$(grep -o -F '.prompt-cache:/models/.prompt-cache:' <<< "$pcunit" | wc -l)"
+# Counted by where it lands in the container, whatever the source or options.
+pcn="$(grep -o -E -- '-v [^ ]*:/models/\.prompt-cache(:[^ ]*)?( |$)' <<< "$pcunit" | wc -l)"
 # A link here would hand Halogen's container whatever it points to, writable; the folder must be
 # halogen's own. (Halogen's preflight refuses to start on the first three as well.)
 if as_owner test -L "$pc"; then
@@ -506,8 +507,8 @@ elif [ "$(as_owner stat -c %a "$pc")" != 700 ]; then
   say WARN prompt-cache "$pc has mode $(as_owner stat -c %a "$pc" | tr -cd '0-9'), not 700, so others may read saved conversation state (the next boot resets it)"
 elif [ "${pcn:-0}" -gt 1 ]; then
   say FAIL prompt-cache "Halogen's service has $pcn mounts for the cache folder, and podman refuses two at one place: look for a copy of the .prompt-cache line (sudo halogenctl selftest's config-files line, and halogen's own Quadlet folders)"
-elif [ "$pcro" = 1 ] && [ "${pcn:-0}" = 1 ] && ! grep -q -F '.prompt-cache:/models/.prompt-cache:ro,' <<< "$pcunit"; then
-  say WARN prompt-cache "off, but Halogen's service still mounts the folder writable: sudo halogenctl cache off"
+elif [ "$pcro" = 1 ] && [ -n "$pcunit" ] && ! { [ "${pcn:-0}" = 1 ] && grep -q -E -- '-v /srv/models/\.prompt-cache:/models/\.prompt-cache:ro,' <<< "$pcunit"; }; then
+  say WARN prompt-cache "off, but Halogen's service doesn't mount the cache folder read-only (it has ${pcn:-0} mount(s) there, writable or from elsewhere): sudo halogenctl cache off, and look at the halogen-autostart line"
 elif [ "$pcchoice" = off ] && [ "$pcro" = 1 ]; then
   say INFO prompt-cache "off, and Halogen can only read the folder: conversations are read again in full after a restart (sudo halogenctl cache on)"
 elif [ "$pcchoice" = off ] || [ "$pcro" = 1 ]; then

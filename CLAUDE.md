@@ -608,8 +608,9 @@ name, but allows saying halOS runs Halogen.
   ../configs` would hand Halogen the keys; a missing folder passes, the edition may not use it).
   The selftest's `npu-folder` and `folder-*` FAIL on a link. `prepare` removes a link (as halogen)
   at each folder it makes before `install -d`, which followed it (changing the target's mode) and
-  failed the unit on a dangling one; a deliberate link to another disk is therefore undone at boot:
-  mount the disk there. The convert sandbox's `InaccessiblePaths` also takes `/srv/logs`. The
+  failed the unit on a dangling one; a deliberate link to another disk is therefore undone at boot (the
+  target's contents stay): mount the disk there and chown/chcon it to halogen and `container_file_t`,
+  since a fresh filesystem's top folder is root's, on which `install -d` as halogen fails and preflight's `-O` refuses. A plain file in a folder's place still fails prepare (it doesn't delete non-links); preflight names the remedy. The convert sandbox's `InaccessiblePaths` also takes `/srv/logs`. The
   selftest's `halogen-autostart` also looks in `/run/user/970/{containers/systemd,systemd/user,
   systemd/user.control}`, and `prompt-cache` reads the generated unit: two cache mounts FAIL, and
   an off drop-in the unit doesn't follow WARNs (halogen's own Quadlet folders override root's

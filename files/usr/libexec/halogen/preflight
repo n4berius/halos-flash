@@ -40,9 +40,11 @@ fi
 for f in npu decider LFM custom; do
   d="${HALOGEN_MODELS_DIR:-/srv/models}/$f"
   if [ -L "$d" ]; then
-    fail "$d is a link, not a folder. Remove it; the next boot (or sudo systemctl restart halogen-prepare.service) makes the folder again"
-  elif [ -e "$d" ] && { [ ! -d "$d" ] || [ ! -O "$d" ]; }; then
-    fail "$d isn't a folder of this service's user (it belongs to $(stat -c %U "$d" 2>/dev/null || echo someone else))"
+    fail "$d is a link, not a folder. sudo systemctl restart halogen-prepare.service (or the next boot) removes it and makes the folder again"
+  elif [ -e "$d" ] && [ ! -d "$d" ]; then
+    fail "$d isn't a folder. Remove it, then: sudo systemctl restart halogen-prepare.service"
+  elif [ -e "$d" ] && [ ! -O "$d" ]; then
+    fail "$d belongs to $(stat -c %U "$d" 2>/dev/null || echo someone else), not to this service's user (for a disk mounted there: sudo chown halogen:halogen $d)"
   fi
 done
 
