@@ -5,7 +5,7 @@
 # writes: the official one, or a checkpoint flash pull downloaded and Halogen's verify passed.
 # Request records (#107) are on only while sudo halogenctl records on has mounted /srv/logs/halogen
 # at /records (a Quadlet drop-in only root writes); then the text kept defaults to none.
-# The prompt cache on disk (HALOGEN_CACHE_DIR=/cache, the folder /srv/models/.prompt-cache) is on
+# The prompt cache on disk (HALOGEN_CACHE_DIR=/models/.prompt-cache, the folder /srv/models/.prompt-cache) is on
 # unless sudo halogenctl cache off wrote "off" in /srv/configs/prompt-cache.
 # Prints the path of the result. With --show, prints its contents instead.
 set -uo pipefail
@@ -114,7 +114,7 @@ if [ -n "${values[HALOGEN_CACHE_PRUNE_OLD]:-}" ] && ! [[ "${values[HALOGEN_CACHE
   ignore HALOGEN_CACHE_PRUNE_OLD "it must be 0 or 1; using 1"; unset 'values[HALOGEN_CACHE_PRUNE_OLD]'
 fi
 if [ "$(head -n 1 "$cache_choice" 2>/dev/null | tr -cd '[:lower:]')" != off ] && [ -d "$models/.prompt-cache" ]; then
-  values[HALOGEN_CACHE_DIR]=/cache
+  values[HALOGEN_CACHE_DIR]=/models/.prompt-cache
   values[HALOGEN_CACHE_PRUNE_OLD]="${values[HALOGEN_CACHE_PRUNE_OLD]:-1}"
 else
   unset 'values[HALOGEN_CACHE_DIR]' 'values[HALOGEN_CACHE_DISK_GIB]' 'values[HALOGEN_CACHE_PRUNE_OLD]'

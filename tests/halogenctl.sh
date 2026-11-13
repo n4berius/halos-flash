@@ -366,6 +366,15 @@ if FAKE_ACTIVE='' "$ctl" cache off --yes > /dev/null 2>&1; then echo "an unanswe
 : > "$work/log"; "$ctl" cache clear --yes > /dev/null
 [ -d "$HALOGEN_MODELS_DIR/.prompt-cache" ] && [ -z "$(ls -A "$HALOGEN_MODELS_DIR/.prompt-cache")" ] || { echo "cache clear didn't empty the folder, or removed it" >&2; exit 1; }
 grep -n 'halogen.service' "$work/log" | tr '\n' ' ' | grep -q 'stop halogen.service.* start halogen.service' || { cat "$work/log" >&2; echo "cache clear didn't stop and start Halogen" >&2; exit 1; }
+# A folder the container made unreadable is still emptied; a link in place of the folder is refused.
+mkdir -p "$HALOGEN_MODELS_DIR/.prompt-cache/locked"; echo x > "$HALOGEN_MODELS_DIR/.prompt-cache/locked/rows"; chmod 000 "$HALOGEN_MODELS_DIR/.prompt-cache/locked"
+"$ctl" cache clear --yes > /dev/null
+[ -z "$(ls -A "$HALOGEN_MODELS_DIR/.prompt-cache")" ] || { echo "cache clear left an unreadable folder behind" >&2; exit 1; }
+rmdir "$HALOGEN_MODELS_DIR/.prompt-cache"; mkdir "$work/elsewhere"; echo keep > "$work/elsewhere/file"; ln -s "$work/elsewhere" "$HALOGEN_MODELS_DIR/.prompt-cache"
+if "$ctl" cache clear --yes > /dev/null 2>&1; then echo "cache clear accepted a link in place of the folder" >&2; exit 1; fi
+[ -e "$work/elsewhere/file" ] || { echo "cache clear deleted through a link" >&2; exit 1; }
+rm "$HALOGEN_MODELS_DIR/.prompt-cache"; mkdir "$HALOGEN_MODELS_DIR/.prompt-cache"
+if FAKE_UID=1000 "$ctl" cache > /dev/null 2>&1; then echo "cache status answered without root (it would always say on)" >&2; exit 1; fi
 if FAKE_UID=1000 "$ctl" cache clear --yes > /dev/null 2>&1; then echo "cache clear ran without root" >&2; exit 1; fi
 if "$ctl" cache wipe > /dev/null 2>&1; then echo "an unknown cache command was accepted" >&2; exit 1; fi
 ok "cache shows its state; off, on and clear ask, act as halogen, and restart or stop Halogen only when it runs"

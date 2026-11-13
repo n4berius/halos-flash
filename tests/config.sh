@@ -112,7 +112,7 @@ if grep -q '^HALOGEN_CACHE_DIR' "$work/out"; then echo "the disk cache is on wit
 mkdir -p "$work/models/.prompt-cache"
 printf 'HALOGEN_CACHE_DISK_GIB=20\nHALOGEN_CACHE_DIR=/models\n' > "$work/config"
 "$render" --show 2> /dev/null > "$work/out"
-if ! { grep -qx 'HALOGEN_CACHE_DIR=/cache' "$work/out" && grep -qx 'HALOGEN_CACHE_PRUNE_OLD=1' "$work/out" \
+if ! { grep -qx 'HALOGEN_CACHE_DIR=/models/.prompt-cache' "$work/out" && grep -qx 'HALOGEN_CACHE_PRUNE_OLD=1' "$work/out" \
   && grep -qx 'HALOGEN_CACHE_DISK_GIB=20' "$work/out"; }; then cat "$work/out" >&2; echo "the disk cache isn't on with its defaults" >&2; exit 1; fi
 printf 'HALOGEN_CACHE_DISK_GIB=lots\nHALOGEN_CACHE_PRUNE_OLD=0\n' > "$work/config"
 "$render" --show 2> "$work/log" > "$work/out"

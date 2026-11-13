@@ -104,7 +104,7 @@ if [ "$(cat "$stamp" 2>/dev/null)" = "$want" ] && [ -e "$models/.own-bases" ]; t
 fi
 
 # Your own Flash checkpoints don't count as room for this release's models.
-have_gib="$(du -s --block-size=1G --exclude="$models/flash" "$models" 2>/dev/null | cut -f1)"
+have_gib="$(du -s --block-size=1G --exclude="$models/flash" --exclude="$models/.prompt-cache" "$models" 2>/dev/null | cut -f1)"
 free_gib="$(df --output=avail --block-size=1G "$models" | tail -n 1 | tr -d ' ')"
 if [ "$((${free_gib:-0} + ${have_gib:-0}))" -lt "$needed_gib" ]; then
   echo "halogen-fetch: ${free_gib:-0} GiB free in $models; the models need about $needed_gib GiB" >&2
@@ -116,7 +116,7 @@ fi
 if [ "$progress_s" -gt 0 ]; then
   while sleep "$progress_s" > /dev/null 2>&1; do
     # Your own checkpoints count in this too, so past the estimate it reports only the size.
-    now_gib="$(du -s --block-size=1G --exclude="$models/flash" "$models" 2>/dev/null | cut -f1)"
+    now_gib="$(du -s --block-size=1G --exclude="$models/flash" --exclude="$models/.prompt-cache" "$models" 2>/dev/null | cut -f1)"
     if [ "${now_gib:-0}" -lt "$needed_gib" ]; then
       echo "halogen-fetch: ${now_gib:-0} GiB of about $needed_gib GiB downloaded"
     else

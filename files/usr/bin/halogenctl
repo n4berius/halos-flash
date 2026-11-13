@@ -572,6 +572,7 @@ case "${1:-status}" in
     cdir="$models/.prompt-cache"; cchoice="$configs/prompt-cache"
     yes=0; args=()
     for a in "${@:2}"; do if [ "$a" = --yes ]; then yes=1; else args+=("$a"); fi; done
+    csize() { timeout 20 runuser -u halogen -- env -C / du -sh "$cdir" 2>/dev/null | cut -f1 | tr -cd '[:alnum:].,' || true; }
     cstate="on"; [ "$(as_owner head -n 1 "$cchoice" 2>/dev/null | tr -cd '[:lower:]')" != off ] || cstate="off"
     cask() {
       [ "$(id -u)" = 0 ] || { echo "Run it with sudo: sudo halogenctl cache ${args[0]}" >&2; exit 1; }
@@ -591,7 +592,8 @@ case "${1:-status}" in
     crestart() { if crunning; then start_halogen restart; echo "Halogen is restarting; follow it with: sudo halogenctl logs"; fi; }
     case "${args[0]:-status}" in
       status)
-        echo "Prompt cache on disk: $cstate ($cdir, $(as_owner du -sh "$cdir" 2>/dev/null | cut -f1 | tr -cd '[:alnum:].,' || true) used)"
+        [ "$(id -u)" = 0 ] || { echo "Run it with sudo: sudo halogenctl cache" >&2; exit 1; }
+        echo "Prompt cache on disk: $cstate ($cdir, $(csize) used)"
         if [ "$cstate" = on ]; then echo "Conversations survive a restart of Halogen. Limit: HALOGEN_CACHE_DISK_GIB in halogen.env (64 GiB unless set)."
         else echo "Conversations are read again in full after a restart. Turn it on: sudo halogenctl cache on"; fi ;;
       on|off)
@@ -603,12 +605,19 @@ case "${1:-status}" in
         [ "${args[0]}" = on ] || echo "What it saved stays in $cdir; delete it with: sudo halogenctl cache clear"
         crestart ;;
       clear)
-        cask "Delete every saved conversation state in $cdir ($(as_owner du -sh "$cdir" 2>/dev/null | cut -f1 | tr -cd '[:alnum:].,' || true))?"
+        cask "Delete every saved conversation state in $cdir ($(csize))?"
+        if ! as_owner test -d "$cdir" || as_owner test -L "$cdir"; then echo "$cdir isn't a folder of its own, so nothing was deleted." >&2; exit 1; fi
         was=0; if crunning; then was=1; unit stop halogen.service || exit 1; fi
-        # As halogen, and only what is inside the folder: Halogen's container writes there.
-        as_owner find "$cdir" -mindepth 1 -delete; r=$?
+        # As halogen, and only what is inside the folder: Halogen's container writes there, so a
+        # folder it made unreadable is opened up first (chmod -R follows no links it meets), names
+        # in error messages are cleaned, and "Deleted" is said only once the folder is empty.
+        as_owner chmod -R u+rwX -- "$cdir" 2>&1 | clean
+        as_owner find "$cdir" -mindepth 1 -delete 2>&1 | clean
+        left="$(as_owner find "$cdir" -mindepth 1 -print -quit 2>/dev/null | head -c 1 | wc -c)"
+        if [ "$left" != 0 ]; then
+          echo "Couldn't delete everything in $cdir.$([ "$was" != 1 ] || echo ' Halogen stays stopped: sudo halogenctl start')" >&2; exit 1
+        fi
         [ "$was" != 1 ] || start_halogen start
-        [ "$r" = 0 ] || { echo "Couldn't delete everything in $cdir." >&2; exit 1; }
         echo "Deleted. $([ "$was" != 1 ] || echo 'Halogen is starting again.')" ;;
       *) echo "usage: halogenctl cache [status | on | off | clear] [--yes]" >&2; exit 2 ;;
     esac

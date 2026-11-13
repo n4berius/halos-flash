@@ -488,10 +488,10 @@ name, but allows saying halOS runs Halogen.
   generated unit's `--read-only`; Halogen's start and speed under it need freyja.
 
 - Prompt cache on disk (owner asked; Halogen's `HALOGEN_CACHE_DIR`, configuration.md "Prompt cache
-  on disk"): `halogen.container` always mounts `/srv/models/.prompt-cache:/cache:noexec,nosuid,nodev`
+  on disk"): `halogen.container` always mounts `/srv/models/.prompt-cache:/models/.prompt-cache:noexec,nosuid,nodev` (over its own place: at a second path such as `/cache` the read-only `/models` mount shows the same folder without `noexec`, security audit)
   (the one writable folder under the read-only models; `prepare` makes it as halogen, 0700, at every
   boot, so an upgrade has it before Halogen starts; a missing source folder would fail the start).
-  `render-config` sets `HALOGEN_CACHE_DIR=/cache` and `HALOGEN_CACHE_PRUNE_OLD=1` (halOS's default:
+  `render-config` sets `HALOGEN_CACHE_DIR=/models/.prompt-cache` and `HALOGEN_CACHE_PRUNE_OLD=1` (halOS's default:
   each build/checkpoint/setting keeps its own subtree and never reads another's, so an upgrade would
   leave them; `0` in `halogen.env` keeps them for a rollback) unless `/srv/configs/prompt-cache`
   says `off` (`halogenctl cache off`; the mount stays, Halogen just isn't told) or the folder is

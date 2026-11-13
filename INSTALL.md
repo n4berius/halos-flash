@@ -608,8 +608,11 @@ sudo halogenctl cache clear    # delete everything saved
 - A different Halogen version, checkpoint or setting never reads another's files. halOS has
   Halogen delete those at start (`HALOGEN_CACHE_PRUNE_OLD=1`), so an OS upgrade starts with an
   empty cache and leaves nothing behind. Set it to `0` to keep them, so a rollback finds its cache.
-- The folder holds the state of your conversations (not readable text, but derived from it). Only
-  the `halogen` user can read it, and it is on the encrypted disk.
+- The folder holds the state of your conversations, so treat it like the conversations
+  themselves. Only the `halogen` user can read it, and it is protected at rest only if you chose
+  disk encryption when installing. A backup of `/srv/models` copies it too. `cache off` keeps
+  what was saved; `cache clear` deletes it, and is also the step to take after trying a
+  checkpoint you don't trust.
 
 ### Request records
 

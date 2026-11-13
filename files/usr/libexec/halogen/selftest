@@ -464,7 +464,7 @@ if [ "$(as_owner head -n 1 "$configs/prompt-cache" | tr -cd '[:lower:]')" = off 
 elif ! as_owner test -d "$pc"; then
   say WARN prompt-cache "$pc is missing, so Halogen can't start with it: sudo systemctl restart halogen-prepare.service"
 else
-  pcfs="$(as_owner stat -f -c %T "$pc" | tr -cd '[:alnum:]')"; pcused="$(as_owner du -sh "$pc" | cut -f1 | tr -cd '[:alnum:].,')"
+  pcfs="$(as_owner stat -f -c %T "$pc" | tr -cd '[:alnum:]')"; pcused="$(run runuser -u halogen -- du -sh "$pc" 2>/dev/null | cut -f1 | tr -cd '[:alnum:].,')"
   case "$pcfs" in
     tmpfs|overlayfs|ramfs) say WARN prompt-cache "$pc is on $pcfs, which Halogen refuses: the cache stays in memory only" ;;
     *) say PASS prompt-cache "on, ${pcused:-?} in $pc (conversations survive a restart of Halogen)" ;;

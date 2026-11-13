@@ -46,7 +46,7 @@ elif [ "$fetch" = activating ]; then
   # As halogen: root never looks inside the halogen user's folders (see prepare).
   if as_halogen test -f "$models/.fetch-stamp"; then state="checking models"
   else
-    have="$(as_halogen du -s --block-size=1G --exclude="$models/flash" "$models" 2>/dev/null | cut -f1)"
+    have="$(as_halogen du -s --block-size=1G --exclude="$models/flash" --exclude="$models/.prompt-cache" "$models" 2>/dev/null | cut -f1)"
     # A number only: this text came from another user's process.
     [[ "$have" =~ ^[0-9]+$ ]] || have=0
     pct=$(( have * 100 / needed_gib )); [ "$pct" -le 99 ] || pct=99
