@@ -24,11 +24,11 @@ ctl="$repo/files/usr/bin/halogenctl"
 ok() { echo "ok: $*"; }
 
 echo secret-key > "$work/configs/api-key"
-if ! { [ "$("$ctl" api-key)" = secret-key ] && grep -q "runuser -u halogen -- cat $work/configs/api-key" "$work/log"; }; then
+if ! { [ "$("$ctl" api-key)" = secret-key ] && grep -q "runuser -u halogen -- env -C / cat $work/configs/api-key" "$work/log"; }; then
   echo "api-key was not read as halogen" >&2; exit 1
 fi
 printf 'hf_abc123\n' | "$ctl" hf-token > /dev/null
-if ! { [ "$(cat "$work/configs/hf-token")" = hf_abc123 ] && grep -q 'runuser -u halogen -- sh -c' "$work/log"; }; then
+if ! { [ "$(cat "$work/configs/hf-token")" = hf_abc123 ] && grep -q 'runuser -u halogen -- env -C / sh -c' "$work/log"; }; then
   echo "hf-token was not written as halogen" >&2; exit 1
 fi
 "$ctl" hf-token --remove > /dev/null; [ ! -e "$work/configs/hf-token" ]
@@ -45,7 +45,7 @@ grep -qx 'HALOGEN_NPU_MODELS=a touch .*pwned|e;#,/models/LFM/LFM3-1.7B' "$work/c
   || { echo "the new model was not added as plain text:" >&2; cat "$work/configs/halogen.env" "$work/out" >&2; exit 1; }
 grep -qx 'HALOGEN_FLASH_CTX=1' "$work/configs/halogen.env" || { echo "other settings were lost" >&2; exit 1; }
 [ "$(stat -c %a "$work/configs/halogen.env")" = 640 ] || { echo "halogen.env lost its 0640 mode" >&2; exit 1; }
-grep -q 'runuser -u halogen -- sh -c' "$work/log" || { echo "halogen.env was not edited as halogen" >&2; exit 1; }
+grep -q 'runuser -u halogen -- env -C / sh -c' "$work/log" || { echo "halogen.env was not edited as halogen" >&2; exit 1; }
 grep -q 'systemctl --user --machine=halogen@.host restart halogen.service' "$work/log"
 # A start or restart you ask for clears the crash-loop limit first, so it always runs.
 cleared_then() { grep -A1 'reset-failed halogen.service' "$work/log" > "$work/after-reset" || true
@@ -65,7 +65,7 @@ mkdir -p "$work/models/LFM/old-model"; echo w > "$work/models/LFM/old-model/x"
 : > "$work/log"
 { sleep 2; echo y; } | HALOGEN_MODELS_DIR="$work/models" script -qec "$ctl model remove old-model" /dev/null > "$work/out" 2>&1 || true
 [ ! -e "$work/models/LFM/old-model" ] || { echo "model remove didn't delete:" >&2; cat "$work/out" >&2; exit 1; }
-grep -q "runuser -u halogen -- rm -rf -- $work/models/LFM/old-model" "$work/log" || { echo "model remove deleted as root" >&2; exit 1; }
+grep -q "runuser -u halogen -- env -C / rm -rf -- $work/models/LFM/old-model" "$work/log" || { echo "model remove deleted as root" >&2; exit 1; }
 ok "model remove deletes as halogen"
 
 # options: every option this release offers, and which ones halogen.env doesn't mention yet.
@@ -97,7 +97,7 @@ for cmd in options config status; do
   grep -qx 'Set more than once in halogen.env (only the last line counts): HALOGEN_KV8' "$work/out" \
     || { cat "$work/out" >&2; echo "$cmd didn't name the setting set twice (and only that one)" >&2; exit 1; }
 done
-grep -q "runuser -u halogen -- grep -oE" "$work/log" || { echo "the duplicate check read halogen.env as root" >&2; exit 1; }
+grep -q "runuser -u halogen -- env -C / grep -oE" "$work/log" || { echo "the duplicate check read halogen.env as root" >&2; exit 1; }
 rm "$work/configs/halogen.env"
 if HALOGEN_ENV_TEMPLATE="$template" "$ctl" options --new > "$work/out" 2>&1; then echo "options ran without a readable halogen.env" >&2; exit 1; fi
 grep -q 'Run it with sudo' "$work/out" || { cat "$work/out" >&2; exit 1; }
@@ -129,7 +129,7 @@ for want in '^  ovisocr3 +yes, for OvisOCR3$' '^  lfm3-1\.7b +yes, for my-lfm$' 
   grep -qE "$want" "$work/out" || { cat "$work/out" >&2; echo "expected '$want'" >&2; exit 1; }
 done
 if grep -q "$(printf '\033')" "$work/out"; then echo "a control code from .own-bases reached the screen" >&2; exit 1; fi
-grep -q 'runuser -u halogen -- cat .*\.own-bases' "$work/log" || { echo "read .own-bases as root" >&2; exit 1; }
+grep -q 'runuser -u halogen -- env -C / cat .*\.own-bases' "$work/log" || { echo "read .own-bases as root" >&2; exit 1; }
 rm -rf "$work/models/custom/OvisOCR3" "$work/models/npu/ovisocr3" "$work/models/npu/lfm3-1.7b" "$work/models/npu/lfm3-1.7b-fast" "$work/models/npu/decider-4b" "$work/models/.own-bases"
 printf 'HALOGEN_NPU_MODELS=/models/LFM/my-lfm\n' > "$work/configs/halogen.env"
 ok "model list marks NPU models your checkpoints run on, or the agent guard adds, as in use"
@@ -175,7 +175,7 @@ if "$ctl" flash use nothing --yes > "$work/out" 2>&1; then echo "a missing check
 if "$ctl" flash use ../mine --yes > "$work/out" 2>&1; then echo "a path was accepted as a name" >&2; exit 1; fi
 : > "$work/log"
 "$ctl" flash use mine --yes > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
-if [ "$(cat "$work/configs/flash-checkpoint")" != mine ] || ! grep -q 'runuser -u halogen -- sh -c' "$work/log" ||
+if [ "$(cat "$work/configs/flash-checkpoint")" != mine ] || ! grep -q 'runuser -u halogen -- env -C / sh -c' "$work/log" ||
    ! grep -q 'systemctl --user --machine=halogen@.host restart halogen.service' "$work/log"; then
   echo "use did not write the choice as halogen and restart" >&2; exit 1
 fi
@@ -190,7 +190,7 @@ grep -q 'you chose mine, but Halogen serves the official one' "$work/out" || { e
 if "$ctl" flash remove mine --yes > "$work/out" 2>&1; then echo "the active checkpoint was removed" >&2; exit 1; fi
 if "$ctl" flash remove official --yes > "$work/out" 2>&1; then echo "official was removable" >&2; exit 1; fi
 "$ctl" flash remove broken --yes > /dev/null
-if [ -e "$fm/flash/broken" ] || ! grep -q "runuser -u halogen -- rm -rf -- $fm/flash/broken" "$work/log"; then
+if [ -e "$fm/flash/broken" ] || ! grep -q "runuser -u halogen -- env -C / rm -rf -- $fm/flash/broken" "$work/log"; then
   echo "remove didn't delete as halogen" >&2; exit 1
 fi
 "$ctl" flash use official --yes > /dev/null
@@ -315,7 +315,7 @@ if ! { grep -q 'setpriv --reuid=.* env -C / XDG_RUNTIME_DIR=/run/user/.* systemc
 fi
 "$ctl" records > "$work/out"; grep -q '^Request records: on, text kept: none' "$work/out" || { cat "$work/out" >&2; exit 1; }
 "$ctl" records stats > "$work/out"
-grep -q 'LimitMEMLOCK=infinity podman exec halogen python3 /halogen/tools/request_records.py stats /records' "$work/log" || { echo "stats didn't run Halogen's tool" >&2; exit 1; }
+grep -q 'podman exec halogen python3 /halogen/tools/request_records.py stats /records' "$work/log" || { echo "stats didn't run Halogen's tool" >&2; exit 1; }
 "$ctl" records prune --days 7 --yes > /dev/null
 grep -q 'request_records.py prune /records --days 7$' "$work/log" || { cat "$work/log" >&2; echo "prune didn't pass --days" >&2; exit 1; }
 for bad in '--days x' '--gib 1;id' '--session ../x' '--path /etc' ''; do

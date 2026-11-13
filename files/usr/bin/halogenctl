@@ -8,7 +8,9 @@ unit() { systemctl --user --machine=halogen@.host "$@"; }
 start_halogen() { unit reset-failed halogen.service 2>/dev/null || true; unit "$1" halogen.service; }
 # Files under /srv/configs and /srv/models belong to halogen, so read and write them as halogen, never as root:
 # a link planted there then can't reach anything halogen couldn't already.
-as_owner() { runuser -u halogen -- "$@"; }
+# From /: runuser keeps root's working folder, and halogen can't enter an admin's home (find then
+# fails and, under 2>/dev/null, deletes nothing).
+as_owner() { runuser -u halogen -- env -C / "$@"; }
 # Run one of halOS's scripts as halogen, under its user manager. The script never gets root's
 # terminal: its input is /dev/null, and its output comes back through a pipe with control
 # characters (other than tab) removed, in a fixed UTF-8 locale so accented letters and symbols
@@ -490,9 +492,7 @@ case "${1:-status}" in
     tool() {
       local c="$1" image; shift
       if [ -f "$dropin" ] && running; then
-        # podman exec gives the tool the container's memlock limit (unlimited), which halogen's
-        # manager allows only when asked for, as halogen.service does.
-        halogen_run --property=LimitMEMLOCK=infinity podman exec halogen python3 /halogen/tools/request_records.py "$c" /records "$@"
+        halogen_run podman exec halogen python3 /halogen/tools/request_records.py "$c" /records "$@"
       else
         image="$(sed -n 's/^HALOGEN_IMAGE=//p' "${HALOGEN_RELEASE_FILE:-/usr/share/halogen/release.env}" | tail -n 1 | tr -d "\"'")"
         [ -n "$image" ] || { echo "No Halogen image named in the release file." >&2; exit 1; }
