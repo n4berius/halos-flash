@@ -23,6 +23,7 @@ usage: halosctl version
        halosctl ssh-unlock [on [--github|--gitlab|--codeberg <user>]... [--key '<public key>'] | off | record] [--yes]
        halosctl ssh-passwords [on|off] [--yes]
        halosctl dashboard [on|off]
+       halosctl fail2ban [on | off | unban <address>]
        halosctl https [self-signed [<name>...] | custom <certificate> <key> | off | ca] [--yes]
        halosctl https letsencrypt <cloudflare|duckdns|porkbun|namecheap> <name>... [--email <address>] [--staging] [--yes]
        halosctl https forget-dns [--yes]
@@ -322,7 +323,7 @@ set_passwords() { # on|off; fails (without stopping setup) when sshd won't take 
 }
 
 cmd="${1:-version}"; [ $# = 0 ] || shift
-case "$cmd" in history|setup|power|ssh-unlock|ssh-passwords|dashboard|https) ;; *) load ;; esac
+case "$cmd" in history|setup|power|ssh-unlock|ssh-passwords|dashboard|fail2ban|https) ;; *) load ;; esac
 args=(); src=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -347,7 +348,7 @@ done
 if [ -n "$email" ] || [ "$staging" = 1 ]; then
   if [ "$cmd" != https ] || [ "${args[0]:-}" != letsencrypt ]; then die "--email and --staging go with https letsencrypt"; fi
 fi
-case "$cmd" in switch|npu|power|ssh-unlock|ssh-passwords|dashboard|https) ;; *) [ "${#args[@]}" = 0 ] ;; esac || die "unexpected ${args[0]} (for an older release: halosctl rollback --to <version>)"
+case "$cmd" in switch|npu|power|ssh-unlock|ssh-passwords|dashboard|fail2ban|https) ;; *) [ "${#args[@]}" = 0 ] ;; esac || die "unexpected ${args[0]} (for an older release: halosctl rollback --to <version>)"
 
 case "$cmd" in
   version)
@@ -563,6 +564,50 @@ case "$cmd" in
         record ssh-passwords off on
         echo "Done: SSH logins take passwords again." ;;
       *) die "ssh-passwords on, off, or nothing for its state" ;;
+    esac
+    ;;
+  fail2ban)
+    # fail2ban (#92) shuts out, through the firewall, addresses that keep failing SSH logins or
+    # sending a wrong API key. The service only: its settings are in /etc/fail2ban/jail.d.
+    if [ "$reboot$yes$check$skip" != 0000 ] || [ -n "$to" ]; then die "fail2ban takes no options"; fi
+    unit=fail2ban.service
+    f2b_on() { [ "$(systemctl is-enabled "$unit" 2> /dev/null)" = enabled ]; }
+    f2b_active() { [ "$(systemctl is-active "$unit" 2> /dev/null)" = active ]; }
+    # fail2ban's own words, with anything but plain text removed: addresses come from the network.
+    f2b() { timeout 20 fail2ban-client "$@" 2>&1 | LC_ALL=C tr -cd '[:print:]\n\t'; }
+    case "${args[0]:-}" in
+      '')
+        [ "${#args[@]}" -le 1 ] || die "fail2ban on, off, unban <address>, or nothing for its state"
+        if ! f2b_on && ! f2b_active; then echo "fail2ban: off, so nobody is shut out for failed logins. On: sudo halosctl fail2ban on"; exit 0; fi
+        echo "fail2ban: $(systemctl is-active "$unit" 2> /dev/null). Off: sudo halosctl fail2ban off"
+        for j in sshd halos-api; do
+          s="$(f2b status "$j")"
+          printf '  %-9s %s failed now, %s shut out now (%s in all): %s\n' "$j" \
+            "$(sed -n 's/.*Currently failed:[[:space:]]*//p' <<< "$s" | head -n 1)" "$(sed -n 's/.*Currently banned:[[:space:]]*//p' <<< "$s" | head -n 1)" \
+            "$(sed -n 's/.*Total banned:[[:space:]]*//p' <<< "$s" | head -n 1)" "$(sed -n 's/.*Banned IP list:[[:space:]]*//p' <<< "$s" | head -n 1)"
+        done
+        echo "sshd: SSH logins. halos-api: wrong or missing API keys on port 8731. This machine and private"
+        echo "networks are never shut out. Let an address back in: sudo halosctl fail2ban unban <address>" ;;
+      on)
+        [ "${#args[@]}" = 1 ] || die "fail2ban on takes nothing more"
+        f2b_on && f2b_active && { echo "fail2ban is already on."; exit 0; }
+        systemctl enable --now "$unit" || die "fail2ban didn't start: sudo journalctl -u $unit"
+        record fail2ban off on
+        echo "fail2ban on: addresses that keep failing SSH logins or API keys are shut out for 10 minutes." ;;
+      off)
+        [ "${#args[@]}" = 1 ] || die "fail2ban off takes nothing more"
+        f2b_on || f2b_active || { echo "fail2ban is already off."; exit 0; }
+        systemctl disable --now "$unit" || die "fail2ban didn't stop: sudo systemctl status $unit"
+        record fail2ban on off
+        echo "fail2ban off: everyone it had shut out is let back in, and it stays off after reboots." ;;
+      unban)
+        [ "${#args[@]}" = 2 ] || die "fail2ban unban <address>"
+        # An IPv4 or IPv6 address, nothing else reaches fail2ban-client.
+        [[ "${args[1]}" =~ ^[0-9A-Fa-f:.]{2,45}$ ]] || die "that isn't an address: ${args[1]//[^[:print:]]/}"
+        f2b_active || die "fail2ban isn't running, so nobody is shut out"
+        n="$(f2b unban "${args[1]}" | tail -n 1)"
+        case "$n" in 0) echo "${args[1]} wasn't shut out." ;; [1-9]*) echo "${args[1]} is let back in." ;; *) die "fail2ban said: ${n:-nothing}" ;; esac ;;
+      *) die "fail2ban on, off, unban <address>, or nothing for its state" ;;
     esac
     ;;
   dashboard)

@@ -601,6 +601,28 @@ name, but allows saying halOS runs Halogen.
   Not done yet: `noexec,nosuid,nodev` on the NPU edition's own-checkpoint folders, which needs a
   look at freyja first (whether Halogen maps anything executable from them).
 
+- fail2ban (#92, #129; owner: on by default, private networks exempt, API lenient): Fedora's
+  `fail2ban-server` + `fail2ban-firewalld` (1.1.0; the second sets `banaction =
+  firewallcmd-rich-rules`, runtime rules only), enabled. `jail.d/50-halos.conf`: `backend = systemd`,
+  `ignoreip` = localhost and the dashboard's private ranges, `[sshd]` with Fedora's 5 in 10 min /
+  10 min (its filter matches `sshd-session` too), `[halos-api]` 10 in 10 min / 10 min on port 8731.
+  `filter.d/halos-api.conf` reads halos-proxy's journal (Caddy's JSON access log): anchored at the
+  line's start, the address is the first field of `request` (`"remote_ip":"<ADDR>"`), status 401
+  (Halogen's answer to a missing or wrong key, api.md; Caddy passes it through). Client text (the
+  uri) comes later with its quotes escaped, so it can't forge that field; the Containerfile runs
+  `fail2ban-client -t`, checks both jails in `-d`'s output and runs `fail2ban-regex` on a 401 line
+  and a forged one. `fail2ban.d/50-halos.conf`: `logtarget = SYSTEMD-JOURNAL`.
+  `fail2ban.service.d/10-halos.conf`: `StateDirectory=fail2ban` (bootc adds nothing to `/var` on an
+  installed machine, so the package's `/var/lib/fail2ban` wouldn't exist after an upgrade),
+  `ProtectSystem=strict`, no home, `CapabilityBoundingSet=CAP_DAC_READ_SEARCH` (bans go to
+  firewalld over D-Bus as uid 0), `MemoryMax=256M`. `halosctl fail2ban [on|off|unban <address>]`:
+  the service only; `unban` passes nothing but an address; output is cut to printable text.
+  Selftest `fail2ban` (both jails, a count of shut-out addresses, never the addresses). Audit watch
+  `-w /etc/fail2ban -k fail2ban`. Users override in `jail.d/90-local.local`. The VM test bans and
+  unbans an address (a rich rule appears and goes), and runs the filter on the front door's real
+  log line with its status set to 401 (Halogen is down there, so the real status is 503). Not
+  covered: the initramfs SSH unlock; TLS handshake failures; a device on a private network.
+
 ## Lessons already learned
 
 - `setpriv` and `runuser` keep the caller's working folder. Run as halogen from an admin's home

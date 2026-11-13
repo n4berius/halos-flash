@@ -10,6 +10,11 @@ promoted.
 
 ## Unreleased
 
+- fail2ban: an address that keeps failing SSH logins (5 in 10 minutes) or sending a wrong API key
+  (10 in 10 minutes) is shut out by the firewall for 10 minutes. On by default; this machine and
+  private networks are never shut out. `sudo halosctl fail2ban` shows the state, `unban <address>`
+  lets someone back in, `off` turns it off. (#129)
+
 - Prompt cache hardening: the download and checking containers no longer see the cache folder,
   Halogen refuses to start if the folder has been swapped for a link or belongs to someone else,
   and `halogenctl cache off` now also makes the folder read-only for Halogen. `records on` no

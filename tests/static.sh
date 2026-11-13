@@ -139,6 +139,19 @@ for path in glob.glob("files/usr/libexec/halogen/*"):
     if "hide_cache" in body:
         assert 'hide_cache=(--tmpfs "/models/.prompt-cache:ro,size=4k,notmpcopyup")' in body, f"{path}: the tmpfs must not copy the folder's files up"
 assert "-$m/.prompt-cache" in open("files/usr/libexec/halogen/flash-checkpoint").read(), "the convert sandbox can read the prompt cache"
+# fail2ban (#92): installed with its firewalld action, both jails on and reading the journal, this
+# machine and private networks never shut out, checked at build, sandboxed, and its folder watched.
+jail = open("files/etc/fail2ban/jail.d/50-halos.conf").read()
+assert "fail2ban-server fail2ban-firewalld" in cf and "systemctl enable fail2ban.service" in cf and "fail2ban-client -t" in cf and "fail2ban-regex" in cf
+assert "\nbackend = systemd\n" in jail and re.search(r"\[sshd\]\nenabled = true", jail) and re.search(r"\[halos-api\]\nenabled = true\nfilter = halos-api\nport = 8731\nmaxretry = 10\nfindtime = 10m\nbantime = 10m", jail)
+for net in ("127.0.0.0/8", "::1", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "fc00::/7"):
+    assert net in re.search(r"^ignoreip = (.*)$", jail, re.M).group(1).split(), f"fail2ban could shut out {net}"
+flt = open("files/etc/fail2ban/filter.d/halos-api.conf").read()
+assert '\nfailregex = ^\\{"level"' in flt and '"remote_ip":"<ADDR>"' in flt and "journalmatch = _SYSTEMD_UNIT=halos-proxy.service" in flt, "the API filter must start at the line's beginning and read only the front door's log"
+sb = open("files/usr/lib/systemd/system/fail2ban.service.d/10-halos.conf").read()
+for opt in ("StateDirectory=fail2ban", "ProtectSystem=strict", "ProtectHome=yes", "NoNewPrivileges=yes", "MemoryMax="):
+    assert opt in sb, f"fail2ban's sandbox lacks {opt}"
+assert re.search(r"^-w /etc/fail2ban -p wa -k fail2ban$", rules, re.M), "fail2ban's settings aren't watched"
 assert "= '-e 2' ]" in cf, "the build doesn't check the audit rules end locked"
 assert "SystemMaxUse=4G" in open("files/usr/lib/systemd/journald.conf.d/60-halos.conf").read(), "the journal has no cap"
 assert "systemctl enable halos-https-refresh.timer" in cf, "the HTTPS address refresh isn't enabled"

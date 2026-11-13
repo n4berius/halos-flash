@@ -60,6 +60,9 @@ Changes to the OS apply at the next reboot. Each update is checked against halOS
 
 | Command | What it does |
 |---|---|
+| `halosctl fail2ban` | Whether [fail2ban](../INSTALL.md#shutting-out-repeated-failed-logins-fail2ban) is on, and which addresses are shut out now for failed SSH logins (`sshd`) or API keys (`halos-api`). |
+| `halosctl fail2ban on\|off` | Turns it on (the default) or off. Off lets everyone it had shut out back in. |
+| `halosctl fail2ban unban <address>` | Lets one address back in at once. |
 | `halosctl dashboard [on\|off]` | The live web page of Halogen's load and health on port 8732, for your local network, without a login. Alone, it shows the state and its address. |
 | `halosctl https` | Whether HTTPS is on, and what apps use. |
 | `halosctl https self-signed [<name>...] [--yes]` | HTTPS on both ports with halOS's own certificate authority, for this machine's names and addresses and any extra names you list. Apps must trust the authority once. |

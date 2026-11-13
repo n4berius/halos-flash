@@ -402,6 +402,33 @@ for bad in "on off" "maybe" "on --reboot" "on --yes"; do
 done
 if FAKE_UID=1000 "$ctl" dashboard on > /dev/null 2>&1; then echo "ran without root" >&2; exit 1; fi
 ok "dashboard on/off starts or stops it without touching the firewall, records changes, and shows the address"
+# fail2ban: the service only, a state that names both jails, and unban takes nothing but an address.
+f systemctl 'echo "systemctl $*" >> "$FAKE/log"; d="$FAKE/f2b-on"
+  case "$*" in *"is-enabled fail2ban"*) [ -e "$d" ] && echo enabled || echo disabled ;;
+    *"is-active fail2ban"*) [ -e "$d" ] && echo active || echo inactive ;;
+    *"enable --now fail2ban"*) [ -z "${FAKE_F2B_FAIL:-}" ] || exit 1; touch "$d" ;;
+    *"disable --now fail2ban"*) rm -f "$d" ;; *is-active*) echo "${FAKE_FETCH:-inactive}" ;; esac'
+f fail2ban-client 'echo "fail2ban-client $*" >> "$FAKE/log"; case "$*" in
+  "status sshd") printf "Status for the jail: sshd\n|- Filter\n|  |- Currently failed:\t1\n|  \`- Total failed:\t9\n\`- Actions\n   |- Currently banned:\t1\n   |- Total banned:\t4\n   \`- Banned IP list:\t203.0.113.9\033]0;x\007\n" ;;
+  "status halos-api") printf "|  |- Currently failed:\t0\n   |- Currently banned:\t0\n   |- Total banned:\t0\n   \`- Banned IP list:\t\n" ;;
+  "unban 203.0.113.9") echo 1 ;; unban*) echo 0 ;; esac'
+: > "$work/log"; "$ctl" fail2ban > "$work/out"; has '^fail2ban: off' "$work/out"
+"$ctl" fail2ban on > "$work/out"; has 'shut out for 10 minutes' "$work/out"; has 'enable --now fail2ban.service' "$work/log"
+has 'fail2ban +off -> on' "$work/history"
+"$ctl" fail2ban > "$work/out"; has '^fail2ban: active' "$work/out"; has 'sshd +1 failed now, 1 shut out now \(4 in all\): 203.0.113.9' "$work/out"; has 'halos-api +0 failed now, 0 shut out now' "$work/out"
+if grep -q $'\033' "$work/out"; then echo "fail2ban's state passed a control character through" >&2; exit 1; fi
+"$ctl" fail2ban unban 203.0.113.9 > "$work/out"; has 'is let back in' "$work/out"
+"$ctl" fail2ban unban 198.51.100.4 > "$work/out"; has "wasn't shut out" "$work/out"
+: > "$work/log"
+for bad in '--all' 'sshd; id' '$(id)' ''; do
+  if "$ctl" fail2ban unban "$bad" > /dev/null 2>&1; then echo "unban accepted: $bad" >&2; exit 1; fi
+done
+if grep -q 'fail2ban-client unban' "$work/log"; then echo "something that isn't an address reached fail2ban-client" >&2; exit 1; fi
+"$ctl" fail2ban off > "$work/out"; has 'let back in' "$work/out"; [ ! -e "$work/f2b-on" ]
+"$ctl" fail2ban off > "$work/out"; has 'already off' "$work/out"
+if FAKE_F2B_FAIL=1 "$ctl" fail2ban on > /dev/null 2>&1; then echo "a failed start was reported as on" >&2; exit 1; fi
+if "$ctl" fail2ban unban 203.0.113.9 > /dev/null 2>&1; then echo "unban passed with fail2ban off" >&2; exit 1; fi
+ok "fail2ban turns the service on and off, shows both jails without control characters, and unban takes only an address"
 
 # https: the mode is written by the https helper, Caddy restarted, and the old mode put back if
 # Caddy won't start with the new one, so the API never stays down.

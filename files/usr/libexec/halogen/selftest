@@ -393,6 +393,20 @@ if have systemctl && have curl; then
     else say WARN dashboard-nodump "the dashboard is dumpable, so a crash would put the API key in the journal: sudo systemctl restart halos-dashboard; if it stays, see systemctl cat halos-dashboard and journalctl -u halos-dashboard"; fi
   else say WARN dashboard "halos-dashboard.service doesn't answer on port 8732: sudo journalctl -u halos-dashboard"; fi
 fi
+# fail2ban (#92): shuts out addresses that keep failing SSH logins or API keys. Both jails must
+# be loaded; what it has shut out is said as a number only (addresses stay out of this report).
+if have fail2ban-client && have systemctl; then
+  f2bstate="$(run systemctl is-active fail2ban.service)"
+  if [ "$f2bstate" = active ]; then
+    f2bjails="$(run fail2ban-client status | sed -n 's/.*Jail list:[[:space:]]*//p' | tr -cd 'a-z0-9, -' | tr -d ',')"
+    f2bmiss=""; for j in sshd halos-api; do grep -qw -- "$j" <<< "$f2bjails" || f2bmiss+=" $j"; done
+    f2bout="$(run fail2ban-client banned | grep -oE '[0-9A-Fa-f:.]{7,45}' | sort -u | wc -l)"
+    if [ -n "$f2bmiss" ]; then say WARN fail2ban "running, but without its jail(s):$f2bmiss (sudo journalctl -u fail2ban says why)"
+    else say PASS fail2ban "on for SSH logins and API keys; ${f2bout:-0} address(es) shut out now (sudo halosctl fail2ban)"; fi
+  elif [ "$(run systemctl is-enabled fail2ban.service)" = enabled ]; then
+    say WARN fail2ban "turned on, but $f2bstate: sudo journalctl -u fail2ban"
+  else say INFO fail2ban "off: nobody is shut out for failed logins (sudo halosctl fail2ban on)"; fi
+fi
 # --- Model folders
 old="$(find "$models/npu" -mindepth 1 -maxdepth 1 -type d -regex '.*/[0-9]+\.[0-9]+\.[0-9]+' -printf '%f ' 2>/dev/null)"
 if [ "$npu" != 1 ] || [ ! -d "$models/npu" ]; then :

@@ -35,6 +35,9 @@ f podman 'case "$*" in *"exec halogen stat"*) [ "$PWD" = / ] || { echo "cannot c
     [ -n "${FAKE_MEMLOCK:-}" ] || { echo "crun: setrlimit RLIMIT_MEMLOCK: Operation not permitted"; exit 126; } ;; esac; case "$*" in *"exec halogen stat"*) printf "/tmp xfs\n/var/tmp %s\n/root xfs\n" "${FAKE_VARTMP:-xfs}" ;; *) exit 1 ;; esac'
 f mokutil 'echo "SecureBoot ${FAKE_SB:-enabled}"'
 f getenforce 'echo "${FAKE_SELINUX:-Enforcing}"'
+# fail2ban: both jails loaded and two addresses shut out, unless FAKE_F2B says otherwise.
+f fail2ban-client 'case "$1" in status) printf "Status\n|- Number of jail:\t2\n\`- Jail list:\t%s\n" "${FAKE_F2B:-halos-api, sshd}" ;;
+  banned) echo "[{\"sshd\": [\"203.0.113.9\", \"2001:db8::7\"]}, {\"halos-api\": []}]" ;; esac'
 f journalctl 'case "$*" in *--disk-usage*) echo "Archived and active journals take up 1.2G in the file system." ;; *) cat "$FAKE/kernel.log" 2>/dev/null ;; esac; true'
 # auditd's loaded rules: halOS's watches unless FAKE_AUDIT says otherwise.
 f auditctl 'if [ "$1" = -s ]; then echo "enabled ${FAKE_AUDIT_ENABLED:-2}"; echo "lost ${FAKE_AUDIT_LOST:-0}"; exit 0; fi
@@ -53,6 +56,7 @@ f amd-smi 'if [ -n "${FAKE_NOGPU:-}" ]; then echo "ERROR:root:Unable to detect a
 f systemd-run 'case "$*" in *render-config*) printf "%s\n" "${FAKE_RENDER:-HALOGEN_CHECKPOINT=/models/qwen38-flash-next-v2.hgn}" ;; *) echo "preflight: ok" ;; esac'
 f bootc 'case "$*" in *json*) echo "{\"spec\":{\"image\":{\"image\":\"${FAKE_FOLLOWS:-ghcr.io/n4berius/halos-flash:stable}\",\"signature\":\"${FAKE_SIG:-containerPolicy}\"}}}" ;; *) echo "Booted image: ghcr.io/n4berius/halos-flash:9.9.9" ;; esac'
 f systemctl 'case "$*" in *--failed*) cat "$FAKE/failed" 2>/dev/null ;; *"show -p Job"*) echo "${FAKE_JOB:-}" ;;
+  *"is-active fail2ban"*) echo "${FAKE_F2B_STATE:-active}" ;; *"is-enabled fail2ban"*) echo "${FAKE_F2B_ENABLED:-enabled}" ;;
   *"is-enabled halos-dashboard"*) echo "${FAKE_DASH:-enabled}" ;; *"is-active halos-proxy"*) echo "${FAKE_PROXY:-active}" ;;
   *"IPIngressBytes --value halos-dashboard"*) echo "${FAKE_DASH_IPIN-1234}" ;; *"IPAddressDeny --value halos-dashboard"*) echo "${FAKE_DASH_DENY-0.0.0.0/0 ::/0}" ;;
   *"IPAddressAllow --value halos-dashboard"*) echo "127.0.0.0/8 ::1/128" ;; *"MainPID --value halos-dashboard"*) echo "${FAKE_DASH_PID-4242}" ;; *"MainPID --value user@"*) echo "${FAKE_MGR_PID-0}" ;;
@@ -118,6 +122,12 @@ done
 expect '^Summary: [0-9]+ passed, 0 warnings, 0 failed'
 expect 'serving: halogen-qwen3.8-flash-next qwen3.5-2b'
 expect '^INFO records: off'
+# fail2ban: on with both jails; a missing jail, a service that is on but down, and off.
+expect '^PASS fail2ban: on for SSH logins and API keys; 2 address\(es\) shut out now'
+if grep -q '203.0.113.9' "$work/out"; then echo "the selftest printed a shut-out address" >&2; exit 1; fi
+FAKE_F2B=sshd "$selftest" > "$work/out" 2>&1 || true; expect '^WARN fail2ban: running, but without its jail\(s\): halos-api'
+FAKE_F2B_STATE=failed "$selftest" > "$work/out" 2>&1 || true; expect '^WARN fail2ban: turned on, but failed'
+FAKE_F2B_STATE=inactive FAKE_F2B_ENABLED=disabled "$selftest" > "$work/out" 2>&1 || true; expect '^INFO fail2ban: off'
 # The prompt cache on disk: on by default, off on request, and a missing folder is a warning.
 expect '^PASS prompt-cache: on, '
 # Off is two halves: the choice file, and root's drop-in that mounts the folder read-only.

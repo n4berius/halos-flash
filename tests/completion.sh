@@ -15,7 +15,7 @@ offers() {
 }
 expect() { local want="$1"; shift; [ "$(offers "$@" | tr '\n' ' ')" = "${want:+$want }" ] || fail "'${*:2}' offered '$(offers "$@" | tr '\n' ' ')', not '$want'"; }
 # A tool's case labels at one indent: top-level commands at 2 spaces, subcommands at 6.
-labels() { sed -n "s/^$(printf '%*s' "$2" '')\\([a-z][a-z|-]*\\))\\( .*\\)\\{0,1\\}\$/\\1/p" "$1" | tr '|' '\n' | grep -v '^-' | sort -u; }
+labels() { sed -n "s/^$(printf '%*s' "$2" '')\\([a-z][a-z0-9|-]*\\))\\( .*\\)\\{0,1\\}\$/\\1/p" "$1" | tr '|' '\n' | grep -v '^-' | sort -u; }
 # Inside one top-level command's block (from '  name)' to its ';;' at 2 spaces).
 block() { sed -n "/^  $2)\$/,/^    ;;\$/p" "$1"; }
 check_offered() {

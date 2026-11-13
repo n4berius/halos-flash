@@ -134,6 +134,16 @@ typed("{ echo RESULT-START; cat /proc/cmdline; dmesg | grep -i secure; bootctl s
       "$(ausearch -i -k halogen-config 2>/dev/null | grep -c -e 'audit-b.*nametype=CREATE') "
       "$(ausearch -i -k quadlet 2>/dev/null | grep -c -e audit-q); rm -f /srv/configs/audit-a /srv/configs/audit-b; "
       "echo JOURNALCAP $(systemd-analyze cat-config systemd/journald.conf | grep -c -x SystemMaxUse=4G); "
+      # fail2ban (#92): running with both jails; a ban becomes a firewalld rule and halosctl lifts
+      # it; and the API filter matches the front door's real log line (a 503 here, Halogen being
+      # down, with its status set to 401: the line's shape is what the filter depends on).
+      "echo F2B $(systemctl is-active fail2ban) $(fail2ban-client status | grep -c -e 'halos-api, sshd'); "
+      "fail2ban-client set halos-api banip 203.0.113.9 > /dev/null 2>&1; sleep 2; echo F2BBAN $(firewall-cmd --list-rich-rules | grep -c -F 203.0.113.9); "
+      "halosctl fail2ban unban 203.0.113.9 > /dev/null 2>&1; sleep 2; echo F2BUN $(firewall-cmd --list-rich-rules | grep -c -F 203.0.113.9); "
+      "curl -s -k -o /dev/null http://127.0.0.1:8731/v1/models; sleep 2; "
+      "journalctl -u halos-proxy -o cat | grep -e 'handled request' | tail -n 1 | sed -e 's/status.:[0-9]*/status\\x22:401/' > /tmp/f2bline; "
+      "echo F2BRE $(fail2ban-regex /tmp/f2bline /etc/fail2ban/filter.d/halos-api.conf | grep -c -e '1 matched'); "
+      "echo F2BMEM $(systemctl show -p MemoryCurrent --value fail2ban); "
       # The guided install (#42): volume sizes, hostname, admin user, and no password left behind.
       "lvs --noheadings --units g --nosuffix -o lv_name,lv_size halos; cat /etc/hostname; id admin; "
       "grep -rIlsE 'halogentest|rootsecret|adminsecret' /etc /var/roothome /var/log /boot | sed 's/.*/PWLEAK &/'; "
