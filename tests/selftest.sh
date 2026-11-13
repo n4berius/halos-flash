@@ -142,6 +142,13 @@ for u in 'ExecStart=podman run -v /srv/models/.prompt-cache:/models/.prompt-cach
 done
 FAKE_UNIT='Failed to connect to bus' "$selftest" > "$work/out" 2>&1 || true; expect '^INFO prompt-cache: off, and Halogen can only read'
 /usr/bin/rm "$pcoff"
+# A --mount form landing on the cache folder is counted like -v.
+FAKE_UNIT='ExecStart=podman run -v /srv/models/.prompt-cache:/models/.prompt-cache:noexec --mount type=bind,src=/srv/configs,dst=/models/.prompt-cache x' "$selftest" > "$work/out" 2>&1 || true
+expect '^FAIL prompt-cache: .* has 2 mounts'
+# A file in place of the NPU models folder.
+/usr/bin/mv "$work/models/npu" "$work/models/npu.x"; : > "$work/models/npu"
+"$selftest" > "$work/out" 2>&1 || true; expect "^FAIL npu-folder: .* isn't a folder of halogen's"
+/usr/bin/rm "$work/models/npu"; /usr/bin/mv "$work/models/npu.x" "$work/models/npu"
 # A link in place of the NPU models folder.
 /usr/bin/mv "$work/models/npu" "$work/models/npu.x"; /usr/bin/ln -s "$work/configs" "$work/models/npu"
 "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL npu-folder: .* is a link'
