@@ -80,7 +80,7 @@ export PATH="$fake:$sysbin" HALOGEN_RELEASE_FILE="$work/release.env" HALOGEN_SYS
   HALOGEN_DEV="$work/dev" HALOGEN_CMDLINE="$work/cmdline" HALOGEN_MEMINFO="$work/meminfo" \
   HALOGEN_MODELS_DIR="$work/models" HALOGEN_CONFIGS_DIR="$work/configs" HALOGEN_CLOCK="$fake/fabric-clock" \
   HALOGEN_LOGS_DIR="$work/logs" HALOGEN_RECORDS_DROPIN="$work/20-records.conf" HALOS_LOG_DIR="$work" \
-  HALOS_AUDIT_RULES="$work/halos.rules" HALOGEN_PROC="$work/proc" HALOGEN_HOME="$work/home" \
+  HALOS_AUDIT_RULES="$work/halos.rules" HALOGEN_PROC="$work/proc" HALOGEN_HOME="$work/home" HALOGEN_RUNTIME_DIR="$work/run-user" \
   HALOS_POLICY="$repo/files/etc/containers/policy.json" HALOS_SSH_UNLOCK="$fake/ssh-unlock" \
   HALOS_ETC="$work/etc" HALOS_USR_ETC="$work/usretc" HALOS_ROOT_POLICY="$work/root-policy.json" \
   HALOS_HTTPS_HELPER="$fake/https" HALOS_HTTPS_RUN="$work/run-halos"
@@ -127,6 +127,17 @@ mkdir -p "${pcoff%/*}"; printf '%s\n' '# Written by sudo halogenctl cache off; r
   'Volume=/srv/models/.prompt-cache:/models/.prompt-cache:ro,noexec,nosuid,nodev' > "$pcoff"
 "$selftest" > "$work/out" 2>&1 || true; expect '^INFO prompt-cache: off, and Halogen can only read'
 /usr/bin/rm "$pcoff"
+# Two cache mounts in Halogen's unit (podman refuses them), and a read-only drop-in the unit doesn't follow.
+two='ExecStart=podman run -v /srv/models/.prompt-cache:/models/.prompt-cache:ro,noexec -v /srv/models/.prompt-cache:/models/.prompt-cache:noexec x'
+FAKE_UNIT="$two" "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL prompt-cache: .* has 2 mounts'
+echo off > "$work/configs/prompt-cache"; mkdir -p "${pcoff%/*}"; printf '%s\n' '# Written by sudo halogenctl cache off; removed by cache on.' '[Container]' \
+  'Volume=/srv/models/.prompt-cache:/models/.prompt-cache:ro,noexec,nosuid,nodev' > "$pcoff"
+FAKE_UNIT='ExecStart=podman run -v /srv/models/.prompt-cache:/models/.prompt-cache:noexec,nosuid,nodev x' "$selftest" > "$work/out" 2>&1 || true
+expect '^WARN prompt-cache: off, but .* still mounts the folder writable'; /usr/bin/rm "$pcoff"
+# A link in place of an own-checkpoint folder, and a file in halogen's own runtime Quadlet folder.
+/usr/bin/mv "$work/models/custom" "$work/models/custom.x"; /usr/bin/ln -s "$work/configs" "$work/models/custom"
+"$selftest" > "$work/out" 2>&1 || true; expect '^FAIL folder-custom: .* is a link'
+/usr/bin/rm "$work/models/custom"; /usr/bin/mv "$work/models/custom.x" "$work/models/custom"
 # A link in place of the folder, or a folder others can read.
 /usr/bin/mv "$work/models/.prompt-cache" "$work/models/.pc"; /usr/bin/ln -s "$work/configs" "$work/models/.prompt-cache"
 "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL prompt-cache: .* is a link'
@@ -153,6 +164,8 @@ echo 970 > "$work/proc/4711/loginuid"
 FAKE_MGR_PID=4711 "$selftest" > "$work/out" 2>&1 || true; expect '^PASS audit:'
 mkdir -p "$work/home/.config/systemd/user"; : > "$work/home/.config/systemd/user/evil.service"
 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN halogen-autostart: .*evil.service'; rm -r "$work/home/.config/systemd"
+mkdir -p "$work/run-user/containers/systemd/halogen.container.d"; : > "$work/run-user/containers/systemd/halogen.container.d/15-prompt-cache.conf"
+"$selftest" > "$work/out" 2>&1 || true; expect '^WARN halogen-autostart: .*run-user/containers/systemd/halogen.container.d/15-prompt-cache.conf'; rm -r "$work/run-user/containers"
 # The audit rules and Halogen's container definition compared with the image's copies.
 expect '^SKIP config-files:'
 for d in etc usretc; do mkdir -p "$work/$d/audit/rules.d" "$work/$d/containers/systemd/users/970/halogen.container.d"

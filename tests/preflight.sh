@@ -24,6 +24,11 @@ ln -s "$work/elsewhere" "$work/models/.prompt-cache"; expect_fail "a link in pla
 rm "$work/models/.prompt-cache"; mkdir "$work/models/.prompt-cache"; chmod 755 "$work/models/.prompt-cache"
 run > /dev/null 2> "$work/err"; grep -q 'warning: .*mode 755' "$work/err" || { echo "no warning for a readable prompt cache folder" >&2; exit 1; }
 chmod 700 "$work/models/.prompt-cache"
+# The folders mounted one by one into Halogen's container: a link in one's place stops the start.
+mkdir -p "$work/models/npu" "$work/models/decider"; run > /dev/null
+rmdir "$work/models/decider"; ln -s "$work/elsewhere" "$work/models/decider"; expect_fail "a link in place of an own-checkpoint folder"
+rm "$work/models/decider"; rmdir "$work/models/npu"; ln -s "$work/elsewhere" "$work/models/npu"; expect_fail "a link in place of the NPU models folder"
+rm "$work/models/npu"
 rm "$work/dev/accel/accel0"; expect_fail "a missing NPU"
 touch "$work/dev/accel/accel0"
 printf '#!/bin/sh\nexit 1\n' > "$work/clock"; expect_fail "an unheld fabric clock"

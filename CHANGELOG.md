@@ -10,6 +10,13 @@ promoted.
 
 ## Unreleased
 
+- Hardening: Halogen refuses to start if one of the folders mounted into its container (`npu`,
+  `decider`, `LFM`, `custom`) has been replaced by a link, as it already did for the prompt cache;
+  the boot-time setup removes such a link and makes the folder again; the weight converter can no
+  longer read the request records; and the selftest also looks at the `halogen` user's own
+  container settings folders. If you deliberately linked one of those folders to another disk,
+  mount the disk there instead. (#128)
+
 - Prompt cache hardening: the download and checking containers no longer see the cache folder,
   Halogen refuses to start if the folder has been swapped for a link or belongs to someone else,
   and `halogenctl cache off` now also makes the folder read-only for Halogen. `records on` no

@@ -395,12 +395,15 @@ if have systemctl && have curl; then
 fi
 # --- Model folders
 old="$(find "$models/npu" -mindepth 1 -maxdepth 1 -type d -regex '.*/[0-9]+\.[0-9]+\.[0-9]+' -printf '%f ' 2>/dev/null)"
-if [ "$npu" != 1 ] || [ ! -d "$models/npu" ]; then :
+if [ "$npu" = 1 ] && as_owner test -L "$models/npu"; then say FAIL npu-folder "$models/npu is a link, not a folder (it is mounted into Halogen's container): remove it, then sudo systemctl restart halogen-prepare.service"
+elif [ "$npu" != 1 ] || [ ! -d "$models/npu" ]; then :
 elif [ -z "$old" ]; then say PASS npu-folder "NPU models are in one folder"
 else say WARN npu-folder "old version folders remain in $models/npu: $old(restart Halogen to move them)"; fi
 if [ "$npu" = 1 ]; then
   for f in decider LFM custom; do
     d="$models/$f"
+    # A link here would mount whatever it points to, writable, into Halogen's container.
+    if as_owner test -L "$d"; then say FAIL "folder-$f" "$d is a link, not a folder: remove it, then sudo systemctl restart halogen-prepare.service"; continue; fi
     if [ ! -d "$d" ]; then say FAIL "folder-$f" "$d is missing"; continue; fi
     owner="$(stat -c %U "$d")"; label="$(stat -c %C "$d" 2>/dev/null)"
     if [ "$owner" != halogen ]; then say FAIL "folder-$f" "$d belongs to $owner, not halogen"
@@ -486,6 +489,11 @@ fi
 pc="$models/.prompt-cache"
 pcchoice="$(as_owner head -n 1 "$configs/prompt-cache" | tr -cd '[:lower:]')"
 pcro=0; [ ! -e "$etc/$pcoff" ] || pcro=1
+# The mount as halogen's generated unit has it (read over halogen's own socket, as for records):
+# root's drop-in can be overridden from halogen's own Quadlet folders, so the file alone isn't proof.
+huid="$(id -u halogen 2> /dev/null || echo 970)"
+pcunit="$(run setpriv --reuid="$huid" --regid="$huid" --clear-groups env -C / XDG_RUNTIME_DIR="/run/user/$huid" systemctl --user cat halogen.service | grep -e '^ExecStart=')"
+pcn="$(grep -o -F '.prompt-cache:/models/.prompt-cache:' <<< "$pcunit" | wc -l)"
 # A link here would hand Halogen's container whatever it points to, writable; the folder must be
 # halogen's own. (Halogen's preflight refuses to start on the first three as well.)
 if as_owner test -L "$pc"; then
@@ -496,6 +504,10 @@ elif ! as_owner test -O "$pc"; then
   say FAIL prompt-cache "$pc belongs to $(as_owner stat -c %U "$pc" | tr -cd '[:alnum:]_-'), not to halogen"
 elif [ "$(as_owner stat -c %a "$pc")" != 700 ]; then
   say WARN prompt-cache "$pc has mode $(as_owner stat -c %a "$pc" | tr -cd '0-9'), not 700, so others may read saved conversation state (the next boot resets it)"
+elif [ "${pcn:-0}" -gt 1 ]; then
+  say FAIL prompt-cache "Halogen's service has $pcn mounts for the cache folder, and podman refuses two at one place: look for a copy of the .prompt-cache line (sudo halogenctl selftest's config-files line, and halogen's own Quadlet folders)"
+elif [ "$pcro" = 1 ] && [ "${pcn:-0}" = 1 ] && ! grep -q -F '.prompt-cache:/models/.prompt-cache:ro,' <<< "$pcunit"; then
+  say WARN prompt-cache "off, but Halogen's service still mounts the folder writable: sudo halogenctl cache off"
 elif [ "$pcchoice" = off ] && [ "$pcro" = 1 ]; then
   say INFO prompt-cache "off, and Halogen can only read the folder: conversations are read again in full after a restart (sudo halogenctl cache on)"
 elif [ "$pcchoice" = off ] || [ "$pcro" = 1 ]; then
@@ -544,9 +556,12 @@ if have systemctl && have auditctl; then
   else say PASS audit "auditd keeps $logdir/audit/audit.log, ${nrules} rules loaded and locked (read them with: sudo ausearch -i -k halos-config)"; fi
   # Halogen's own processes aren't audited, so look for what a break-in through Halogen would leave
   # to start again later: halOS puts nothing in these folders of halogen's (its units are in /usr and /etc).
+  # Its own Quadlet folders count too, the one under /run included: a drop-in there takes the
+  # place of root's of the same name (podman 6.1.3's generator), so config-files wouldn't see it.
   hhome="${HALOGEN_HOME:-/var/lib/halogen}"
   planted="$(as_owner timeout 20 env -C / find "$hhome/.config/systemd" "$hhome/.config/containers/systemd" "$hhome/.config/environment.d" \
     "$hhome/.config/autostart" "$hhome/.local/share/systemd" "$hhome/.config/containers/containers.conf" "$hhome/.config/containers/containers.conf.d" \
+    "${HALOGEN_RUNTIME_DIR:-/run/user/$huid}/containers/systemd" "${HALOGEN_RUNTIME_DIR:-/run/user/$huid}/systemd/user" "${HALOGEN_RUNTIME_DIR:-/run/user/$huid}/systemd/user.control" \
     -mindepth 0 ! -type d < /dev/null | head -n 5 | tr -cd '[:print:]\n' | tr '\n' ' ')"
   if ! as_owner test -d "$hhome"; then say SKIP halogen-autostart "couldn't look in $hhome as the halogen user"
   elif [ -n "$planted" ]; then say WARN halogen-autostart "the halogen user has its own services or settings, which halOS never creates: $planted"

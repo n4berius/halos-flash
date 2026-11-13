@@ -287,13 +287,16 @@ convert_plan_bytes=119000000000
 # models read-only, and write access only to this conversion's work folder. It stops with the
 # conversion, and is the first thing the kernel ends when memory runs short, not Halogen.
 sandboxed() {
-  local w m c
+  local w m c l
   w="$(readlink -f "$work")"; m="$(readlink -f "$models")"; c="$(readlink -f "${HALOGEN_CONFIGS_DIR:-/srv/configs}")"
+  # The request records (client conversations, when on) are hidden too: the converter reads
+  # weights nobody vouches for and needs only the models and its work folder.
+  l="$(readlink -f "${HALOGEN_LOGS_DIR:-/srv/logs}")"
   "${HALOS_SYSTEMD_RUN:-systemd-run}" --user --wait --pipe --collect --quiet \
     -p BindsTo=halogen-flash-convert.service -p After=halogen-flash-convert.service \
     -p PrivateNetwork=yes -p RestrictAddressFamilies=none -p NoNewPrivileges=yes \
     -p ProtectSystem=strict -p "ReadOnlyPaths=$m" -p "ReadWritePaths=$w" \
-    -p "InaccessiblePaths=-$c -${HOME:-/var/lib/halogen} -/run/user/$(id -u) -$m/.prompt-cache" \
+    -p "InaccessiblePaths=-$c -${HOME:-/var/lib/halogen} -/run/user/$(id -u) -$m/.prompt-cache -$l" \
     -p PrivateTmp=yes -p PrivateIPC=yes -p RestrictNamespaces=yes -p LockPersonality=yes \
     -p MemoryDenyWriteExecute=yes -p Nice=10 -p CPUWeight=20 -p OOMScoreAdjust=900 \
     "$@" < /dev/null
