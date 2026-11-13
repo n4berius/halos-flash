@@ -10,8 +10,8 @@ promoted.
 
 ## Unreleased
 
-- Audit: `/etc/environment`, `/etc/fstab`, `/etc/nsswitch.conf`, `/etc/sysctl.conf` and the
-  library search settings are watched too, and `halogenctl selftest` now runs with a clean
+- Audit: `/etc/environment`, `/etc/fstab`, `/etc/nsswitch.conf` and authselect's folder,
+  `/etc/sysctl.conf` and the library search settings are watched too, and `halogenctl selftest` now runs with a clean
   environment, so a variable set for root can't point its checks at other files. (#126)
 
 - Audit hardening: the audit rules are locked until reboot (root can't quietly switch auditing

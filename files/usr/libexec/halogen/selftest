@@ -289,7 +289,7 @@ fi
 # halos-proxy (Caddy) answers the network on 8731 and 8732; the API checks below go through it.
 if have systemctl; then
   # Any HTTP answer counts (Halogen may still be starting): it is Caddy that must answer.
-  pcode="$(curl -sS -m 5 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$port/health" 2>/dev/null)"
+  pcode="$(curl -q -sS -m 5 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$port/health" 2>/dev/null)"
   if [ "$(run systemctl is-active halos-proxy.service)" = active ] && [ -n "$pcode" ] && [ "$pcode" != 000 ]; then
     say PASS proxy "Caddy answers on 8731 (API) and 8732 (dashboard)"
   else say FAIL proxy "halos-proxy.service isn't running, so nothing answers on 8731 or 8732: sudo systemctl status halos-proxy"; fi
@@ -306,7 +306,7 @@ if [ -x "$https" ] && have curl; then
       cafile="$(mktemp)"
       if [ "$(fact ca)" = none ] || ! run "$https" ca > "$cafile"; then
         say WARN https "on (self-signed), but Caddy hasn't made its authority yet: sudo systemctl status halos-proxy"
-      elif code="$(curl -sS -m 5 --cacert "$cafile" -o /dev/null -w '%{http_code}' "https://127.0.0.1:$port/health" 2>/dev/null)" && [ "$code" != 000 ]; then
+      elif code="$(curl -q -sS -m 5 --cacert "$cafile" -o /dev/null -w '%{http_code}' "https://127.0.0.1:$port/health" 2>/dev/null)" && [ "$code" != 000 ]; then
         say PASS https "on, self-signed; authority's fingerprint $(fact ca | cut -c1-23)… (sudo halosctl https)"
       else say WARN https "on (self-signed), but 127.0.0.1:$port doesn't answer with halOS's authority: sudo journalctl -u halos-proxy"; fi
       rm -f "$cafile"
@@ -320,7 +320,7 @@ if [ -x "$https" ] && have curl; then
         say FAIL https "your certificate ($(fact subject)) ended $(fact until), so apps refuse it: sudo halosctl https custom <new certificate> <key>"
       elif [ "$(fact expires)" != later ]; then
         say WARN https "your certificate ($(fact subject)) expires $(fact until), within 14 days: sudo halosctl https custom <new certificate> <key>"
-      elif code="$(curl -sS -k -m 5 -o /dev/null -w '%{http_code}' "https://127.0.0.1:$port/health" 2>/dev/null)" && [ "$code" != 000 ]; then
+      elif code="$(curl -q -sS -k -m 5 -o /dev/null -w '%{http_code}' "https://127.0.0.1:$port/health" 2>/dev/null)" && [ "$code" != 000 ]; then
         say PASS https "on, with your certificate for $(fact subject), until $(fact until)"
       else say WARN https "on (your certificate), but 127.0.0.1:$port doesn't answer over HTTPS: sudo journalctl -u halos-proxy"; fi ;;
     letsencrypt)
@@ -335,7 +335,7 @@ if [ -x "$https" ] && have curl; then
       elif [ "$(fact staging)" = yes ]; then
         say WARN https "on, with Let's Encrypt's staging (test) certificate for $first, which apps don't trust: sudo halosctl https letsencrypt $(fact provider) $(fact public)"
       # Checked as an app would: the system's trust store, the name, the chain.
-      elif code="$(curl -sS -m 5 --resolve "$first:$port:127.0.0.1" -o /dev/null -w '%{http_code}' "https://$first:$port/health" 2>/dev/null)" && [ "$code" != 000 ]; then
+      elif code="$(curl -q -sS -m 5 --resolve "$first:$port:127.0.0.1" -o /dev/null -w '%{http_code}' "https://$first:$port/health" 2>/dev/null)" && [ "$code" != 000 ]; then
         say PASS https "on, Let's Encrypt for $(fact public) (DNS: $(fact provider)), until $(fact until)"
       else say WARN https "on (Let's Encrypt), but $first:$port doesn't answer with a certificate this machine trusts: sudo journalctl -u halos-proxy"; fi
       missing="$(run "$https" uncovered | paste -sd' ' -) "
@@ -346,7 +346,7 @@ if [ -x "$https" ] && have curl; then
 fi
 # Halogen directly on 127.0.0.1, and IPv6 through Caddy (Halogen itself is published on IPv4 only).
 # Through Caddy in HTTPS mode, the certificate isn't the question here (the https check is).
-health() { curl -sS -g -m 5 "${@:2}" -o /dev/null -w '%{http_code}' "$1/health" 2>/dev/null; }
+health() { curl -q -sS -g -m 5 "${@:2}" -o /dev/null -w '%{http_code}' "$1/health" 2>/dev/null; }
 if have curl; then
   code="$(health "http://127.0.0.1:$local_port")"
   # While Halogen isn't running (first boot is still downloading), the API can't answer yet.
@@ -360,7 +360,7 @@ if have curl; then
     # The key goes in a private file, so it never shows in the process list or the report.
     header="$(mktemp)"; trap 'rm -f "$header"' EXIT
     printf 'Authorization: Bearer %s\n' "$(as_owner cat "$configs/api-key")" > "$header"
-    out="$(curl -sS -m 10 -H @"$header" "http://127.0.0.1:$local_port/v1/models" 2>/dev/null)"
+    out="$(curl -q -sS -m 10 -H @"$header" "http://127.0.0.1:$local_port/v1/models" 2>/dev/null)"
     rm -f "$header"
     ids="$(printf '%s' "$out" | python3 -c 'import json,sys; print(" ".join(m["id"] for m in json.load(sys.stdin)["data"]))' 2>/dev/null)"
     if [ -n "$ids" ]; then say PASS api-models "serving: $ids"
@@ -372,7 +372,7 @@ fi
 if have systemctl && have curl; then
   if [ "$(run systemctl is-enabled halos-dashboard.service)" != enabled ]; then
     say INFO dashboard "off; a live page of Halogen's load on port 8732: sudo halosctl dashboard on"
-  elif [ "$(curl -sS -m 5 "${insecure[@]}" -o /dev/null -w '%{http_code}' "$front://127.0.0.1:8732/healthz" 2>/dev/null)" = 200 ]; then
+  elif [ "$(curl -q -sS -m 5 "${insecure[@]}" -o /dev/null -w '%{http_code}' "$front://127.0.0.1:8732/healthz" 2>/dev/null)" = 200 ]; then
     say PASS dashboard "answers on port 8732 (state and address: sudo halosctl dashboard)"
     # The address filter and the IP counters are the same BPF program on its cgroup, which systemd
     # skips quietly when it can't load or attach it. The curl above went through that cgroup, so an
@@ -460,7 +460,7 @@ else
     *) say FAIL folder-logs "$d has SELinux label $label, not container_file_t" ;; esac
 fi
 # Halogen's own counts (written, dropped, size), when it answers; nothing when it doesn't record.
-rr="$(curl -sS -m 5 "http://127.0.0.1:$local_port/health" 2>/dev/null | jq -c '.request_records // empty' 2>/dev/null | tr -cd '[:print:]' | cut -c1-200)"
+rr="$(curl -q -sS -m 5 "http://127.0.0.1:$local_port/health" 2>/dev/null | jq -c '.request_records // empty' 2>/dev/null | tr -cd '[:print:]' | cut -c1-200)"
 if [ ! -f "$records_dropin" ]; then
   if [ -n "$rr" ]; then say WARN records "off, but Halogen still keeps records (an off cut short?): sudo halogenctl records off"
   else say INFO records "off (sudo halogenctl records on keeps a line per request, counts only)"; fi
