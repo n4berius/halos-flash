@@ -534,6 +534,17 @@ name, but allows saying halOS runs Halogen.
   writes (the audit proved a PASS with the same file name in another drop-in folder); `halogen-autostart` WARNs on anything in halogen's
   `.config/{systemd/user,containers/systemd,environment.d,autostart}`.
 
+- Audit follow-up (#126, from the audit of #125, owner agreed): halogenctl is `#!/bin/bash -p` (no `BASH_ENV`, no imported
+  functions, which would run before any line of it) and runs the selftest with
+  `/usr/bin/env -i PATH=/usr/sbin:/usr/bin LANG=C.UTF-8`; the selftest's curl calls take `-q` (no `/root/.curlrc`) (its `HALOS_*`/`HALOGEN_*` test hooks worked in
+  production: `HALOS_USR_ETC=/etc` compared `/etc` with itself); watches on `/etc/environment`
+  (key environment), `/etc/fstab` (mounts), `/etc/nsswitch.conf` (accounts), `/etc/sysctl.conf`
+  (sysctl), `/etc/ld.so.conf`, `.d` and `ld.so.cache` (preload), `/etc/authselect` (accounts: `nsswitch.conf` and PAM's `system-auth` are links into it, and a watch on a link doesn't cover its target). Not done, to measure on freyja first: `audit=1`
+  as a kernel argument (PID 1 has no audit context without it, so `systemctl enable|disable|mask`
+  leaves no record under the `/etc/systemd` watch), program rules on `systemctl`/`systemd-run`/
+  `runuser`/`setpriv` (noisy: halogenctl runs them), and the cost of folder watches on Caddy's
+  path (`bench` talks to 18731 and can't see it).
+
 ## Lessons already learned
 
 - `setpriv` and `runuser` keep the caller's working folder. Run as halogen from an admin's home

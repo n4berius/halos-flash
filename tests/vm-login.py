@@ -86,7 +86,9 @@ typed("{ echo RESULT-START; cat /proc/cmdline; dmesg | grep -i secure; bootctl s
       "echo RECCONF $(halogenctl config 2>/dev/null | grep -c -x -e HALOGEN_RECORD_DIR=/records -e HALOGEN_RECORD_TEXT=none) "
       "$(setpriv --reuid=halogen --regid=halogen --init-groups env XDG_RUNTIME_DIR=/run/user/970 systemctl --user cat halogen.service 2>/dev/null | grep -c -F srv/logs/halogen:/records); "
       # With recording on, the selftest sees the mount (it warned wrongly on freyja).
-      "halogenctl selftest 2>&1 | grep records: > /tmp/recst; echo RECST $(grep -c -e mount /tmp/recst) $(grep -c -e 'INFO records: on' /tmp/recst); cat /tmp/recst >> /tmp/rec; "
+      # It runs with a variable its own tests use set: through halogenctl that must change nothing
+      # (STENV 0: the path never shows in a message; RECST proves there was output).
+      "HALOS_USR_ETC=/none halogenctl selftest > /tmp/stfull 2>&1; grep records: /tmp/stfull > /tmp/recst; echo STENV $(grep -c -e /none /tmp/stfull); echo RECST $(grep -c -e mount /tmp/recst) $(grep -c -e 'INFO records: on' /tmp/recst); cat /tmp/recst >> /tmp/rec; "
       "halogenctl records off --yes 2>&1 | cat >> /tmp/rec; echo RECOFF $(ls /etc/containers/systemd/users/970/halogen.container.d | grep -c records); "
       "stat -c 'RECDIR %U %a' /var/srv/logs/halogen; cat /tmp/rec; "
       # Hardening: the logs volume can't hold programs, and Halogen's container is read-only.
