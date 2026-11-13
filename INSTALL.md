@@ -659,8 +659,8 @@ halOS keeps three kinds of log, each with its own size limit, so none can fill t
   `/etc/audit` takes effect at the next boot.
 
   Halogen's own processes are left out of this tracking, so auditing adds no work to the engine.
-  Only Halogen's own login session is left out: root or an admin acting as the `halogen` user is
-  recorded like anyone else.
+  Only Halogen's own login session is left out: root or an admin acting as the `halogen` user
+  (`sudo -u`, `runuser`) is recorded like anyone else.
   That also means files Halogen's own services write in `/srv/configs` (benchmark reports, for
   example) aren't recorded, while your changes there are. The cost on the rest of the system
   (the front door, Caddy, included) is expected to be small; it hasn't been measured yet.

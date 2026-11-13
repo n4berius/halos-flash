@@ -515,10 +515,16 @@ name, but allows saying halOS runs Halogen.
   `systemd-run --user` touch leaves no record, a `runuser` touch does). More `-w` watches (keys
   quadlet, containers, audit-config, systemd-config, pam, preload, modules, udev, firewall, sysctl;
   `/etc/ssh` whole; crypttab, gshadow, subuid/subgid), the specific signature-policy lines before
-  the wider `/etc/containers`; `/usr/bin/kmod` as an exit rule with no auid filter (the kernel's own
-  modprobe runs have no login). Paths that don't exist (`/etc/ld.so.preload`, `crypttab` without
-  encryption) can't be watched: `-i` skips them, and the selftest requires only rules whose path
-  exists (read from `rules.d/50-halos.rules`). `-e 2` last (the build checks): no rule change or
+  the wider `/etc/containers`; `/usr/bin/kmod` as an exit rule with no auid filter (runs of
+  modprobe/insmod/rmmod by any process; the kernel's own modprobe is a `kernel_execve` with no
+  syscall and libkmod loads run no program, so neither is seen; a syscall rule on `finit_module`
+  would be, at a cost on every audited syscall). A file that doesn't exist yet
+  (`/etc/ld.so.preload`) is still watched through its folder (the VM loaded all 34 rules), so the
+  selftest requires every shipped rule whose folder exists (read from `rules.d/50-halos.rules`).
+  `auditctl -l` prints the kmod rule as `-w … -p x`. VM test lessons: `systemd-run --user --wait`
+  uses the D-Bus user bus and takes `DBUS_SESSION_BUS_ADDRESS` (root's, from the login) before
+  `XDG_RUNTIME_DIR`, so name halogen's bus; and root's `rm` of a probe file is itself recorded
+  under the file's name, so count `nametype=CREATE` lines. `-e 2` last (the build checks): no rule change or
   `auditctl -e 0` until reboot, so no ad hoc `auditctl -w` probes, and selftest hints say reboot.
   Selftest: `audit` also WARNs on `enabled 1` (unlocked) and `lost` above 0 (since boot);
   `config-files` compares `/etc/audit/rules.d/50-halos.rules`, `auditd.conf`, `halogen.container`

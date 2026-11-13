@@ -18,7 +18,8 @@
 ## services write in /var/srv/configs. The selftest checks this rule is loaded (-i would hide it failing).
 ## auid=970: only Halogen's own login session (its user manager, started by PAM with login uid
 ## 970). Root acting as uid 970 from an admin's login or a system service stays audited, so
-## taking on Halogen's uid is no way to hide a change from the watches below.
+## taking on Halogen's uid (runuser, setpriv, sudo -u) is no way to hide a change from the watches
+## below. What root asks Halogen's own manager to run is still left out; it has only halogen's rights.
 -a task,never -F uid=970 -F auid=970
 
 ## halOS's settings and keys
@@ -56,7 +57,8 @@
 -w /etc/firewalld -p wa -k firewall
 -w /etc/sysctl.d -p wa -k sysctl
 -w /etc/crypttab -p wa -k luks-tpm
-## Every module load through modprobe, the kernel's own requests included (no login to filter on)
+## Runs of modprobe, insmod and rmmod (all kmod) by any process, logged in or not. Loads the kernel
+## starts itself, and those udev and systemd make through the library, run no program and aren't seen.
 -a always,exit -F path=/usr/bin/kmod -F perm=x -k modules
 ## Disk encryption and the TPM, OS updates and halOS's own tools: each run by someone logged in
 ## (auid is the login the process came from; "unset" is the system's own services, such as the

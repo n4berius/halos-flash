@@ -137,12 +137,15 @@ mkdir -p "$work/home/.config/systemd/user"; : > "$work/home/.config/systemd/user
 expect '^SKIP config-files:'
 for d in etc usretc; do mkdir -p "$work/$d/audit/rules.d" "$work/$d/containers/systemd/users/970/halogen.container.d"
   echo rules > "$work/$d/audit/rules.d/50-halos.rules"; echo unit > "$work/$d/containers/systemd/users/970/halogen.container"; done
-: > "$work/etc/containers/systemd/users/970/halogen.container.d/20-records.conf"
+printf '%s\n' '# Written by sudo halogenctl records on; removed by records off.' '[Container]' 'Volume=/srv/logs/halogen:/records:noexec,nosuid,nodev' \
+  > "$work/etc/containers/systemd/users/970/halogen.container.d/20-records.conf"
 "$selftest" > "$work/out" 2>&1 || true; expect '^PASS config-files:'
 echo Privileged > "$work/etc/containers/systemd/users/970/halogen.container"
 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN config-files: changed .*/etc/containers/systemd/users/970/halogen.container '
 echo unit > "$work/etc/containers/systemd/users/970/halogen.container"; : > "$work/etc/audit/rules.d/99-off.rules"
 "$selftest" > "$work/out" 2>&1 || true; expect "^WARN config-files: files halOS didn't put there .*99-off.rules"
+/usr/bin/rm "$work/etc/audit/rules.d/99-off.rules"; echo 'Volume=/:/host' >> "$work/etc/containers/systemd/users/970/halogen.container.d/20-records.conf"
+"$selftest" > "$work/out" 2>&1 || true; expect "^WARN config-files: .*20-records.conf \\(not what halogenctl records on writes\\)"
 rm -r "$work/etc/audit" "$work/usretc/audit" "$work/etc/containers/systemd" "$work/usretc/containers/systemd"
 HALOS_AUDIT_MIN_FREE_MB=99999999 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN audit: only [0-9]+ MB free'
 HALOS_LOG_MIN_FREE_MB=999999999 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN logs: only'

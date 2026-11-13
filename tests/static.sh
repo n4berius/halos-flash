@@ -123,6 +123,7 @@ assert len(re.findall(r"^-a always,exit -F path=\S+ -F perm=x -F auid!=unset -k 
 for w in ("/etc/containers/systemd", "/etc/audit", "/etc/systemd", "/etc/ssh", "/etc/pam.d", "/etc/crypttab", "/etc/ld.so.preload"):
     assert re.search(rf"^-w {re.escape(w)} -p wa -k ", rules, re.M), f"no audit watch on {w}"
 assert rules.index("-w /etc/containers/policy.json") < rules.index("-w /etc/containers/systemd") < rules.index("-w /etc/containers -p"), "the wider /etc/containers watch must come last"
+assert "\n-a always,exit -F path=/usr/bin/kmod -F perm=x -k modules\n" in rules, "runs of modprobe/insmod aren't recorded"
 assert "= '-e 2' ]" in cf, "the build doesn't check the audit rules end locked"
 assert "SystemMaxUse=4G" in open("files/usr/lib/systemd/journald.conf.d/60-halos.conf").read(), "the journal has no cap"
 assert "systemctl enable halos-https-refresh.timer" in cf, "the HTTPS address refresh isn't enabled"

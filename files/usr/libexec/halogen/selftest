@@ -89,8 +89,13 @@ for f in audit/rules.d/50-halos.rules audit/auditd.conf containers/systemd/users
   [ -e "$usretc/$f" ] || continue
   cmp -s "$etc/$f" "$usretc/$f" || cchanged+=" /etc/$f"
 done
-extra="$(find "$etc/audit/rules.d" "$etc/containers/systemd/users/970/halogen.container.d" -mindepth 1 \
-  ! -name 50-halos.rules ! -name 10-npu.conf ! -name 20-records.conf 2>/dev/null | tr '\n' ' ')"
+# Anything else in the audit rules folder or among the Quadlet files changes them too. 10-npu.conf
+# is excused only on the edition that ships it; 20-records.conf must be the one line halogenctl writes.
+npuok=(); [ ! -e "$usretc/containers/systemd/users/970/halogen.container.d/10-npu.conf" ] || npuok=(! -name 10-npu.conf)
+extra="$(find "$etc/audit/rules.d" "$etc/containers/systemd" -mindepth 1 ! -type d \
+  ! -name 50-halos.rules ! -name halogen.container "${npuok[@]}" ! -name 20-records.conf 2>/dev/null | head -n 5 | tr -cd '[:print:]\n' | tr '\n' ' ')"
+rec="$etc/containers/systemd/users/970/halogen.container.d/20-records.conf"
+if [ -e "$rec" ] && [ "$(grep -v -e '^#' -e '^$' -e '^\[Container\]$' "$rec")" != 'Volume=/srv/logs/halogen:/records:noexec,nosuid,nodev' ]; then extra+="$rec (not what halogenctl records on writes) "; fi
 if [ ! -e "$usretc/audit/rules.d/50-halos.rules" ]; then
   say SKIP config-files "the image's copies in $usretc are missing, so there is nothing to compare with"
 elif [ -n "$cchanged" ]; then
@@ -482,11 +487,12 @@ if have systemctl && have auditctl; then
   nrules="$(grep -c -E -- ' (-k |-F key=)' <<< "$rules")"
   afree="$(df --output=avail --block-size=1M "$logdir/audit" 2>/dev/null | tail -n 1 | tr -d ' ')"
   alost="$(sed -n 's/^lost \([0-9][0-9]*\)$/\1/p' <<< "$astatus" | head -n 1)"
-  # Every rule halOS ships whose file or folder exists must be loaded (-i skips a rule that can't
-  # load, and a path that doesn't exist, such as /etc/ld.so.preload, can't be watched).
+  # Every rule halOS ships must be loaded (-i skips one that can't load). A file that doesn't
+  # exist yet, such as /etc/ld.so.preload, is still watched through its folder, so only a missing
+  # folder excuses a rule.
   amissing=""
   while read -r p; do
-    [ -e "$p" ] || continue
+    [ -d "${p%/*}" ] || continue
     grep -q -E -- "(^-w |path=)$p " <<< "$rules" || amissing+=" $p"
   done < <(sed -n -E -e 's/^-w ([^ ]+) .*/\1/p' -e 's/^-a always,exit -F path=([^ ]+) .*/\1/p' "${HALOS_AUDIT_RULES:-/etc/audit/rules.d/50-halos.rules}" 2>/dev/null)
   # The login uid of Halogen's own service manager: the rule that leaves Halogen out of auditing
@@ -504,14 +510,16 @@ if have systemctl && have auditctl; then
   elif [ -n "$hlogin" ] && [ "$hlogin" != "$huid" ]; then say WARN audit "Halogen's service manager has login uid $hlogin, not $huid, so Halogen's own processes are audited, which may slow it: report this"
   elif grep -qx 'enabled 1' <<< "$astatus"; then say WARN audit "auditd runs with halOS's rules, but they aren't locked (root could switch auditing off unnoticed): reboot"
   elif [ -n "$afree" ] && [ "$afree" -lt "${HALOS_AUDIT_MIN_FREE_MB:-250}" ]; then say WARN audit "only ${afree} MB free on $logdir/audit: below 200 MB auditd stops recording until it is restarted with more room"
-  elif [ "${alost:-0}" -gt 0 ]; then say WARN audit "the kernel dropped ${alost} audit records since boot (a burst, or something flooding the log): sudo aureport --summary shows what is busy"
+  elif [ "${alost:-0}" -gt 0 ]; then say WARN audit "the kernel dropped ${alost} audit records since boot (a burst, or something flooding the log): sudo aureport --summary shows what is busy, and sudo auditctl --reset-lost clears the count"
   else say PASS audit "auditd keeps $logdir/audit/audit.log, ${nrules} rules loaded and locked (read them with: sudo ausearch -i -k halos-config)"; fi
   # Halogen's own processes aren't audited, so look for what a break-in through Halogen would leave
   # to start again later: halOS puts nothing in these folders of halogen's (its units are in /usr and /etc).
   hhome="${HALOGEN_HOME:-/var/lib/halogen}"
-  planted="$(as_owner env -C / find "$hhome/.config/systemd/user" "$hhome/.config/containers/systemd" "$hhome/.config/environment.d" "$hhome/.config/autostart" \
-    -mindepth 1 2>/dev/null | head -n 5 | tr -cd '[:print:]\n' | tr '\n' ' ')"
-  if [ -n "$planted" ]; then say WARN halogen-autostart "the halogen user has its own services or settings, which halOS never creates: $planted"
+  planted="$(as_owner timeout 20 env -C / find "$hhome/.config/systemd" "$hhome/.config/containers/systemd" "$hhome/.config/environment.d" \
+    "$hhome/.config/autostart" "$hhome/.local/share/systemd" "$hhome/.config/containers/containers.conf" "$hhome/.config/containers/containers.conf.d" \
+    -mindepth 0 ! -type d < /dev/null | head -n 5 | tr -cd '[:print:]\n' | tr '\n' ' ')"
+  if ! as_owner test -d "$hhome"; then say SKIP halogen-autostart "couldn't look in $hhome as the halogen user"
+  elif [ -n "$planted" ]; then say WARN halogen-autostart "the halogen user has its own services or settings, which halOS never creates: $planted"
   else say PASS halogen-autostart "the halogen user has no services or start-up settings of its own"; fi
 else say SKIP audit "auditd isn't installed"; fi
 jsize="$(run journalctl --disk-usage | grep -oE '[0-9.]+[KMGT]' | head -n 1)"
