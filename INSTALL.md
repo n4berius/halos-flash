@@ -606,8 +606,14 @@ sudo halogenctl cache clear    # delete everything saved
   Halogen keeps at most 64 GiB and removes the conversations used longest ago first. Change the
   limit with `HALOGEN_CACHE_DISK_GIB` in `halogen.env`.
 - A different Halogen version, checkpoint or setting never reads another's files. halOS has
-  Halogen delete those at start (`HALOGEN_CACHE_PRUNE_OLD=1`), so an OS upgrade starts with an
-  empty cache and leaves nothing behind. Set it to `0` to keep them, so a rollback finds its cache.
+  Halogen delete those at start (`HALOGEN_CACHE_PRUNE_OLD=1`), so nothing is left behind: the
+  cache starts empty after an upgrade to a new Halogen version, after `halogenctl flash use`
+  switches checkpoint, and after a change to a setting that alters what is saved (the context
+  size, for example). Set it to `0` in `halogen.env` to keep the other files, so that a rollback
+  or switching back finds its cache; they then count on top of the limit until you run
+  `cache clear`.
+- Halogen notes that saving very long conversations (past about 64,000 tokens) is fastest with
+  `HALOGEN_KV_POOL_POSITIONS=262144`, which the NPU edition's `halogen.env` already sets.
 - The folder holds the state of your conversations, so treat it like the conversations
   themselves. Only the `halogen` user can read it, and it is protected at rest only if you chose
   disk encryption when installing. A backup of `/srv/models` copies it too. `cache off` keeps

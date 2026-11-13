@@ -575,50 +575,55 @@ case "${1:-status}" in
     csize() { timeout 20 runuser -u halogen -- env -C / du -sh "$cdir" 2>/dev/null | cut -f1 | tr -cd '[:alnum:].,' || true; }
     cstate="on"; [ "$(as_owner head -n 1 "$cchoice" 2>/dev/null | tr -cd '[:lower:]')" != off ] || cstate="off"
     cask() {
-      [ "$(id -u)" = 0 ] || { echo "Run it with sudo: sudo halogenctl cache ${args[0]}" >&2; exit 1; }
       [ "$yes" != 1 ] || return 0
       [ -t 0 ] || { echo "Nothing changed: add --yes to confirm without a terminal." >&2; exit 1; }
       read -rp "$1 This restarts Halogen if it runs, which stops answering for a few minutes. Go ahead? [y/N] " answer
       [ "$answer" = y ] || [ "$answer" = Y ] || { echo "Nothing changed."; exit 1; }
     }
-    # Restart only a running Halogen: a stopped one reads the choice at its next start.
-    # Whether Halogen runs. An answer that is neither stops here: taking "couldn't ask" for
-    # "stopped" would skip the restart, or delete under a running server.
+    [ "$(id -u)" = 0 ] || { echo "Run it with sudo: sudo halogenctl cache ${args[*]}" >&2; exit 1; }
+    # Whether Halogen runs, asked over halogen's own socket as records does (the --machine route
+    # failed in the VM test). An answer that is neither stops here, before anything is changed:
+    # taking "couldn't ask" for "stopped" would skip the restart, or delete under a running server.
+    # A Halogen that is still stopping counts as running: it writes its last turn on the way out.
+    huid="$(id -u halogen 2> /dev/null || echo 970)"
+    as_manager() { setpriv --reuid="$huid" --regid="$huid" --clear-groups env -C / XDG_RUNTIME_DIR="/run/user/$huid" systemctl --user "$@"; }
     crunning() {
-      local s; s="$(unit is-active halogen.service 2>&1 | head -n 1)"
-      case "$s" in active|activating|reloading) return 0 ;; inactive|failed|deactivating) return 1 ;;
-        *) echo "Couldn't ask whether Halogen runs (${s:-no answer}). Nothing more was changed; try again." >&2; exit 1 ;; esac
+      local s; s="$(as_manager is-active halogen.service 2> /dev/null | head -n 1)" || true
+      case "$s" in active|activating|reloading|deactivating) return 0 ;; inactive|failed) return 1 ;;
+        *) echo "Couldn't ask halogen's service manager whether Halogen runs (${s:-no answer}). Nothing was changed; try again." >&2; exit 1 ;; esac
     }
-    crestart() { if crunning; then start_halogen restart; echo "Halogen is restarting; follow it with: sudo halogenctl logs"; fi; }
     case "${args[0]:-status}" in
       status)
-        [ "$(id -u)" = 0 ] || { echo "Run it with sudo: sudo halogenctl cache" >&2; exit 1; }
         echo "Prompt cache on disk: $cstate ($cdir, $(csize) used)"
         if [ "$cstate" = on ]; then echo "Conversations survive a restart of Halogen. Limit: HALOGEN_CACHE_DISK_GIB in halogen.env (64 GiB unless set)."
         else echo "Conversations are read again in full after a restart. Turn it on: sudo halogenctl cache on"; fi ;;
       on|off)
-        [ "${args[0]}" != "$cstate" ] || { echo "The prompt cache on disk is already ${args[0]}."; exit 0; }
+        [ "${args[0]}" != "$cstate" ] || { echo "The prompt cache on disk is already ${args[0]}. If Halogen didn't restart since: sudo halogenctl restart"; exit 0; }
         cask "Turn the prompt cache on disk ${args[0]}?"
+        was=0; if crunning; then was=1; fi
         # shellcheck disable=SC2016 # expanded by the halogen shell, from its arguments
         printf '%s\n' "${args[0]}" | as_owner sh -c 'umask 027; cat > "$1.new" && mv -f "$1.new" "$1"' sh "$cchoice" || exit 1
         echo "The prompt cache on disk is ${args[0]}."
         [ "${args[0]}" = on ] || echo "What it saved stays in $cdir; delete it with: sudo halogenctl cache clear"
-        crestart ;;
+        # Restart only a running Halogen: a stopped one reads the choice at its next start.
+        if [ "$was" = 1 ]; then start_halogen restart; echo "Halogen is restarting; follow it with: sudo halogenctl logs"; fi ;;
       clear)
         cask "Delete every saved conversation state in $cdir ($(csize))?"
         if ! as_owner test -d "$cdir" || as_owner test -L "$cdir"; then echo "$cdir isn't a folder of its own, so nothing was deleted." >&2; exit 1; fi
-        was=0; if crunning; then was=1; unit stop halogen.service || exit 1; fi
+        was=0; if crunning; then was=1; fi
+        # Whatever happens after the stop (a failed delete, Ctrl-C, a dropped SSH session), a
+        # Halogen that was running is started again.
+        cdone() { set +e; trap - EXIT INT TERM HUP; [ "$was" != 1 ] || start_halogen start; }
+        trap cdone EXIT; trap 'exit 130' INT TERM HUP
+        [ "$was" != 1 ] || unit stop halogen.service
         # As halogen, and only what is inside the folder: Halogen's container writes there, so a
         # folder it made unreadable is opened up first (chmod -R follows no links it meets), names
         # in error messages are cleaned, and "Deleted" is said only once the folder is empty.
-        as_owner chmod -R u+rwX -- "$cdir" 2>&1 | clean
-        as_owner find "$cdir" -mindepth 1 -delete 2>&1 | clean
-        left="$(as_owner find "$cdir" -mindepth 1 -print -quit 2>/dev/null | head -c 1 | wc -c)"
-        if [ "$left" != 0 ]; then
-          echo "Couldn't delete everything in $cdir.$([ "$was" != 1 ] || echo ' Halogen stays stopped: sudo halogenctl start')" >&2; exit 1
-        fi
-        [ "$was" != 1 ] || start_halogen start
-        echo "Deleted. $([ "$was" != 1 ] || echo 'Halogen is starting again.')" ;;
+        as_owner chmod -R u+rwX -- "$cdir" 2>&1 | clean || true
+        as_owner find "$cdir" -mindepth 1 -delete 2>&1 | clean || true
+        left="$(as_owner find "$cdir" -mindepth 1 -print -quit 2>/dev/null | head -c 1 | wc -c)" || true
+        if [ "$left" != 0 ]; then echo "Couldn't delete everything in $cdir." >&2; exit 1; fi
+        echo "Deleted.$([ "$was" != 1 ] || echo ' Halogen is starting again.')" ;;
       *) echo "usage: halogenctl cache [status | on | off | clear] [--yes]" >&2; exit 2 ;;
     esac
     ;;

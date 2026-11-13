@@ -497,9 +497,15 @@ name, but allows saying halOS runs Halogen.
   says `off` (`halogenctl cache off`; the mount stays, Halogen just isn't told) or the folder is
   missing; `HALOGEN_CACHE_DISK_GIB` (whole number, Halogen's 64) and `_PRUNE_OLD` are now in
   `options.allowed`, `CACHE_DIR`/`CACHE_FILE` stay blocked. `halogenctl cache [status|on|off|clear]`:
-  on/off write the choice as halogen and restart only a running Halogen; clear stops it, empties
-  the folder as halogen, starts it again; an `is-active` answer that is neither running nor stopped
-  is an error. Selftest `prompt-cache` (INFO off, WARN folder missing or on tmpfs/overlay, which
+  all need root (without it runuser fails quietly and the state would always read "on"); on/off
+  ask `is-active` over halogen's own socket (setpriv, as records) before writing the choice as
+  halogen, then restart only a running Halogen; clear refuses a link in place of the folder, stops
+  Halogen (a `deactivating` one counts as running: it flushes its last turn), opens up and empties
+  the folder as halogen, and an EXIT trap starts Halogen again whatever happened (halogenctl runs
+  under `set -e`, so a bare failing command would have left it stopped); an `is-active` answer that
+  is neither running nor stopped is an error before anything changes. `PRUNE_OLD=1` also empties
+  the cache when `flash use` switches checkpoint (each checkpoint has its own subtree). The
+  fetch's and login-status's `du` of `/srv/models` exclude the folder. Selftest `prompt-cache` (INFO off, WARN folder missing or on tmpfs/overlay, which
   Halogen refuses). About 27 KiB per token; writes happen behind the request. The VM checks the
   folder, the mount and the rendered settings; that Halogen accepts the folder (direct I/O), the
   restore after a restart and the speed need freyja.

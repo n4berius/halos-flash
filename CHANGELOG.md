@@ -12,7 +12,7 @@ promoted.
 
 - Halogen's prompt cache is now also kept on disk (`/srv/models/.prompt-cache`), so a conversation
   survives a restart of Halogen instead of being read again in full. On by default, at most 64 GiB
-  (`HALOGEN_CACHE_DISK_GIB`); an OS upgrade starts with an empty cache. `sudo halogenctl cache`
+  (`HALOGEN_CACHE_DISK_GIB`); a new Halogen version or a switch of checkpoint starts with an empty cache. `sudo halogenctl cache`
   shows it. An upgrade turns this on: to keep nothing on disk, run `sudo halogenctl cache off`
   and then `sudo halogenctl cache clear`. (#124)
 
