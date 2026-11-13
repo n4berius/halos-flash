@@ -94,8 +94,8 @@ if [ "$variant" = npu ]; then want=290; else want=1650; fi
 grep -qF "$target" "$out/report.txt" || { echo "the installed system doesn't follow $target" >&2; exit 1; }
 grep -qx halostest "$out/report.txt" || { echo "the hostname was not set" >&2; exit 1; }
 # Logs (#107): auditd with halOS's watches (Fedora's default turns them off), a change in /etc/halos
-# found by its key, and the journal's cap.
-for l in 'AUDIT active (1[5-9]|[2-9][0-9])' 'AUDITHIT [1-9][0-9]*' 'JOURNALCAP 1'; do
+# and a run of halosctl found by their keys, the rule that leaves Halogen out, and the journal's cap.
+for l in 'AUDIT active (1[5-9]|[2-9][0-9]) 1' 'AUDITHIT [1-9][0-9]* [1-9][0-9]*' 'JOURNALCAP 1'; do
   grep -qxE "$l" "$out/report.txt" || { echo "logs: expected '$l'" >&2; grep -E '^(AUDIT|JOURNAL)' "$out/report.txt" >&2; exit 1; }
 done
 # Request records (#107): on mounts /srv/logs/halogen and sends counts only; off removes the mount.

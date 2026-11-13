@@ -11,9 +11,11 @@
 --backlog_wait_time 60000
 -f 1
 
-## Halogen's own processes (uid 970: the server, its containers, downloads) are left out of
-## system-call auditing. They are the busy ones, and nothing below watches their work: this keeps
-## the cost of auditing off inference.
+## Halogen's own processes (everything its user manager starts as uid 970: the server, its
+## containers, downloads, benchmarks) are left out of system-call auditing. They are the busy
+## ones: this keeps the cost of auditing off the engine. It also means the watches below record
+## root's and admins' changes (halogenctl run with sudo included), not what Halogen's own
+## services write in /var/srv/configs. The selftest checks this rule is loaded (-i would hide it failing).
 -a task,never -F uid=970
 
 ## halOS's settings and keys
@@ -31,12 +33,13 @@
 -w /etc/passwd -p wa -k accounts
 -w /etc/group -p wa -k accounts
 -w /etc/shadow -p wa -k accounts
-## Disk encryption and the TPM
--w /usr/bin/halogen-enroll-tpm -p x -k luks-tpm
--w /usr/bin/systemd-cryptenroll -p x -k luks-tpm
--w /usr/sbin/cryptsetup -p x -k luks-tpm
-## OS updates and halOS's own tools
--w /usr/bin/bootc -p x -k os-update
--w /usr/bin/halosctl -p x -k halosctl
--w /usr/bin/halogenctl -p x -k halogenctl
+## Disk encryption and the TPM, OS updates and halOS's own tools: each run by someone logged in
+## (auid is the login the process came from; "unset" is the system's own services, such as the
+## status timer that runs "halosctl version" every ten minutes, which would bury the rest).
+-a always,exit -F path=/usr/bin/halogen-enroll-tpm -F perm=x -F auid!=unset -k luks-tpm
+-a always,exit -F path=/usr/bin/systemd-cryptenroll -F perm=x -F auid!=unset -k luks-tpm
+-a always,exit -F path=/usr/sbin/cryptsetup -F perm=x -F auid!=unset -k luks-tpm
+-a always,exit -F path=/usr/bin/bootc -F perm=x -F auid!=unset -k os-update
+-a always,exit -F path=/usr/bin/halosctl -F perm=x -F auid!=unset -k halosctl
+-a always,exit -F path=/usr/bin/halogenctl -F perm=x -F auid!=unset -k halogenctl
 ## Logins, sudo and account changes need no rule: PAM and the tools report them themselves.

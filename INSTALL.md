@@ -638,8 +638,9 @@ halOS keeps three kinds of log, each with its own size limit, so none can fill t
   (`sudo halogenctl logs`). halOS keeps at most 4 GB, for at most 90 days, and leaves 1 GB free.
   `sudo journalctl --disk-usage` shows its size.
 - **The audit log** (`/var/log/audit/audit.log`, auditd): logins, `sudo`, account changes, and
-  every change to halOS's settings, the update signature policy, SSH and sudo settings, and every
-  use of the disk-encryption and update tools. auditd keeps 20 files of 100 MB (2 GB) and rotates
+  changes an admin or root makes to halOS's settings, the update signature policy, SSH and sudo
+  settings, and each time someone logged in runs the disk-encryption and update tools,
+  `halosctl` or `halogenctl`. auditd keeps 20 files of 50 MB (1 GB) and rotates
   them itself. If its disk ever fills, it pauses instead of stopping the machine. Read it by
   topic:
 
@@ -651,8 +652,10 @@ halOS keeps three kinds of log, each with its own size limit, so none can fill t
   sudo aureport --summary              # counts, and sudo aureport --login for logins
   ```
 
-  Halogen's own processes are left out of this tracking: they are the busiest, and nothing in
-  the audit rules is about their work, so auditing costs inference nothing measurable.
+  Halogen's own processes are left out of this tracking, so auditing adds no work to the engine.
+  That also means files Halogen's own services write in `/srv/configs` (benchmark reports, for
+  example) aren't recorded, while your changes there are. The cost on the rest of the system
+  (the front door, Caddy, included) is expected to be small; it hasn't been measured yet.
 - **Request records** (above), when you turn them on.
 
 `sudo halogenctl selftest` shows whether auditd runs with halOS's rules (`audit`) and how big the

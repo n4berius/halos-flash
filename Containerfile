@@ -114,7 +114,7 @@ ARG HALOGEN_WEIGHTS_REVISION
 # lists), so without it the Secure Boot revocation list (dbx) can't be updated. It starts on demand.
 # auditd (#107): Fedora's default rules file turns syscall auditing, and file watches with it, off,
 # so it goes and halOS's rules (files/etc/audit/rules.d) take its place. The audit log rotates at
-# 100 MB, 20 files (2 GB), and a full disk never stops the machine: logging pauses (SUSPEND), after
+# 50 MB, 20 files (1 GB, so it fits the 2 GiB a custom install may give /var/log/audit), and a full disk never stops the machine: logging pauses (SUSPEND), after
 # a note in the journal.
 RUN dnf -y --setopt=install_weak_deps=False install \
       amd-gpu-firmware firewalld linux-firmware tpm2-tss \
@@ -134,13 +134,13 @@ RUN dnf -y --setopt=install_weak_deps=False install \
     ls -d /usr/lib/firmware/amdgpu /usr/lib/firmware/amdnpu && \
     for c in runuser setpriv prlimit nano auditctl augenrules ausearch aureport; do command -v "$c" > /dev/null || { echo "missing: $c" >&2; exit 1; }; done && \
     rm -f /etc/audit/rules.d/audit.rules && \
-    sed -i -E -e 's/^max_log_file *=.*/max_log_file = 100/' -e 's/^num_logs *=.*/num_logs = 20/' \
+    sed -i -E -e 's/^max_log_file *=.*/max_log_file = 50/' -e 's/^num_logs *=.*/num_logs = 20/' \
       -e 's/^max_log_file_action *=.*/max_log_file_action = ROTATE/' \
       -e 's/^space_left *=.*/space_left = 500/' -e 's/^space_left_action *=.*/space_left_action = SYSLOG/' \
       -e 's/^admin_space_left *=.*/admin_space_left = 200/' -e 's/^admin_space_left_action *=.*/admin_space_left_action = SUSPEND/' \
       -e 's/^disk_full_action *=.*/disk_full_action = SUSPEND/' -e 's/^disk_error_action *=.*/disk_error_action = SUSPEND/' \
       /etc/audit/auditd.conf && \
-    for kv in 'max_log_file = 100' 'num_logs = 20' 'max_log_file_action = ROTATE' 'space_left_action = SYSLOG' \
+    for kv in 'max_log_file = 50' 'num_logs = 20' 'max_log_file_action = ROTATE' 'space_left = 500' 'space_left_action = SYSLOG' 'admin_space_left = 200' \
       'admin_space_left_action = SUSPEND' 'disk_full_action = SUSPEND' 'disk_error_action = SUSPEND'; do \
       grep -qx "$kv" /etc/audit/auditd.conf || { echo "auditd.conf lacks: $kv" >&2; exit 1; }; done && \
     if grep -qiE '^[a-z_]*_action *= *(HALT|SINGLE)' /etc/audit/auditd.conf; then echo "auditd.conf could stop the machine" >&2; exit 1; fi
@@ -211,8 +211,10 @@ RUN set -eu; \
     systemctl enable halos-proxy.service; \
     systemctl enable halos-https-refresh.timer; \
     systemctl enable auditd.service audit-rules.service; \
-    augenrules && grep -q -- '-w /etc/halos -p wa -k halos-config' /etc/audit/audit.rules \
-      && ! grep -qx -- '-a task,never' /etc/audit/audit.rules; \
+    augenrules; \
+    grep -q -- '-w /etc/halos -p wa -k halos-config' /etc/audit/audit.rules; \
+    grep -qx -- '-a task,never -F uid=970' /etc/audit/audit.rules; \
+    if grep -qx -- '-a task,never' /etc/audit/audit.rules; then echo "Fedora's audit rule that turns auditing off is back" >&2; exit 1; fi; \
     if [ "$HALOGEN_VARIANT" = npu ]; then \
       systemctl enable halogen-fabric-clock.service; \
     else \
