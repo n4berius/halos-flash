@@ -93,6 +93,11 @@ if [ "$variant" = npu ]; then want=290; else want=1650; fi
 [ "${models_gib:-0}" -ge "$want" ] || { echo "the models volume is ${models_gib:-missing} GiB, expected $want or more" >&2; exit 1; }
 grep -qF "$target" "$out/report.txt" || { echo "the installed system doesn't follow $target" >&2; exit 1; }
 grep -qx halostest "$out/report.txt" || { echo "the hostname was not set" >&2; exit 1; }
+# Logs (#107): auditd with halOS's watches (Fedora's default turns them off), a change in /etc/halos
+# and a run of halosctl found by their keys, the rule that leaves Halogen out, and the journal's cap.
+for l in 'AUDIT active (1[5-9]|[2-9][0-9]) 1' 'AUDITHIT [1-9][0-9]* [1-9][0-9]*' 'JOURNALCAP 1'; do
+  grep -qxE "$l" "$out/report.txt" || { echo "logs: expected '$l'" >&2; grep -E '^(AUDIT|JOURNAL)' "$out/report.txt" >&2; exit 1; }
+done
 # Request records (#107): on mounts /srv/logs/halogen and sends counts only; off removes the mount.
 # (The generated unit names the mount twice: podman's -v and Quadlet's copy of the drop-in.)
 # Hardening: nodev, nosuid and noexec on the logs volume; Halogen's container read-only.
@@ -150,6 +155,8 @@ selftest_has 'PASS firewall:'
 # answers on 8732, though Halogen itself isn't up in the VM (so the key itself isn't tried).
 selftest_has 'PASS proxy:'
 selftest_has 'PASS folder-logs: .* on its own volume'
+selftest_has 'PASS audit: auditd keeps'
+selftest_has 'INFO logs: journal'
 selftest_has 'INFO records: off'
 selftest_has 'PASS prompt-cache: on'
 selftest_has 'PASS dashboard:'
