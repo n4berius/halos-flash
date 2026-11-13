@@ -575,8 +575,13 @@ name, but allows saying halOS runs Halogen.
   takes the all-users folder's file over the uid folder's (checked with podman 6.1.3's generator
   `--user --dryrun`, both directions), so nothing shipped is edited and `cache on` just removes it.
   Invariant: Halogen is told `HALOGEN_CACHE_DIR` only while the mount is writable: `render-config`
-  needs both the choice file not `off` and no off drop-in; off writes the choice first, on writes
-  it last, after a daemon-reload and a check of the generated unit's mount. The unit is read whole
+  needs both the choice file not `off` and no off drop-in; both directions save `off` first (a stale choice file saying `on` beside the off drop-in must not survive a failed
+  `on`) and `on` saves `on` last, after a daemon-reload and a check of the generated unit's mount;
+  a failed reload or check is said out loud, leaves the cache off, and still restarts a running
+  Halogen (it keeps the settings it started with); "already off/on" also needs the unit's mount
+  to agree, so a half-done switch (or an `off` from before #127: choice file only) is finished
+  by running the command again. `cmount` ends in `|| true`: under `set -e` and pipefail a grep
+  without a match killed the script before its own error message. The unit is read whole
   into a variable before matching: `cat | grep -q` under pipefail died of SIGPIPE and read as "not
   mounted" (that was records' wrong "isn't in Halogen's service after the reload" in the VM; fixed
   there too). The selftest's `config-files` excuses the off drop-in by exact path and content, and

@@ -122,7 +122,7 @@ expect '^INFO records: off'
 expect '^PASS prompt-cache: on, '
 # Off is two halves: the choice file, and root's drop-in that mounts the folder read-only.
 pcoff="$work/etc/containers/systemd/users/halogen.container.d/15-prompt-cache.conf"
-echo off > "$work/configs/prompt-cache"; "$selftest" > "$work/out" 2>&1 || true; expect '^WARN prompt-cache: half off'
+echo off > "$work/configs/prompt-cache"; "$selftest" > "$work/out" 2>&1 || true; expect '^WARN prompt-cache: off, but only half'
 mkdir -p "${pcoff%/*}"; printf '%s\n' '# Written by sudo halogenctl cache off; removed by cache on.' '[Container]' \
   'Volume=/srv/models/.prompt-cache:/models/.prompt-cache:ro,noexec,nosuid,nodev' > "$pcoff"
 "$selftest" > "$work/out" 2>&1 || true; expect '^INFO prompt-cache: off, and Halogen can only read'

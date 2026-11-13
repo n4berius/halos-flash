@@ -133,7 +133,8 @@ assert "\nVolume=/srv/models/.prompt-cache:/models/.prompt-cache:noexec,nosuid,n
 for path in glob.glob("files/usr/libexec/halogen/*"):
     body = open(path).read()
     for line in body.splitlines():
-        if re.search(r'-v "\$models:/models(:ro)?"', line):
+        # Any spelling of a mount whose destination is all of /models (-v, --volume, ${models}, :rw, dst=).
+        if not line.lstrip().startswith("#") and re.search(r'[:=]/models(:[a-z,]+)?["\s)]|dst=/models\b', line):
             assert '"${hide_cache[@]}"' in line, f"{path} mounts all of /srv/models without hiding the prompt cache: {line.strip()}"
     if "hide_cache" in body:
         assert 'hide_cache=(--tmpfs "/models/.prompt-cache:ro,size=4k,notmpcopyup")' in body, f"{path}: the tmpfs must not copy the folder's files up"

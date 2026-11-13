@@ -13,7 +13,10 @@ promoted.
 - Prompt cache hardening: the download and checking containers no longer see the cache folder,
   Halogen refuses to start if the folder has been swapped for a link or belongs to someone else,
   and `halogenctl cache off` now also makes the folder read-only for Halogen. `records on` no
-  longer reports a missing mount that is there. (#127)
+  longer reports a missing mount that is there. If you turned the cache off before this version,
+  run `sudo halogenctl cache off` once more to make the folder read-only (the selftest says so).
+  If the selftest's `config-files` line says `halogen.container` was changed, delete its
+  `.prompt-cache` line: the mount now has its own file, and two would stop Halogen starting. (#127)
 
 - Halogen's prompt cache is now also kept on disk (`/srv/models/.prompt-cache`), so a conversation
   survives a restart of Halogen instead of being read again in full. On by default, at most 64 GiB

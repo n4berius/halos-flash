@@ -499,7 +499,7 @@ elif [ "$(as_owner stat -c %a "$pc")" != 700 ]; then
 elif [ "$pcchoice" = off ] && [ "$pcro" = 1 ]; then
   say INFO prompt-cache "off, and Halogen can only read the folder: conversations are read again in full after a restart (sudo halogenctl cache on)"
 elif [ "$pcchoice" = off ] || [ "$pcro" = 1 ]; then
-  say WARN prompt-cache "half off (a switch cut short): finish it with sudo halogenctl cache off, or sudo halogenctl cache on"
+  say WARN prompt-cache "off, but only half: Halogen isn't told about the folder yet can still write it, or the reverse (turned off before this version, or a switch cut short). Finish it with sudo halogenctl cache off, or sudo halogenctl cache on"
 else
   pcfs="$(as_owner stat -f -c %T "$pc" | tr -cd '[:alnum:]')"; pcused="$(run runuser -u halogen -- du -sh "$pc" 2>/dev/null | cut -f1 | tr -cd '[:alnum:].,')"
   case "$pcfs" in

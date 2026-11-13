@@ -353,7 +353,9 @@ ok "records on/off mounts the folder (after asking) and restarts; stats and prun
 export HALOGEN_CACHE_OFF_DROPIN="$work/allusers.d/15-prompt-cache.conf"
 f systemctl 'echo "systemctl $*" >> "$FAKE/log"; case "$*" in *"is-active halogen.service"*) echo "${FAKE_ACTIVE-active}" ;;
   *"cat halogen.service"*) o=""; if [ -n "${FAKE_STUCK:-}" ]; then o="${FAKE_STUCK#rw}"; elif [ -f "$HALOGEN_CACHE_OFF_DROPIN" ]; then o="ro,"; fi
-    echo "ExecStart=podman run -v /srv/models:/models:ro -v /srv/models/.prompt-cache:/models/.prompt-cache:${o}noexec,nosuid,nodev x" ;; esac'
+    if [ "${FAKE_STUCK:-}" = none ]; then echo "ExecStart=podman run -v /srv/models:/models:ro x"; else
+    echo "ExecStart=podman run -v /srv/models:/models:ro -v /srv/models/.prompt-cache:/models/.prompt-cache:${o}noexec,nosuid,nodev x"; fi ;;
+  *daemon-reload*) [ -z "${FAKE_NORELOAD:-}" ] ;; esac'
 mkdir -p "$HALOGEN_MODELS_DIR/.prompt-cache/sub"; echo x > "$HALOGEN_MODELS_DIR/.prompt-cache/sub/rows"; rm -f "$work/configs/prompt-cache"
 "$ctl" cache > "$work/out"; grep -q '^Prompt cache on disk: on ' "$work/out" || { cat "$work/out" >&2; exit 1; }
 if "$ctl" cache off < /dev/null > /dev/null 2>&1; then echo "cache off ran without --yes or a terminal" >&2; exit 1; fi
@@ -376,6 +378,22 @@ if FAKE_STUCK=rw "$ctl" cache off --yes > /dev/null 2>&1; then echo "cache off p
 if FAKE_STUCK=ro, "$ctl" cache on --yes > /dev/null 2>&1; then echo "cache on passed with a read-only mount" >&2; exit 1; fi
 [ "$(cat "$work/configs/prompt-cache")" = off ] || { echo "cache on told Halogen about a read-only folder" >&2; exit 1; }
 "$ctl" cache on --yes > /dev/null; [ "$(cat "$work/configs/prompt-cache")" = on ] || { echo "a half-done on wasn't finished" >&2; exit 1; }
+# A unit with no cache mount at all, or a reload that fails: said out loud, the cache left off, and a
+# running Halogen restarted so that "off" is true for it too.
+: > "$work/log"; if FAKE_STUCK=none "$ctl" cache off --yes > /dev/null 2> "$work/err"; then echo "cache off passed without any cache mount" >&2; exit 1; fi
+grep -q 'no cache mount' "$work/err" || { cat "$work/err" >&2; echo "a missing cache mount wasn't explained" >&2; exit 1; }
+grep -q 'restart halogen.service' "$work/log" || { echo "a failed off left a running Halogen writing the cache" >&2; exit 1; }
+# "Already off" needs the unit's mount read-only too: with the unit still wrong it tries again.
+if FAKE_STUCK=none "$ctl" cache off --yes > /dev/null 2>&1; then echo "cache off said already off without a read-only mount" >&2; exit 1; fi
+"$ctl" cache off --yes > "$work/out"; grep -q 'already off' "$work/out" || { cat "$work/out" >&2; exit 1; }
+if FAKE_NORELOAD=1 "$ctl" cache on --yes > /dev/null 2> "$work/err"; then echo "cache on passed though the reload failed" >&2; exit 1; fi
+grep -q "didn't reload" "$work/err" && [ "$(cat "$work/configs/prompt-cache")" = off ] || { cat "$work/err" >&2; echo "a failed reload wasn't explained, or left the cache on" >&2; exit 1; }
+# A stale state (the read-only drop-in there, the choice file saying on): a failed on must not
+# leave Halogen told about a read-only folder.
+"$ctl" cache off --yes > /dev/null; echo on > "$work/configs/prompt-cache"
+if FAKE_STUCK=ro, "$ctl" cache on --yes > /dev/null 2>&1; then echo "cache on passed with a read-only mount" >&2; exit 1; fi
+[ "$(cat "$work/configs/prompt-cache")" = off ] || { echo "a failed on from a stale state told Halogen about a read-only folder" >&2; exit 1; }
+"$ctl" cache on --yes > /dev/null; [ "$(cat "$work/configs/prompt-cache")" = on ] || { echo "cache on didn't recover" >&2; exit 1; }
 if FAKE_ACTIVE='' "$ctl" cache off --yes > /dev/null 2>&1; then echo "an unanswered is-active was taken for stopped" >&2; exit 1; fi
 [ "$(cat "$work/configs/prompt-cache")" = on ] || { echo "cache off saved the choice before it knew whether Halogen runs" >&2; exit 1; }
 grep -q 'setpriv .* systemctl --user is-active halogen.service' "$work/log" || { echo "is-active wasn't asked over halogen's own socket" >&2; exit 1; }
