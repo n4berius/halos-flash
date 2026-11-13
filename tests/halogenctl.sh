@@ -374,7 +374,7 @@ rm "$work/bin/find"
 grep -q ' stop halogen.service' "$work/log" || { echo "cache clear deleted under a Halogen that was still stopping" >&2; exit 1; }
 echo x > "$HALOGEN_MODELS_DIR/.prompt-cache/rows"
 : > "$work/log"; "$ctl" cache clear --yes > /dev/null
-[ -d "$HALOGEN_MODELS_DIR/.prompt-cache" ] && [ -z "$(ls -A "$HALOGEN_MODELS_DIR/.prompt-cache")" ] || { echo "cache clear didn't empty the folder, or removed it" >&2; exit 1; }
+if [ ! -d "$HALOGEN_MODELS_DIR/.prompt-cache" ] || [ -n "$(ls -A "$HALOGEN_MODELS_DIR/.prompt-cache")" ]; then echo "cache clear didn't empty the folder, or removed it" >&2; exit 1; fi
 grep -n 'halogen.service' "$work/log" | tr '\n' ' ' | grep -q 'stop halogen.service.* start halogen.service' || { cat "$work/log" >&2; echo "cache clear didn't stop and start Halogen" >&2; exit 1; }
 # A folder the container made unreadable is still emptied; a link in place of the folder is refused.
 mkdir -p "$HALOGEN_MODELS_DIR/.prompt-cache/locked"; echo x > "$HALOGEN_MODELS_DIR/.prompt-cache/locked/rows"; chmod 000 "$HALOGEN_MODELS_DIR/.prompt-cache/locked"
