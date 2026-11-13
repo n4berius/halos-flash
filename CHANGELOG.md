@@ -14,6 +14,15 @@ promoted.
   (10 in 10 minutes) is shut out by the firewall for 10 minutes. On by default; this machine and
   private networks are never shut out. `sudo halosctl fail2ban` shows the state, `unban <address>`
   lets someone back in, `off` turns it off. (#129)
+- Hardening: Halogen refuses to start if one of the folders mounted into its container (`npu`,
+  `decider`, `LFM`, `custom`) has been replaced by a link, as it already did for the prompt cache;
+  the boot-time setup removes such a link and makes the folder again; the weight converter can no
+  longer read the request records; and the selftest also looks at the `halogen` user's own
+  container settings folders. A link you made yourself at one of halogen's folders
+  (`/srv/models/npu`, `decider`, `LFM`, `custom`, `flash`, `.prompt-cache`, or `/srv/logs/halogen`)
+  is removed at the next boot and an empty folder made; what the link pointed to is left alone.
+  To keep such a folder on another disk, mount the disk there, then give it to halogen:
+  `sudo chown halogen:halogen <folder>` and `sudo chcon -t container_file_t <folder>`. (#128)
 
 - Prompt cache hardening: the download and checking containers no longer see the cache folder,
   Halogen refuses to start if the folder has been swapped for a link or belongs to someone else,

@@ -84,7 +84,7 @@ export PATH="$fake:$sysbin" HALOGEN_RELEASE_FILE="$work/release.env" HALOGEN_SYS
   HALOGEN_DEV="$work/dev" HALOGEN_CMDLINE="$work/cmdline" HALOGEN_MEMINFO="$work/meminfo" \
   HALOGEN_MODELS_DIR="$work/models" HALOGEN_CONFIGS_DIR="$work/configs" HALOGEN_CLOCK="$fake/fabric-clock" \
   HALOGEN_LOGS_DIR="$work/logs" HALOGEN_RECORDS_DROPIN="$work/20-records.conf" HALOS_LOG_DIR="$work" \
-  HALOS_AUDIT_RULES="$work/halos.rules" HALOGEN_PROC="$work/proc" HALOGEN_HOME="$work/home" \
+  HALOS_AUDIT_RULES="$work/halos.rules" HALOGEN_PROC="$work/proc" HALOGEN_HOME="$work/home" HALOGEN_RUNTIME_DIR="$work/run-user" \
   HALOS_POLICY="$repo/files/etc/containers/policy.json" HALOS_SSH_UNLOCK="$fake/ssh-unlock" \
   HALOS_ETC="$work/etc" HALOS_USR_ETC="$work/usretc" HALOS_ROOT_POLICY="$work/root-policy.json" \
   HALOS_HTTPS_HELPER="$fake/https" HALOS_HTTPS_RUN="$work/run-halos"
@@ -135,8 +135,38 @@ pcoff="$work/etc/containers/systemd/users/halogen.container.d/15-prompt-cache.co
 echo off > "$work/configs/prompt-cache"; "$selftest" > "$work/out" 2>&1 || true; expect '^WARN prompt-cache: off, but only half'
 mkdir -p "${pcoff%/*}"; printf '%s\n' '# Written by sudo halogenctl cache off; removed by cache on.' '[Container]' \
   'Volume=/srv/models/.prompt-cache:/models/.prompt-cache:ro,noexec,nosuid,nodev' > "$pcoff"
-"$selftest" > "$work/out" 2>&1 || true; expect '^INFO prompt-cache: off, and Halogen can only read'
+FAKE_UNIT='ExecStart=podman run -v /srv/models/.prompt-cache:/models/.prompt-cache:ro,noexec,nosuid,nodev x' "$selftest" > "$work/out" 2>&1 || true
+expect '^INFO prompt-cache: off, and Halogen can only read'
 /usr/bin/rm "$pcoff"
+# Two cache mounts in Halogen's unit (podman refuses them), and a read-only drop-in the unit doesn't follow.
+two='ExecStart=podman run -v /srv/models/.prompt-cache:/models/.prompt-cache:ro,noexec -v /srv/models/.prompt-cache:/models/.prompt-cache:noexec x'
+FAKE_UNIT="$two" "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL prompt-cache: .* has 2 mounts'
+echo off > "$work/configs/prompt-cache"; mkdir -p "${pcoff%/*}"; printf '%s\n' '# Written by sudo halogenctl cache off; removed by cache on.' '[Container]' \
+  'Volume=/srv/models/.prompt-cache:/models/.prompt-cache:ro,noexec,nosuid,nodev' > "$pcoff"
+FAKE_UNIT='ExecStart=podman run -v /srv/models/.prompt-cache:/models/.prompt-cache:noexec,nosuid,nodev x' "$selftest" > "$work/out" 2>&1 || true
+expect "^WARN prompt-cache: off, but Halogen's service doesn't mount the cache folder read-only"; /usr/bin/rm "$pcoff"
+# With the off drop-in there, a mount without options or from another source isn't "can only read".
+printf '%s\n' '# Written by sudo halogenctl cache off; removed by cache on.' '[Container]' 'Volume=/srv/models/.prompt-cache:/models/.prompt-cache:ro,noexec,nosuid,nodev' > "$pcoff"
+for u in 'ExecStart=podman run -v /srv/models/.prompt-cache:/models/.prompt-cache x' 'ExecStart=podman run -v /srv/configs:/models/.prompt-cache:noexec x'; do
+  FAKE_UNIT="$u" "$selftest" > "$work/out" 2>&1 || true; expect "^WARN prompt-cache: off, but Halogen's service doesn't mount the cache folder read-only"
+done
+FAKE_UNIT='Failed to connect to bus' "$selftest" > "$work/out" 2>&1 || true; expect '^INFO prompt-cache: off, and Halogen can only read'
+/usr/bin/rm "$pcoff"
+# A --mount form landing on the cache folder is counted like -v.
+FAKE_UNIT='ExecStart=podman run -v /srv/models/.prompt-cache:/models/.prompt-cache:noexec --mount type=bind,src=/srv/configs,dst=/models/.prompt-cache x' "$selftest" > "$work/out" 2>&1 || true
+expect '^FAIL prompt-cache: .* has 2 mounts'
+# A file in place of the NPU models folder.
+/usr/bin/mv "$work/models/npu" "$work/models/npu.x"; : > "$work/models/npu"
+"$selftest" > "$work/out" 2>&1 || true; expect "^FAIL npu-folder: .* isn't a folder of halogen's"
+/usr/bin/rm "$work/models/npu"; /usr/bin/mv "$work/models/npu.x" "$work/models/npu"
+# A link in place of the NPU models folder.
+/usr/bin/mv "$work/models/npu" "$work/models/npu.x"; /usr/bin/ln -s "$work/configs" "$work/models/npu"
+"$selftest" > "$work/out" 2>&1 || true; expect '^FAIL npu-folder: .* is a link'
+/usr/bin/rm "$work/models/npu"; /usr/bin/mv "$work/models/npu.x" "$work/models/npu"
+# A link in place of an own-checkpoint folder, and a file in halogen's own runtime Quadlet folder.
+/usr/bin/mv "$work/models/custom" "$work/models/custom.x"; /usr/bin/ln -s "$work/configs" "$work/models/custom"
+"$selftest" > "$work/out" 2>&1 || true; expect '^FAIL folder-custom: .* is a link'
+/usr/bin/rm "$work/models/custom"; /usr/bin/mv "$work/models/custom.x" "$work/models/custom"
 # A link in place of the folder, or a folder others can read.
 /usr/bin/mv "$work/models/.prompt-cache" "$work/models/.pc"; /usr/bin/ln -s "$work/configs" "$work/models/.prompt-cache"
 "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL prompt-cache: .* is a link'
@@ -163,6 +193,10 @@ echo 970 > "$work/proc/4711/loginuid"
 FAKE_MGR_PID=4711 "$selftest" > "$work/out" 2>&1 || true; expect '^PASS audit:'
 mkdir -p "$work/home/.config/systemd/user"; : > "$work/home/.config/systemd/user/evil.service"
 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN halogen-autostart: .*evil.service'; rm -r "$work/home/.config/systemd"
+mkdir -p "$work/run-user/containers/systemd/halogen.container.d"; : > "$work/run-user/containers/systemd/halogen.container.d/15-prompt-cache.conf"
+"$selftest" > "$work/out" 2>&1 || true; expect '^WARN halogen-autostart: .*run-user/containers/systemd/halogen.container.d/15-prompt-cache.conf'; rm -r "$work/run-user/containers"
+mkdir -p "$work/run-user/systemd/user.control"; : > "$work/run-user/systemd/user.control/x.conf"
+"$selftest" > "$work/out" 2>&1 || true; expect '^WARN halogen-autostart: .*run-user/systemd/user.control/x.conf'; rm -r "$work/run-user/systemd"
 # The audit rules and Halogen's container definition compared with the image's copies.
 expect '^SKIP config-files:'
 for d in etc usretc; do mkdir -p "$work/$d/audit/rules.d" "$work/$d/containers/systemd/users/970/halogen.container.d"
@@ -175,7 +209,7 @@ echo Privileged > "$work/etc/containers/systemd/users/970/halogen.container"
 echo unit > "$work/etc/containers/systemd/users/970/halogen.container"; : > "$work/etc/audit/rules.d/99-off.rules"
 "$selftest" > "$work/out" 2>&1 || true; expect "^WARN config-files: files halOS didn't put there .*99-off.rules"
 /usr/bin/rm "$work/etc/audit/rules.d/99-off.rules"; echo 'Volume=/:/host' >> "$work/etc/containers/systemd/users/970/halogen.container.d/20-records.conf"
-"$selftest" > "$work/out" 2>&1 || true; expect "^WARN config-files: .*20-records.conf \\(not what halogenctl records on writes\\)"
+"$selftest" > "$work/out" 2>&1 || true; expect "^WARN config-files: .*20-records.conf \\(not what halogenctl records on writes now"
 # The drop-in cache off writes is excused with exactly its content, and flagged with any other.
 mkdir -p "$work/etc/containers/systemd/users/halogen.container.d"
 printf '%s\n' '# Written by sudo halogenctl cache off; removed by cache on.' '[Container]' 'Volume=/srv/models/.prompt-cache:/models/.prompt-cache:ro,noexec,nosuid,nodev' \

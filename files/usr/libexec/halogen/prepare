@@ -13,6 +13,11 @@ state="${HALOGEN_STATE_DIR:-/var/lib/halogen}"
 as_halogen() { runuser -u halogen -- "$@"; }
 
 install -d -o halogen -g halogen -m 0750 "$models" "$configs" "$logs" "$state"
+# A link where one of halogen's folders belongs (the download container can write the top of
+# /srv/models) is removed, as halogen, before the folder is made: install -d would follow it and
+# change another folder's mode, and a dangling one would fail this unit at every boot.
+nolink() { local d; for d in "$@"; do if as_halogen test -L "$d"; then echo "halogen-prepare: removing the link $d (a folder belongs there)" >&2; as_halogen rm -f -- "$d"; fi; done; }
+nolink "$logs/halogen" "$models/.prompt-cache" "$models/flash" "$models/npu" "$models/decider" "$models/LFM" "$models/custom"
 # Halogen's request records (sudo halogenctl records on mounts it at /records). On installs made
 # before #107 /srv/logs is a folder on /var; newer guided installs give it a volume of its own.
 as_halogen install -d -m 0700 "$logs/halogen"

@@ -645,8 +645,22 @@ name, but allows saying halOS runs Halogen.
   Selftest `fail2ban` (both jails, a count of shut-out addresses, never the addresses). Audit watch
   `-w /etc/fail2ban -k fail2ban`. Users override in `jail.d/90-local.local`. The VM test bans and
   unbans an address (a rich rule appears and goes), and runs the filter on the front door's real
-  log line with its status set to 401 (Halogen is down there, so the real status is 503). Not
+  log line with its status set to 401 (Halogen is down there, so the real status is 503). In the VM it runs in `fail2ban_t`, bans and unbans through a rich rule, and uses about 21 MB. Not
   covered: the initramfs SSH unlock; TLS handshake failures; a device on a private network.
+- Link checks (#128, security audit of #127, owner agreed): `preflight` fails on a link, or on
+  something not a folder of its own user, at `/srv/models/{npu,decider,LFM,custom}` (each is
+  mounted into Halogen's container by `10-npu.conf`, three writable; the download container can
+  write the top of `/srv/models`, and podman follows a link at a mount source, so `decider ->
+  ../configs` would hand Halogen the keys; a missing folder passes, the edition may not use it).
+  The selftest's `npu-folder` and `folder-*` FAIL on a link. `prepare` removes a link (as halogen)
+  at each folder it makes before `install -d`, which followed it (changing the target's mode) and
+  failed the unit on a dangling one; a deliberate link to another disk is therefore undone at boot (the
+  target's contents stay): mount the disk there and chown/chcon it to halogen and `container_file_t`,
+  since a fresh filesystem's top folder is root's, on which `install -d` as halogen fails and preflight's `-O` refuses. A plain file in a folder's place still fails prepare (it doesn't delete non-links); preflight names the remedy. The convert sandbox's `InaccessiblePaths` also takes `/srv/logs`. The
+  selftest's `halogen-autostart` also looks in `/run/user/970/{containers/systemd,systemd/user,
+  systemd/user.control}`, and `prompt-cache` reads the generated unit: two cache mounts FAIL, and
+  an off drop-in the unit doesn't follow WARNs (halogen's own Quadlet folders override root's
+  same-named drop-in, so the file alone isn't proof).
 
 ## Lessons already learned
 
