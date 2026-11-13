@@ -102,6 +102,8 @@ typed("{ echo RESULT-START; cat /proc/cmdline; dmesg | grep -i secure; bootctl s
       # Hardening: the exemption is Halogen's login session only. Its service manager has login uid
       # 970; a file made by a unit it starts leaves no record, one made by root acting as halogen
       # (runuser from this login) does. The Quadlet folder is watched. The rules are locked.
+      # The selftest ignores its test variables when run through halogenctl (0 = not skipped).
+      "echo STENV $(HALOS_USR_ETC=/none halogenctl selftest 2>/dev/null | grep -c -e 'SKIP signature-files'); "
       "echo HLOGIN $(cat /proc/$(systemctl show -p MainPID --value user@970.service)/loginuid); "
       # systemd-run --wait talks to the D-Bus user bus, and this login's DBUS_SESSION_BUS_ADDRESS is
       # root's, so halogen's is named. Only the records that create the files are counted (root's

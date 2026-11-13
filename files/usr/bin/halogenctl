@@ -130,7 +130,10 @@ case "${1:-status}" in
   selftest)
     # The beta checklist in one go. It changes nothing and prints nothing private.
     [ "$(id -u)" = 0 ] || { echo "Run it with sudo: sudo halogenctl selftest" >&2; exit 1; }
-    exec /usr/libexec/halogen/selftest
+    # With an empty environment: the selftest takes its paths from HALOS_* and HALOGEN_* variables
+    # for its own tests, and one set for root (in /etc/environment, say) would point its checks at
+    # other files and make them pass (security audit).
+    exec env -i PATH=/usr/sbin:/usr/bin LANG=C.UTF-8 /usr/libexec/halogen/selftest
     ;;
   api-key) as_owner cat "$configs/api-key" | tr -cd '[:print:]'; echo ;;
   hf-token)

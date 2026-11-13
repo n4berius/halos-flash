@@ -56,6 +56,14 @@
 -w /etc/udev/rules.d -p wa -k udev
 -w /etc/firewalld -p wa -k firewall
 -w /etc/sysctl.d -p wa -k sysctl
+-w /etc/sysctl.conf -p wa -k sysctl
+## Settings every login and program picks up: the environment, where libraries and names are
+## looked up, and what is mounted at boot
+-w /etc/environment -p wa -k environment
+-w /etc/ld.so.conf -p wa -k preload
+-w /etc/ld.so.conf.d -p wa -k preload
+-w /etc/nsswitch.conf -p wa -k accounts
+-w /etc/fstab -p wa -k mounts
 -w /etc/crypttab -p wa -k luks-tpm
 ## Runs of modprobe, insmod and rmmod (all kmod) by any process, logged in or not. Loads the kernel
 ## starts itself, and those udev and systemd make through the library, run no program and aren't seen.

@@ -120,10 +120,11 @@ assert "augenrules &&" not in cf and "&& ! grep" not in cf, "the build's audit r
 assert len(re.findall(r"^-a always,exit -F path=\S+ -F perm=x -F auid!=unset -k \S+$", rules, re.M)) == 6 and not re.search(r"^-w .* -p x ", rules, re.M), "program rules must leave out the system's own runs (the status timer)"
 # Hardening: the paths that decide how Halogen and the machine start are watched, the specific
 # signature-policy rules come before the wider /etc/containers one, and the rules are locked.
-for w in ("/etc/containers/systemd", "/etc/audit", "/etc/systemd", "/etc/ssh", "/etc/pam.d", "/etc/crypttab", "/etc/ld.so.preload"):
+for w in ("/etc/environment", "/etc/fstab", "/etc/nsswitch.conf", "/etc/ld.so.conf", "/etc/containers/systemd", "/etc/audit", "/etc/systemd", "/etc/ssh", "/etc/pam.d", "/etc/crypttab", "/etc/ld.so.preload"):
     assert re.search(rf"^-w {re.escape(w)} -p wa -k ", rules, re.M), f"no audit watch on {w}"
 assert rules.index("-w /etc/containers/policy.json") < rules.index("-w /etc/containers/systemd") < rules.index("-w /etc/containers -p"), "the wider /etc/containers watch must come last"
 assert "\n-a always,exit -F path=/usr/bin/kmod -F perm=x -k modules\n" in rules, "runs of modprobe/insmod aren't recorded"
+assert "exec env -i PATH=/usr/sbin:/usr/bin LANG=C.UTF-8 /usr/libexec/halogen/selftest" in open("files/usr/bin/halogenctl").read(), "the selftest's test variables work for root in production"
 assert "= '-e 2' ]" in cf, "the build doesn't check the audit rules end locked"
 assert "SystemMaxUse=4G" in open("files/usr/lib/systemd/journald.conf.d/60-halos.conf").read(), "the journal has no cap"
 assert "systemctl enable halos-https-refresh.timer" in cf, "the HTTPS address refresh isn't enabled"
