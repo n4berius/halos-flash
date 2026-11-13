@@ -92,6 +92,16 @@ typed("{ echo RESULT-START; cat /proc/cmdline; dmesg | grep -i secure; bootctl s
       # Hardening: the logs volume can't hold programs, and Halogen's container is read-only.
       "echo RECMNT $(findmnt -n -o OPTIONS /var/srv/logs | tr , ' ' | xargs -n 1 | grep -c -x -e nodev -e nosuid -e noexec) "
       "$(setpriv --reuid=halogen --regid=halogen --init-groups env XDG_RUNTIME_DIR=/run/user/970 systemctl --user cat halogen.service 2>/dev/null | grep -c -e --read-only); "
+      # Logs (#107): auditd runs with halOS's watches, a change in /etc/halos is recorded, and the
+      # journal has halOS's cap.
+      # The rule leaving Halogen out is loaded (-i would hide it failing), and a run of halosctl
+      # from this login is found too (an exec rule on /usr, which is composefs here).
+      "echo AUDIT $(systemctl is-active auditd) $(auditctl -l | grep -c -E -e 'key=|-k ') "
+      "$(auditctl -l | grep -c -x -e '-a never,task -F uid=970'); "
+      "touch /etc/halos/audit-probe; rm -f /etc/halos/audit-probe; halosctl version > /dev/null 2>&1; sleep 2; "
+      "echo AUDITHIT $(ausearch -i -k halos-config 2>/dev/null | grep -c audit-probe) "
+      "$(ausearch -i -k halosctl 2>/dev/null | grep -c -e halosctl); "
+      "echo JOURNALCAP $(systemd-analyze cat-config systemd/journald.conf | grep -c -x SystemMaxUse=4G); "
       # The guided install (#42): volume sizes, hostname, admin user, and no password left behind.
       "lvs --noheadings --units g --nosuffix -o lv_name,lv_size halos; cat /etc/hostname; id admin; "
       "grep -rIlsE 'halogentest|rootsecret|adminsecret' /etc /var/roothome /var/log /boot | sed 's/.*/PWLEAK &/'; "

@@ -35,7 +35,16 @@ f podman 'case "$*" in *"exec halogen stat"*) [ "$PWD" = / ] || { echo "cannot c
     [ -n "${FAKE_MEMLOCK:-}" ] || { echo "crun: setrlimit RLIMIT_MEMLOCK: Operation not permitted"; exit 126; } ;; esac; case "$*" in *"exec halogen stat"*) printf "/tmp xfs\n/var/tmp %s\n/root xfs\n" "${FAKE_VARTMP:-xfs}" ;; *) exit 1 ;; esac'
 f mokutil 'echo "SecureBoot ${FAKE_SB:-enabled}"'
 f getenforce 'echo "${FAKE_SELINUX:-Enforcing}"'
-f journalctl 'cat "$FAKE/kernel.log" 2>/dev/null; true'
+f journalctl 'case "$*" in *--disk-usage*) echo "Archived and active journals take up 1.2G in the file system." ;; *) cat "$FAKE/kernel.log" 2>/dev/null ;; esac; true'
+# auditd's loaded rules: halOS's watches unless FAKE_AUDIT says otherwise.
+f auditctl 'if [ "$1" = -s ]; then echo "enabled ${FAKE_AUDIT_ENABLED:-1}"; echo "lost 0"; exit 0; fi
+case "${FAKE_AUDIT:-halos}" in
+  halos) echo "-a never,task -F uid=970"; for i in {1..12}; do echo "-w /etc/x$i -p wa -k k$i"; done
+    for i in {1..6}; do echo "-a always,exit -S all -F path=/usr/bin/x$i -F perm=x -F auid!=-1 -F key=k$i"; done ;;
+  wide) echo "-a never,task -F uid=970"; echo "-a never,task -F uid=0"; for i in {1..18}; do echo "-w /etc/x$i -p wa -k k$i"; done ;;
+  noexempt) for i in {1..18}; do echo "-w /etc/x$i -p wa -k k$i"; done ;;
+  fedora) echo "-a never,task" ;;
+  few) echo "-w /etc/halos -p wa -k halos-config" ;; esac'
 f firewall-cmd 'case "$1" in --state) echo "${FAKE_FIREWALL:-running}" ;; --get-default-zone) echo FedoraServer ;; *) cat "$FAKE/services" ;; esac'
 f lsblk 'echo "/dev/nvme0n1p3 crypto_LUKS"'
 f cryptsetup 'printf "Tokens:\n  0: systemd-tpm2\n"'
@@ -60,10 +69,11 @@ f runuser 'echo "runuser $*" >> "$FAKE/runuser.log"; [ "$1 $2 $3" = "-u halogen 
 mkdir -p "$work/models/.cache/huggingface/download"
 printf '8ef7ad828f7fa715cba0721a8ef9f9ab20d44e50\n' > "$work/models/.cache/huggingface/download/qwen38-flash-next-v2.hgn.metadata"
 
+mkdir -p "$work/audit"
 export PATH="$fake:$sysbin" HALOGEN_RELEASE_FILE="$work/release.env" HALOGEN_SYSFS="$work/sys" \
   HALOGEN_DEV="$work/dev" HALOGEN_CMDLINE="$work/cmdline" HALOGEN_MEMINFO="$work/meminfo" \
   HALOGEN_MODELS_DIR="$work/models" HALOGEN_CONFIGS_DIR="$work/configs" HALOGEN_CLOCK="$fake/fabric-clock" \
-  HALOGEN_LOGS_DIR="$work/logs" HALOGEN_RECORDS_DROPIN="$work/20-records.conf" \
+  HALOGEN_LOGS_DIR="$work/logs" HALOGEN_RECORDS_DROPIN="$work/20-records.conf" HALOS_LOG_DIR="$work" \
   HALOS_POLICY="$repo/files/etc/containers/policy.json" HALOS_SSH_UNLOCK="$fake/ssh-unlock" \
   HALOS_ETC="$work/etc" HALOS_USR_ETC="$work/usretc" HALOS_ROOT_POLICY="$work/root-policy.json" \
   HALOS_HTTPS_HELPER="$fake/https" HALOS_HTTPS_RUN="$work/run-halos"
@@ -101,6 +111,17 @@ done
 expect '^Summary: [0-9]+ passed, 0 warnings, 0 failed'
 expect 'serving: halogen-qwen3.8-flash-next qwen3.5-2b'
 expect '^INFO records: off'
+# Logs (#107): auditd with halOS's watches, the journal's size and room on /var/log.
+expect '^PASS audit: auditd keeps .* 18 watches loaded'
+expect '^INFO logs: journal 1.2G, at most 4 GB'
+FAKE_AUDIT=fedora "$selftest" > "$work/out" 2>&1 || true; expect "^WARN audit: .*Fedora's rule"
+FAKE_AUDIT=few "$selftest" > "$work/out" 2>&1 || true; expect '^WARN audit: .*only 1 of'
+FAKE_AUDIT_ENABLED=0 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN audit: .*switched off in the kernel'
+FAKE_AUDIT=wide "$selftest" > "$work/out" 2>&1 || true; expect "^WARN audit: more than Halogen's own"
+FAKE_AUDIT=noexempt "$selftest" > "$work/out" 2>&1 || true; expect "^WARN audit: .*leaves Halogen's own processes out"
+HALOS_AUDIT_MIN_FREE_MB=99999999 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN audit: only [0-9]+ MB free'
+HALOS_LOG_MIN_FREE_MB=999999999 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN logs: only'
+"$selftest" > "$work/out" 2>&1 || true
 expect '^PASS scratch: '
 FAKE_VARTMP=tmpfs "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL scratch: .*in memory'
 FAKE_STATE=inactive "$selftest" > "$work/out" 2>&1 || true; refuse '^(PASS|FAIL|WARN) scratch:'

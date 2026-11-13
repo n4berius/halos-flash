@@ -10,6 +10,12 @@ promoted.
 
 ## Unreleased
 
+- Logs: an audit trail (auditd) records logins, `sudo`, changes an admin or root makes to halOS's
+  settings, update signatures, SSH and sudo settings, and runs of the disk-encryption and update tools.
+  Read it with `sudo ausearch -i -k halos-config` and the other keys in the install guide. It keeps
+  1 GB and pauses rather than stop the machine if its disk fills. The system journal now keeps at
+  most 4 GB for 90 days. The selftest reports both. Halogen's own processes aren't audited, to keep
+  the cost off inference (to be measured on real hardware). (#118)
 - Hardening: Halogen's container now runs read-only, apart from its scratch folders (`/tmp`,
   `/var/tmp`), which stay on disk as before, so memory use is unchanged. The request records
   folder, and on new installs the whole `/srv/logs` volume, can't hold or run programs. (#115)
