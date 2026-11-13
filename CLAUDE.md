@@ -580,7 +580,9 @@ name, but allows saying halOS runs Halogen.
   a failed reload or check is said out loud, leaves the cache off, and still restarts a running
   Halogen (it keeps the settings it started with); "already off/on" also needs the unit's mount
   to agree, so a half-done switch (or an `off` from before #127: choice file only) is finished
-  by running the command again. `cmount` ends in `|| true`: under `set -e` and pipefail a grep
+  by running the command again. Two cache mounts in the generated unit count as a wrong answer (the all-users-over-uid
+  precedence is Quadlet behaviour, not a documented promise; the VM test counts exactly one).
+  `cmount` ends in `|| true`: under `set -e` and pipefail a grep
   without a match killed the script before its own error message. The unit is read whole
   into a variable before matching: `cat | grep -q` under pipefail died of SIGPIPE and read as "not
   mounted" (that was records' wrong "isn't in Halogen's service after the reload" in the VM; fixed
@@ -590,7 +592,9 @@ name, but allows saying halOS runs Halogen.
   resets it at boot only). Hidden from other containers: `--tmpfs
   /models/.prompt-cache:ro,size=4k,notmpcopyup` on every podman run that mounts all of
   `/srv/models` (the fetch's probe, download and verify, flash-checkpoint's `offline` and `ppl`),
-  only when the folder exists (podman can't make the mount point on a read-only `/models`);
+  always: those scripts run as halogen and first refuse a link in the folder's place and make a
+  missing folder (podman can't make the mount point on a read-only `/models`, and a folder that
+  appeared during a long download would be seen by the networked container);
   without `notmpcopyup` podman copies the folder's files into the tmpfs (seen with 4.9.3; 6.1.3's
   podman-run(1) says the same); the convert sandbox gets `InaccessiblePaths`. Podman 6 can't run
   in this session's sandbox (cgroups v1), so those flags first run for real on freyja's next fetch.

@@ -43,9 +43,15 @@ online() {
 # its tools with it, because without it SELinux refuses the container the GPU on Fedora.
 # Halogen's prompt cache (conversation state) is hidden from these containers: none of them needs
 # it, and the download one has network. An empty read-only tmpfs takes its place; notmpcopyup,
-# or podman copies the folder's files into it. Only when the folder exists: podman can't make the
-# mount point on a read-only /models.
-hide_cache=(); [ ! -d "$models/.prompt-cache" ] || hide_cache=(--tmpfs "/models/.prompt-cache:ro,size=4k,notmpcopyup")
+# or podman copies the folder's files into it. podman can't make the
+# mount point on a read-only /models, so a missing folder is made first (this runs as halogen, as
+# prepare does at boot). A link in its place is refused: the tmpfs would land on whatever it points
+# to, and Halogen's start refuses it anyway (preflight).
+if [ -L "$models/.prompt-cache" ]; then
+  echo "$models/.prompt-cache is a link, not a folder. Remove it, then start again: sudo halogenctl restart" >&2; exit 1
+fi
+[ -d "$models/.prompt-cache" ] || mkdir -m 0700 "$models/.prompt-cache" || exit 1
+hide_cache=(--tmpfs "/models/.prompt-cache:ro,size=4k,notmpcopyup")
 offline() {
   podman run --rm --pull=never --device /dev/kfd --device /dev/dri --group-add keep-groups \
     --ipc=host --ulimit memlock=-1:-1 -v "$models:/models:ro" "${hide_cache[@]}" \

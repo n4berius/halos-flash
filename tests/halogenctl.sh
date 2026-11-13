@@ -353,7 +353,8 @@ ok "records on/off mounts the folder (after asking) and restarts; stats and prun
 export HALOGEN_CACHE_OFF_DROPIN="$work/allusers.d/15-prompt-cache.conf"
 f systemctl 'echo "systemctl $*" >> "$FAKE/log"; case "$*" in *"is-active halogen.service"*) echo "${FAKE_ACTIVE-active}" ;;
   *"cat halogen.service"*) o=""; if [ -n "${FAKE_STUCK:-}" ]; then o="${FAKE_STUCK#rw}"; elif [ -f "$HALOGEN_CACHE_OFF_DROPIN" ]; then o="ro,"; fi
-    if [ "${FAKE_STUCK:-}" = none ]; then echo "ExecStart=podman run -v /srv/models:/models:ro x"; else
+    if [ "${FAKE_STUCK:-}" = none ]; then echo "ExecStart=podman run -v /srv/models:/models:ro x"
+    elif [ "${FAKE_STUCK:-}" = both ]; then echo "ExecStart=podman run -v /srv/models/.prompt-cache:/models/.prompt-cache:ro,noexec -v /srv/models/.prompt-cache:/models/.prompt-cache:noexec x"; else
     echo "ExecStart=podman run -v /srv/models:/models:ro -v /srv/models/.prompt-cache:/models/.prompt-cache:${o}noexec,nosuid,nodev x"; fi ;;
   *daemon-reload*) [ -z "${FAKE_NORELOAD:-}" ] ;; esac'
 mkdir -p "$HALOGEN_MODELS_DIR/.prompt-cache/sub"; echo x > "$HALOGEN_MODELS_DIR/.prompt-cache/sub/rows"; rm -f "$work/configs/prompt-cache"
@@ -383,6 +384,8 @@ if FAKE_STUCK=ro, "$ctl" cache on --yes > /dev/null 2>&1; then echo "cache on pa
 : > "$work/log"; if FAKE_STUCK=none "$ctl" cache off --yes > /dev/null 2> "$work/err"; then echo "cache off passed without any cache mount" >&2; exit 1; fi
 grep -q 'no cache mount' "$work/err" || { cat "$work/err" >&2; echo "a missing cache mount wasn't explained" >&2; exit 1; }
 grep -q 'restart halogen.service' "$work/log" || { echo "a failed off left a running Halogen writing the cache" >&2; exit 1; }
+if FAKE_STUCK=both "$ctl" cache off --yes > /dev/null 2> "$work/err"; then echo "two cache mounts in the unit passed as off" >&2; exit 1; fi
+grep -q '2 cache mounts' "$work/err" || { cat "$work/err" >&2; echo "two cache mounts weren't named" >&2; exit 1; }
 # "Already off" needs the unit's mount read-only too: with the unit still wrong it tries again.
 if FAKE_STUCK=none "$ctl" cache off --yes > /dev/null 2>&1; then echo "cache off said already off without a read-only mount" >&2; exit 1; fi
 "$ctl" cache off --yes > "$work/out"; grep -q 'already off' "$work/out" || { cat "$work/out" >&2; exit 1; }

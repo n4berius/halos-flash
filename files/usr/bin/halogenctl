@@ -616,14 +616,20 @@ case "${1:-status}" in
           printf '%s\n' "$1" | as_owner sh -c 'umask 027; cat > "$1.new" && mv -f "$1.new" "$1"' sh "$cchoice"
         }
         # The mount as halogen's generated unit has it, read whole before matching (no SIGPIPE).
-        cmount() { local u; u="$(as_manager cat halogen.service 2> /dev/null)" || true; { grep -o -- '-v [^ ]*\.prompt-cache:[^ ]*' <<< "$u" || true; } | head -n 1; }
+        # Two mounts (a future podman reading both drop-ins, or a copy of the line elsewhere) would
+        # stop Halogen starting, so they count as a wrong answer, not as the first of them.
+        cmount() {
+          local u n; u="$(as_manager cat halogen.service 2> /dev/null)" || true
+          n="$({ grep -o -- '-v [^ ]*\.prompt-cache:[^ ]*' <<< "$u" || true; } | wc -l)"
+          if [ "$n" -gt 1 ]; then echo "$n cache mounts"; else { grep -o -- '-v [^ ]*\.prompt-cache:[^ ]*' <<< "$u" || true; } | head -n 1; fi
+        }
         # Already there only when every half is: the choice, the drop-in and the generated unit's
         # mount. Anything else (a switch cut short, or "off" from before the folder went read-only)
         # is finished below.
         m="$(cmount)"
-        if [ "$want" = off ] && [ "$cchosen" = off ] && [ -e "$coff" ] && [[ "$m" == *:ro,* ]]; then
+        if [ "$want" = off ] && [ "$cchosen" = off ] && [ -e "$coff" ] && [[ "$m" == -v*:ro,* ]]; then
           echo "The prompt cache on disk is already off. If Halogen didn't restart since: sudo halogenctl restart"; exit 0
-        elif [ "$want" = on ] && [ "$cstate" = on ] && [ -n "$m" ] && [[ "$m" != *:ro,* ]]; then
+        elif [ "$want" = on ] && [ "$cstate" = on ] && [[ "$m" == -v* ]] && [[ "$m" != *:ro,* ]]; then
           echo "The prompt cache on disk is already on. If Halogen didn't restart since: sudo halogenctl restart"; exit 0
         fi
         cask "Turn the prompt cache on disk $want?"
@@ -642,9 +648,9 @@ case "${1:-status}" in
         problem=""
         as_manager daemon-reload || problem="halogen's service manager didn't reload"
         m="$(cmount)"
-        if [ -z "$problem" ] && [ "$want" = off ] && [[ "$m" != *:ro,* ]]; then
+        if [ -z "$problem" ] && [ "$want" = off ] && [[ "$m" != -v*:ro,* ]]; then
           problem="Halogen's service doesn't mount the folder read-only after the reload (${m:-no cache mount})"
-        elif [ -z "$problem" ] && [ "$want" = on ] && { [ -z "$m" ] || [[ "$m" == *:ro,* ]]; }; then
+        elif [ -z "$problem" ] && [ "$want" = on ] && { [[ "$m" != -v* ]] || [[ "$m" == *:ro,* ]]; }; then
           problem="Halogen's service doesn't mount the folder writable after the reload (${m:-no cache mount})"
         fi
         if [ -n "$problem" ]; then

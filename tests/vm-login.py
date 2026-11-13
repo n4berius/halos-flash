@@ -99,7 +99,8 @@ typed("{ echo RESULT-START; cat /proc/cmdline; dmesg | grep -i secure; bootctl s
       # leaves no file behind.
       "halogenctl cache off --yes > /tmp/pc 2>&1; "
       "echo PCOFF $(setpriv --reuid=halogen --regid=halogen --init-groups env -C / XDG_RUNTIME_DIR=/run/user/970 systemctl --user cat halogen.service 2>/dev/null | grep -c -F .prompt-cache:/models/.prompt-cache:ro,noexec) "
-      "$(halogenctl config 2>/dev/null | grep -c -e HALOGEN_CACHE_DIR); "
+      "$(halogenctl config 2>/dev/null | grep -c -e HALOGEN_CACHE_DIR) "
+      "$(setpriv --reuid=halogen --regid=halogen --init-groups env -C / XDG_RUNTIME_DIR=/run/user/970 systemctl --user cat halogen.service 2>/dev/null | grep -e ExecStart= | grep -o -F .prompt-cache:/models/.prompt-cache: | grep -c -e prompt); "
       "halogenctl cache on --yes >> /tmp/pc 2>&1; "
       "echo PCON $(setpriv --reuid=halogen --regid=halogen --init-groups env -C / XDG_RUNTIME_DIR=/run/user/970 systemctl --user cat halogen.service 2>/dev/null | grep -c -F .prompt-cache:/models/.prompt-cache:noexec) "
       "$(halogenctl config 2>/dev/null | grep -c -x -e HALOGEN_CACHE_DIR=/models/.prompt-cache) $(ls /etc/containers/systemd/users/halogen.container.d | grep -c prompt); cat /tmp/pc; "
