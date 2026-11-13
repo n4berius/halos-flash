@@ -37,9 +37,11 @@ f mokutil 'echo "SecureBoot ${FAKE_SB:-enabled}"'
 f getenforce 'echo "${FAKE_SELINUX:-Enforcing}"'
 f journalctl 'case "$*" in *--disk-usage*) echo "Archived and active journals take up 1.2G in the file system." ;; *) cat "$FAKE/kernel.log" 2>/dev/null ;; esac; true'
 # auditd's loaded rules: halOS's watches unless FAKE_AUDIT says otherwise.
-f auditctl 'case "${FAKE_AUDIT:-halos}" in
+f auditctl 'if [ "$1" = -s ]; then echo "enabled ${FAKE_AUDIT_ENABLED:-1}"; echo "lost 0"; exit 0; fi
+case "${FAKE_AUDIT:-halos}" in
   halos) echo "-a never,task -F uid=970"; for i in {1..12}; do echo "-w /etc/x$i -p wa -k k$i"; done
     for i in {1..6}; do echo "-a always,exit -S all -F path=/usr/bin/x$i -F perm=x -F auid!=-1 -F key=k$i"; done ;;
+  wide) echo "-a never,task -F uid=970"; echo "-a never,task -F uid=0"; for i in {1..18}; do echo "-w /etc/x$i -p wa -k k$i"; done ;;
   noexempt) for i in {1..18}; do echo "-w /etc/x$i -p wa -k k$i"; done ;;
   fedora) echo "-a never,task" ;;
   few) echo "-w /etc/halos -p wa -k halos-config" ;; esac'
@@ -114,6 +116,8 @@ expect '^PASS audit: auditd keeps .* 18 watches loaded'
 expect '^INFO logs: journal 1.2G, at most 4 GB'
 FAKE_AUDIT=fedora "$selftest" > "$work/out" 2>&1 || true; expect "^WARN audit: .*Fedora's rule"
 FAKE_AUDIT=few "$selftest" > "$work/out" 2>&1 || true; expect '^WARN audit: .*only 1 of'
+FAKE_AUDIT_ENABLED=0 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN audit: .*switched off in the kernel'
+FAKE_AUDIT=wide "$selftest" > "$work/out" 2>&1 || true; expect "^WARN audit: more than Halogen's own"
 FAKE_AUDIT=noexempt "$selftest" > "$work/out" 2>&1 || true; expect "^WARN audit: .*leaves Halogen's own processes out"
 HALOS_AUDIT_MIN_FREE_MB=99999999 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN audit: only [0-9]+ MB free'
 HALOS_LOG_MIN_FREE_MB=999999999 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN logs: only'

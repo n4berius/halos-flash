@@ -467,6 +467,8 @@ if have systemctl && have auditctl; then
   if [ "$astate" != active ]; then say WARN audit "auditd is $astate: sudo systemctl start auditd, and sudo journalctl -u auditd"
   elif grep -qx -- '-a never,task' <<< "$rules"; then say WARN audit "auditd runs with Fedora's rule that turns system-call auditing off, so halOS's watches see nothing: sudo augenrules --load"
   elif [ "${nrules:-0}" -lt "${HALOS_AUDIT_MIN_RULES:-15}" ]; then say WARN audit "auditd runs, but only ${nrules:-0} of halOS's watches are loaded: sudo augenrules --load"
+  elif run auditctl -s | grep -qx 'enabled 0'; then say WARN audit "auditd runs, but auditing is switched off in the kernel, so nothing is recorded: sudo auditctl -e 1"
+  elif [ "$(grep -c -- '^-a never,' <<< "$rules")" -gt 1 ]; then say WARN audit "more than Halogen's own processes are left out of auditing (sudo auditctl -l | grep never): sudo augenrules --load"
   elif ! grep -qx -- '-a never,task -F uid=970' <<< "$rules"; then say WARN audit "auditd runs, but the rule that leaves Halogen's own processes out isn't loaded, so auditing may slow it: sudo augenrules --load"
   elif [ -n "$afree" ] && [ "$afree" -lt "${HALOS_AUDIT_MIN_FREE_MB:-250}" ]; then say WARN audit "only ${afree} MB free on $logdir/audit: below 200 MB auditd stops recording until it is restarted with more room"
   else say PASS audit "auditd keeps $logdir/audit/audit.log, ${nrules} watches loaded (read them with: sudo ausearch -i -k halos-config)"; fi
