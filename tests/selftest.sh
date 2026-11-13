@@ -60,6 +60,7 @@ f runuser 'echo "runuser $*" >> "$FAKE/runuser.log"; [ "$1 $2 $3" = "-u halogen 
 mkdir -p "$work/models/.cache/huggingface/download"
 printf '8ef7ad828f7fa715cba0721a8ef9f9ab20d44e50\n' > "$work/models/.cache/huggingface/download/qwen38-flash-next-v2.hgn.metadata"
 
+mkdir -p "$work/models/.prompt-cache"
 export PATH="$fake:$sysbin" HALOGEN_RELEASE_FILE="$work/release.env" HALOGEN_SYSFS="$work/sys" \
   HALOGEN_DEV="$work/dev" HALOGEN_CMDLINE="$work/cmdline" HALOGEN_MEMINFO="$work/meminfo" \
   HALOGEN_MODELS_DIR="$work/models" HALOGEN_CONFIGS_DIR="$work/configs" HALOGEN_CLOCK="$fake/fabric-clock" \
@@ -101,6 +102,11 @@ done
 expect '^Summary: [0-9]+ passed, 0 warnings, 0 failed'
 expect 'serving: halogen-qwen3.8-flash-next qwen3.5-2b'
 expect '^INFO records: off'
+# The prompt cache on disk: on by default, off on request, and a missing folder is a warning.
+expect '^PASS prompt-cache: on, '
+echo off > "$work/configs/prompt-cache"; "$selftest" > "$work/out" 2>&1 || true; expect '^INFO prompt-cache: off'
+rm "$work/configs/prompt-cache"; /usr/bin/mv "$work/models/.prompt-cache" "$work/models/.pc"
+"$selftest" > "$work/out" 2>&1 || true; expect '^WARN prompt-cache: .* is missing'; /usr/bin/mv "$work/models/.pc" "$work/models/.prompt-cache"
 expect '^PASS scratch: '
 FAKE_VARTMP=tmpfs "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL scratch: .*in memory'
 FAKE_STATE=inactive "$selftest" > "$work/out" 2>&1 || true; refuse '^(PASS|FAIL|WARN) scratch:'

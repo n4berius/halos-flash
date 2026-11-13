@@ -10,6 +10,11 @@ promoted.
 
 ## Unreleased
 
+- Halogen's prompt cache is now also kept on disk (`/srv/models/.prompt-cache`), so a conversation
+  survives a restart of Halogen instead of being read again in full. On by default, at most 64 GiB
+  (`HALOGEN_CACHE_DISK_GIB`); an OS upgrade starts with an empty cache. `sudo halogenctl cache`
+  shows it, `cache off` turns it off, `cache clear` empties it. (#PR)
+
 - Hardening: Halogen's container now runs read-only, apart from its scratch folders (`/tmp`,
   `/var/tmp`), which stay on disk as before, so memory use is unchanged. The request records
   folder, and on new installs the whole `/srv/logs` volume, can't hold or run programs. (#115)

@@ -566,11 +566,58 @@ case "${1:-status}" in
       *) echo "usage: halogenctl records [on|off|stats|prune ...] [--yes]" >&2; exit 2 ;;
     esac
     ;;
+  cache)
+    # Halogen's prompt cache on disk (its HALOGEN_CACHE_DIR): conversations survive a restart of
+    # Halogen. On unless "off" is in /srv/configs/prompt-cache, which render-config reads.
+    cdir="$models/.prompt-cache"; cchoice="$configs/prompt-cache"
+    yes=0; args=()
+    for a in "${@:2}"; do if [ "$a" = --yes ]; then yes=1; else args+=("$a"); fi; done
+    cstate="on"; [ "$(as_owner head -n 1 "$cchoice" 2>/dev/null | tr -cd '[:lower:]')" != off ] || cstate="off"
+    cask() {
+      [ "$(id -u)" = 0 ] || { echo "Run it with sudo: sudo halogenctl cache ${args[0]}" >&2; exit 1; }
+      [ "$yes" != 1 ] || return 0
+      [ -t 0 ] || { echo "Nothing changed: add --yes to confirm without a terminal." >&2; exit 1; }
+      read -rp "$1 This restarts Halogen if it runs, which stops answering for a few minutes. Go ahead? [y/N] " answer
+      [ "$answer" = y ] || [ "$answer" = Y ] || { echo "Nothing changed."; exit 1; }
+    }
+    # Restart only a running Halogen: a stopped one reads the choice at its next start.
+    # Whether Halogen runs. An answer that is neither stops here: taking "couldn't ask" for
+    # "stopped" would skip the restart, or delete under a running server.
+    crunning() {
+      local s; s="$(unit is-active halogen.service 2>&1 | head -n 1)"
+      case "$s" in active|activating|reloading) return 0 ;; inactive|failed|deactivating) return 1 ;;
+        *) echo "Couldn't ask whether Halogen runs (${s:-no answer}). Nothing more was changed; try again." >&2; exit 1 ;; esac
+    }
+    crestart() { if crunning; then start_halogen restart; echo "Halogen is restarting; follow it with: sudo halogenctl logs"; fi; }
+    case "${args[0]:-status}" in
+      status)
+        echo "Prompt cache on disk: $cstate ($cdir, $(as_owner du -sh "$cdir" 2>/dev/null | cut -f1 | tr -cd '[:alnum:].,' || true) used)"
+        if [ "$cstate" = on ]; then echo "Conversations survive a restart of Halogen. Limit: HALOGEN_CACHE_DISK_GIB in halogen.env (64 GiB unless set)."
+        else echo "Conversations are read again in full after a restart. Turn it on: sudo halogenctl cache on"; fi ;;
+      on|off)
+        [ "${args[0]}" != "$cstate" ] || { echo "The prompt cache on disk is already ${args[0]}."; exit 0; }
+        cask "Turn the prompt cache on disk ${args[0]}?"
+        # shellcheck disable=SC2016 # expanded by the halogen shell, from its arguments
+        printf '%s\n' "${args[0]}" | as_owner sh -c 'umask 027; cat > "$1.new" && mv -f "$1.new" "$1"' sh "$cchoice" || exit 1
+        echo "The prompt cache on disk is ${args[0]}."
+        [ "${args[0]}" = on ] || echo "What it saved stays in $cdir; delete it with: sudo halogenctl cache clear"
+        crestart ;;
+      clear)
+        cask "Delete every saved conversation state in $cdir ($(as_owner du -sh "$cdir" 2>/dev/null | cut -f1 | tr -cd '[:alnum:].,' || true))?"
+        was=0; if crunning; then was=1; unit stop halogen.service || exit 1; fi
+        # As halogen, and only what is inside the folder: Halogen's container writes there.
+        as_owner find "$cdir" -mindepth 1 -delete; r=$?
+        [ "$was" != 1 ] || start_halogen start
+        [ "$r" = 0 ] || { echo "Couldn't delete everything in $cdir." >&2; exit 1; }
+        echo "Deleted. $([ "$was" != 1 ] || echo 'Halogen is starting again.')" ;;
+      *) echo "usage: halogenctl cache [status | on | off | clear] [--yes]" >&2; exit 2 ;;
+    esac
+    ;;
   bench)
     # Halogen's own sweep against the running server; the report goes to /srv/configs/bench.
     case "${2:-}" in ''|--quick) ;; *) echo "usage: halogenctl bench [--quick]" >&2; exit 2 ;; esac
     [ "$(id -u)" = 0 ] || { echo "Run it with sudo: sudo halogenctl bench ${2:-}" >&2; exit 1; }
     halogen_run /usr/libexec/halogen/bench ${2:+"$2"}
     ;;
-  *) echo "usage: halogenctl status|start|stop|restart|logs [lines]|fetch-logs [lines]|doctor|selftest|bench [--quick]|config|options [--new]|api-key|hf-token [--remove]|records [on|off|stats|prune]|model pull|list|remove|flash pull|convert|convert-logs|convert-stop|list|use|verify|check|remove" >&2; exit 2 ;;
+  *) echo "usage: halogenctl status|start|stop|restart|logs [lines]|fetch-logs [lines]|doctor|selftest|bench [--quick]|config|options [--new]|api-key|hf-token [--remove]|records [on|off|stats|prune]|cache [on|off|clear]|model pull|list|remove|flash pull|convert|convert-logs|convert-stop|list|use|verify|check|remove" >&2; exit 2 ;;
 esac

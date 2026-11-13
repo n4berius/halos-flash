@@ -487,6 +487,23 @@ name, but allows saying halOS runs Halogen.
   container (`podman exec halogen stat -f`) and FAILs on tmpfs. Checked in the VM only as the
   generated unit's `--read-only`; Halogen's start and speed under it need freyja.
 
+- Prompt cache on disk (owner asked; Halogen's `HALOGEN_CACHE_DIR`, configuration.md "Prompt cache
+  on disk"): `halogen.container` always mounts `/srv/models/.prompt-cache:/cache:noexec,nosuid,nodev`
+  (the one writable folder under the read-only models; `prepare` makes it as halogen, 0700, at every
+  boot, so an upgrade has it before Halogen starts; a missing source folder would fail the start).
+  `render-config` sets `HALOGEN_CACHE_DIR=/cache` and `HALOGEN_CACHE_PRUNE_OLD=1` (halOS's default:
+  each build/checkpoint/setting keeps its own subtree and never reads another's, so an upgrade would
+  leave them; `0` in `halogen.env` keeps them for a rollback) unless `/srv/configs/prompt-cache`
+  says `off` (`halogenctl cache off`; the mount stays, Halogen just isn't told) or the folder is
+  missing; `HALOGEN_CACHE_DISK_GIB` (whole number, Halogen's 64) and `_PRUNE_OLD` are now in
+  `options.allowed`, `CACHE_DIR`/`CACHE_FILE` stay blocked. `halogenctl cache [status|on|off|clear]`:
+  on/off write the choice as halogen and restart only a running Halogen; clear stops it, empties
+  the folder as halogen, starts it again; an `is-active` answer that is neither running nor stopped
+  is an error. Selftest `prompt-cache` (INFO off, WARN folder missing or on tmpfs/overlay, which
+  Halogen refuses). About 27 KiB per token; writes happen behind the request. The VM checks the
+  folder, the mount and the rendered settings; that Halogen accepts the folder (direct I/O), the
+  restore after a restart and the speed need freyja.
+
 ## Lessons already learned
 
 - `setpriv` and `runuser` keep the caller's working folder. Run as halogen from an admin's home

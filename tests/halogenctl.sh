@@ -345,3 +345,27 @@ rm -f "$work/dropin.d/20-records.conf"
 if FAKE_NOMOUNT=1 "$ctl" records on --yes > "$work/out" 2>&1 || ! grep -q "isn't in Halogen's service" "$work/out"; then cat "$work/out" >&2; echo "a missing mount after on wasn't reported" >&2; exit 1; fi
 rm -f "$work/dropin.d/20-records.conf"
 ok "records on/off mounts the folder (after asking) and restarts; stats and prune run Halogen's tool with checked options, also after off"
+
+# The prompt cache on disk: on by default; off/on write the choice as halogen and restart a running
+# Halogen; clear stops it, empties only the folder, and starts it again. All ask first.
+f systemctl 'echo "systemctl $*" >> "$FAKE/log"; case "$*" in *"is-active halogen.service"*) echo "${FAKE_ACTIVE-active}" ;; esac'
+mkdir -p "$HALOGEN_MODELS_DIR/.prompt-cache/sub"; echo x > "$HALOGEN_MODELS_DIR/.prompt-cache/sub/rows"; rm -f "$work/configs/prompt-cache"
+"$ctl" cache > "$work/out"; grep -q '^Prompt cache on disk: on ' "$work/out" || { cat "$work/out" >&2; exit 1; }
+if "$ctl" cache off < /dev/null > /dev/null 2>&1; then echo "cache off ran without --yes or a terminal" >&2; exit 1; fi
+[ ! -e "$work/configs/prompt-cache" ] || { echo "cache off changed something before asking" >&2; exit 1; }
+: > "$work/log"; "$ctl" cache off --yes > "$work/out"
+[ "$(cat "$work/configs/prompt-cache")" = off ] || { echo "cache off wasn't saved" >&2; exit 1; }
+grep -q 'runuser -u halogen -- env -C / sh -c' "$work/log" || { echo "the choice wasn't written as halogen" >&2; exit 1; }
+grep -q 'systemctl .* restart halogen.service' "$work/log" || { echo "cache off didn't restart a running Halogen" >&2; exit 1; }
+[ -e "$HALOGEN_MODELS_DIR/.prompt-cache/sub/rows" ] || { echo "cache off deleted what was saved" >&2; exit 1; }
+"$ctl" cache > "$work/out"; grep -q '^Prompt cache on disk: off ' "$work/out" || { cat "$work/out" >&2; exit 1; }
+: > "$work/log"; FAKE_ACTIVE=inactive "$ctl" cache on --yes > /dev/null
+[ "$(cat "$work/configs/prompt-cache")" = on ] || { echo "cache on wasn't saved" >&2; exit 1; }
+if grep -q 'restart halogen.service' "$work/log"; then echo "cache on started a stopped Halogen" >&2; exit 1; fi
+if FAKE_ACTIVE='' "$ctl" cache off --yes > /dev/null 2>&1; then echo "an unanswered is-active was taken for stopped" >&2; exit 1; fi
+: > "$work/log"; "$ctl" cache clear --yes > /dev/null
+[ -d "$HALOGEN_MODELS_DIR/.prompt-cache" ] && [ -z "$(ls -A "$HALOGEN_MODELS_DIR/.prompt-cache")" ] || { echo "cache clear didn't empty the folder, or removed it" >&2; exit 1; }
+grep -n 'halogen.service' "$work/log" | tr '\n' ' ' | grep -q 'stop halogen.service.* start halogen.service' || { cat "$work/log" >&2; echo "cache clear didn't stop and start Halogen" >&2; exit 1; }
+if FAKE_UID=1000 "$ctl" cache clear --yes > /dev/null 2>&1; then echo "cache clear ran without root" >&2; exit 1; fi
+if "$ctl" cache wipe > /dev/null 2>&1; then echo "an unknown cache command was accepted" >&2; exit 1; fi
+ok "cache shows its state; off, on and clear ask, act as halogen, and restart or stop Halogen only when it runs"

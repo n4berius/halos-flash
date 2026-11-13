@@ -588,6 +588,29 @@ The run uses the prompt cache as your server does, so compare `pp` with Halogen'
 cold request)" rows, not the cache-off headline figures. Its prompts also go into the cache, and
 can push out long conversations cached there, which then read their history again once.
 
+### Prompt cache on disk
+
+Halogen keeps each conversation's state so the next turn doesn't read the whole conversation
+again. halOS also keeps that state on disk, in `/srv/models/.prompt-cache`, so a conversation
+survives a restart of Halogen: its next turn starts in seconds instead of being read again in full
+(Halogen's [prompt cache on disk](https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/configuration.md#prompt-cache-on-disk-resume-a-conversation-after-a-restart)).
+Halogen writes it behind each request, so answers don't wait for the disk.
+
+```bash
+sudo halogenctl cache          # on or off, and the space used
+sudo halogenctl cache off      # keep the cache in memory only (restarts Halogen)
+sudo halogenctl cache clear    # delete everything saved
+```
+
+- It takes about 27 KiB per token of conversation: 0.9 GB at 32,000 tokens, 7.2 GB at 262,000.
+  Halogen keeps at most 64 GiB and removes the conversations used longest ago first. Change the
+  limit with `HALOGEN_CACHE_DISK_GIB` in `halogen.env`.
+- A different Halogen version, checkpoint or setting never reads another's files. halOS has
+  Halogen delete those at start (`HALOGEN_CACHE_PRUNE_OLD=1`), so an OS upgrade starts with an
+  empty cache and leaves nothing behind. Set it to `0` to keep them, so a rollback finds its cache.
+- The folder holds the state of your conversations (not readable text, but derived from it). Only
+  the `halogen` user can read it, and it is on the encrypted disk.
+
 ### Request records
 
 Halogen can keep a line per request it answers: which API and client sent it, its size and

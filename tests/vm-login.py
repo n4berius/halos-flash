@@ -89,6 +89,10 @@ typed("{ echo RESULT-START; cat /proc/cmdline; dmesg | grep -i secure; bootctl s
       "halogenctl selftest 2>&1 | grep records: > /tmp/recst; echo RECST $(grep -c -e mount /tmp/recst) $(grep -c -e 'INFO records: on' /tmp/recst); cat /tmp/recst >> /tmp/rec; "
       "halogenctl records off --yes 2>&1 | cat >> /tmp/rec; echo RECOFF $(ls /etc/containers/systemd/users/970/halogen.container.d | grep -c records); "
       "stat -c 'RECDIR %U %a' /var/srv/logs/halogen; cat /tmp/rec; "
+      # The prompt cache on disk: its private folder, the mount in Halogen's unit, on by default.
+      "stat -c 'PCDIR %U %a' /var/srv/models/.prompt-cache; "
+      "echo PCACHE $(halogenctl config 2>/dev/null | grep -c -x -e HALOGEN_CACHE_DIR=/cache -e HALOGEN_CACHE_PRUNE_OLD=1) "
+      "$(setpriv --reuid=halogen --regid=halogen --init-groups env -C / XDG_RUNTIME_DIR=/run/user/970 systemctl --user cat halogen.service 2>/dev/null | grep -c -F .prompt-cache:/cache); "
       # Hardening: the logs volume can't hold programs, and Halogen's container is read-only.
       "echo RECMNT $(findmnt -n -o OPTIONS /var/srv/logs | tr , ' ' | xargs -n 1 | grep -c -x -e nodev -e nosuid -e noexec) "
       "$(setpriv --reuid=halogen --regid=halogen --init-groups env XDG_RUNTIME_DIR=/run/user/970 systemctl --user cat halogen.service 2>/dev/null | grep -c -e --read-only); "
