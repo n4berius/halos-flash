@@ -10,6 +10,12 @@ promoted.
 
 ## Unreleased
 
+- Audit hardening: the audit rules are locked until reboot (root can't quietly switch auditing
+  off), only Halogen's own login session is left out of auditing (root acting as the `halogen`
+  user is recorded), and more is watched: how Halogen's container is started, the audit rules
+  themselves, system services, PAM, kernel modules, the firewall and `crypttab`. The selftest
+  gains `config-files` and `halogen-autostart`, and its `audit` line reports dropped records.
+  (#125)
 - Logs: an audit trail (auditd) records logins, `sudo`, changes an admin or root makes to halOS's
   settings, update signatures, SSH and sudo settings, and runs of the disk-encryption and update tools.
   Read it with `sudo ausearch -i -k halos-config` and the other keys in the install guide. It keeps
