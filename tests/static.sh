@@ -107,6 +107,13 @@ for f in glob.glob("files/usr/share/halos/proxy/acme/dns-*.caddy"):
     assert "{file.{$CREDENTIALS_DIRECTORY}/dns_" in body and "RUNTIME_DIRECTORY" not in body, f"{f} doesn't read the credentials from CREDENTIALS_DIRECTORY"
 assert ".dns_$f." not in helper, "the https helper still copies DNS credentials into Caddy's runtime folder"
 assert re.search(r"^d /etc/halos/https/dns 0700 root root", open("files/usr/lib/tmpfiles.d/halos.conf").read(), re.M), "/etc/halos/https/dns isn't made at boot"
+# Logs (#107): halOS's audit rules replace Fedora's (which turn file watches off), Halogen's own
+# processes stay out of syscall auditing, and nothing in auditd.conf can stop the machine.
+rules = open("files/etc/audit/rules.d/50-halos.rules").read()
+assert "\n-a task,never -F uid=970\n" in rules and not re.search(r"^-a task,never$", rules, re.M), "the audit rules don't leave out only Halogen"
+assert "rm -f /etc/audit/rules.d/audit.rules" in cf and "systemctl enable auditd.service audit-rules.service" in cf, "Fedora's audit rules stay, or auditd isn't enabled"
+assert "(HALT|SINGLE)" in cf and "disk_full_action = SUSPEND" in cf, "auditd.conf isn't checked against stopping the machine"
+assert "SystemMaxUse=4G" in open("files/usr/lib/systemd/journald.conf.d/60-halos.conf").read(), "the journal has no cap"
 assert "systemctl enable halos-https-refresh.timer" in cf, "the HTTPS address refresh isn't enabled"
 assert "caddy adapt --config /usr/share/halos/proxy/Caddyfile.https" in cf and "for tls in internal custom" in cf, "the HTTPS Caddyfile isn't checked at build"
 assert "caddy adapt --config /usr/share/halos/proxy/Caddyfile.letsencrypt" in cf and "for dns in cloudflare duckdns porkbun namecheap" in cf, "the Let's Encrypt Caddyfile isn't checked at build for every DNS provider"

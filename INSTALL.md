@@ -630,6 +630,35 @@ small. A volume of its own there would need free space in the volume group (`sud
 column VFree), and the guided install leaves none: the models volume takes the rest, and XFS
 can't shrink.
 
+### Logs and the audit trail
+
+halOS keeps three kinds of log, each with its own size limit, so none can fill the disk:
+
+- **The system journal** (`sudo journalctl`): every service's messages, Halogen's included
+  (`sudo halogenctl logs`). halOS keeps at most 4 GB, for at most 90 days, and leaves 1 GB free.
+  `sudo journalctl --disk-usage` shows its size.
+- **The audit log** (`/var/log/audit/audit.log`, auditd): logins, `sudo`, account changes, and
+  every change to halOS's settings, the update signature policy, SSH and sudo settings, and every
+  use of the disk-encryption and update tools. auditd keeps 20 files of 100 MB (2 GB) and rotates
+  them itself. If its disk ever fills, it pauses instead of stopping the machine. Read it by
+  topic:
+
+  ```bash
+  sudo ausearch -i -k halos-config     # changes in /etc/halos
+  sudo ausearch -i -k halogen-config   # changes in /srv/configs
+  sudo ausearch -i -k signature-policy # which images updates are taken from
+  sudo ausearch -i -k sshd-config      # also sudoers, accounts, luks-tpm, os-update, halosctl, halogenctl
+  sudo aureport --summary              # counts, and sudo aureport --login for logins
+  ```
+
+  Halogen's own processes are left out of this tracking: they are the busiest, and nothing in
+  the audit rules is about their work, so auditing costs inference nothing measurable.
+- **Request records** (above), when you turn them on.
+
+`sudo halogenctl selftest` shows whether auditd runs with halOS's rules (`audit`) and how big the
+journal is (`logs`). The few plain log files Fedora keeps (failed and past logins, `btmp` and
+`wtmp`) are rotated monthly by `logrotate`, as on any Fedora system.
+
 ### Your own NPU checkpoints
 
 On the NPU edition, Halogen also runs checkpoints you supply, such as LiquidAI's `d1-2B` and

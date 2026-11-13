@@ -487,6 +487,23 @@ name, but allows saying halOS runs Halogen.
   container (`podman exec halogen stat -f`) and FAILs on tmpfs. Checked in the VM only as the
   generated unit's `--read-only`; Halogen's start and speed under it need freyja.
 
+- Logs (#107 part B): `audit` and `audit-rules` are installed, auditd and audit-rules.service
+  enabled. Fedora's `/etc/audit/rules.d/audit.rules` (`-a task,never`: no syscall auditing, so no
+  file watches) is deleted; `files/etc/audit/rules.d/50-halos.rules` (`-D -i -b 8192
+  --backlog_wait_time 60000 -f 1`, `-a task,never -F uid=970` so Halogen's processes carry no audit
+  cost, then `-w` watches with keys halos-config, halogen-config, signature-policy, sshd-config,
+  sudoers, accounts, luks-tpm, os-update, halosctl, halogenctl; logins/sudo come from PAM) is
+  compiled by `augenrules` at build (it says "You must be root" without CAP_AUDIT_CONTROL and still
+  writes `audit.rules`, exit 0). `auditd.conf` (sed + checked at build): 100 MB × 20, ROTATE,
+  `space_left` 500 SYSLOG, `admin_space_left` 200 / disk full / disk error SUSPEND; never HALT or
+  SINGLE (the build refuses them). journald stays on the audit socket (the selftest's
+  selinux-denials reads `_TRANSPORT=audit`), so audit lines also go to the journal, which
+  `journald.conf.d/60-halos.conf` caps at 4G, 1G kept free, 128M files, 90 days. logrotate (base
+  image) handles btmp/wtmp. The selftest's `audit` (PASS with ≥15 watches; WARN on Fedora's rule,
+  few watches, or auditd down) and `logs` (journal size; WARN under 1 GB free on /var/log). The VM
+  test checks auditd active with its watches, a touch in /etc/halos found by `ausearch -k
+  halos-config`, and the journal cap. Speed under auditing: to measure on freyja (`bench`).
+
 ## Lessons already learned
 
 - `setpriv` and `runuser` keep the caller's working folder. Run as halogen from an admin's home

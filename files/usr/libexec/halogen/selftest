@@ -457,6 +457,23 @@ else
   else say INFO records "on, ${used:-?} in $d (Halogen isn't running)"; fi
 fi
 
+# --- Logs (#107): the audit log, the journal and room on /var/log
+logdir="${HALOS_LOG_DIR:-/var/log}"
+if have systemctl && have auditctl; then
+  astate="$(run systemctl is-active auditd.service)"
+  rules="$(run auditctl -l)"
+  nrules="$(grep -c -- '-k ' <<< "$rules")"
+  if [ "$astate" != active ]; then say WARN audit "auditd is $astate: sudo systemctl start auditd, and sudo journalctl -u auditd"
+  elif grep -qx -- '-a never,task' <<< "$rules"; then say WARN audit "auditd runs with Fedora's rule that turns system-call auditing off, so halOS's watches see nothing: sudo augenrules --load"
+  elif [ "${nrules:-0}" -lt "${HALOS_AUDIT_MIN_RULES:-15}" ]; then say WARN audit "auditd runs, but only ${nrules:-0} of halOS's watches are loaded: sudo augenrules --load"
+  else say PASS audit "auditd keeps $logdir/audit/audit.log, ${nrules} watches loaded (read them with: sudo ausearch -i -k halos-config)"; fi
+else say SKIP audit "auditd isn't installed"; fi
+jsize="$(run journalctl --disk-usage | grep -oE '[0-9.]+[KMGT]' | head -n 1)"
+lfree="$(df --output=avail --block-size=1M "$logdir" 2>/dev/null | tail -n 1 | tr -d ' ')"
+if [ -n "$lfree" ] && [ "$lfree" -lt "${HALOS_LOG_MIN_FREE_MB:-1024}" ]; then
+  say WARN logs "only ${lfree} MB free on $logdir (journal ${jsize:-?}): sudo journalctl --vacuum-size=1G"
+else say INFO logs "journal ${jsize:-?}, at most 4 GB kept for 90 days; ${lfree:-?} MB free on $logdir"; fi
+
 # --- Network (names, state and drivers only: no addresses)
 for n in "$sys"/class/net/*; do
   name="$(basename "$n")"

@@ -149,3 +149,4 @@ passphrase once. Keep the passphrase: it is your recovery key.
 | `/srv/configs/flash-checkpoint` | Which Flash checkpoint `flash use` chose |
 | `/etc/halos/proxy.env` | Optional: more networks allowed to see the dashboard (`HALOS_DASHBOARD_ALLOW`) |
 | `/var/lib/halos/history` | What `halosctl history` shows |
+| `/var/log/audit/` | The audit log (`sudo ausearch -i -k halos-config`; [the keys](../INSTALL.md#logs-and-the-audit-trail)) |
