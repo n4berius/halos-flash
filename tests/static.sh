@@ -110,7 +110,7 @@ assert re.search(r"^d /etc/halos/https/dns 0700 root root", open("files/usr/lib/
 # Logs (#107): halOS's audit rules replace Fedora's (which turn file watches off), Halogen's own
 # processes stay out of syscall auditing, and nothing in auditd.conf can stop the machine.
 rules = open("files/etc/audit/rules.d/50-halos.rules").read()
-assert "\n-a task,never -F uid=970\n" in rules and not re.search(r"^-a task,never$", rules, re.M), "the audit rules don't leave out only Halogen"
+assert "\n-a task,never -F uid=970 -F auid=970\n" in rules and len(re.findall(r"^-a task,never", rules, re.M)) == 1 and rules.rstrip().endswith("\n-e 2") and not re.search(r"^-a task,never$", rules, re.M), "the audit rules don't leave out only Halogen"
 assert "rm -f /etc/audit/rules.d/audit.rules" in cf and "systemctl enable auditd.service audit-rules.service" in cf, "Fedora's audit rules stay, or auditd isn't enabled"
 assert "(HALT|SINGLE)" in cf and "disk_full_action = SUSPEND" in cf, "auditd.conf isn't checked against stopping the machine"
 # 20 files of 50 MB fit the 2 GiB a custom install may give /var/log/audit, above admin_space_left.
@@ -118,6 +118,12 @@ assert "'max_log_file = 50' 'num_logs = 20'" in cf, "the audit log may outgrow a
 # set -e ignores failures inside "a && b" and "! cmd": the build's rule checks are plain statements.
 assert "augenrules &&" not in cf and "&& ! grep" not in cf, "the build's audit rule check can't fail"
 assert len(re.findall(r"^-a always,exit -F path=\S+ -F perm=x -F auid!=unset -k \S+$", rules, re.M)) == 6 and not re.search(r"^-w .* -p x ", rules, re.M), "program rules must leave out the system's own runs (the status timer)"
+# Hardening: the paths that decide how Halogen and the machine start are watched, the specific
+# signature-policy rules come before the wider /etc/containers one, and the rules are locked.
+for w in ("/etc/containers/systemd", "/etc/audit", "/etc/systemd", "/etc/ssh", "/etc/pam.d", "/etc/crypttab", "/etc/ld.so.preload"):
+    assert re.search(rf"^-w {re.escape(w)} -p wa -k ", rules, re.M), f"no audit watch on {w}"
+assert rules.index("-w /etc/containers/policy.json") < rules.index("-w /etc/containers/systemd") < rules.index("-w /etc/containers -p"), "the wider /etc/containers watch must come last"
+assert "= '-e 2' ]" in cf, "the build doesn't check the audit rules end locked"
 assert "SystemMaxUse=4G" in open("files/usr/lib/systemd/journald.conf.d/60-halos.conf").read(), "the journal has no cap"
 assert "systemctl enable halos-https-refresh.timer" in cf, "the HTTPS address refresh isn't enabled"
 assert "caddy adapt --config /usr/share/halos/proxy/Caddyfile.https" in cf and "for tls in internal custom" in cf, "the HTTPS Caddyfile isn't checked at build"

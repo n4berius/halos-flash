@@ -97,10 +97,24 @@ typed("{ echo RESULT-START; cat /proc/cmdline; dmesg | grep -i secure; bootctl s
       # The rule leaving Halogen out is loaded (-i would hide it failing), and a run of halosctl
       # from this login is found too (an exec rule on /usr, which is composefs here).
       "echo AUDIT $(systemctl is-active auditd) $(auditctl -l | grep -c -E -e 'key=|-k ') "
-      "$(auditctl -l | grep -c -x -e '-a never,task -F uid=970'); "
+      "$(auditctl -l | grep -c -x -e '-a never,task -F uid=970 -F auid=970') "
+      "$(auditctl -s | grep -c -x -e 'enabled 2'); auditctl -l | grep -e never; "
+      # Hardening: the exemption is Halogen's login session only. Its service manager has login uid
+      # 970; a file made by a unit it starts leaves no record, one made by root acting as halogen
+      # (runuser from this login) does. The Quadlet folder is watched. The rules are locked.
+      "echo HLOGIN $(cat /proc/$(systemctl show -p MainPID --value user@970.service)/loginuid); "
+      "setpriv --reuid=970 --regid=970 --clear-groups env -C / XDG_RUNTIME_DIR=/run/user/970 "
+      "systemd-run --user --wait -q touch /srv/configs/audit-a; "
+      "runuser -u halogen -- env -C / touch /srv/configs/audit-b; rm -f /srv/configs/audit-a /srv/configs/audit-b; "
+      "touch /etc/containers/systemd/audit-q; rm -f /etc/containers/systemd/audit-q; "
+      "auditctl -e 0 > /dev/null 2>&1; echo AUDITLOCK $? $(auditctl -s | grep -c -x -e 'enabled 2'); "
+      "echo HCONF $(runuser -u halogen -- env -C / find /var/lib/halogen/.config -maxdepth 3 | xargs); "
       "touch /etc/halos/audit-probe; rm -f /etc/halos/audit-probe; halosctl version > /dev/null 2>&1; sleep 2; "
       "echo AUDITHIT $(ausearch -i -k halos-config 2>/dev/null | grep -c audit-probe) "
       "$(ausearch -i -k halosctl 2>/dev/null | grep -c -e halosctl); "
+      "echo AUDITEX $(ausearch -i -k halogen-config 2>/dev/null | grep -c -e audit-a) "
+      "$(ausearch -i -k halogen-config 2>/dev/null | grep -c -e audit-b) "
+      "$(ausearch -i -k quadlet 2>/dev/null | grep -c -e audit-q); "
       "echo JOURNALCAP $(systemd-analyze cat-config systemd/journald.conf | grep -c -x SystemMaxUse=4G); "
       # The guided install (#42): volume sizes, hostname, admin user, and no password left behind.
       "lvs --noheadings --units g --nosuffix -o lv_name,lv_size halos; cat /etc/hostname; id admin; "

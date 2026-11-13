@@ -505,6 +505,27 @@ name, but allows saying halOS runs Halogen.
   test checks auditd active with its watches, a touch in /etc/halos found by `ausearch -k
   halos-config`, a `halosctl version` found by `-k halosctl`, the uid 970 rule, and the journal cap. Speed under auditing: to measure on freyja (`bench`).
 
+- Audit hardening (security audit of #118, owner agreed): the exemption is `-a task,never -F uid=970
+  -F auid=970` (Halogen's own login session: `systemd-user`'s PAM stack has `pam_loginuid`, so
+  `user@970` and what it starts carry login uid 970; root acting as uid 970 from an admin's login or
+  a system service, `prepare` and the status timer included, is audited, so prepare's boot writes
+  in `/srv/configs` appear under `halogen-config`). If the manager's login uid weren't 970 the rule
+  would match nothing and Halogen would be audited: the selftest's `audit` WARNs on that, and the VM
+  test prints it (`HLOGIN`) and proves both sides with the `/var/srv/configs` watch (`AUDITEX`: a
+  `systemd-run --user` touch leaves no record, a `runuser` touch does). More `-w` watches (keys
+  quadlet, containers, audit-config, systemd-config, pam, preload, modules, udev, firewall, sysctl;
+  `/etc/ssh` whole; crypttab, gshadow, subuid/subgid), the specific signature-policy lines before
+  the wider `/etc/containers`; `/usr/bin/kmod` as an exit rule with no auid filter (the kernel's own
+  modprobe runs have no login). Paths that don't exist (`/etc/ld.so.preload`, `crypttab` without
+  encryption) can't be watched: `-i` skips them, and the selftest requires only rules whose path
+  exists (read from `rules.d/50-halos.rules`). `-e 2` last (the build checks): no rule change or
+  `auditctl -e 0` until reboot, so no ad hoc `auditctl -w` probes, and selftest hints say reboot.
+  Selftest: `audit` also WARNs on `enabled 1` (unlocked) and `lost` above 0 (since boot);
+  `config-files` compares `/etc/audit/rules.d/50-halos.rules`, `auditd.conf`, `halogen.container`
+  and `10-npu.conf` with `/usr/etc` and WARNs on other files in those two folders (but
+  `20-records.conf`); `halogen-autostart` WARNs on anything in halogen's
+  `.config/{systemd/user,containers/systemd,environment.d,autostart}`.
+
 ## Lessons already learned
 
 - `setpriv` and `runuser` keep the caller's working folder. Run as halogen from an admin's home

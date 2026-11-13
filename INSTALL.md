@@ -648,18 +648,28 @@ halOS keeps three kinds of log, each with its own size limit, so none can fill t
   sudo ausearch -i -k halos-config     # changes in /etc/halos
   sudo ausearch -i -k halogen-config   # changes in /srv/configs
   sudo ausearch -i -k signature-policy # which images updates are taken from
-  sudo ausearch -i -k sshd-config      # also sudoers, accounts, luks-tpm, os-update, halosctl, halogenctl
+  sudo ausearch -i -k sshd-config      # also sudoers, accounts, pam, luks-tpm, os-update, halosctl, halogenctl
+  sudo ausearch -i -k quadlet          # how Halogen's container is started; also containers, systemd-config,
+                                       # audit-config, modules, preload, udev, firewall, sysctl
   sudo aureport --summary              # counts, and sudo aureport --login for logins
   ```
 
+  The rules are locked while the system runs: nobody, root included, can switch auditing off or
+  change a rule without a reboot, and an attempt is itself recorded. So a change to the files in
+  `/etc/audit` takes effect at the next boot.
+
   Halogen's own processes are left out of this tracking, so auditing adds no work to the engine.
+  Only Halogen's own login session is left out: root or an admin acting as the `halogen` user is
+  recorded like anyone else.
   That also means files Halogen's own services write in `/srv/configs` (benchmark reports, for
   example) aren't recorded, while your changes there are. The cost on the rest of the system
   (the front door, Caddy, included) is expected to be small; it hasn't been measured yet.
 - **Request records** (above), when you turn them on.
 
-`sudo halogenctl selftest` shows whether auditd runs with halOS's rules (`audit`) and how big the
-journal is (`logs`). The few plain log files Fedora keeps (failed and past logins, `btmp` and
+`sudo halogenctl selftest` shows whether auditd runs with halOS's rules, locked (`audit`), whether
+the audit rules and Halogen's container definition are still the image's own (`config-files`),
+whether the `halogen` user has gained services of its own, which halOS never creates
+(`halogen-autostart`), and how big the journal is (`logs`). The few plain log files Fedora keeps (failed and past logins, `btmp` and
 `wtmp`) are rotated monthly by `logrotate`, as on any Fedora system.
 
 ### Your own NPU checkpoints
