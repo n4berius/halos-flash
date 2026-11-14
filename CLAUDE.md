@@ -629,8 +629,14 @@ name, but allows saying halOS runs Halogen.
   `SystemCallErrorNumber=EAFNOSUPPORT`: `systemd-run -p RestrictAddressFamilies=none` is refused
   with "Invalid argument" on systemd 262 (fine in a unit file), so since #97 every conversion would
   have failed at its first sandboxed step, after the download; `tests/flash.sh` fakes systemd-run
-  and never saw it (code review of #130, which booted systemd in a container). `flash-checkpoint
-  sandbox-check` now runs the real `sandboxed()` call (unbound from the convert unit) with probes
+  and never saw it (code review of #130, which booted systemd in a container). The filter also refuses
+  `io_uring_setup/enter/register` (the security audit made an `AF_UNIX` socket with
+  `IORING_OP_SOCKET` past a socket/socketpair filter and connected out of a private network
+  namespace to a socket file, which would reach the system D-Bus as halogen; bf16-to-hgn has no
+  io_uring in its Cargo.lock or source at the pinned commit), with `SystemCallArchitectures=native`,
+  `ProtectControlGroups` and `ProtectKernelTunables`. Left open: a hijacked converter can still
+  signal same-uid processes (Halogen); `PrivatePIDs` is untested on 262. `flash-checkpoint
+  sandbox-check` (halogen only, no links, `rmdir` not `rm -rf`) now runs the real `sandboxed()` call (unbound from the convert unit) with probes
   and the converter's `--help`, and the VM test runs it as halogen (`CONVSB`). The freyja maps
   check covered decider/LFM/custom; `npu` holds `.elf` NPU programs and weights, no libraries, and
   is to be confirmed with the same check before the PR merges. `halogen-autostart` also looks at `.ssh`, `mounts.conf`, `policy.json`, `storage.conf`,

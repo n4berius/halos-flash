@@ -295,9 +295,14 @@ sandboxed() {
   # journal, and not /sysroot, a second path to /var on some installs. (The user manager already
   # gives a sandboxed unit its own user namespace, which keeps other halogen processes' /proc
   # entries closed to it; PrivateUsers only says so.)
-  # No sockets of any kind: the socket calls themselves are refused. RestrictAddressFamilies=none
-  # said the same in the first version, but systemd-run rejects that value ("Invalid argument",
-  # systemd 262), so every conversion would have stopped here, after its download.
+  # No sockets: PrivateNetwork takes the network away, and the calls that make a socket are
+  # refused too, io_uring's included (it makes one without calling socket(); the converter and its
+  # libraries use none of these: no io_uring in its Cargo.lock or source at the pinned commit).
+  # That keeps it off the socket files it can still see, such as the system D-Bus.
+  # RestrictAddressFamilies=none said the same in the first version, but systemd-run rejects that
+  # value ("Invalid argument", systemd 262), so every conversion would have stopped here, after
+  # its download. Only 64-bit system calls; it may not change kernel settings or control groups
+  # (Halogen's are its own user's).
   # The request records (client conversations, when on) are hidden too: the converter reads
   # weights nobody vouches for and needs only the models and its work folder.
   l="$(readlink -f "${HALOGEN_LOGS_DIR:-/srv/logs}")"
@@ -305,7 +310,9 @@ sandboxed() {
   local bound=(-p BindsTo=halogen-flash-convert.service -p After=halogen-flash-convert.service)
   [ -z "${SANDBOX_UNBOUND:-}" ] || bound=()
   "${HALOS_SYSTEMD_RUN:-systemd-run}" --user --wait --pipe --collect --quiet "${bound[@]}" \
-    -p PrivateNetwork=yes -p "SystemCallFilter=~socket socketpair" -p SystemCallErrorNumber=EAFNOSUPPORT -p NoNewPrivileges=yes \
+    -p PrivateNetwork=yes -p "SystemCallFilter=~socket socketpair io_uring_setup io_uring_enter io_uring_register" \
+    -p SystemCallErrorNumber=EAFNOSUPPORT -p SystemCallArchitectures=native -p NoNewPrivileges=yes \
+    -p ProtectControlGroups=yes -p ProtectKernelTunables=yes \
     -p PrivateUsers=yes -p PrivateDevices=yes \
     -p ProtectSystem=strict -p "ReadOnlyPaths=$m" -p "ReadWritePaths=$w" \
     -p "InaccessiblePaths=-$c -${HOME:-/var/lib/halogen} -/run/user/$(id -u) -$m/.prompt-cache -$l -/dev/shm -/sysroot -/var/log" \
@@ -491,19 +498,29 @@ case "${1:-}" in
     # The converter's real sandbox, with the converter's --help in it and a few probes: the VM
     # install test runs this, since no conversion runs there and a property systemd-run refuses
     # would otherwise first show after a 360 GB download. Prints what it finds; 0 when all hold.
-    work="$convert_dir/.sandbox-check"; mkdir -p "$work" || exit 1
+    # As halogen only, and through no link: root must not make or remove folders here.
+    [ "$(id -un)" = halogen ] || die "sandbox-check runs as the halogen user"
+    work="$convert_dir/.sandbox-check"
+    for d in "$models/flash" "$convert_dir" "$work"; do [ ! -L "$d" ] || die "$d is a link"; done
+    mkdir -p "$convert_dir" || exit 1
+    mkdir "$work" || die "couldn't make $work (left from an earlier run? rmdir it)"
+    command -v python3 > /dev/null || die "sandbox-check needs python3 for its socket probe"
     # shellcheck disable=SC2016 # expanded by the sandboxed shell, from its arguments
     SANDBOX_UNBOUND=1 sandboxed /bin/sh -c '
       r=0; no() { echo "sandbox-check: $1"; r=1; }
       touch "$1/probe" 2>/dev/null || no "the work folder is not writable"
       if touch "$2/.sandbox-probe" 2>/dev/null; then rm -f "$2/.sandbox-probe"; no "the models are writable"; fi
-      [ ! -e /dev/kfd ] && [ ! -e /dev/ttyS0 ] && [ ! -e /dev/accel ] || no "devices are in reach"
-      [ ! -r /var/log ] || no "/var/log is readable"
-      [ ! -r /dev/shm ] || no "/dev/shm is readable"
-      if python3 -c "import socket; socket.socket(socket.AF_UNIX)" 2>/dev/null; then no "a socket could be made"; fi
+      if [ -e /dev/kfd ] || [ -e /dev/ttyS0 ] || [ -e /dev/accel ]; then no "devices are in reach"; fi
+      for p in /var/log /dev/shm "$4" "$5"; do if [ -r "$p" ]; then no "$p is readable"; fi; done
+      if [ "$(grep -c : /proc/self/net/dev)" != 1 ]; then no "it has a network: $(grep -o "^ *[a-z0-9]*:" /proc/self/net/dev | tr -d " \n")"; fi
+      python3 -c "import socket; socket.socket(socket.AF_UNIX)" 2>/dev/null; s=$?
+      if [ "$s" = 0 ]; then no "a socket could be made"; fi
+      python3 -c "pass" || no "python3 does not run here, so the socket probe proves nothing"
       "$3" --help > /dev/null 2>&1 || no "the converter does not start"
-      exit "$r"' sh "$(readlink -f "$work")" "$(readlink -f "$models")" "$converter"
-    r=$?; rm -rf "$work"; [ "$r" = 0 ] && echo "sandbox-check: ok"; exit "$r" ;;
+      exit "$r"' sh "$(readlink -f "$work")" "$(readlink -f "$models")" "$converter" "/run/user/$(id -u)" "$(readlink -f "${HALOGEN_CONFIGS_DIR:-/srv/configs}")"
+    r=$?; rm -f "$work/probe"; rmdir "$work" 2> /dev/null
+    if [ "$r" = 0 ]; then echo "sandbox-check: ok"; fi
+    exit "$r" ;;
   convert-prepare) shift; convert_prepare "$@"; exit 0 ;;
   convert-run) shift; convert_run "$@"; exit 0 ;;
   pull) shift ;;
