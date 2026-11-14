@@ -16,7 +16,7 @@ promoted.
   is removed and fetched again; the note that says "models already downloaded" moved out of
   reach of the downloads (an upgraded machine checks its models once more, downloading
   nothing); and an interrupted `model pull` or `flash pull` no longer leaves its download
-  running. (#PRNUM)
+  running. (#135)
 
 - fail2ban now shuts addresses out through its own firewall table (nftables) instead of
   firewalld rules: connections a shut-out address already had open are cut too, a ban costs far

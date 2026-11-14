@@ -739,7 +739,7 @@ name, but allows saying halOS runs Halogen.
   copy elsewhere) and removes a link or hard-linked table an older pull left, before its
   container gets the folder. None of this runs in the VM (no download there): freyja's next
   fetch and pull are the first real run.
-- Download-path hardening, round 2 (#PRNUM, the rest of #131's audit, owner agreed):
+- Download-path hardening, round 2 (#135, the rest of #131's audit, owner agreed):
   - When the official files (`qwen38-flash-next-v2.hgn`, `-ngram.hgn`, `-vision.hgn` when
     `HALOGEN_VISION_TOWER` is on, `tokenizer/tokenizer.json`: what `fetch-in-container` looks for)
     are all there, the download container gets `-v /srv/models:/models:ro`, with `npu` its own
