@@ -226,6 +226,10 @@ for wf in ("build", "release", "refresh"):
         for step in job.get("steps", []):
             if any(k.startswith("COSIGN_") for k in (step.get("env") or {})):
                 assert step.get("name") == "Sign" and "sign-image.sh" in step["run"] and "\n" not in step["run"].strip(), (wf, step.get("name"))
+# The quick checks run once, before both edition builds, in a job that can only read (#123).
+bj = yaml.safe_load(open(".github/workflows/build.yml").read())["jobs"]
+assert bj["build"]["needs"] == "check" and "environment" not in bj["check"] and bj["check"]["permissions"] == {"contents": "read"}, "build.yml's check job must gate the builds and hold no rights"
+assert '{"context": "check"}' in open(".github/rulesets/protect-main.json").read(), "the check job isn't a required check in the ruleset"
 # udisks2 (kept for fwupd, #106) is root's alone: a polkit rule refuses everyone else, and halogen
 # can't reach it on the bus.
 rules = open("files/usr/share/polkit-1/rules.d/10-halos-udisks2.rules").read()

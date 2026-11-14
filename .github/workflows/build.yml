@@ -19,7 +19,30 @@ permissions:
   packages: write
 
 jobs:
+  # The quick checks, once, before either edition's image is built (#123): the script suite and
+  # the Go tests of halOS's Caddy modules. Read-only, no environment, so no signing key.
+  check:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Run checks
+        run: tests/run.sh
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: src/caddy/go.mod
+          # No cache: simpler, and nothing is shared between runs.
+          cache: false
+      - name: Go tests
+        run: scripts/go-test.sh
+      - name: go.mod and go.sum are unchanged
+        run: git diff --exit-code -- src/caddy
+
   build:
+    needs: check
     runs-on: ubuntu-24.04
     # The signing key lives in the "signing" environment, which only main and v* tags may use
     # (#46). Pull requests run without it, since they never sign.
@@ -40,8 +63,6 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      - name: Run checks
-        run: tests/run.sh
       - name: See whether the image changed
         id: changes
         env:

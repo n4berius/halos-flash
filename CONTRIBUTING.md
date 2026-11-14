@@ -1,7 +1,7 @@
 # Contributing
 
 1. Branch from `main` and open a pull request. Rules block direct pushes to `main`.
-2. Run `tests/run.sh`.
+2. Run `tests/run.sh`. If you changed `src/caddy`, also run `scripts/go-test.sh` (needs Go and the network).
 3. Keep Halogen unmodified. This project configures and deploys it.
 4. Say in the pull request whether you tested on real Strix Halo hardware.
 
