@@ -39,6 +39,8 @@ f getenforce 'echo "${FAKE_SELINUX:-Enforcing}"'
 f fail2ban-client 'case "$1" in status) printf "Status\n|- Number of jail:\t2\n\`- Jail list:\t%s\n" "${FAKE_F2B:-halos-api, sshd}" ;;
   banned) echo "[{\"sshd\": [\"203.0.113.9\", \"2001:db8::7\"]}, {\"halos-api\": []}]" ;; esac'
 f journalctl 'case "$*" in *--disk-usage*) echo "Archived and active journals take up 1.2G in the file system." ;; *) cat "$FAKE/kernel.log" 2>/dev/null ;; esac; true'
+# firewalld's running rules: strict about DNAT'd ports unless FAKE_FW_LAX is set.
+f nft '[ -n "${FAKE_FW_LAX:-}" ] || { [ "$*" = "list chain inet firewalld filter_INPUT_dnat" ] && echo "    reject with icmpx admin-prohibited"; }; true'
 # auditd's loaded rules: halOS's watches unless FAKE_AUDIT says otherwise.
 f auditctl 'if [ "$1" = -s ]; then echo "enabled ${FAKE_AUDIT_ENABLED:-2}"; echo "lost ${FAKE_AUDIT_LOST:-0}"; exit 0; fi
 ex="-a never,task -F uid=970 -F auid=970"; w="-w /etc/passwd -p wa -k accounts"; x="-a always,exit -S all -F path=/usr/bin/env -F perm=x -F auid!=-1 -F key=halosctl"
@@ -56,7 +58,7 @@ f amd-smi 'if [ -n "${FAKE_NOGPU:-}" ]; then echo "ERROR:root:Unable to detect a
 f systemd-run 'case "$*" in *render-config*) printf "%s\n" "${FAKE_RENDER:-HALOGEN_CHECKPOINT=/models/qwen38-flash-next-v2.hgn}" ;; *) echo "preflight: ok" ;; esac'
 f bootc 'case "$*" in *json*) echo "{\"spec\":{\"image\":{\"image\":\"${FAKE_FOLLOWS:-ghcr.io/n4berius/halos-flash:stable}\",\"signature\":\"${FAKE_SIG:-containerPolicy}\"}}}" ;; *) echo "Booted image: ghcr.io/n4berius/halos-flash:9.9.9" ;; esac'
 f systemctl 'case "$*" in *--failed*) cat "$FAKE/failed" 2>/dev/null ;; *"show -p Job"*) echo "${FAKE_JOB:-}" ;;
-  *"is-active fail2ban"*) echo "${FAKE_F2B_STATE:-active}" ;; *"is-enabled fail2ban"*) echo "${FAKE_F2B_ENABLED:-enabled}" ;;
+  *"is-active firewalld"*) echo active ;; *"is-active fail2ban"*) echo "${FAKE_F2B_STATE:-active}" ;; *"is-enabled fail2ban"*) echo "${FAKE_F2B_ENABLED:-enabled}" ;;
   *"is-enabled halos-dashboard"*) echo "${FAKE_DASH:-enabled}" ;; *"is-active halos-proxy"*) echo "${FAKE_PROXY:-active}" ;;
   *"IPIngressBytes --value halos-dashboard"*) echo "${FAKE_DASH_IPIN-1234}" ;; *"IPAddressDeny --value halos-dashboard"*) echo "${FAKE_DASH_DENY-0.0.0.0/0 ::/0}" ;;
   *"IPAddressAllow --value halos-dashboard"*) echo "127.0.0.0/8 ::1/128" ;; *"MainPID --value halos-dashboard"*) echo "${FAKE_DASH_PID-4242}" ;; *"MainPID --value user@"*) echo "${FAKE_MGR_PID-0}" ;;
@@ -128,6 +130,8 @@ if grep -q '203.0.113.9' "$work/out"; then echo "the selftest printed a shut-out
 FAKE_F2B=sshd "$selftest" > "$work/out" 2>&1 || true; expect '^WARN fail2ban: running, but without its jail\(s\): halos-api'
 FAKE_F2B_STATE=failed "$selftest" > "$work/out" 2>&1 || true; expect '^WARN fail2ban: turned on, but failed'
 FAKE_F2B_STATE=inactive FAKE_F2B_ENABLED=disabled "$selftest" > "$work/out" 2>&1 || true; expect '^INFO fail2ban: off'
+"$selftest" > "$work/out" 2>&1 || true; expect '^PASS firewall-ports: only the ports firewalld opens'
+FAKE_FW_LAX=1 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN firewall-ports: ports a container with sudo publishes'
 # The prompt cache on disk: on by default, off on request, and a missing folder is a warning.
 expect '^PASS prompt-cache: on, '
 # Off is two halves: the choice file, and root's drop-in that mounts the folder read-only.
