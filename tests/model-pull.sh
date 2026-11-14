@@ -89,3 +89,15 @@ ok "bad repos and names, and the no-NPU edition, are refused"
 if grep -q -- '--device' "$work/podman.log"; then echo "model pull gave a container the NPU device" >&2; exit 1; fi
 echo "ok: model pull's containers get no NPU device"
 
+# A link where the checkpoint's folder (or its parent) belongs is never mounted: the download
+# would land in whatever it points to.
+sed -i "s/=no-npu/=npu/" "$work/release.env"
+mkdir -p "$work/secret"; rm -rf "$work/models/LFM/LFM3-1.7B"; ln -s "$work/secret" "$work/models/LFM/LFM3-1.7B"
+: > "$work/podman.log"
+if "$pull" LiquidAI/LFM3-1.7B > "$work/out" 2>&1; then echo "a pull went through a link at the checkpoint's folder" >&2; exit 1; fi
+grep -q "isn't a plain folder" "$work/out" || { cat "$work/out" >&2; exit 1; }
+if grep -q ' run ' "$work/podman.log" || [ -n "$(ls -A "$work/secret")" ]; then echo "a container was started with the link's target" >&2; exit 1; fi
+rm "$work/models/LFM/LFM3-1.7B"
+ok "a link in place of a checkpoint's folder is refused before any container starts"
+
+

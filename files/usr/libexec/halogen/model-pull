@@ -39,6 +39,11 @@ if ! podman image exists "$HALOGEN_IMAGE"; then
   exit 1
 fi
 
+# A folder is mounted into a container only when no link stands in its path: podman follows a
+# link at a mount source, and a container that can write a folder here (Halogen's own, or an
+# earlier download) could plant one that points at /srv/configs. The folder must be exactly where
+# its name says, under the real /srv/models.
+plain_dir() { [ -d "$1" ] && [ "$(realpath -e -- "$1" 2>/dev/null)" = "$(realpath -e -- "$models")/${1#"$models"/}" ]; }
 # Pulling a name you already have updates it in place; hf only fetches what changed.
 dir=""
 for kind in decider LFM custom; do
@@ -46,6 +51,7 @@ for kind in decider LFM custom; do
 done
 [ -n "$dir" ] || dir="$models/.pull/$name"
 mkdir -p "$dir" || exit 1
+plain_dir "$dir" || { echo "$dir isn't a plain folder under $models (a link stands in its path). Remove the link, then pull again." >&2; exit 1; }
 rel="${dir#"$models"/}"
 
 # Each step sees only this checkpoint's own folder, never the rest of /srv/models: the download
@@ -106,7 +112,9 @@ case "$base" in
   *) kind=custom ;;
 esac
 if [ "${dir#"$models"/.pull/}" != "$dir" ]; then
-  mkdir -p "$models/$kind" && mv "$dir" "$models/$kind/$name" || exit 1
+  mkdir -p "$models/$kind" || exit 1
+  plain_dir "$models/$kind" || { echo "$models/$kind is a link, not a folder: sudo systemctl restart halogen-prepare.service" >&2; exit 1; }
+  mv "$dir" "$models/$kind/$name" || exit 1
   rmdir "$models/.pull" 2>/dev/null || true
 else
   kind="${rel%%/*}"

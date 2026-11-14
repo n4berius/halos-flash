@@ -104,7 +104,22 @@ grep -q ' run ' "$work/podman.log"
 grep ' verify ' "$work/podman.log" | grep -q -- '--network=none --cap-drop=all --security-opt no-new-privileges' \
   || { echo "verify ran with network or capabilities" >&2; exit 1; }
 if grep '/fetch.sh' "$work/podman.log" | grep -q -- '--network=none'; then echo "the download lost its network" >&2; exit 1; fi
+# The download container is named (a leftover one is replaced) and gets the folders mounted into
+# Halogen's container as mounts of their own, so it can't swap one for a link.
+grep '/fetch.sh' "$work/podman.log" | grep -v -- '--network=none' | grep -q -- '--name halogen-fetch-download --replace' \
+  || { echo "the download container isn't named and replaced" >&2; exit 1; }
+grep '/fetch.sh' "$work/podman.log" | grep -v -- '--network=none' | grep -q -- "-v $work/models/npu:/models/npu " \
+  || { echo "the download container can rename the npu folder: $(grep '/fetch.sh' "$work/podman.log" | tail -n 1)" >&2; exit 1; }
 ok "changing the model list triggers a fetch, and verify runs offline with no capabilities"
+
+# A link where one of Halogen's model folders belongs stops the fetch before any container runs.
+mkdir -p "$work/elsewhere"; ln -s "$work/elsewhere" "$work/models/custom"
+echo 'HALOGEN_NPU_MODELS=embed,rerank' > "$work/config.env"; : > "$work/podman.log"
+if "$work/fetch" > "$work/out" 2>&1; then echo "the fetch ran with a link at custom" >&2; exit 1; fi
+grep -q 'is a link, not a folder' "$work/out" || { cat "$work/out" >&2; exit 1; }
+if grep -q ' run ' "$work/podman.log"; then echo "a container ran with a link at custom" >&2; exit 1; fi
+rm "$work/models/custom"; echo 'HALOGEN_NPU_MODELS=embed' > "$work/config.env"
+ok "a link in place of a model folder stops the fetch"
 
 echo 'hf_secret123' > "$work/hf-token"; rm "$work/models/.fetch-stamp"; : > "$work/podman.log"
 "$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }

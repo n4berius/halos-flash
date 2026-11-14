@@ -10,6 +10,12 @@ promoted.
 
 ## Unreleased
 
+- Hardening of the downloads: the model download can no longer swap one of Halogen's folders
+  for a link while it runs, and never outlives an interrupted fetch; `model pull`, `flash pull`,
+  `flash check` and `flash convert` refuse a folder that is reached through a link; and a custom
+  Flash checkpoint that shares the official lookup table gets its own copy (free on the disks
+  the installers make) instead of a hard link to the official file. (#131)
+
 - Hardening: SSH logins as the `halogen` service user are refused; on the NPU edition the model
   and own-checkpoint folders are mounted into Halogen's container with no programs allowed; the
   weight converter runs without devices, shared memory or the system logs in reach; and the

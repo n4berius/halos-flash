@@ -61,6 +61,14 @@ own_models() {
 }
 want="$(printf '%s\n' "$HALOGEN_IMAGE" "$HALOGEN_WEIGHTS_REPO" "$HALOGEN_WEIGHTS_REVISION" "$npu_models" "$vision" "$(own_models)" | sha256sum | cut -d' ' -f1)"
 
+# A link where one of the folders mounted into Halogen's container belongs is refused before
+# anything is moved, made or mounted through it (prepare removes such links at boot, and
+# Halogen's start refuses them: preflight).
+for f in npu decider LFM custom flash; do
+  if [ -L "$models/$f" ]; then
+    echo "halogen-fetch: $models/$f is a link, not a folder: sudo systemctl restart halogen-prepare.service" >&2; exit 1
+  fi
+done
 mkdir -p "$npu_dir" || exit 1
 
 # Before 0.19, NPU models were kept per Halogen version (npu/0.18.23/<model>). Move them into
@@ -153,6 +161,13 @@ if [ -L "$models/.prompt-cache" ]; then
 fi
 [ -d "$models/.prompt-cache" ] || mkdir -m 0700 "$models/.prompt-cache" || exit 1
 hide_cache=(--tmpfs "/models/.prompt-cache:ro,size=4k,notmpcopyup")
+# In the download container (network, the token, /models writable) each of those folders is a
+# mount of its own: a mount point can't be renamed, removed or replaced from inside, so the
+# container can't swap one for a link before Halogen's next start. Only npu is written by the
+# download; the others are read-only there.
+pin=()
+[ ! -d "$models/npu" ] || pin+=(-v "$models/npu:/models/npu")
+for f in decider LFM custom flash; do [ ! -d "$models/$f" ] || pin+=(-v "$models/$f:/models/$f:ro"); done
 need_probe=""
 # Split the way the download container does (commas and spaces), so no path slips past.
 for id in ${npu_models//,/ }; do case "$id" in /*) need_probe=1 ;; esac; done
@@ -179,12 +194,14 @@ if printf '%s\n' "$own_bases" > "$models/.own-bases.new"; then mv -f "$models/.o
 
 wait_s=15
 while :; do
-  podman run --rm --pull=never --read-only --tmpfs /tmp \
+  # Named, and replacing one an interrupted fetch left running: a download container must not
+  # outlive its fetch with /srv/models still writable.
+  podman run --rm --pull=never --read-only --tmpfs /tmp --name halogen-fetch-download --replace \
     --cap-drop=all --security-opt no-new-privileges --entrypoint bash \
     -e HF_HOME=/tmp/hf -e HF_HUB_OFFLINE=0 -e HF_HUB_DISABLE_TELEMETRY=1 -e HF_HUB_DISABLE_PROGRESS_BARS=1 \
     -e "WEIGHTS_REPO=$HALOGEN_WEIGHTS_REPO" -e "WEIGHTS_REVISION=$HALOGEN_WEIGHTS_REVISION" \
     -e "NPU_MODELS=$npu_models" -e "OWN_BASES=$own_bases" -e "VISION=$vision" "${token_args[@]}" \
-    -v "$models:/models" "${hide_cache[@]}" -v "$helper:/fetch.sh:ro" \
+    -v "$models:/models" "${hide_cache[@]}" "${pin[@]}" -v "$helper:/fetch.sh:ro" \
     "$HALOGEN_IMAGE" /fetch.sh
   rc=$?
   case "$rc" in

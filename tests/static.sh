@@ -139,6 +139,13 @@ for path in glob.glob("files/usr/libexec/halogen/*"):
     if "hide_cache" in body:
         assert 'hide_cache=(--tmpfs "/models/.prompt-cache:ro,size=4k,notmpcopyup")' in body, f"{path}: the tmpfs must not copy the folder's files up"
 fc = open("files/usr/libexec/halogen/flash-checkpoint").read()
+# Download path: the shared lookup table is a reflink copy first (a hard link lets the next pull's
+# container write the official file), and no folder is mounted through a link.
+assert 'cp --reflink=always -- "$models/$table" "$dir/$table"' in fc, "the shared lookup table is hard-linked without trying a reflink copy"
+for script in ("flash-checkpoint", "model-pull"):
+    assert "plain_dir() {" in open(f"files/usr/libexec/halogen/{script}").read(), f"{script} mounts folders without checking for links in their path"
+fm = open("files/usr/libexec/halogen/fetch-models").read()
+assert '"${pin[@]}"' in fm and "--name halogen-fetch-download --replace" in fm and "for f in npu decider LFM custom flash; do\n  if [ -L" in fm
 assert "-$m/.prompt-cache -$l -/dev/shm -/sysroot -/var/log\"" in fc and "-p PrivateUsers=yes -p PrivateDevices=yes" in fc and "-p RestrictAddressFamilies=none" not in fc and '-p "SystemCallFilter=~socket socketpair io_uring_setup io_uring_enter io_uring_register"' in fc and "-p SystemCallArchitectures=native" in fc, "the convert sandbox can read the prompt cache, the request records, devices, shared memory or the journal"
 # The folders Halogen's container can write and find again hold no programs; halogen never logs in.
 npuconf = open("variants/npu/etc/containers/systemd/users/970/halogen.container.d/10-npu.conf").read()

@@ -688,6 +688,22 @@ name, but allows saying halOS runs Halogen.
   is to be confirmed with the same check before the PR merges. `halogen-autostart` also looks at `.ssh`, `mounts.conf`, `policy.json`, `storage.conf`,
   `registries.conf(.d)`, user-tmpfiles.d and D-Bus services.
 
+- Download-path hardening (#131, security audit of #128, owner agreed): `fetch-models` refuses a
+  link at `npu`/`decider`/`LFM`/`custom`/`flash` before moving or mounting anything, and its
+  download container (network, token, `/models` writable) gets each existing one as a mount of
+  its own (`npu` writable, the rest `:ro`): a mount point can't be renamed, removed or replaced
+  from inside (EBUSY; checked with podman 4.9.3, where the top level, `npu/<id>`, `tokenizer/` and
+  hf's `.cache` renames still work), so it can't plant a link for Halogen's next start. It is run
+  as `--name halogen-fetch-download --replace`, so one an interrupted fetch left running (bash as
+  PID 1 ignores SIGTERM, and the container sits outside the service's cgroup) is replaced.
+  `plain_dir` in `model-pull` and `flash-checkpoint` refuses a bind source whose real path isn't
+  exactly its name under the real `/srv/models` (checkpoint folders, `.pull`, `flash/.check`,
+  `tokenizer`, the convert source). `flash pull` copies a shared official lookup table with
+  `cp --reflink=always` (XFS: no extra blocks, its own inode, so the next pull's container can't
+  write the official file through it) and only falls back to the old hard link where the
+  filesystem can't reflink. None of this runs in the VM (no download there): freyja's next fetch
+  and pull are the first real run.
+
 ## Lessons already learned
 
 - `setpriv` and `runuser` keep the caller's working folder. Run as halogen from an admin's home

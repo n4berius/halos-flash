@@ -53,6 +53,11 @@ if [ -L "$models/.prompt-cache" ]; then
 fi
 [ -d "$models/.prompt-cache" ] || mkdir -m 0700 "$models/.prompt-cache" || exit 1
 hide_cache=(--tmpfs "/models/.prompt-cache:ro,size=4k,notmpcopyup")
+# A folder is mounted into a container only when no link stands in its path: podman follows a
+# link at a mount source, and a container that can write a folder here (Halogen's own, or an
+# earlier download) could plant one that points at /srv/configs. The folder must be exactly where
+# its name says, under the real /srv/models.
+plain_dir() { [ -d "$1" ] && [ "$(realpath -e -- "$1" 2>/dev/null)" = "$(realpath -e -- "$models")/${1#"$models"/}" ]; }
 offline() {
   podman run --rm --pull=never --device /dev/kfd --device /dev/dri --group-add keep-groups \
     --ipc=host --ulimit memlock=-1:-1 -v "$models:/models:ro" "${hide_cache[@]}" \
@@ -150,6 +155,7 @@ get_corpus() {
 # ships. The prose goes to the terminal; the --json object to $1.
 ppl() {
   local json="$1" mode="$2"; shift 2
+  if ! plain_dir "$check_dir" || ! plain_dir "$models/tokenizer"; then die "$check_dir or $models/tokenizer isn't a plain folder under $models (a link stands in its path)."; fi
   podman run --rm --pull=never --device /dev/kfd --device /dev/dri --group-add keep-groups \
     --ipc=host --ulimit memlock=-1:-1 -v "$models:/models:ro" "${hide_cache[@]}" -v "$check_dir:/models/flash/.check:$mode" \
     -v "$models/tokenizer:/tokenizer:ro" -e HALOGEN_TOKENIZER=/tokenizer \
@@ -361,6 +367,7 @@ convert_prepare() {
     rm -rf "${convert_dir:?}/$name"
   fi
   mkdir -p "$src" || exit 1
+  plain_dir "$src" || die "$src isn't a plain folder under $models (a link stands in its path)."
   mounts=(-v "$src:/models/flash/.convert/$name/source")
   n=(model.safetensors.index.json "${convert_assets_required[@]}")
   for f in "${convert_assets_optional[@]}"; do ! has "$f" || n+=("$f"); done
@@ -424,6 +431,7 @@ convert_run() {
     [ -e "$f" ] || continue
     case " ${shards[*]} " in *" ${f##*/} "*) ;; *) rm -f "$f" ;; esac
   done
+  plain_dir "$src" || die "$src isn't a plain folder under $models (a link stands in its path)."
   mounts=(-v "$src:/models/flash/.convert/$name/source")
   echo "Downloading ${#shards[@]} weight files of $repo at commit ${commit:0:12} into $src. An interrupted download resumes."
   if [ "$progress_s" -gt 0 ]; then
@@ -595,6 +603,7 @@ if [ "$(head -n 1 "$flash_choice" 2>/dev/null | tr -d '[:space:]')" = "$name" ];
   die "$name is the checkpoint Halogen serves. Switch first (sudo halogenctl flash use official), then pull it again."
 fi
 mkdir -p "$dir" || exit 1
+plain_dir "$dir" || die "$dir isn't a plain folder under $models (a link stands in its path). Remove the link, then pull again."
 mounts=(-v "$dir:/models/flash/$name")
 # From the first byte until the checks pass, the folder counts as unchecked.
 # A new download also makes an earlier flash check's numbers stale.
@@ -629,11 +638,16 @@ elif has "$table"; then
   if [ -e "$dir/$table" ] && [ "$(sha256sum "$dir/$table" | cut -d' ' -f1)" != "$(sha_of "$table")" ]; then
     rm -f -- "$dir/$table"
   fi
-  # Many builds of the same model share the official table. Then the same file is linked in
-  # (a hard link: no extra disk, and Halogen sees a plain file), not downloaded again.
+  # Many builds of the same model share the official table. Then it is copied, not downloaded
+  # again: a reflink copy where the filesystem can (XFS, as the installers make: no extra disk,
+  # and a file of its own, so the next pull's container, which gets this folder writable, can't
+  # reach the official table through it), else a hard link as before (no extra disk either, but
+  # then that container could write the official file).
   if [ "$(stat -c %s "$models/$table" 2>/dev/null)" = "$(size_of "$table")" ] && [ ! -e "$dir/$table" ] &&
      [ "$(sha256sum "$models/$table" | cut -d' ' -f1)" = "$(sha_of "$table")" ]; then
-    ln "$models/$table" "$dir/$table" && echo "Its lookup table is the official one, so that file is shared rather than downloaded."
+    if cp --reflink=always -- "$models/$table" "$dir/$table" 2>/dev/null || { rm -f -- "$dir/$table"; ln "$models/$table" "$dir/$table"; }; then
+      echo "Its lookup table is the official one, so that file is shared rather than downloaded."
+    fi
   fi
   if [ ! -e "$dir/$table" ]; then
     echo "Downloading its lookup table, $table ($(gib "$(size_of "$table")"))."
