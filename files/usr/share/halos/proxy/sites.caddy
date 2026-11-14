@@ -8,6 +8,10 @@
 	log {
 		format filter {
 			request>headers delete
+			# Nor the name asked for in the TLS handshake: the header limit doesn't bound it (it can
+			# be 64 KB of anything, written six characters a byte), so with a certificate of your own,
+			# which answers any name, it made a line too long for the journal again.
+			request>tls>server_name delete
 			# The address asked for is also cut at 300 characters: a padded one made a line longer
 			# than the journal's 48K limit, which split it and hid the 401 from fail2ban.
 			request>uri multi_regexp {

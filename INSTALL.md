@@ -906,6 +906,13 @@ sudo halosctl fail2ban off                   # turn it off (on again: fail2ban o
   the disk is unlocked.
 - Its own messages (who was shut out and let back in) are in the journal:
   `sudo journalctl -u fail2ban`.
+- Being shut out is complete: connections the address already had open are cut too. The bans
+  live in fail2ban's own firewall table (`sudo nft list table inet f2b-table`, there once
+  somebody was shut out), beside firewalld's rules, and `sudo firewall-cmd --reload` leaves
+  them alone.
+- The front door refuses a request whose first line and headers together exceed 32 KB (431 over
+  HTTP/1.1, a protocol error over HTTP/2). No app comes near that; it keeps every request a single log line, so none slips past
+  the count.
 
 What it can't do:
 
@@ -917,11 +924,7 @@ What it can't do:
   every client has the proxy's address and one bad client shuts out all of them. With a tunnel
   that ends on this machine (cloudflared and the like), every client is this machine, which is
   never shut out, so fail2ban does nothing for the API.
-- **A connection that is already open isn't cut.** The firewall stops new connections from a
-  shut-out address; one that is open keeps working until it closes.
 - **IPv6 is counted per address,** and one network has many, so a determined sender isn't slowed.
-- After `sudo firewall-cmd --reload`, run `sudo systemctl restart fail2ban`: the reload drops the
-  firewall rules without fail2ban knowing.
 
 The API key is 64 random characters, so guessing it isn't feasible either way. What fail2ban
 buys for the API is fewer junk requests reaching Halogen, and for SSH less noise.

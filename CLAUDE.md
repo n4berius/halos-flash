@@ -632,7 +632,7 @@ name, but allows saying halOS runs Halogen.
   it and hid the 401); `halosctl fail2ban` survives a failing client (set -e) and `unban` needs
   dots or a colon (hex letters alone would be looked up as a name). Whether a wrong key (not only
   a missing one) gets 401 is not in Halogen's docs: to confirm on freyja.
-  Not done, for the owner: the `nftables` action (cuts open connections, cheaper bans, needs
+  Done since in #132 (see above): the `nftables` action (cuts open connections, cheaper bans, needs
   `CAP_NET_ADMIN` and a bench), `LineMax`/`max_header_size` against 48K line splits, more sandbox. Client text (the
   uri) comes later with its quotes escaped, so it can't forge that field; the Containerfile runs
   `fail2ban-client -t`, checks both jails in `-d`'s output and runs `fail2ban-regex` on a 401 line
@@ -688,6 +688,39 @@ name, but allows saying halOS runs Halogen.
   is to be confirmed with the same check before the PR merges. `halogen-autostart` also looks at `.ssh`, `mounts.conf`, `policy.json`, `storage.conf`,
   `registries.conf(.d)`, user-tmpfiles.d and D-Bus services.
 
+- fail2ban follow-ups (#132, the audit of #129, owner agreed): bans go through fail2ban's
+  `nftables` action (`banaction = nftables[type=multiport, blocktype="reject with tcp reset"]`;
+  table `inet f2b-table`, chain at input priority -1, so before firewalld's
+  `ct state established` accept: open connections are cut; one set per jail and family, made at
+  the first ban, removed at stop; untouched by `firewall-cmd --reload`), no longer firewalld rich
+  rules, and `fail2ban-firewalld` isn't installed (`nftables` is named in the Containerfile, which
+  checks `nft`). The unit gets `CAP_NET_ADMIN` beside `CAP_DAC_READ_SEARCH`, plus
+  `IPAddressDeny=any`, `ProtectProc=invisible`, `PrivateIPC`, `UMask=0077`,
+  `SystemCallFilter=@system-service`. `halosctl fail2ban off` deletes a left-over table itself.
+  Tried with fail2ban 1.1.0 and nft 1.1.6 in a Fedora 45 container (ban, unban, stop removes the
+  table); under systemd and SELinux (`fail2ban_t` running nft) only the VM test shows it:
+  `F2BBAN 1 2`, `F2BRELOAD 1`, `F2BUN 0`, with fail2ban's log and AVC lines printed. Caddy's
+  `max_header_size 32KB` (all three Caddyfiles; Go adds 4 KB of slack, 431 above) with journald's
+  `LineMax=256K`: with Caddy 2.11.9 a 36,000-character Host gave a 36.4K log line, a 40,000 one
+  431 (HTTP/2: no slack, a protocol error above about 32.7K). Over HTTP/1.1 bytes that aren't
+  text in Host or the method get Go's 400 before any log line; over HTTP/2 (custom-certificate
+  mode) a Host of 31,000 such bytes is logged six characters each, one line of 186K, which is
+  what `LineMax` is sized for. `ExecStartPre=-nft delete table inet f2b-table`: fail2ban removes
+  only what it made in the same run, so after a kill an ended ban stayed (code review, run).
+  The paragraph on #129 below describes the rich-rule method this replaced. Security audit of
+  #132: the TLS server name isn't bounded by the header cap (60,000 bytes of 0xff in custom mode
+  gave a 360K 401 line), so the log filter deletes `request>tls>server_name`; in self-signed and
+  Let's Encrypt modes a request matching no site was logged by Caddy's default logger with
+  headers and query in full (`x-api-key`, `?api_key=`), so both HTTPS Caddyfiles have
+  `log default { exclude http.log.access }`; `banaction_allports` keeps the plain reject (a tcp
+  reset rule fails for a udp/all jail). A reset reaches only the client: the server's end of an
+  open connection lasts until keepalive or timeout. With SELinux, `fail2ban_t` has no
+  `net_admin` itself: only `iptables_exec_t` programs (nft) get it; through nft a compromised
+  fail2ban could add any table (drop everything, NAT, mirror), though not touch firewalld's
+  owner-flagged one. Ideas left for the owner: hide the D-Bus socket, `~@privileged @resources`,
+  firewalld `StrictForwardPorts=yes`, `resp_headers delete`, an IPv6 and an sshd ban in the VM test. Not
+  measured: the extra netfilter hook's cost (bench on freyja), and a real ban cutting a real
+  open connection.
 - Download-path hardening (#131, security audit of #128, owner agreed): `fetch-models` first
   removes a leftover `halogen-fetch-download` container (`podman rm -f -i -t 0`; bash as PID 1
   ignores SIGTERM and the container sits outside the service's cgroup), refuses a link at

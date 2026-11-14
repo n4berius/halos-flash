@@ -99,8 +99,8 @@ grep -qF "$target" "$out/report.txt" || { echo "the installed system doesn't fol
 grep -qx halostest "$out/report.txt" || { echo "the hostname was not set" >&2; exit 1; }
 # Logs (#107): auditd with halOS's watches (Fedora's default turns them off), a change in /etc/halos
 # and a run of halosctl found by their keys, the rule that leaves Halogen out, and the journal's cap.
-for l in 'AUDIT active [3-9][0-9] 1 1' 'AUDITHIT [1-9][0-9]* [1-9][0-9]*' 'STENV 0' 'HLOGIN 970' 'AUDITRAN 2' 'AUDITEX 0 [1-9][0-9]* [1-9][0-9]*' 'AUDITLOCK [1-9][0-9]* 1' 'SSHDENY 1' 'CONVSB 0' 'JOURNALCAP 1' 'F2B active 1' 'F2BDOM [1-9][0-9]*' 'F2BBAN [1-9][0-9]*' 'F2BUN 0' 'F2BRE 1'; do
-  grep -qxE "$l" "$out/report.txt" || { echo "logs: expected '$l'" >&2; grep -E '^(AUDIT|JOURNAL|HLOGIN|HCONF|STENV|SSHDENY|CONVSB|NPUMNT|F2B|-a never)' "$out/report.txt" >&2; exit 1; }
+for l in 'AUDIT active [3-9][0-9] 1 1' 'AUDITHIT [1-9][0-9]* [1-9][0-9]*' 'STENV 0' 'HLOGIN 970' 'AUDITRAN 2' 'AUDITEX 0 [1-9][0-9]* [1-9][0-9]*' 'AUDITLOCK [1-9][0-9]* 1' 'SSHDENY 1' 'CONVSB 0' 'JOURNALCAP 1' 'F2B active 1' 'F2BDOM [1-9][0-9]*' 'F2BBAN 1 2' 'F2BRELOAD 1' 'F2BUN 0' 'HDRCAP 431 1' 'F2BRE 1'; do
+  grep -qxE "$l" "$out/report.txt" || { echo "logs: expected '$l'" >&2; grep -E '^(AUDIT|JOURNAL|HLOGIN|HCONF|STENV|SSHDENY|CONVSB|NPUMNT|F2B|HDRCAP|-a never)' "$out/report.txt" >&2; exit 1; }
 done
 # Request records (#107): on mounts /srv/logs/halogen and sends counts only; off removes the mount.
 # (The generated unit names the mount twice: podman's -v and Quadlet's copy of the drop-in.)
