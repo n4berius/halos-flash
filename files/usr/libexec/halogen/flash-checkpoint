@@ -57,7 +57,22 @@ hide_cache=(--tmpfs "/models/.prompt-cache:ro,size=4k,notmpcopyup")
 # link at a mount source, and a container that can write a folder here (Halogen's own, or an
 # earlier download) could plant one that points at /srv/configs. The folder must be exactly where
 # its name says, under the real /srv/models.
+# Writes a new file from stdin, never through a link a download container left under that name:
+# the name is removed, then created exclusively.
+write_new() { rm -f -- "$1" && ( set -C; cat > "$1" ); }
 plain_dir() { [ -d "$1" ] && [ "$(realpath -e -- "$1" 2>/dev/null)" = "$(realpath -e -- "$models")/${1#"$models"/}" ]; }
+# mkdir -p under the models folder that never goes through a link: each step is looked at first.
+mk_plain() {
+  local rel="${1#"$models"/}" p="$models" c parts
+  [ "$rel" != "$1" ] || return 1
+  IFS=/ read -ra parts <<< "$rel"
+  for c in "${parts[@]}"; do
+    p="$p/$c"
+    [ ! -L "$p" ] || return 1
+    [ -d "$p" ] || mkdir "$p" || return 1
+  done
+  plain_dir "$1"
+}
 offline() {
   podman run --rm --pull=never --device /dev/kfd --device /dev/dri --group-add keep-groups \
     --ipc=host --ulimit memlock=-1:-1 -v "$models:/models:ro" "${hide_cache[@]}" \
@@ -74,8 +89,13 @@ fill_tokenizer() {
   local dir="$1" f added=""
   [ ! -L "$dir/tokenizer" ] || { echo "$dir/tokenizer is a link; pull it again." >&2; return 1; }
   [ ! -f "$dir/tokenizer/tokenizer.json" ] || return 0
+  # The official tokenizer's files are copied into the checkpoint, where the next download
+  # container can read them: a link among them could point at something private.
+  if [ -L "$models/tokenizer" ] || [ -n "$(find "$models/tokenizer" -maxdepth 1 -type l 2>/dev/null | head -n 1)" ]; then
+    echo "The official tokenizer folder holds a link; download it again (sudo rm -r $models/tokenizer, then sudo halogenctl restart)." >&2; return 1
+  fi
   [ -f "$models/tokenizer/tokenizer.json" ] || { echo "The official tokenizer is missing; let the download finish (sudo halogenctl fetch-logs)." >&2; return 1; }
-  if [ ! -d "$dir/tokenizer" ]; then cp -r "$models/tokenizer" "$dir/tokenizer" || return 1; return 0; fi
+  if [ ! -d "$dir/tokenizer" ]; then cp -r -P "$models/tokenizer" "$dir/tokenizer" || return 1; return 0; fi
   # A repository with a vocabulary of its own says it differs from the official one: halOS
   # can't build its tokenizer.json, and mixing the two would tokenize wrongly without a word.
   # Files identical to the official ones are the copies an earlier check added.
@@ -89,7 +109,7 @@ fill_tokenizer() {
   done
   for f in tokenizer.json vocab.json merges.txt; do
     if [ -f "$models/tokenizer/$f" ] && [ ! -e "$dir/tokenizer/$f" ] && [ ! -L "$dir/tokenizer/$f" ]; then
-      cp "$models/tokenizer/$f" "$dir/tokenizer/$f" || return 1
+      cp -P "$models/tokenizer/$f" "$dir/tokenizer/$f" || return 1
       added+=" $f"
     fi
   done
@@ -117,7 +137,7 @@ verify_dir() {
   { grep -v -e '^verified=' -e '^verified_with=' -e '^verified_at=' "$info"
     echo "verified=$result"
     echo "verified_with=$HALOGEN_VERSION"
-    echo "verified_at=$(date -u '+%Y-%m-%d %H:%M UTC')"; } > "$info.new" && mv -f "$info.new" "$info" || return 1
+    echo "verified_at=$(date -u '+%Y-%m-%d %H:%M UTC')"; } | write_new "$info.new" && mv -f "$info.new" "$info" || return 1
   [ "$result" = pass ]
 }
 
@@ -133,7 +153,7 @@ get_corpus() {
   local out="$check_dir/wikitext-2-raw-test.txt" tmp offset total
   [ "$(sha256sum 2>/dev/null < "$out" | cut -d' ' -f1)" != "$corpus_sha" ] || return 0
   echo "Downloading the test text (wikitext-2, about 1.3 MB)..."
-  tmp="$out.part"; : > "$tmp" || return 1
+  tmp="$out.part"; : | write_new "$tmp" || return 1
   offset=0; total=1
   while [ "$offset" -lt "$total" ]; do
     # The test split is 4,358 rows (44 pages); a far larger count is not this text.
@@ -198,7 +218,7 @@ check_dir_run() {
     echo "checked_with=$HALOGEN_VERSION"
     echo "checked_at=$(date -u '+%Y-%m-%d %H:%M UTC')"
     echo "checked_ppl=$p"; echo "checked_official_ppl=$op"
-    echo "checked_kl_median=$kl"; echo "checked_top1=$top1"; } > "$info.new" || die "cannot write $info"
+    echo "checked_kl_median=$kl"; echo "checked_top1=$top1"; } | write_new "$info.new" || die "cannot write $info"
   mv -f "$info.new" "$info" || die "cannot write $info"
   # top1_agreement may be a fraction or a percentage; show a percentage. The rest is rounded for
   # reading; halos.info and check.json keep every digit.
@@ -362,12 +382,12 @@ convert_prepare() {
   src="$convert_dir/$name/source"
   # Files left by another repository or commit under this name would end up in the result
   # (the converter copies every optional tokenizer file it finds), so they go first.
+  if [ -e "$convert_dir" ] && ! plain_dir "$convert_dir"; then die "$convert_dir isn't a plain folder under $models (a link stands in its path)."; fi
   if [ -f "$convert_dir/$name/convert.info" ] && { [ "$(info_get "$convert_dir/$name/convert.info" repo)" != "$repo" ] \
       || [ "$(info_get "$convert_dir/$name/convert.info" commit)" != "$commit" ]; }; then
     rm -rf "${convert_dir:?}/$name"
   fi
-  mkdir -p "$src" || exit 1
-  plain_dir "$src" || die "$src isn't a plain folder under $models (a link stands in its path)."
+  mk_plain "$src" || die "$src isn't a plain folder under $models (a link stands in its path)."
   mounts=(-v "$src:/models/flash/.convert/$name/source")
   n=(model.safetensors.index.json "${convert_assets_required[@]}")
   for f in "${convert_assets_optional[@]}"; do ! has "$f" || n+=("$f"); done
@@ -423,6 +443,7 @@ convert_run() {
 
   # The weights, resumable, then checked against the repository's hashes.
   list_repo "$repo" "$commit"
+  plain_dir "$src" || die "$src isn't a plain folder under $models (a link stands in its path)."
   mapfile -t shards < <(index_shards "$src/model.safetensors.index.json")
   [ "${#shards[@]}" -gt 0 ] || die "$repo's index names no weight files."
   for f in "${shards[@]}"; do case "$f" in BAD\ *) die "$repo's index names a weights file the converter doesn't read." ;; esac; done
@@ -431,7 +452,6 @@ convert_run() {
     [ -e "$f" ] || continue
     case " ${shards[*]} " in *" ${f##*/} "*) ;; *) rm -f "$f" ;; esac
   done
-  plain_dir "$src" || die "$src isn't a plain folder under $models (a link stands in its path)."
   mounts=(-v "$src:/models/flash/.convert/$name/source")
   echo "Downloading ${#shards[@]} weight files of $repo at commit ${commit:0:12} into $src. An interrupted download resumes."
   if [ "$progress_s" -gt 0 ]; then
@@ -479,7 +499,7 @@ convert_run() {
     echo "checkpoint=model.hgn"
     echo "converted_with=bf16-to-hgn ${BF16_TO_HGN_COMMIT:-unknown}, profile v2"
     echo "pulled_at=$(date -u '+%Y-%m-%d %H:%M UTC')"
-    echo "verified=no"; } > "$out/halos.info.new" && mv -f "$out/halos.info.new" "$out/halos.info" || exit 1
+    echo "verified=no"; } | write_new "$out/halos.info.new" && mv -f "$out/halos.info.new" "$out/halos.info" || exit 1
   verify_dir "$name" || die "$name failed Halogen's verify (above), so it can't be used. Remove it: sudo halogenctl flash remove $name"
   if [ "$keep" = 1 ]; then echo "The downloaded weights stay in $src (--keep-source)."
   else rm -rf "${convert_dir:?}/$name"; echo "The downloaded weights were removed, to free the space."; fi
@@ -602,13 +622,15 @@ fi
 if [ "$(head -n 1 "$flash_choice" 2>/dev/null | tr -d '[:space:]')" = "$name" ]; then
   die "$name is the checkpoint Halogen serves. Switch first (sudo halogenctl flash use official), then pull it again."
 fi
-mkdir -p "$dir" || exit 1
-plain_dir "$dir" || die "$dir isn't a plain folder under $models (a link stands in its path). Remove the link, then pull again."
+mk_plain "$dir" || die "$dir isn't a plain folder under $models (a link stands in its path). Remove the link, then pull again."
+# A table an earlier pull hard-linked to the official one goes before the download container
+# gets this folder: through it, the container could write the official file. A copy follows below.
+if [ -L "$dir/$table" ] || [ "$(stat -c %h "$dir/$table" 2>/dev/null || echo 1)" != 1 ]; then rm -f -- "$dir/$table"; fi
 mounts=(-v "$dir:/models/flash/$name")
 # From the first byte until the checks pass, the folder counts as unchecked.
 # A new download also makes an earlier flash check's numbers stale.
 if [ -f "$info" ]; then
-  { grep -v -e '^verified' -e '^checked' "$info"; echo "verified=no"; } > "$info.new" && mv -f "$info.new" "$info" || exit 1
+  { grep -v -e '^verified' -e '^checked' "$info"; echo "verified=no"; } | write_new "$info.new" && mv -f "$info.new" "$info" || exit 1
 fi
 rm -f "$dir/check.json"
 echo "Downloading $checkpoint from $repo at commit ${commit:0:12} into $dir ($(gib "$need") to fetch). An interrupted download resumes."
@@ -639,15 +661,15 @@ elif has "$table"; then
     rm -f -- "$dir/$table"
   fi
   # Many builds of the same model share the official table. Then it is copied, not downloaded
-  # again: a reflink copy where the filesystem can (XFS, as the installers make: no extra disk,
-  # and a file of its own, so the next pull's container, which gets this folder writable, can't
-  # reach the official table through it), else a hard link as before (no extra disk either, but
-  # then that container could write the official file).
+  # again: a reflink copy where the filesystem can (XFS, as the installers make: no extra disk),
+  # else a plain copy. Either way it is a file of its own, never a hard link: the next pull's
+  # container gets this folder writable, and would reach the official table through one.
+  [ ! -L "$dir/$table" ] || rm -f -- "$dir/$table"
   if [ "$(stat -c %s "$models/$table" 2>/dev/null)" = "$(size_of "$table")" ] && [ ! -e "$dir/$table" ] &&
      [ "$(sha256sum "$models/$table" | cut -d' ' -f1)" = "$(sha_of "$table")" ]; then
-    if cp --reflink=always -- "$models/$table" "$dir/$table" 2>/dev/null || { rm -f -- "$dir/$table"; ln "$models/$table" "$dir/$table"; }; then
-      echo "Its lookup table is the official one, so that file is shared rather than downloaded."
-    fi
+    if cp --reflink=auto -- "$models/$table" "$dir/$table"; then
+      echo "Its lookup table is the official one, so that file is copied rather than downloaded."
+    else rm -f -- "$dir/$table"; fi
   fi
   if [ ! -e "$dir/$table" ]; then
     echo "Downloading its lookup table, $table ($(gib "$(size_of "$table")"))."
@@ -692,7 +714,7 @@ fi
   echo "commit=$commit"
   echo "checkpoint=$checkpoint"
   echo "pulled_at=$(date -u '+%Y-%m-%d %H:%M UTC')"
-  echo "verified=no"; } > "$info.new" && mv -f "$info.new" "$info" || exit 1
+  echo "verified=no"; } | write_new "$info.new" && mv -f "$info.new" "$info" || exit 1
 
 if ! verify_dir "$name"; then
   die "$name failed Halogen's verify (above), so it can't be used. Remove it: sudo halogenctl flash remove $name"

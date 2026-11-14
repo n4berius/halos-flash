@@ -98,6 +98,11 @@ if "$pull" LiquidAI/LFM3-1.7B > "$work/out" 2>&1; then echo "a pull went through
 grep -q "isn't a plain folder" "$work/out" || { cat "$work/out" >&2; exit 1; }
 if grep -q ' run ' "$work/podman.log" || [ -n "$(ls -A "$work/secret")" ]; then echo "a container was started with the link's target" >&2; exit 1; fi
 rm "$work/models/LFM/LFM3-1.7B"
+# The same for the folder new pulls start in: nothing is made through the link.
+rm -rf "$work/models/.pull"; ln -s "$work/secret" "$work/models/.pull"
+if "$pull" LiquidAI/LFM3-9B > "$work/out" 2>&1; then echo "a pull went through a link at .pull" >&2; exit 1; fi
+if [ -n "$(ls -A "$work/secret")" ]; then echo "a folder was made through the link at .pull" >&2; exit 1; fi
+rm "$work/models/.pull"
 ok "a link in place of a checkpoint's folder is refused before any container starts"
 
 

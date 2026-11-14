@@ -141,7 +141,7 @@ for path in glob.glob("files/usr/libexec/halogen/*"):
 fc = open("files/usr/libexec/halogen/flash-checkpoint").read()
 # Download path: the shared lookup table is a reflink copy first (a hard link lets the next pull's
 # container write the official file), and no folder is mounted through a link.
-assert 'cp --reflink=always -- "$models/$table" "$dir/$table"' in fc, "the shared lookup table is hard-linked without trying a reflink copy"
+assert 'cp --reflink=auto -- "$models/$table" "$dir/$table"' in fc and 'ln "$models/$table"' not in fc, "the shared lookup table is hard-linked, not copied"
 for script in ("flash-checkpoint", "model-pull"):
     assert "plain_dir() {" in open(f"files/usr/libexec/halogen/{script}").read(), f"{script} mounts folders without checking for links in their path"
 fm = open("files/usr/libexec/halogen/fetch-models").read()
