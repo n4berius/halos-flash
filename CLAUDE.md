@@ -707,7 +707,18 @@ name, but allows saying halOS runs Halogen.
   mode) a Host of 31,000 such bytes is logged six characters each, one line of 186K, which is
   what `LineMax` is sized for. `ExecStartPre=-nft delete table inet f2b-table`: fail2ban removes
   only what it made in the same run, so after a kill an ended ban stayed (code review, run).
-  The paragraph on #129 below describes the rich-rule method this replaced. Not
+  The paragraph on #129 below describes the rich-rule method this replaced. Security audit of
+  #132: the TLS server name isn't bounded by the header cap (60,000 bytes of 0xff in custom mode
+  gave a 360K 401 line), so the log filter deletes `request>tls>server_name`; in self-signed and
+  Let's Encrypt modes a request matching no site was logged by Caddy's default logger with
+  headers and query in full (`x-api-key`, `?api_key=`), so both HTTPS Caddyfiles have
+  `log default { exclude http.log.access }`; `banaction_allports` keeps the plain reject (a tcp
+  reset rule fails for a udp/all jail). A reset reaches only the client: the server's end of an
+  open connection lasts until keepalive or timeout. With SELinux, `fail2ban_t` has no
+  `net_admin` itself: only `iptables_exec_t` programs (nft) get it; through nft a compromised
+  fail2ban could add any table (drop everything, NAT, mirror), though not touch firewalld's
+  owner-flagged one. Ideas left for the owner: hide the D-Bus socket, `~@privileged @resources`,
+  firewalld `StrictForwardPorts=yes`, `resp_headers delete`, an IPv6 and an sshd ban in the VM test. Not
   measured: the extra netfilter hook's cost (bench on freyja), and a real ban cutting a real
   open connection.
 

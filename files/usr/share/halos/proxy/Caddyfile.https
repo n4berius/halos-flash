@@ -11,6 +11,12 @@
 	auto_https disable_redirects
 	# Never touch the system's trust store: clients trust the authority if you give it to them.
 	skip_install_trust
+	# A request for a name or address that is none of the sites below gets no access-log line:
+	# Caddy's own logger would write its headers and address in full, API key included (the
+	# sites' loggers leave those out, sites.caddy).
+	log default {
+		exclude http.log.access
+	}
 	servers {
 		# A request's line and headers together: 32 KB at most (Caddy's default is 1 MB), answered
 		# with 431 above that. It keeps each access-log line whole in the journal (journald's

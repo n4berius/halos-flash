@@ -14,7 +14,9 @@ promoted.
   firewalld rules: connections a shut-out address already had open are cut too, a ban costs far
   less under a flood, and `firewall-cmd --reload` no longer drops the bans. The front door
   refuses requests with more than 32 KB of headers, so a wrong key can't hide from the count in
-  an overlong log line, and fail2ban's own sandbox is tighter. (#132)
+  an overlong log line, and fail2ban's own sandbox is tighter. In the HTTPS modes, a request
+  for a name or address the certificate doesn't cover no longer leaves its headers, API key
+  included, in the journal. (#132)
 
 - Hardening: SSH logins as the `halogen` service user are refused; on the NPU edition the model
   and own-checkpoint folders are mounted into Halogen's container with no programs allowed; the

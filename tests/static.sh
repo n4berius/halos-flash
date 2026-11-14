@@ -165,6 +165,9 @@ for opt in ("CPUQuota=", "TasksMax=", "StateDirectory=fail2ban", "ProtectSystem=
 # Access-log lines stay whole for fail2ban: the header cap in every Caddyfile, and journald's LineMax above 6 x (cap + 4 KB).
 for c in ("Caddyfile", "Caddyfile.https", "Caddyfile.letsencrypt"):
     assert "\t\tmax_header_size 32KB\n" in open(f"files/usr/share/halos/proxy/{c}").read(), f"{c} has no header size limit"
+assert "request>tls>server_name delete" in open("files/usr/share/halos/proxy/sites.caddy").read(), "the TLS name can make an access-log line too long for the journal"
+for c in ("Caddyfile.https", "Caddyfile.letsencrypt"):
+    assert "log default {\n\t\texclude http.log.access\n\t}" in open(f"files/usr/share/halos/proxy/{c}").read(), f"{c}: Caddy's default logger would write API keys of requests no site matches"
 assert "\nLineMax=256K\n" in open("files/usr/lib/systemd/journald.conf.d/60-halos.conf").read()
 assert not re.search(r"^NoNewPrivileges=", sb, re.M), "NoNewPrivileges keeps fail2ban out of its own SELinux domain (fail2ban_t)"
 assert re.search(r"^-w /etc/fail2ban -p wa -k fail2ban$", rules, re.M), "fail2ban's settings aren't watched"

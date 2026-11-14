@@ -598,7 +598,13 @@ case "$cmd" in
         echo "fail2ban on: addresses that keep failing SSH logins or API keys are shut out for 10 minutes." ;;
       off)
         [ "${#args[@]}" = 1 ] || die "fail2ban off takes nothing more"
-        f2b_on || f2b_active || { echo "fail2ban is already off."; exit 0; }
+        if ! f2b_on && ! f2b_active; then
+          # Off already, but a run that was killed may have left its table and bans.
+          if timeout 20 nft list table inet f2b-table > /dev/null 2>&1 && timeout 20 nft delete table inet f2b-table; then
+            echo "fail2ban is already off; the firewall table it had left behind is removed."
+          else echo "fail2ban is already off."; fi
+          exit 0
+        fi
         systemctl disable --now "$unit" || die "fail2ban didn't stop: sudo systemctl status $unit"
         record fail2ban on off
         # fail2ban removes its nftables table (f2b-table) as it stops. If it was ended before it
