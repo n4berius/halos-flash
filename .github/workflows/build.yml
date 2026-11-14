@@ -34,7 +34,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: src/caddy/go.mod
-          # No cache: a cache written by a pull request must never reach a build of main.
+          # No cache: simpler, and nothing is shared between runs.
           cache: false
       - name: Go tests
         run: scripts/go-test.sh
