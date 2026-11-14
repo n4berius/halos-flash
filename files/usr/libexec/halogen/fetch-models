@@ -142,6 +142,9 @@ official_there() {
   for f in "${official[@]}" tokenizer/tokenizer.json; do
     if [ ! -f "$models/$f" ] || [ -L "$models/$f" ]; then return 1; fi
   done
+  # A link (or anything but files and folders) under npu isn't the fast path either: the cleanup
+  # after the download removes it (Halogen's start would refuse it: preflight).
+  [ ! -d "$npu_dir" ] || [ -z "$(find "$npu_dir" -mindepth 1 \( -type l -o \( ! -type f ! -type d \) \) -print -quit 2>/dev/null)" ]
 }
 
 # A machine from before the note, or from before both moved out of /srv/models, fetches (and
@@ -261,6 +264,29 @@ while :; do
   wait_s=$((wait_s * 2)); [ "$wait_s" -le "$max_wait" ] || wait_s="$max_wait"
 done
 [ -z "${reporter:-}" ] || kill "$reporter" 2>/dev/null
+
+# The NPU folder is the download container's to write, so after it only what this image's record
+# (/opt/halogen/npu/models.txt, read offline from the pinned image) names stays: no link and
+# nothing but files and folders anywhere under npu, and in the folder of each model the record
+# knows, only its listed files (hf's own .cache/huggingface kept). Folders of models the record
+# doesn't know (an older release's) are left for a rollback; Halogen loads only known models.
+if ! pins_list="$(podman run --rm --pull=never --network=none --read-only --cap-drop=all \
+    --security-opt no-new-privileges --entrypoint cat "$HALOGEN_IMAGE" /opt/halogen/npu/models.txt)"; then
+  echo "halogen-fetch: cannot read the NPU model record from Halogen's image" >&2; exit 1
+fi
+allowed="$(awk '$1 == "file" { print $2 "/" $3 } $1 == "model" { print $2 "/" }' <<< "$pins_list")"
+while IFS= read -r -d '' p; do
+  rm -f -- "$p" && echo "halogen-fetch: removed ${p#"$models"/}, a link or not a plain file"
+done < <(find "$npu_dir" -mindepth 1 \( -type l -o \( ! -type f ! -type d \) \) -print0 2>/dev/null)
+for d in "$npu_dir"/*/; do
+  id="${d%/}"; id="${id##*/}"
+  grep -qxF -- "$id/" <<< "$allowed" || continue
+  while IFS= read -r -d '' p; do
+    rel="${p#"$npu_dir"/}"
+    case "$rel" in "$id"/.cache/huggingface/*) continue ;; esac
+    grep -qxF -- "$rel" <<< "$allowed" || { rm -f -- "$p" && echo "halogen-fetch: removed npu/$rel, which this release's record doesn't list"; }
+  done < <(find "$d" -type f -print0)
+done
 
 # After a download that could write the official files, each is checked against this release's
 # hashes. A file that differs (or a link) is removed and the fetch fails, so the next start

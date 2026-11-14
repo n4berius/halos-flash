@@ -15,6 +15,7 @@ release="${HALOGEN_RELEASE_FILE:-/usr/share/halogen/release.env}"
 models="${HALOGEN_MODELS_DIR:-/srv/models}"
 hf_token="${HALOGEN_HF_TOKEN_FILE:-/srv/configs/hf-token}"
 progress_s="${HALOGEN_PROGRESS_S:-30}"
+state="${HALOGEN_STATE_DIR:-/var/lib/halogen}"
 # shellcheck disable=SC1090
 . "$release"
 
@@ -50,13 +51,26 @@ cleanup() {
 }
 trap cleanup EXIT
 trap 'exit 130' INT; trap 'exit 143' TERM HUP
-online() {
-  local c ctr_args=()
+# One pull or conversion of a name at a time (both write under its name): a second would replace
+# the first's container, and the first's end would remove the second's. Taken before anything is
+# removed or started, and held until this ends.
+name_lock() {
+  exec 9>> "$state/pull-flash-$1.lock" || die "Can't open the pull lock in $state."
+  flock -n 9 || die "Another pull or conversion of $1 is running. Wait for it to end, then try again."
+}
+# In a subshell of its own, with the client in the background: a stop (TERM, HUP or INT) is acted
+# on at once, not after the client returns (it waits on a container that may ignore the signal),
+# and a named container goes with it.
+online() (
+  local c="" ctr_args=()
   if [ -n "$ctr_owned" ] && c="$(ctr_for)"; then ctr_args=(--name "$c" --replace); fi
+  trap '[ -z "$c" ] || podman rm -f -i -t 0 "$c" > /dev/null 2>&1; exit 143' TERM HUP
+  trap '[ -z "$c" ] || podman rm -f -i -t 0 "$c" > /dev/null 2>&1; exit 130' INT
   podman run --rm -i --pull=never "${ctr_args[@]}" --read-only --tmpfs /tmp --cap-drop=all --security-opt no-new-privileges \
     -e HF_HOME=/tmp/hf -e HF_HUB_OFFLINE=0 -e HF_HUB_DISABLE_TELEMETRY=1 -e HF_HUB_DISABLE_PROGRESS_BARS=1 \
-    "${token_args[@]}" "${mounts[@]}" --entrypoint "$1" "$HALOGEN_IMAGE" "${@:2}"
-}
+    "${token_args[@]}" "${mounts[@]}" --entrypoint "$1" "$HALOGEN_IMAGE" "${@:2}" <&0 &
+  wait "$!"
+)
 # Halogen's own tools on a downloaded file: offline, no capabilities, read-only models, and
 # exactly the flags the fetch gives the official verify. --ipc=host stays: Halogen's docs run
 # its tools with it, because without it SELinux refuses the container the GPU on Fedora.
@@ -375,7 +389,7 @@ index_shards() {
 }
 
 convert_prepare() {
-  local repo="" revision=main name="" src f missing=() idx cfg weights=0 need free n shards=() size ctr_kind=convert ctr_owned=1
+  local repo="" revision=main name="" src f missing=() idx cfg weights=0 need free n shards=() size ctr_kind=convert ctr_owned=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --revision|--as) [ $# -ge 2 ] || die "$1 needs a value"
@@ -389,6 +403,7 @@ convert_prepare() {
   [[ "$revision" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || die "'$revision' is not a branch, tag or commit"
   name="${name:-${repo##*/}}"
   valid_name "$name" || die "'$name' can't be a checkpoint name: use letters, digits, '.', '_' or '-', not 'official' (pick one with --as)"
+  name_lock "$name"; ctr_owned=1
   [ ! -e "$models/flash/$name" ] || die "$models/flash/$name already exists. Pick another name with --as, or remove it first: sudo halogenctl flash remove $name"
   [ -x "$converter" ] || die "This image has no converter ($converter)."
   list_repo "$repo" "$revision"
@@ -438,7 +453,7 @@ convert_prepare() {
 }
 
 convert_run() {
-  local name="$1" threads="" keep=0 info repo commit src out started reporter f shards=() rc ctr_kind=convert ctr_owned=1
+  local name="$1" threads="" keep=0 info repo commit src out started reporter f shards=() rc ctr_kind=convert ctr_owned=""
   shift
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -450,6 +465,7 @@ convert_run() {
     esac
   done
   valid_name "$name" || die "bad name"
+  name_lock "$name"; ctr_owned=1
   work="$convert_dir/$name"; info="$work/convert.info"; src="$work/source"; out="$models/flash/$name"; staged="$work/out/$name"
   [ -f "$info" ] || die "Nothing prepared for $name: start with sudo halogenctl flash convert <repo>"
   repo="$(info_get "$info" repo)"; commit="$(info_get "$info" commit)"
@@ -473,7 +489,7 @@ convert_run() {
   mounts=(-v "$src:/models/flash/.convert/$name/source")
   echo "Downloading ${#shards[@]} weight files of $repo at commit ${commit:0:12} into $src. An interrupted download resumes."
   if [ "$progress_s" -gt 0 ]; then
-    while sleep "$((progress_s * 10))" > /dev/null 2>&1; do echo "  $(du -sh "$src" 2>/dev/null | cut -f1) downloaded so far"; done &
+    while sleep "$((progress_s * 10))" > /dev/null 2>&1; do echo "  $(du -sh "$src" 2>/dev/null | cut -f1) downloaded so far"; done 9>&- &
     reporter=$!
   fi
   online hf download "$repo" "${shards[@]}" --revision "$commit" --local-dir "/models/flash/.convert/$name/source" < /dev/null 2>&1 \
@@ -496,7 +512,7 @@ convert_run() {
   ( while sleep 600; do
       used="$(du -sk "$work/out" 2> /dev/null | awk '{ print $1 + 0 }')"
       echo "  converted about $(awk -v k="$used" -v t="$convert_plan_bytes" 'BEGIN { printf "%.0f GB of about %.0f GB", k * 1024 / 1e9, t / 1e9 }'), $(( ($(date -u +%s) - started) / 3600 ))h$(( ($(date -u +%s) - started) / 60 % 60 ))m so far"
-    done ) &
+    done ) 9>&- &
   reporter=$!
   sandboxed "$converter" convert --source "$src" --output "$staged" --profile v2 --threads "$threads" \
     > "$work/convert.json" 2> "$work/convert.err"
@@ -592,7 +608,7 @@ esac
 [[ "$revision" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || die "'$revision' is not a branch, tag or commit"
 name="${name:-${repo##*/}}"
 valid_name "$name" || die "'$name' can't be a checkpoint name: use letters, digits, '.', '_' or '-', not 'official' (pick one with --as)"
-ctr_owned=1
+name_lock "$name"; ctr_owned=1
 podman rm -f -i -t 0 "halogen-pull-flash-$name" > /dev/null 2>&1 || true
 dir="$models/flash/$name"
 info="$dir/halos.info"
@@ -655,7 +671,7 @@ fi
 rm -f "$dir/check.json"
 echo "Downloading $checkpoint from $repo at commit ${commit:0:12} into $dir ($(gib "$need") to fetch). An interrupted download resumes."
 if [ "$progress_s" -gt 0 ]; then
-  while sleep "$progress_s" > /dev/null 2>&1; do echo "  $(du -sh "$dir" 2>/dev/null | cut -f1) so far"; done &
+  while sleep "$progress_s" > /dev/null 2>&1; do echo "  $(du -sh "$dir" 2>/dev/null | cut -f1) so far"; done 9>&- &
   reporter=$!
 fi
 fetch() {

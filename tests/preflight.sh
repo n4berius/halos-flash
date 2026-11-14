@@ -29,6 +29,14 @@ mkdir -p "$work/models/npu" "$work/models/decider"; run > /dev/null
 rmdir "$work/models/decider"; ln -s "$work/elsewhere" "$work/models/decider"; expect_fail "a link in place of an own-checkpoint folder"
 rm "$work/models/decider"; rmdir "$work/models/npu"; ln -s "$work/elsewhere" "$work/models/npu"; expect_fail "a link in place of the NPU models folder"
 rm "$work/models/npu"
+# Links where Halogen loads files from (the official names, the tokenizer, anything under npu),
+# or anything but files and folders there, stop the start.
+mkdir -p "$work/models/npu/embed" "$work/models/tokenizer"; : > "$work/models/npu/embed/a.hnpw"; : > "$work/models/tokenizer/tokenizer.json"; run > /dev/null
+ln -s "$work/elsewhere" "$work/models/qwen38-flash-next-ngram.hgn"; expect_fail "a link at an official file"; rm "$work/models/qwen38-flash-next-ngram.hgn"
+ln -s "$work/elsewhere" "$work/models/npu/embed/b.hnpw"; expect_fail "a link inside the NPU folder"; rm "$work/models/npu/embed/b.hnpw"
+mkfifo "$work/models/npu/embed/fifo"; expect_fail "a FIFO inside the NPU folder"; rm "$work/models/npu/embed/fifo"
+ln -s "$work/elsewhere" "$work/models/tokenizer/merges.txt"; expect_fail "a link inside the tokenizer folder"; rm "$work/models/tokenizer/merges.txt"
+run > /dev/null; rm -rf "$work/models/npu" "$work/models/tokenizer"
 : > "$work/models/LFM"; expect_fail "a file in place of an own-checkpoint folder"; rm "$work/models/LFM"
 rm "$work/dev/accel/accel0"; expect_fail "a missing NPU"
 touch "$work/dev/accel/accel0"

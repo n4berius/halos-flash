@@ -48,6 +48,24 @@ for f in npu decider LFM custom; do
   fi
 done
 
+# The files Halogen loads from the top of /srv/models, and everything under npu: the download
+# container could write there, and Halogen's container would follow a link it left into whatever
+# it points to. halOS never makes a link there (hf writes plain files, also in its .cache), so any
+# link, or anything but files and folders, stops the start. One find each, stopping at the first.
+m="${HALOGEN_MODELS_DIR:-/srv/models}"
+for f in qwen38-flash-next-v2.hgn qwen38-flash-next-ngram.hgn qwen38-flash-next-vision.hgn tokenizer; do
+  if [ -L "$m/$f" ]; then
+    fail "$m/$f is a link. Restart Halogen (sudo halogenctl restart): the fetch removes it and downloads the file again"
+  fi
+done
+for d in "$m/tokenizer" "$m/npu"; do
+  if [ ! -d "$d" ] || [ -L "$d" ]; then continue; fi
+  odd="$(find "$d" -mindepth 1 \( -type l -o \( ! -type f ! -type d \) \) -print -quit 2>/dev/null)"
+  if [ -n "$odd" ]; then
+    fail "$(printf '%s' "$odd" | tr -cd '[:print:]') is a link or not a plain file. Restart Halogen (sudo halogenctl restart): the fetch removes it and downloads what is missing"
+  fi
+done
+
 mem_gib="$(awk '$1 == "MemTotal:" { printf "%d", $2 / 1048576 }' "$meminfo")"
 [ "${mem_gib:-0}" -ge 100 ] \
   || fail "the OS sees ${mem_gib:-0} GiB. Set the BIOS UMA frame buffer to its explicit minimum, not Auto"

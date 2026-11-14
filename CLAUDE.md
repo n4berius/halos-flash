@@ -764,11 +764,27 @@ name, but allows saying halOS runs Halogen.
     there, unchecked), and anything in `tokenizer/` that `weights.sha256` doesn't list is
     removed (security audit). NPU programs are checked only inside the download container and by
     Halogen's own `HALOGEN_NPU_VERIFY=1` (locked) at its start, against the image's record.
-    Left open (security audit, for the owner): `preflight` refusing links at the official names
-    and in `npu`, removing links and unlisted files in `npu/<id>` after a download, running the
-    pull's podman client in the background so the TERM trap fires at once (a stop that outlasts
-    systemd's timeout skips the EXIT trap), a `flock` per pull name (a second pull of the same
-    name replaces the first's container), and `weights-sums.sh` failing on HF pagination.
+    Round 3 (#PRNUM, the rest of #135's audit, owner agreed): `preflight` fails on a link at
+    the official names or `tokenizer`, and on any link or non-file/non-folder under `tokenizer/`
+    or `npu/` (one `find … -print -quit` each; halOS and hf make none: hf's `--local-dir`
+    metadata in `npu/<id>/.cache/huggingface` is plain files); the fetch's fast path also needs
+    `npu` free of them. After every download fetch-models reads the pinned image's
+    `/opt/halogen/npu/models.txt` (`--network=none --read-only --cap-drop=all … --entrypoint cat`),
+    removes links and non-files anywhere under `npu`, and in each `npu/<id>` the record knows
+    removes files it doesn't list (`.cache/huggingface` kept); folders of models it doesn't know
+    (an older release's) stay for a rollback, since Halogen loads only known ones. model-pull's
+    `in_image` and flash-checkpoint's `online` are subshell functions that run the podman client
+    in the background and `wait`, with their own TERM/HUP/INT traps removing the named container
+    (bash holds a trap while a plain foreground command runs, and the client waits on a
+    container that may ignore the signal: model-pull's `:fast` check, a plain `if in_image awk`,
+    kept a stopped pull waiting; in a pipeline the main shell's trap did fire at once, which is
+    why the test hangs both steps, the download and that check). `<&0` keeps their stdin (a background job's default is /dev/null).
+    One `flock -n` per name (`$HALOGEN_STATE_DIR/pull-npu-<name>.lock`,
+    `pull-flash-<name>.lock` for flash pull and both convert steps), taken before any container
+    is removed or the EXIT trap may remove one; background progress loops close fd 9 (`9>&-`),
+    or their `sleep` kept the lock for up to 10 minutes after the command ended (tests found it).
+    `weights-sums.sh` stops on a `Link: … rel="next"` header and on `tokenizer/<sub>/…` files
+    (`WEIGHTS_SUMS_OUT` for `tests/weights-sums.sh`).
   - The stamp and the checkpoint-base note are `/var/lib/halogen/fetch-stamp` and `own-bases`
     (`HALOGEN_STATE_DIR`), which no container mounts; the old `/srv/models/.fetch-stamp` and
     `.own-bases` are not migrated (a container could have forged them): an upgraded machine

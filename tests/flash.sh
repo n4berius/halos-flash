@@ -73,7 +73,8 @@ S
 chmod +x "$work/bin/podman" "$work/bin/df"
 printf 'HALOGEN_IMAGE=img@sha256:1\nHALOGEN_VERSION=9.9.9\nHALOGEN_VARIANT=no-npu\n' > "$work/release.env"
 export HALOGEN_FLASH_FILE="$work/flash-checkpoint"
-export PATH="$work/bin:$PATH" HALOGEN_RELEASE_FILE="$work/release.env" HALOGEN_MODELS_DIR="$work/models" \
+mkdir -p "$work/state"
+export HALOGEN_STATE_DIR="$work/state" PATH="$work/bin:$PATH" HALOGEN_RELEASE_FILE="$work/release.env" HALOGEN_MODELS_DIR="$work/models" \
   HALOGEN_HF_TOKEN_FILE="$work/none" HALOGEN_PROGRESS_S=0
 tool="$repo/files/usr/libexec/halogen/flash-checkpoint"
 ok() { echo "ok: $*"; }
@@ -226,6 +227,15 @@ if [ -e "$work/models/flash/side/model.overlay.hgn" ] || [ -e "$work/models/flas
   fail "files from the older commit were left beside the new checkpoint"
 fi
 ok "files an older pull left behind are removed"
+
+# One pull or conversion of a name at a time: a second stops before it touches a container.
+exec 8>> "$work/state/pull-flash-busy.lock"; flock -n 8
+: > "$work/podman.log"
+if pull someone/My-Flash-HGN --as busy; then fail "two pulls of one name ran at once"; fi
+grep -q "Another pull or conversion of busy is running" "$work/out" || fail "the lock wasn't named"
+if grep -q "halogen-pull-flash-busy" "$work/podman.log"; then fail "the second pull touched the first one's container"; fi
+exec 8>&-
+ok "a second pull of the same name stops before it touches the first one's container"
 
 # A lookup table identical to the official one is shared, not downloaded again.
 reset_repo; cp "$work/repo/qwen38-flash-next-ngram.hgn" "$work/models/qwen38-flash-next-ngram.hgn"

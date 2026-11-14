@@ -47,6 +47,7 @@ case "$1" in
   run)
     case " $* " in
       *" verify "*) [ ! -e "$FAKE/fail-verify" ] ;;
+      *" --entrypoint cat "*"/opt/halogen/npu/models.txt "*) cat "$FAKE/opt/models.txt" ;;
       *) echo "$*" > "$FAKE/last-run"
          npu=""; mode=""; bases=""; vision=""
          for a in "$@"; do case "$a" in NPU_MODELS=*) npu="${a#NPU_MODELS=}" ;; FETCH_MODE=*) mode="${a#FETCH_MODE=}" ;; OWN_BASES=*) bases="${a#OWN_BASES=}" ;; VISION=*) vision="${a#VISION=}" ;; esac; done
@@ -203,6 +204,27 @@ rm "$work/models/qwen38-flash-next-v2.hgn"
 "$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
 if grep -q "already match" "$work/out" || [ ! -f "$work/models/qwen38-flash-next-v2.hgn" ]; then echo "a stamp outlived the models it describes" >&2; exit 1; fi
 ok "a missing official file is fetched again even with a matching stamp"
+
+# After the download, npu holds only what the image's record lists: a link anywhere goes (and a
+# link alone is reason enough to leave the fast path), as does a file the record doesn't list in
+# a known model's folder; hf's .cache stays, and a folder of a model the record doesn't know is
+# left (an older release's, for a rollback).
+echo secret > "$work/private"; ln -s "$work/private" "$work/models/npu/embed/extra.hnpw"
+printf x > "$work/models/npu/embed/planted.elf"
+mkdir -p "$work/models/npu/embed/.cache/huggingface" "$work/models/npu/oldmodel"
+printf x > "$work/models/npu/embed/.cache/huggingface/meta"; printf x > "$work/models/npu/oldmodel/keep.hnpw"
+"$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+if grep -q "already match" "$work/out"; then echo "a link under npu took the fast path" >&2; exit 1; fi
+if [ -e "$work/models/npu/embed/extra.hnpw" ] || [ -L "$work/models/npu/embed/extra.hnpw" ] || [ -e "$work/models/npu/embed/planted.elf" ]; then
+  cat "$work/out" >&2; echo "a link or an unlisted file stayed under npu" >&2; exit 1
+fi
+if [ ! -f "$work/models/npu/embed/.cache/huggingface/meta" ] || [ ! -f "$work/models/npu/oldmodel/keep.hnpw" ] || [ ! -f "$work/models/npu/embed/embed.hnpw" ]; then
+  echo "the cleanup removed hf's cache, a listed file or an unknown model's folder" >&2; exit 1
+fi
+[ "$(cat "$work/private")" = secret ] || { echo "the cleanup followed a link" >&2; exit 1; }
+grep -q -- "--network=none --read-only --cap-drop=all --security-opt no-new-privileges --entrypoint cat" "$work/podman.log" || { echo "the record wasn't read offline" >&2; exit 1; }
+rm -rf "$work/models/npu/oldmodel"
+ok "after a download, npu keeps only what the image's record lists"
 
 echo 'hf_secret123' > "$work/hf-token"; rm "$work/state/fetch-stamp"; : > "$work/podman.log"
 "$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
