@@ -9,6 +9,10 @@
 	persist_config off
 	auto_https off
 	servers {
+		# A request's line and headers together: 32 KB at most (Caddy's default is 1 MB), answered
+		# with 431 above that. It keeps each access-log line whole in the journal (journald's
+		# LineMax, 60-halos.conf), so a wrong key sent with a very long Host still counts for fail2ban.
+		max_header_size 32KB
 		protocols h1 h2
 	}
 	# Open replies (a long generation) get 10 s to finish when Caddy stops, not forever.

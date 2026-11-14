@@ -114,13 +114,13 @@ ARG HALOGEN_WEIGHTS_REVISION
 # lists), so without it the Secure Boot revocation list (dbx) can't be updated. It starts on demand.
 # auditd (#107): Fedora's default rules file turns syscall auditing, and file watches with it, off,
 # so it goes and halOS's rules (files/etc/audit/rules.d) take its place. The audit log rotates at
-# fail2ban (#92): shuts out addresses that keep failing SSH logins or API keys, through firewalld
-# (fail2ban-firewalld sets that as its action); its settings are in files/etc/fail2ban.
+# fail2ban (#92): shuts out addresses that keep failing SSH logins or API keys, through its own
+# nftables table (nft comes with firewalld; named here so it stays); its settings are in files/etc/fail2ban.
 # 50 MB, 20 files (1 GB, so it fits the 2 GiB a custom install may give /var/log/audit), and a full disk never stops the machine: logging pauses (SUSPEND), after
 # a note in the journal.
 RUN dnf -y --setopt=install_weak_deps=False install \
       amd-gpu-firmware firewalld linux-firmware tpm2-tss \
-      amdsmi nvtop htop pciutils usbutils tmux wireless-regdb nano bash-completion audit audit-rules fail2ban-server fail2ban-firewalld && \
+      amdsmi nvtop htop pciutils usbutils tmux wireless-regdb nano bash-completion audit audit-rules fail2ban-server nftables && \
     dnf -y remove \
       nvidia-gpu-firmware intel-gpu-firmware intel-npu-firmware intel-audio-firmware \
       cirrus-audio-firmware brcmfmac-firmware tiwilink-firmware nxpwireless-firmware \
@@ -217,7 +217,8 @@ RUN set -eu; \
     fail2ban-client -t; \
     fail2ban-client -d > /tmp/f2b.conf; \
     grep -q "'add', 'sshd', 'systemd'" /tmp/f2b.conf; grep -q "'add', 'halos-api', 'systemd'" /tmp/f2b.conf; \
-    grep -q "'halos-api', 'addaction', 'firewallcmd-rich-rules'" /tmp/f2b.conf; \
+    grep -q "'halos-api', 'addaction', 'nftables'" /tmp/f2b.conf; grep -q "'sshd', 'addaction', 'nftables'" /tmp/f2b.conf; \
+    grep -q "'blocktype', 'reject with tcp reset'" /tmp/f2b.conf; command -v nft > /dev/null; \
     grep -q "'halos-api', 'addjournalmatch', '_SYSTEMD_UNIT=halos-proxy.service'" /tmp/f2b.conf; \
     grep -q "'halos-api', 'usedns', 'no'" /tmp/f2b.conf; grep -q "'set', 'loglevel', 'NOTICE'" /tmp/f2b.conf; \
     grep -q "'set', 'logtarget', 'SYSTEMD-JOURNAL'" /tmp/f2b.conf; rm -f /tmp/f2b.conf; \

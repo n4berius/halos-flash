@@ -10,6 +10,13 @@ promoted.
 
 ## Unreleased
 
+- fail2ban now shuts addresses out through its own firewall table (nftables) instead of
+  firewalld rules: connections a shut-out address already had open are cut too, a ban costs far
+  less under a flood, and `firewall-cmd --reload` no longer drops the bans. The front door
+  refuses requests with more than 32 KB of headers, so a wrong key can't hide from the count in
+  an overlong log line, and fail2ban's own sandbox is tighter. In the HTTPS modes, a request
+  for a name or address the certificate doesn't cover no longer leaves its headers, API key
+  included, in the journal. (#132)
 - Hardening of the downloads: the model download can no longer swap one of Halogen's folders
   for a link while it runs, and one left by an interrupted fetch is removed at the next; the
   fetch and the `flash` commands no longer write, move or copy through a link a download left

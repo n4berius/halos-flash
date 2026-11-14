@@ -424,8 +424,11 @@ for bad in '--all' 'sshd; id' '$(id)' '' 'ab' 'dead.beef' '1.2.3'; do
   if "$ctl" fail2ban unban "$bad" > /dev/null 2>&1; then echo "unban accepted: $bad" >&2; exit 1; fi
 done
 if grep -q 'fail2ban-client unban' "$work/log"; then echo "something that isn't an address reached fail2ban-client" >&2; exit 1; fi
-f firewall-cmd 'echo "firewall-cmd $*" >> "$FAKE/log"; [ -z "${FAKE_LEFT:-}" ] || echo "rule family=\"ipv4\" source address=\"203.0.113.9\" port port=\"8731\" protocol=\"tcp\" reject type=\"icmp-port-unreachable\""'
-FAKE_LEFT=1 "$ctl" fail2ban off > "$work/out"; has '1 of its firewall rules remain' "$work/out"; [ ! -e "$work/f2b-on" ]
+# A table fail2ban left behind (ended before it removed it) is deleted by off; if that fails, it says so.
+f nft 'echo "nft $*" >> "$FAKE/log"; case "$1" in list) [ -n "${FAKE_LEFT:-}" ] ;; delete) [ "${FAKE_LEFT:-}" != stuck ] ;; esac'
+FAKE_LEFT=1 "$ctl" fail2ban off > "$work/out"; has 'let back in' "$work/out"; has 'nft delete table inet f2b-table' "$work/log"; [ ! -e "$work/f2b-on" ]
+"$ctl" fail2ban on > /dev/null
+FAKE_LEFT=stuck "$ctl" fail2ban off > "$work/out"; has 'firewall table is still there' "$work/out"
 "$ctl" fail2ban on > /dev/null
 "$ctl" fail2ban off > "$work/out"; has 'let back in' "$work/out"; [ ! -e "$work/f2b-on" ]
 "$ctl" fail2ban off > "$work/out"; has 'already off' "$work/out"
