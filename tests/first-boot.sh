@@ -189,6 +189,15 @@ grep -q "removed: qwen38-flash-next-ngram.hgn" "$work/out" || { cat "$work/out" 
 [ "$(cat "$work/models/qwen38-flash-next-ngram.hgn")" = hello ] || { echo "the file wasn't fetched again" >&2; exit 1; }
 ok "files from a download that was cut short are checked by the next fetch"
 
+# A vision tower kept while the tower is off is checked too, and a file in tokenizer/ that isn't
+# one of this release's goes.
+printf evil > "$work/models/qwen38-flash-next-vision.hgn"; printf x > "$work/models/tokenizer/added_tokens.json"
+rm "$work/models/qwen38-flash-next-ngram.hgn"; printf 'HALOGEN_NPU_MODELS=embed\nHALOGEN_VISION_TOWER=\n' > "$work/config.env"
+"$work/fetch" > "$work/out" 2>&1 && { echo "a tampered vision tower was accepted while it was off" >&2; exit 1; }
+if [ -e "$work/models/qwen38-flash-next-vision.hgn" ] || [ -e "$work/models/tokenizer/added_tokens.json" ]; then cat "$work/out" >&2; echo "a bad tower or a stray tokenizer file was kept" >&2; exit 1; fi
+echo 'HALOGEN_NPU_MODELS=embed' > "$work/config.env"; "$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+ok "a kept vision tower is checked while off, and stray tokenizer files are removed"
+
 # The models live on a volume of their own: a stamp left after they went doesn't stop the fetch.
 rm "$work/models/qwen38-flash-next-v2.hgn"
 "$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }

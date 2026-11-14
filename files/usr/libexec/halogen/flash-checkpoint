@@ -375,7 +375,7 @@ index_shards() {
 }
 
 convert_prepare() {
-  local repo="" revision=main name="" src f missing=() idx cfg weights=0 need free n shards=() size
+  local repo="" revision=main name="" src f missing=() idx cfg weights=0 need free n shards=() size ctr_kind=convert ctr_owned=1
   while [ $# -gt 0 ]; do
     case "$1" in
       --revision|--as) [ $# -ge 2 ] || die "$1 needs a value"

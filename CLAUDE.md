@@ -760,7 +760,15 @@ name, but allows saying halOS runs Halogen.
     fetch cut short after the files landed (an unknown NPU model is refused only after the
     weights) is checked by the next one (code review reproduced the skip). The "already match"
     exit also needs the official files there: the stamp lives on `/var`, the models on their own
-    volume. NPU programs are still checked only inside the download container.
+    volume. A kept vision tower is hashed while the tower is off (turned on later it would be
+    there, unchecked), and anything in `tokenizer/` that `weights.sha256` doesn't list is
+    removed (security audit). NPU programs are checked only inside the download container and by
+    Halogen's own `HALOGEN_NPU_VERIFY=1` (locked) at its start, against the image's record.
+    Left open (security audit, for the owner): `preflight` refusing links at the official names
+    and in `npu`, removing links and unlisted files in `npu/<id>` after a download, running the
+    pull's podman client in the background so the TERM trap fires at once (a stop that outlasts
+    systemd's timeout skips the EXIT trap), a `flock` per pull name (a second pull of the same
+    name replaces the first's container), and `weights-sums.sh` failing on HF pagination.
   - The stamp and the checkpoint-base note are `/var/lib/halogen/fetch-stamp` and `own-bases`
     (`HALOGEN_STATE_DIR`), which no container mounts; the old `/srv/models/.fetch-stamp` and
     `.own-bases` are not migrated (a container could have forged them): an upgraded machine

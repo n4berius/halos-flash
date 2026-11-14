@@ -133,7 +133,7 @@ done
 # A marker that the official files are still to be checked: set before a download that can write
 # them, and when this machine has no stamp yet (an install from before the check, or one whose
 # stamp is gone); removed only once every file matched. A fetch cut short leaves it, so the
-# next one checks however it ends.
+# next one checks, whichever way it ended.
 unchecked="$state/weights-unchecked"
 [ -e "$stamp" ] || : | write_new "$unchecked" || exit 1
 official_there() {
@@ -270,12 +270,25 @@ if [ -e "$unchecked" ]; then
   echo "halogen-fetch: checking the official files against this release's hashes"
   bad=""
   if [ -L "$models/tokenizer" ]; then rm -f -- "$models/tokenizer"; bad=" tokenizer"; fi
-  for f in "${official[@]}" $(sed -n 's#^[0-9a-f]\{64\}  \(tokenizer/[A-Za-z0-9._-]*\)$#\1#p' "$sums"); do
+  # The vision tower too when it is kept but not wanted now: turned on later, it would be there
+  # and never checked.
+  check=("${official[@]}")
+  if [ -z "$vision" ] && { [ -e "$models/qwen38-flash-next-vision.hgn" ] || [ -L "$models/qwen38-flash-next-vision.hgn" ]; }; then
+    check+=(qwen38-flash-next-vision.hgn)
+  fi
+  for f in "${check[@]}" $(sed -n 's#^[0-9a-f]\{64\}  \(tokenizer/[A-Za-z0-9._-]*\)$#\1#p' "$sums"); do
     want_sum="$(awk -v f="$f" '$2 == f { print $1; exit }' "$sums")"
     if [ -z "$want_sum" ]; then echo "halogen-fetch: $sums has no hash for $f" >&2; exit 1; fi
     if [ -L "$models/$f" ] || [ ! -f "$models/$f" ] || [ "$(sha256sum < "$models/$f" | cut -d' ' -f1)" != "$want_sum" ]; then
       rm -f -- "$models/$f"; bad="$bad $f"
       case "$f" in tokenizer/*) rm -f -- "$models/tokenizer/tokenizer.json" ;; esac
+    fi
+  done
+  # Anything else in tokenizer/ isn't this release's (Halogen reads the folder whole): it goes.
+  for f in "$models"/tokenizer/* "$models"/tokenizer/.[!.]*; do
+    [ -e "$f" ] || [ -L "$f" ] || continue
+    if ! grep -qxF "tokenizer/${f##*/}" < <(awk '/^[0-9a-f]{64}  /{print $2}' "$sums") || [ -L "$f" ] || [ ! -f "$f" ]; then
+      rm -rf -- "$f"; echo "halogen-fetch: removed tokenizer/${f##*/}, which isn't one of this release's files"
     fi
   done
   if [ -n "$bad" ]; then

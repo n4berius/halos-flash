@@ -36,7 +36,8 @@ case "$name" in
 esac
 # Every container of this pull has one name: a leftover one (an interrupted pull: it sits outside
 # this command's process tree, with the network and this checkpoint's folder writable) is
-# replaced, and the last one is removed when this ends, however it ends.
+# replaced at the next pull of this name, and the last one is removed when this ends (a SIGKILL,
+# or a stop that outlasts systemd's timeout, skips that: the next pull of the name removes it).
 ctr="halogen-pull-npu-$name"
 cleanup() { [ -z "${reporter:-}" ] || kill "$reporter" 2>/dev/null; podman rm -f -i -t 0 "$ctr" > /dev/null 2>&1 || true; }
 trap cleanup EXIT
