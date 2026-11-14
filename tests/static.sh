@@ -51,6 +51,11 @@ for unit in (q, n):
 xml.dom.minidom.parse("files/usr/lib/firewalld/services/halogen.xml")
 pins = dict(l.strip().split("=", 1) for l in open("versions.env") if "=" in l and not l.startswith("#"))
 assert re.fullmatch(r"[0-9a-f]{40}", pins["HALOGEN_WEIGHTS_REVISION"]), "HALOGEN_WEIGHTS_REVISION must be a commit, not a branch"
+# The hashes fetch-models checks the official files against belong to that same revision.
+sums = open("files/usr/share/halogen/weights.sha256").read()
+assert f"\n# revision {pins['HALOGEN_WEIGHTS_REVISION']}\n" in sums, "weights.sha256 is for another weights revision: run scripts/weights-sums.sh"
+for f in ("qwen38-flash-next-v2.hgn", "qwen38-flash-next-ngram.hgn", "qwen38-flash-next-vision.hgn", "tokenizer/tokenizer.json"):
+    assert re.search(r"^[0-9a-f]{64}  " + re.escape(f) + "$", sums, re.M), f"weights.sha256 has no hash for {f}"
 # Older Halogen images have no XRT of their own and need the host's.
 assert tuple(map(int, re.match(r"(\d+)\.(\d+)\.(\d+)", pins["HALOGEN_VERSION"]).groups())) >= (0, 19, 1), "Halogen before 0.19.1 needs the host's XRT"
 assert "DEBIAN_IMAGE" not in pins and "XRT_MIN_VERSION" not in pins

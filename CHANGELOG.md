@@ -10,6 +10,14 @@ promoted.
 
 ## Unreleased
 
+- More hardening of the downloads: once the official files are on the disk, a model download
+  can no longer change them (only the NPU folder is writable to it); after a download that could,
+  every official file is checked against the hashes this release carries, and one that differs
+  is removed and fetched again; the note that says "models already downloaded" moved out of
+  reach of the downloads (an upgraded machine checks its models once more, downloading
+  nothing); and an interrupted `model pull` or `flash pull` no longer leaves its download
+  running. (#PRNUM)
+
 - fail2ban now shuts addresses out through its own firewall table (nftables) instead of
   firewalld rules: connections a shut-out address already had open are cut too, a ban costs far
   less under a flood, and `firewall-cmd --reload` no longer drops the bans. The front door

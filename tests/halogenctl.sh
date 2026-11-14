@@ -17,7 +17,8 @@ f systemd-run 'case "$*" in
   *model-pull*) echo "path=/models/LFM/LFM3-1.7B"; echo "fast=1" ;;
   *render-config*) grep -E "^HALOGEN_(NPU_MODELS|AGENT_GUARD)=" "$FAKE/configs/halogen.env" || true ;;
 esac'
-export PATH="$work/bin:$PATH" HALOGEN_CONFIGS_DIR="$work/configs"
+mkdir -p "$work/hstate"
+export HALOGEN_STATE_DIR="$work/hstate" PATH="$work/bin:$PATH" HALOGEN_CONFIGS_DIR="$work/configs"
 export HALOGEN_ALLOWED_FILE="$repo/variants/npu/usr/share/halogen/options.allowed"
 export HALOGEN_LOCKED_FILE="$repo/files/usr/share/halogen/locked.env"
 ctl="$repo/files/usr/bin/halogenctl"
@@ -122,15 +123,15 @@ ok "model list is readable: own checkpoints with size and use, then Halogen's mo
 # An NPU model your checkpoint runs on, or one the agent guard adds, is in use too; only the fetch's
 # plain "path=model" lines count, and only for checkpoints that are served.
 mkdir -p "$work/models/custom/OvisOCR3" "$work/models/npu/ovisocr3" "$work/models/npu/lfm3-1.7b" "$work/models/npu/lfm3-1.7b-fast" "$work/models/npu/decider-4b"
-printf '/models/custom/OvisOCR3=ovisocr3\n/models/LFM/my-lfm=lfm3-1.7b\n/models/LFM/my-lfm:fast=lfm3-1.7b\n/models/LFM/my-lfm=lfm3-1.7b\n/models/LFM/gone=d3-lite\n/models/LFM/x=bad\033name\n' > "$work/models/.own-bases"
+printf '/models/custom/OvisOCR3=ovisocr3\n/models/LFM/my-lfm=lfm3-1.7b\n/models/LFM/my-lfm:fast=lfm3-1.7b\n/models/LFM/my-lfm=lfm3-1.7b\n/models/LFM/gone=d3-lite\n/models/LFM/x=bad\033name\n' > "$work/hstate/own-bases"
 printf 'HALOGEN_NPU_MODELS=/models/custom/OvisOCR3,/models/LFM/my-lfm:fast,/models/LFM/my-lfm\nHALOGEN_AGENT_GUARD=hold\n' > "$work/configs/halogen.env"
 HALOGEN_MODELS_DIR="$work/models" "$ctl" model list > "$work/out"
 for want in '^  ovisocr3 +yes, for OvisOCR3$' '^  lfm3-1\.7b +yes, for my-lfm$' '^  lfm3-1\.7b-fast +yes, for my-lfm$' '^  decider-4b +yes, agent guard$' '^  d3-lite +no$' '^  OvisOCR3 +custom +.* yes$'; do
   grep -qE "$want" "$work/out" || { cat "$work/out" >&2; echo "expected '$want'" >&2; exit 1; }
 done
 if grep -q "$(printf '\033')" "$work/out"; then echo "a control code from .own-bases reached the screen" >&2; exit 1; fi
-grep -q 'runuser -u halogen -- env -C / cat .*\.own-bases' "$work/log" || { echo "read .own-bases as root" >&2; exit 1; }
-rm -rf "$work/models/custom/OvisOCR3" "$work/models/npu/ovisocr3" "$work/models/npu/lfm3-1.7b" "$work/models/npu/lfm3-1.7b-fast" "$work/models/npu/decider-4b" "$work/models/.own-bases"
+grep -q 'runuser -u halogen -- env -C / cat .*/own-bases' "$work/log" || { echo "read own-bases as root" >&2; exit 1; }
+rm -rf "$work/models/custom/OvisOCR3" "$work/models/npu/ovisocr3" "$work/models/npu/lfm3-1.7b" "$work/models/npu/lfm3-1.7b-fast" "$work/models/npu/decider-4b" "$work/hstate/own-bases"
 printf 'HALOGEN_NPU_MODELS=/models/LFM/my-lfm\n' > "$work/configs/halogen.env"
 ok "model list marks NPU models your checkpoints run on, or the agent guard adds, as in use"
 # Folder names Halogen's container could create are printed only when plain: no control codes.

@@ -15,7 +15,7 @@ shift; entry=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --entrypoint) entry="$2"; shift 2 ;;
-    -v|-e|--tmpfs|--security-opt|--cap-drop|--device|--group-add) shift 2 ;;
+    -v|-e|--tmpfs|--security-opt|--cap-drop|--device|--group-add|--name) shift 2 ;;
     -*) shift ;;
     *) shift; break ;;
   esac
@@ -43,6 +43,11 @@ if grep -q 'Hint:' <<< "$out"; then echo "hf noise reached the user" >&2; exit 1
 grep -q -- "--exclude \*.gguf" "$work/podman.log"
 grep 'halogen-npu' "$work/podman.log" | grep -q -- '--network=none -e HF_HUB_OFFLINE=1' || { echo "the probe of an untrusted checkpoint had network" >&2; exit 1; }
 if grep 'entrypoint hf' "$work/podman.log" | grep -q -- '--network=none'; then echo "the download lost its network" >&2; exit 1; fi
+# Every container of the pull has the pull's name (a leftover one is replaced), one left by an
+# interrupted pull is removed before anything else, and the last one when the pull ends.
+if grep '^podman run' "$work/podman.log" | grep -v -q -- '--name halogen-pull-npu-LFM3-1.7B --replace '; then echo "a pull container wasn't named" >&2; exit 1; fi
+head -n 1 "$work/podman.log" | grep -qx 'podman rm -f -i -t 0 halogen-pull-npu-LFM3-1.7B' || { echo "a leftover pull container isn't removed first" >&2; exit 1; }
+tail -n 1 "$work/podman.log" | grep -qx 'podman rm -f -i -t 0 halogen-pull-npu-LFM3-1.7B' || { echo "the pull's container isn't removed at the end" >&2; exit 1; }
 # Each step sees only the checkpoint's own folder: the download writable, the probe read-only.
 if grep -q -- "-v $work/models:/models " "$work/podman.log"; then echo "a step saw all of /srv/models" >&2; exit 1; fi
 grep 'entrypoint hf' "$work/podman.log" | grep -q -- "-v $work/models/.pull/LFM3-1.7B:/models/.pull/LFM3-1.7B " \

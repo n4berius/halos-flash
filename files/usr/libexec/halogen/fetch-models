@@ -11,13 +11,15 @@ needed_gib="${HALOGEN_MODELS_NEEDED_GIB:-125}"
 max_wait="${HALOGEN_RETRY_MAX_S:-300}"
 progress_s="${HALOGEN_PROGRESS_S:-60}"
 hf_token="${HALOGEN_HF_TOKEN_FILE:-/srv/configs/hf-token}"
+sums="${HALOGEN_WEIGHTS_SUMS:-/usr/share/halogen/weights.sha256}"
 
 # shellcheck disable=SC1090
 . "$release"
 
 # On a new install, wait for first-boot setup (sudo halosctl setup), so the Hugging Face token
 # and settings chosen there count. After the time limit, start with the defaults anyway.
-pending="${HALOGEN_STATE_DIR:-/var/lib/halogen}/setup-pending"
+state="${HALOGEN_STATE_DIR:-/var/lib/halogen}"
+pending="$state/setup-pending"
 setup_wait="${HALOGEN_SETUP_WAIT_S:-1800}"
 if [ -e "$pending" ]; then
   echo "halogen-fetch: waiting for first-boot setup: sudo halosctl setup (or --skip). Without it, the download starts in $((setup_wait / 60)) minutes"
@@ -49,7 +51,11 @@ case "$(setting HALOGEN_AGENT_GUARD | tr '[:upper:]' '[:lower:]')" in
 esac
 vision="$(setting HALOGEN_VISION_TOWER)"
 npu_dir="$models/npu"
-stamp="$models/.fetch-stamp"
+# The stamp ("these models match this release") and the note of your checkpoints' NPU models
+# live in halogen's own folder, which no container mounts: in /srv/models a download container
+# could have forged "already downloaded". The old copies there are removed once new ones exist.
+stamp="$state/fetch-stamp"
+bases_note="$state/own-bases"
 
 # Your own checkpoints (paths) are checked again when their files change.
 own_models() {
@@ -117,8 +123,9 @@ case "$choice" in ''|official|[!A-Za-z0-9]*) ;; *)
   fi ;;
 esac
 
-# A machine from before the .own-bases note fetches (and checks) once more, to write it.
-if [ "$(cat "$stamp" 2>/dev/null)" = "$want" ] && [ -e "$models/.own-bases" ]; then
+# A machine from before the note, or from before both moved out of /srv/models, fetches (and
+# checks) once more, to write them: nothing is downloaded when the files are there.
+if [ "$(cat "$stamp" 2>/dev/null)" = "$want" ] && [ -e "$bases_note" ]; then
   echo "halogen-fetch: models already match this release"
   exit 0
 fi
@@ -202,7 +209,23 @@ if [ -n "$need_probe" ]; then
 fi
 # Kept for halogenctl model list, which says which NPU model each of your checkpoints runs on.
 # Only a note: nothing reads it to decide what to fetch or serve.
-if printf '%s\n' "$own_bases" | write_new "$models/.own-bases.new"; then mv -f "$models/.own-bases.new" "$models/.own-bases" || true; fi
+if printf '%s\n' "$own_bases" | write_new "$bases_note.new"; then mv -f "$bases_note.new" "$bases_note" || true; fi
+
+# The official files: the checkpoint, its lookup table, the vision tower when it is wanted, and
+# the tokenizer. A link in place of one is never a download: it goes, and the file is fetched.
+official=(qwen38-flash-next-v2.hgn qwen38-flash-next-ngram.hgn)
+[ -z "$vision" ] || official+=(qwen38-flash-next-vision.hgn)
+for f in "${official[@]}" tokenizer; do
+  if [ -L "$models/$f" ]; then rm -f -- "$models/$f"; echo "halogen-fetch: removed a link at $models/$f"; fi
+done
+# When they are all there, the download only adds NPU programs: the top of /models is then
+# read-only to it, and only npu (its own mount) is writable. Otherwise it downloads the missing
+# official files, and writes them where it likes: each is checked against the hashes this
+# release carries (weights.sha256) once it is done.
+top=":ro"
+for f in "${official[@]}" tokenizer/tokenizer.json; do
+  if [ ! -f "$models/$f" ] || [ -L "$models/$f" ]; then top=""; fi
+done
 
 wait_s=15
 while :; do
@@ -213,7 +236,7 @@ while :; do
     -e HF_HOME=/tmp/hf -e HF_HUB_OFFLINE=0 -e HF_HUB_DISABLE_TELEMETRY=1 -e HF_HUB_DISABLE_PROGRESS_BARS=1 \
     -e "WEIGHTS_REPO=$HALOGEN_WEIGHTS_REPO" -e "WEIGHTS_REVISION=$HALOGEN_WEIGHTS_REVISION" \
     -e "NPU_MODELS=$npu_models" -e "OWN_BASES=$own_bases" -e "VISION=$vision" "${token_args[@]}" \
-    -v "$models:/models" "${hide_cache[@]}" "${pin[@]}" -v "$helper:/fetch.sh:ro" \
+    -v "$models:/models$top" "${hide_cache[@]}" "${pin[@]}" -v "$helper:/fetch.sh:ro" \
     "$HALOGEN_IMAGE" /fetch.sh
   rc=$?
   case "$rc" in
@@ -226,6 +249,27 @@ while :; do
 done
 [ -z "${reporter:-}" ] || kill "$reporter" 2>/dev/null
 
+# After a download that could write the official files, each is checked against this release's
+# hashes. A file that differs (or a link) is removed and the fetch fails, so the next start
+# downloads it again; for the tokenizer, tokenizer.json goes too, since that is what the
+# download looks for.
+if [ -z "$top" ]; then
+  echo "halogen-fetch: checking the official files against this release's hashes"
+  bad=""
+  for f in "${official[@]}" $(sed -n 's#^[0-9a-f]\{64\}  \(tokenizer/[A-Za-z0-9._-]*\)$#\1#p' "$sums"); do
+    want_sum="$(awk -v f="$f" '$2 == f { print $1; exit }' "$sums")"
+    if [ -z "$want_sum" ]; then echo "halogen-fetch: $sums has no hash for $f" >&2; exit 1; fi
+    if [ -L "$models/$f" ] || [ ! -f "$models/$f" ] || [ "$(sha256sum < "$models/$f" | cut -d' ' -f1)" != "$want_sum" ]; then
+      rm -f -- "$models/$f"; bad="$bad $f"
+      case "$f" in tokenizer/*) rm -f -- "$models/tokenizer/tokenizer.json" ;; esac
+    fi
+  done
+  if [ -n "$bad" ]; then
+    echo "halogen-fetch: these files didn't match this release's hashes and were removed:$bad. Download them again: sudo halogenctl restart" >&2
+    exit 1
+  fi
+fi
+
 # Halogen's own checker reads back the checkpoint that was downloaded. It reads local files
 # only, so it gets no network and no capabilities.
 if ! podman run --rm --pull=never --device /dev/kfd --device /dev/dri --group-add keep-groups \
@@ -237,4 +281,6 @@ if ! podman run --rm --pull=never --device /dev/kfd --device /dev/dri --group-ad
 fi
 
 printf '%s\n' "$want" | write_new "$stamp.new" && mv "$stamp.new" "$stamp"
+# The copies from before they moved here: never read again.
+rm -f -- "$models/.fetch-stamp" "$models/.own-bases"
 echo "halogen-fetch: models ready"

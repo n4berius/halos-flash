@@ -19,7 +19,8 @@ f wall 'echo "wall $*" >> "$FAKE/log"'
 # A bare host name (as freyja's): the address shown is the IPv4 one; FAKE_FQDN gives a full name.
 f hostname 'case "${1:-}" in -I) echo "192.0.2.7 fd00::7 " ;; -f) echo "${FAKE_FQDN:-freyja}" ;; *) echo "${FAKE_HOST:-freyja}" ;; esac'
 printf 'HALOS_RELEASE=0.19.1-beta.1\nHALOGEN_VARIANT=npu\n' > "$work/release.env"
-export PATH="$work/bin:$PATH" HALOGEN_RELEASE_FILE="$work/release.env" HALOGEN_MODELS_DIR="$work/models" HALOS_RUN_DIR="$work/run"
+mkdir -p "$work/hstate"
+export HALOGEN_STATE_DIR="$work/hstate" PATH="$work/bin:$PATH" HALOGEN_RELEASE_FILE="$work/release.env" HALOGEN_MODELS_DIR="$work/models" HALOS_RUN_DIR="$work/run"
 status="$repo/files/usr/libexec/halogen/login-status"
 issue="$work/run/issue.d/50-halos.issue"; motd="$work/run/motd.d/50-halos"
 ok() { echo "ok: $*"; }
@@ -34,7 +35,7 @@ if grep -qE 'runuser|--machine' "$work/log"; then echo "a login session was open
 grep -q 'agetty --reload' "$work/log" || { echo "the login prompt was not redrawn" >&2; exit 1; }
 FAKE_FETCH=activating FAKE_HAVE=50 run
 if grep -q agetty "$work/log"; then echo "redrawn though nothing changed" >&2; exit 1; fi
-touch "$work/models/.fetch-stamp"; FAKE_FETCH=activating run
+touch "$work/hstate/fetch-stamp"; FAKE_FETCH=activating run
 expect "$issue" '- checking models'
 FAKE_FETCH=failed run
 expect "$issue" 'download failed: sudo halogenctl fetch-logs'
@@ -86,11 +87,11 @@ expect "$issue" '- starting up'
 ok "a stopped or failed Halogen says where to look, with one service-manager call per run"
 
 # What du prints comes from another user's process: only a number is used.
-rm -f "$work/models/.fetch-stamp"
+rm -f "$work/hstate/fetch-stamp"
 FAKE_FETCH=activating FAKE_HAVE='a[$(touch $FAKE/pwned)]' run
 [ ! -e "$work/pwned" ] || { echo "du output ran as a command" >&2; exit 1; }
 expect "$issue" 'downloading models 0%'
-grep -q "setpriv --reuid=970 --regid=970 --clear-groups -- test -f $work/models/.fetch-stamp" "$work/log" || { echo "the stamp was checked as root" >&2; exit 1; }
+grep -q "setpriv --reuid=970 --regid=970 --clear-groups -- test -f $work/hstate/fetch-stamp" "$work/log" || { echo "the stamp was checked as root" >&2; exit 1; }
 ok "du's output is used only as a number, and the stamp is checked as halogen"
 
 # A new install waits for first-boot setup, and the line says how to do it.
