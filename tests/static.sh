@@ -168,7 +168,7 @@ sb = open("files/usr/lib/systemd/system/fail2ban.service.d/10-halos.conf").read(
 for opt in ("CPUQuota=", "TasksMax=", "StateDirectory=fail2ban", "ProtectSystem=strict", "ProtectHome=yes", "MemoryMax=", "CapabilityBoundingSet=CAP_DAC_READ_SEARCH CAP_NET_ADMIN\n",
             "IPAddressDeny=any", "SystemCallFilter=@system-service", "ProtectProc=invisible", "PrivateIPC=yes", "UMask=0077",
             "ExecStartPre=-/usr/sbin/nft delete table inet f2b-table", "SystemCallFilter=~@privileged @resources\n",
-            "InaccessiblePaths=/run/dbus\n", "InaccessiblePaths=-/run/systemd/private\n"):
+            "InaccessiblePaths=/run/dbus\n"):
     assert opt in sb, f"fail2ban's sandbox lacks {opt}"
 # Access-log lines stay whole for fail2ban: the header cap in every Caddyfile, and journald's LineMax above 6 x (cap + 4 KB).
 for c in ("Caddyfile", "Caddyfile.https", "Caddyfile.letsencrypt"):
@@ -180,6 +180,7 @@ for c in ("Caddyfile.https", "Caddyfile.letsencrypt"):
     assert "log default {\n\t\texclude http.log.access\n\t}" in open(f"files/usr/share/halos/proxy/{c}").read(), f"{c}: Caddy's default logger would write API keys of requests no site matches"
 assert "\nLineMax=256K\n" in open("files/usr/lib/systemd/journald.conf.d/60-halos.conf").read()
 assert not re.search(r"^NoNewPrivileges=", sb, re.M), "NoNewPrivileges keeps fail2ban out of its own SELinux domain (fail2ban_t)"
+assert "/run/systemd/private" not in re.sub(r"^#.*$", "", sb, flags=re.M), "masking systemd's private socket stopped fail2ban from starting (VM test)"
 assert "SystemCallErrorNumber" not in sb, "a refused call must kill fail2ban (audited, restarted), not fail quietly"
 assert re.search(r"^-w /etc/fail2ban -p wa -k fail2ban$", rules, re.M), "fail2ban's settings aren't watched"
 assert "= '-e 2' ]" in cf, "the build doesn't check the audit rules end locked"

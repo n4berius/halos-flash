@@ -746,7 +746,7 @@ name, but allows saying halOS runs Halogen.
   `SystemCallFilter=~@privileged @resources` (default action: a refused call kills it, so it is
   audited and restarted; EPERM would hide it; strace of a file-backend run used none of them) and
   `InaccessiblePaths=/run/dbus` (the folder: a socket made again comes out from under a mask on
-  the file) and `-/run/systemd/private` (with nft it
+  the file; masking `/run/systemd/private` too made the unit fail with 226/NAMESPACE "Failed to set up mount namespacing: /run/systemd/private: Permission denied" in the VM, so SELinux alone guards it: `fail2ban_t` has no `service` class rights) (with nft it
   never needs firewalld; root fail2ban could otherwise drive firewalld over D-Bus, which the
   policy allows `fail2ban_t`); the access log deletes `resp_headers`; the Containerfile sets
   firewalld's `StrictForwardPorts=yes` (checks the line was `no` first), so ports DNAT'd by
