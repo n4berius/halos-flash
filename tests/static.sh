@@ -150,7 +150,7 @@ assert "-$m/.prompt-cache" in open("files/usr/libexec/halogen/flash-checkpoint")
 # fail2ban (#92): installed with its firewalld action, both jails on and reading the journal, this
 # machine and private networks never shut out, checked at build, sandboxed, and its folder watched.
 jail = open("files/etc/fail2ban/jail.d/50-halos.conf").read()
-assert "fail2ban-server fail2ban-firewalld" in cf and "systemctl enable fail2ban.service" in cf and "fail2ban-client -t" in cf and "fail2ban-regex" in cf
+assert "fail2ban-server nftables" in cf and "fail2ban-firewalld" not in cf and 'banaction = nftables[type=multiport, blocktype="reject with tcp reset"]' in jail and "systemctl enable fail2ban.service" in cf and "fail2ban-client -t" in cf and "fail2ban-regex" in cf
 assert "\nbackend = systemd\n" in jail and re.search(r"\[sshd\]\nenabled = true", jail) and re.search(r"\[halos-api\]\nenabled = true\nfilter = halos-api\nport = 8731\nmaxretry = 10\nfindtime = 10m\nbantime = 10m", jail)
 for net in ("127.0.0.0/8", "::1", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "fc00::/7"):
     assert net in re.search(r"^ignoreip = (.*)$", jail, re.M).group(1).split(), f"fail2ban could shut out {net}"
@@ -158,8 +158,13 @@ flt = open("files/etc/fail2ban/filter.d/halos-api.conf").read()
 assert '\nfailregex = ^\\S+ caddy\\[\\d+\\]: \\{"level"' in flt and '"remote_ip":"<ADDR>"' in flt and "journalmatch = _SYSTEMD_UNIT=halos-proxy.service" in flt, "the API filter must start at the journal line's beginning (host, program, then Caddy's JSON) and read only the front door's log"
 assert "\nusedns = no\n" in jail and "loglevel = NOTICE" in open("files/etc/fail2ban/fail2ban.d/50-halos.conf").read()
 sb = open("files/usr/lib/systemd/system/fail2ban.service.d/10-halos.conf").read()
-for opt in ("CPUQuota=", "TasksMax=", "StateDirectory=fail2ban", "ProtectSystem=strict", "ProtectHome=yes", "MemoryMax="):
+for opt in ("CPUQuota=", "TasksMax=", "StateDirectory=fail2ban", "ProtectSystem=strict", "ProtectHome=yes", "MemoryMax=", "CapabilityBoundingSet=CAP_DAC_READ_SEARCH CAP_NET_ADMIN\n",
+            "IPAddressDeny=any", "SystemCallFilter=@system-service", "ProtectProc=invisible"):
     assert opt in sb, f"fail2ban's sandbox lacks {opt}"
+# Access-log lines stay whole for fail2ban: the header cap in every Caddyfile, and journald's LineMax above 6 x (cap + 4 KB).
+for c in ("Caddyfile", "Caddyfile.https", "Caddyfile.letsencrypt"):
+    assert "\t\tmax_header_size 32KB\n" in open(f"files/usr/share/halos/proxy/{c}").read(), f"{c} has no header size limit"
+assert "\nLineMax=256K\n" in open("files/usr/lib/systemd/journald.conf.d/60-halos.conf").read()
 assert not re.search(r"^NoNewPrivileges=", sb, re.M), "NoNewPrivileges keeps fail2ban out of its own SELinux domain (fail2ban_t)"
 assert re.search(r"^-w /etc/fail2ban -p wa -k fail2ban$", rules, re.M), "fail2ban's settings aren't watched"
 assert "= '-e 2' ]" in cf, "the build doesn't check the audit rules end locked"

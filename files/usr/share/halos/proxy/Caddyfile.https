@@ -12,6 +12,10 @@
 	# Never touch the system's trust store: clients trust the authority if you give it to them.
 	skip_install_trust
 	servers {
+		# A request's line and headers together: 32 KB at most (Caddy's default is 1 MB), answered
+		# with 431 above that. It keeps each access-log line whole in the journal (journald's
+		# LineMax, 60-halos.conf), so a wrong key sent with a very long Host still counts for fail2ban.
+		max_header_size 32KB
 		listener_wrappers {
 			http_redirect
 			tls

@@ -601,11 +601,10 @@ case "$cmd" in
         f2b_on || f2b_active || { echo "fail2ban is already off."; exit 0; }
         systemctl disable --now "$unit" || die "fail2ban didn't stop: sudo systemctl status $unit"
         record fail2ban on off
-        # fail2ban lifts its bans one firewall rule at a time as it stops, and systemd ends it
-        # after 45 s: with very many bans some rules stay until firewalld reloads.
-        left="$(timeout 20 firewall-cmd --list-rich-rules 2> /dev/null | grep -c -E 'source address=.* port port="(ssh|22|8731)" .*reject' || true)"
-        if [ "${left:-0}" -gt 0 ]; then
-          echo "fail2ban off, and it stays off after reboots. $left of its firewall rules remain; lift them with: sudo firewall-cmd --reload"
+        # fail2ban removes its nftables table (f2b-table) as it stops. If it was ended before it
+        # got there, the table and its bans would stay: remove it here, so off means off.
+        if timeout 20 nft list table inet f2b-table > /dev/null 2>&1 && ! timeout 20 nft delete table inet f2b-table; then
+          echo "fail2ban off, and it stays off after reboots. Its firewall table is still there; remove it with: sudo nft delete table inet f2b-table"
         else echo "fail2ban off: everyone it had shut out is let back in, and it stays off after reboots."; fi ;;
       unban)
         [ "${#args[@]}" = 2 ] || die "fail2ban unban <address>"

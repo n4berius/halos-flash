@@ -688,6 +688,24 @@ name, but allows saying halOS runs Halogen.
   is to be confirmed with the same check before the PR merges. `halogen-autostart` also looks at `.ssh`, `mounts.conf`, `policy.json`, `storage.conf`,
   `registries.conf(.d)`, user-tmpfiles.d and D-Bus services.
 
+- fail2ban follow-ups (#132, the audit of #129, owner agreed): bans go through fail2ban's
+  `nftables` action (`banaction = nftables[type=multiport, blocktype="reject with tcp reset"]`;
+  table `inet f2b-table`, chain at input priority -1, so before firewalld's
+  `ct state established` accept: open connections are cut; one set per jail and family, made at
+  the first ban, removed at stop; untouched by `firewall-cmd --reload`), no longer firewalld rich
+  rules, and `fail2ban-firewalld` isn't installed (`nftables` is named in the Containerfile, which
+  checks `nft`). The unit gets `CAP_NET_ADMIN` beside `CAP_DAC_READ_SEARCH`, plus
+  `IPAddressDeny=any`, `ProtectProc=invisible`, `PrivateIPC`, `UMask=0077`,
+  `SystemCallFilter=@system-service`. `halosctl fail2ban off` deletes a left-over table itself.
+  Tried with fail2ban 1.1.0 and nft 1.1.6 in a Fedora 45 container (ban, unban, stop removes the
+  table); under systemd and SELinux (`fail2ban_t` running nft) only the VM test shows it:
+  `F2BBAN 1 2`, `F2BRELOAD 1`, `F2BUN 0`, with fail2ban's log and AVC lines printed. Caddy's
+  `max_header_size 32KB` (all three Caddyfiles; Go adds 4 KB of slack, 431 above) with journald's
+  `LineMax=256K`: with Caddy 2.11.9 a 36,000-character Host gave a 36.4K log line, a 40,000 one
+  431, and bytes that aren't text in Host or the method get Go's 400 before any log line. Not
+  measured: the extra netfilter hook's cost (bench on freyja), and a real ban cutting a real
+  open connection.
+
 ## Lessons already learned
 
 - `setpriv` and `runuser` keep the caller's working folder. Run as halogen from an admin's home
