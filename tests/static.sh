@@ -138,6 +138,14 @@ for path in glob.glob("files/usr/libexec/halogen/*"):
             assert '"${hide_cache[@]}"' in line, f"{path} mounts all of /srv/models without hiding the prompt cache: {line.strip()}"
     if "hide_cache" in body:
         assert 'hide_cache=(--tmpfs "/models/.prompt-cache:ro,size=4k,notmpcopyup")' in body, f"{path}: the tmpfs must not copy the folder's files up"
+fc = open("files/usr/libexec/halogen/flash-checkpoint").read()
+assert "-$m/.prompt-cache -$l -/dev/shm -/sysroot -/var/log\"" in fc and "-p PrivateUsers=yes -p PrivateDevices=yes" in fc and "-p RestrictAddressFamilies=none" not in fc and '-p "SystemCallFilter=~socket socketpair io_uring_setup io_uring_enter io_uring_register"' in fc and "-p SystemCallArchitectures=native" in fc, "the convert sandbox can read the prompt cache, the request records, devices, shared memory or the journal"
+# The folders Halogen's container can write and find again hold no programs; halogen never logs in.
+npuconf = open("variants/npu/etc/containers/systemd/users/970/halogen.container.d/10-npu.conf").read()
+for f in ("decider", "LFM", "custom"):
+    assert f"\nVolume=/srv/models/{f}:/models/{f}:noexec,nosuid,nodev\n" in npuconf, f"{f} is mounted without noexec,nosuid,nodev"
+assert "\nVolume=/srv/models/npu:/models/npu:ro,noexec,nosuid,nodev\n" in npuconf
+assert re.search(r"^DenyUsers halogen$", open("files/etc/ssh/sshd_config.d/00-halos.conf").read(), re.M), "the halogen service user could log in over SSH"
 assert "-$m/.prompt-cache" in open("files/usr/libexec/halogen/flash-checkpoint").read(), "the convert sandbox can read the prompt cache"
 # fail2ban (#92): installed with its firewalld action, both jails on and reading the journal, this
 # machine and private networks never shut out, checked at build, sandboxed, and its folder watched.
@@ -154,7 +162,6 @@ for opt in ("CPUQuota=", "TasksMax=", "StateDirectory=fail2ban", "ProtectSystem=
     assert opt in sb, f"fail2ban's sandbox lacks {opt}"
 assert not re.search(r"^NoNewPrivileges=", sb, re.M), "NoNewPrivileges keeps fail2ban out of its own SELinux domain (fail2ban_t)"
 assert re.search(r"^-w /etc/fail2ban -p wa -k fail2ban$", rules, re.M), "fail2ban's settings aren't watched"
-assert "-$m/.prompt-cache -$l\"" in open("files/usr/libexec/halogen/flash-checkpoint").read(), "the convert sandbox can read the prompt cache or the request records"
 assert "= '-e 2' ]" in cf, "the build doesn't check the audit rules end locked"
 assert "SystemMaxUse=4G" in open("files/usr/lib/systemd/journald.conf.d/60-halos.conf").read(), "the journal has no cap"
 assert "systemctl enable halos-https-refresh.timer" in cf, "the HTTPS address refresh isn't enabled"

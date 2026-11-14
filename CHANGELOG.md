@@ -10,6 +10,11 @@ promoted.
 
 ## Unreleased
 
+- Hardening: SSH logins as the `halogen` service user are refused; on the NPU edition the model
+  and own-checkpoint folders are mounted into Halogen's container with no programs allowed; the
+  weight converter runs without devices, shared memory or the system logs in reach; and the
+  selftest looks in more of the `halogen` user's settings folders. (#130)
+
 - fail2ban: an address that keeps failing SSH logins (5 in 10 minutes) or sending a wrong API key
   (10 in 10 minutes) is shut out by the firewall for 10 minutes. On by default; this machine and
   private networks are never shut out. `sudo halosctl fail2ban` shows the state, `unban <address>`

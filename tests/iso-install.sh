@@ -89,14 +89,18 @@ for v in /sysroot:root /var:var /var/log:log /var/log/audit:audit /var/home:home
 done
 # The models volume takes the rest: about 304 GiB of a 512 GB disk, 1686 GiB of a 2 TB one.
 models_gib="$(awk '$1 == "models" { printf "%d", $2 }' "$out/report.txt")"
+# The prompt cache mount is noexec,nosuid,nodev on both editions; the NPU edition's four model
+# mounts are too.
+if [ "$variant" = npu ]; then nmnt=5; else nmnt=1; fi
+grep -qx "NPUMNT $nmnt" "$out/report.txt" || { echo "expected $nmnt mounts with noexec,nosuid,nodev in Halogen's unit" >&2; grep '^NPUMNT' "$out/report.txt" >&2; exit 1; }
 if [ "$variant" = npu ]; then want=290; else want=1650; fi
 [ "${models_gib:-0}" -ge "$want" ] || { echo "the models volume is ${models_gib:-missing} GiB, expected $want or more" >&2; exit 1; }
 grep -qF "$target" "$out/report.txt" || { echo "the installed system doesn't follow $target" >&2; exit 1; }
 grep -qx halostest "$out/report.txt" || { echo "the hostname was not set" >&2; exit 1; }
 # Logs (#107): auditd with halOS's watches (Fedora's default turns them off), a change in /etc/halos
 # and a run of halosctl found by their keys, the rule that leaves Halogen out, and the journal's cap.
-for l in 'AUDIT active [3-9][0-9] 1 1' 'AUDITHIT [1-9][0-9]* [1-9][0-9]*' 'STENV 0' 'HLOGIN 970' 'AUDITRAN 2' 'AUDITEX 0 [1-9][0-9]* [1-9][0-9]*' 'AUDITLOCK [1-9][0-9]* 1' 'JOURNALCAP 1' 'F2B active 1' 'F2BDOM [1-9][0-9]*' 'F2BBAN [1-9][0-9]*' 'F2BUN 0' 'F2BRE 1'; do
-  grep -qxE "$l" "$out/report.txt" || { echo "logs: expected '$l'" >&2; grep -E '^(AUDIT|JOURNAL|HLOGIN|HCONF|STENV|F2B|-a never)' "$out/report.txt" >&2; exit 1; }
+for l in 'AUDIT active [3-9][0-9] 1 1' 'AUDITHIT [1-9][0-9]* [1-9][0-9]*' 'STENV 0' 'HLOGIN 970' 'AUDITRAN 2' 'AUDITEX 0 [1-9][0-9]* [1-9][0-9]*' 'AUDITLOCK [1-9][0-9]* 1' 'SSHDENY 1' 'CONVSB 0' 'JOURNALCAP 1' 'F2B active 1' 'F2BDOM [1-9][0-9]*' 'F2BBAN [1-9][0-9]*' 'F2BUN 0' 'F2BRE 1'; do
+  grep -qxE "$l" "$out/report.txt" || { echo "logs: expected '$l'" >&2; grep -E '^(AUDIT|JOURNAL|HLOGIN|HCONF|STENV|SSHDENY|CONVSB|NPUMNT|F2B|-a never)' "$out/report.txt" >&2; exit 1; }
 done
 # Request records (#107): on mounts /srv/logs/halogen and sends counts only; off removes the mount.
 # (The generated unit names the mount twice: podman's -v and Quadlet's copy of the drop-in.)

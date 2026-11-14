@@ -195,6 +195,15 @@ mkdir -p "$work/home/.config/systemd/user"; : > "$work/home/.config/systemd/user
 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN halogen-autostart: .*evil.service'; rm -r "$work/home/.config/systemd"
 mkdir -p "$work/run-user/containers/systemd/halogen.container.d"; : > "$work/run-user/containers/systemd/halogen.container.d/15-prompt-cache.conf"
 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN halogen-autostart: .*run-user/containers/systemd/halogen.container.d/15-prompt-cache.conf'; rm -r "$work/run-user/containers"
+mkdir -p "$work/home/.ssh"; : > "$work/home/.ssh/authorized_keys"
+"$selftest" > "$work/out" 2>&1 || true; expect '^WARN halogen-autostart: .*home/.ssh/authorized_keys'; rm -r "$work/home/.ssh"
+for f in .config/containers/mounts.conf .config/containers/policy.json .config/containers/storage.conf .config/containers/registries.conf \
+    .config/containers/registries.conf.d/x.conf .config/user-tmpfiles.d/x.conf .local/share/user-tmpfiles.d/x.conf .local/share/dbus-1/services/x.service; do
+  mkdir -p "$work/home/${f%/*}"; : > "$work/home/$f"
+  "$selftest" > "$work/out" 2>&1 || true; expect "^WARN halogen-autostart: .*home/$f"; rm -r "$work/home/.config/containers" "$work/home/.config/user-tmpfiles.d" "$work/home/.local" 2>/dev/null || true
+done
+: > "$work/run-user-tmp"; mkdir -p "$work/run-user/user-tmpfiles.d"; : > "$work/run-user/user-tmpfiles.d/x.conf"
+"$selftest" > "$work/out" 2>&1 || true; expect '^WARN halogen-autostart: .*run-user/user-tmpfiles.d/x.conf'; rm -r "$work/run-user/user-tmpfiles.d" "$work/run-user-tmp"
 mkdir -p "$work/run-user/systemd/user.control"; : > "$work/run-user/systemd/user.control/x.conf"
 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN halogen-autostart: .*run-user/systemd/user.control/x.conf'; rm -r "$work/run-user/systemd"
 # The audit rules and Halogen's container definition compared with the image's copies.

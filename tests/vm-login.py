@@ -133,6 +133,14 @@ typed("{ echo RESULT-START; cat /proc/cmdline; dmesg | grep -i secure; bootctl s
       "echo AUDITEX $(ausearch -i -k halogen-config 2>/dev/null | grep -c -e 'audit-a.*nametype=CREATE') "
       "$(ausearch -i -k halogen-config 2>/dev/null | grep -c -e 'audit-b.*nametype=CREATE') "
       "$(ausearch -i -k quadlet 2>/dev/null | grep -c -e audit-q); rm -f /srv/configs/audit-a /srv/configs/audit-b; "
+      # Hardening: sshd refuses the halogen service user; the converter's real sandbox (the same
+      # systemd-run call a conversion makes) starts under halogen's manager with its probes passing
+      # (work folder writable, models not, no devices, logs, shared memory or sockets, and the
+      # converter runs); on the NPU edition the model mounts are noexec.
+      "echo SSHDENY $(sshd -T -C user=halogen,host=x,addr=203.0.113.9 | grep -c -i -e 'denyusers halogen'); "
+      "setpriv --reuid=970 --regid=970 --clear-groups env -C / HOME=/var/lib/halogen XDG_RUNTIME_DIR=/run/user/970 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/970/bus "
+      "/usr/libexec/halogen/flash-checkpoint sandbox-check 2>&1 | cat; echo CONVSB ${PIPESTATUS[0]}; "
+      "echo NPUMNT $(setpriv --reuid=halogen --regid=halogen --init-groups env -C / XDG_RUNTIME_DIR=/run/user/970 systemctl --user cat halogen.service 2>/dev/null | grep -e ExecStart= | grep -o -F noexec,nosuid,nodev | grep -c -e noexec); "
       "echo JOURNALCAP $(systemd-analyze cat-config systemd/journald.conf | grep -c -x SystemMaxUse=4G); "
       # fail2ban (#92): running with both jails; a ban becomes a firewalld rule and halosctl lifts
       # it; and the API filter matches the front door's real log line (a 503 here, Halogen being

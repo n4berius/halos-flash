@@ -379,7 +379,7 @@ grep -q 'convert --source .* --output .*/flash/.convert/conv/out/conv --profile 
 grep -q '^b2h verify' "$work/b2h.log" || fail "bf16-to-hgn's verify didn't run"
 # Both runs in their own unit: no network, no sockets (the user manager's would reach out), the
 # settings and halogen's home hidden, only the work folder writable.
-[ "$(grep -c -- '-p PrivateNetwork=yes -p RestrictAddressFamilies=none' "$work/sdrun.log")" = 2 ] || fail "the converter ran with network: $(cat "$work/sdrun.log")"
+[ "$(grep -c -- '-p PrivateNetwork=yes -p SystemCallFilter=~socket socketpair io_uring_setup io_uring_enter io_uring_register -p SystemCallErrorNumber=EAFNOSUPPORT' "$work/sdrun.log")" = 2 ] || fail "the converter ran with network: $(cat "$work/sdrun.log")"
 grep -q -- '-p InaccessiblePaths=-[^ ]*configs -' "$work/sdrun.log" || fail "the settings were visible: $(cat "$work/sdrun.log")"
 grep -q -- "-p ReadWritePaths=$(readlink -f "$work/models/flash/.convert/conv") " "$work/sdrun.log" || fail "wrong writable folder"
 grep -q -- '-p BindsTo=halogen-flash-convert.service' "$work/sdrun.log" || fail "the sandbox outlives the job"
