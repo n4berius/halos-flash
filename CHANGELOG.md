@@ -17,6 +17,13 @@ promoted.
   an overlong log line, and fail2ban's own sandbox is tighter. In the HTTPS modes, a request
   for a name or address the certificate doesn't cover no longer leaves its headers, API key
   included, in the journal. (#132)
+- Hardening of the downloads: the model download can no longer swap one of Halogen's folders
+  for a link while it runs, and one left by an interrupted fetch is removed at the next; the
+  fetch and the `flash` commands no longer write, move or copy through a link a download left
+  behind (one such link could have replaced the API key); `model pull`, `flash pull`, `flash check`
+  and `flash convert` refuse a folder that is reached through a link; and a custom Flash
+  checkpoint that shares the official lookup table gets its own copy (free on the disks the
+  installers make) instead of a hard link to the official file. (#131)
 
 - Hardening: SSH logins as the `halogen` service user are refused; on the NPU edition the model
   and own-checkpoint folders are mounted into Halogen's container with no programs allowed; the
