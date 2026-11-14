@@ -142,6 +142,27 @@ typed("{ echo RESULT-START; cat /proc/cmdline; dmesg | grep -i secure; bootctl s
       "/usr/libexec/halogen/flash-checkpoint sandbox-check 2>&1 | cat; echo CONVSB ${PIPESTATUS[0]}; "
       "echo NPUMNT $(setpriv --reuid=halogen --regid=halogen --init-groups env -C / XDG_RUNTIME_DIR=/run/user/970 systemctl --user cat halogen.service 2>/dev/null | grep -e ExecStart= | grep -o -F noexec,nosuid,nodev | grep -c -e noexec); "
       "echo JOURNALCAP $(systemd-analyze cat-config systemd/journald.conf | grep -c -x SystemMaxUse=4G); "
+      # fail2ban (#92): running with both jails; a ban becomes a firewalld rule and halosctl lifts
+      # it; and the API filter matches the front door's real log line (a 503 here, Halogen being
+      # down, with its status set to 401: the line's shape is what the filter depends on).
+      "echo F2B $(systemctl is-active fail2ban) $(fail2ban-client status | grep -c -e 'halos-api, sshd'); "
+      # It runs in its own SELinux domain: a sandbox option that blocked the switch from systemd's
+      # domain (NoNewPrivileges did, for this policy) would leave it unable to write its database.
+      "echo F2BDOM $(ps -o label= -C fail2ban-server | grep -c -e fail2ban_t); "
+      # A ban starts a firewall-cmd under fail2ban's low CPU share, so the rule is waited for.
+      "fail2ban-client set halos-api banip 203.0.113.9 > /dev/null 2>&1; "
+      "for i in 1 2 3 4 5 6 7 8 9 10; do firewall-cmd --list-rich-rules | grep -q -F 203.0.113.9 && break; sleep 2; done; "
+      "echo F2BBAN $(firewall-cmd --list-rich-rules | grep -c -F 203.0.113.9); "
+      "halosctl fail2ban unban 203.0.113.9 > /dev/null 2>&1; "
+      "for i in 1 2 3 4 5 6 7 8 9 10; do firewall-cmd --list-rich-rules | grep -q -F 203.0.113.9 || break; sleep 2; done; "
+      "echo F2BUN $(firewall-cmd --list-rich-rules | grep -c -F 203.0.113.9); "
+      # The filter through fail2ban's real journal reader. Halogen is down here, so the front
+      # door's line is a 503, which Caddy logs at level error: the shipped pattern is run with
+      # only those two words swapped, and must match that line (1 = some line matched).
+      "curl -s -k -o /dev/null http://127.0.0.1:8731/v1/models; sleep 2; "
+      "echo F2BRE $(fail2ban-regex -m _SYSTEMD_UNIT=halos-proxy.service systemd-journal "
+      "\"$(sed -n 's/failregex = //p' /etc/fail2ban/filter.d/halos-api.conf | sed -e 's/info/error/' -e 's/401/503/')\" | grep -c -e ' [1-9][0-9]* matched'); "
+      "echo F2BMEM $(systemctl show -p MemoryCurrent --value fail2ban); "
       # The guided install (#42): volume sizes, hostname, admin user, and no password left behind.
       "lvs --noheadings --units g --nosuffix -o lv_name,lv_size halos; cat /etc/hostname; id admin; "
       "grep -rIlsE 'halogentest|rootsecret|adminsecret' /etc /var/roothome /var/log /boot | sed 's/.*/PWLEAK &/'; "

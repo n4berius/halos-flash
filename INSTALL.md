@@ -683,7 +683,7 @@ halOS keeps three kinds of log, each with its own size limit, so none can fill t
   sudo ausearch -i -k sshd-config      # also sudoers, accounts, pam, luks-tpm, os-update, halosctl, halogenctl
   sudo ausearch -i -k quadlet          # how Halogen's container is started; also containers, systemd-config,
                                        # audit-config, modules, preload, udev, firewall, sysctl,
-                                       # environment, mounts
+                                       # environment, mounts, fail2ban
   sudo aureport --summary              # counts, and sudo aureport --login for logins
   ```
 
@@ -872,6 +872,59 @@ Things to know:
 - **Where things live.** Checkpoints live in `/srv/models/flash/<name>/`. The choice is
   `/srv/configs/flash-checkpoint`, which only `halogenctl flash use` writes, and
   `HALOGEN_CHECKPOINT` can't be set in `halogen.env`.
+
+### Shutting out repeated failed logins (fail2ban)
+
+halOS runs [fail2ban](https://github.com/fail2ban/fail2ban). It watches for an address that keeps
+failing, and has the firewall shut that address out for a while:
+
+| Watches | Shut out after | For |
+|---|---|---|
+| SSH logins | 5 failures within 10 minutes | 10 minutes |
+| Halogen's API on port 8731: a missing or wrong API key | 10 within 10 minutes | 10 minutes |
+
+```bash
+sudo halosctl fail2ban                       # state, and who is shut out now
+sudo halosctl fail2ban unban 203.0.113.9     # let an address back in at once
+sudo halosctl fail2ban off                   # turn it off (on again: fail2ban on)
+```
+
+- **This machine and private networks are never shut out**: home and office address ranges, and
+  Tailscale's. An app on your network with an old API key would otherwise lock its whole computer
+  out, which looks like the server being down. So fail2ban protects against the internet, when
+  the machine is reachable from it; a device on your own network can still guess without being
+  stopped.
+- To change that list or the numbers, put your own lines in
+  `/etc/fail2ban/jail.d/90-local.local` (not in halOS's `50-halos.conf`, which updates replace),
+  then run `sudo systemctl reload fail2ban`. For example, to exempt only this machine:
+
+  ```ini
+  [DEFAULT]
+  ignoreip = 127.0.0.0/8 ::1
+  ```
+- It can't cover the [SSH unlock at boot](#unlock-over-ssh-at-boot): fail2ban starts only once
+  the disk is unlocked.
+- Its own messages (who was shut out and let back in) are in the journal:
+  `sudo journalctl -u fail2ban`.
+
+What it can't do:
+
+- **Several people behind one address share its fate.** If you reach the server from an office,
+  a mobile network or a VPN, someone else behind the same public address can get it shut out for
+  ten minutes with a few wrong keys. SSH stays open when the API is shut (and the reverse), so
+  `sudo halosctl fail2ban unban <address>` is always in reach.
+- **A proxy or tunnel in front hides the real addresses.** With a reverse proxy on another machine,
+  every client has the proxy's address and one bad client shuts out all of them. With a tunnel
+  that ends on this machine (cloudflared and the like), every client is this machine, which is
+  never shut out, so fail2ban does nothing for the API.
+- **A connection that is already open isn't cut.** The firewall stops new connections from a
+  shut-out address; one that is open keeps working until it closes.
+- **IPv6 is counted per address,** and one network has many, so a determined sender isn't slowed.
+- After `sudo firewall-cmd --reload`, run `sudo systemctl restart fail2ban`: the reload drops the
+  firewall rules without fail2ban knowing.
+
+The API key is 64 random characters, so guessing it isn't feasible either way. What fail2ban
+buys for the API is fewer junk requests reaching Halogen, and for SSH less noise.
 
 ## 8. Optional: unlock LUKS with the TPM
 
