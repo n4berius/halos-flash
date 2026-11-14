@@ -167,11 +167,14 @@ assert "\nusedns = no\n" in jail and "loglevel = NOTICE" in open("files/etc/fail
 sb = open("files/usr/lib/systemd/system/fail2ban.service.d/10-halos.conf").read()
 for opt in ("CPUQuota=", "TasksMax=", "StateDirectory=fail2ban", "ProtectSystem=strict", "ProtectHome=yes", "MemoryMax=", "CapabilityBoundingSet=CAP_DAC_READ_SEARCH CAP_NET_ADMIN\n",
             "IPAddressDeny=any", "SystemCallFilter=@system-service", "ProtectProc=invisible", "PrivateIPC=yes", "UMask=0077",
-            "ExecStartPre=-/usr/sbin/nft delete table inet f2b-table"):
+            "ExecStartPre=-/usr/sbin/nft delete table inet f2b-table", "SystemCallFilter=~@privileged @resources\n",
+            "InaccessiblePaths=/run/dbus/system_bus_socket\n"):
     assert opt in sb, f"fail2ban's sandbox lacks {opt}"
 # Access-log lines stay whole for fail2ban: the header cap in every Caddyfile, and journald's LineMax above 6 x (cap + 4 KB).
 for c in ("Caddyfile", "Caddyfile.https", "Caddyfile.letsencrypt"):
     assert "\t\tmax_header_size 32KB\n" in open(f"files/usr/share/halos/proxy/{c}").read(), f"{c} has no header size limit"
+assert "\t\t\tresp_headers delete\n" in open("files/usr/share/halos/proxy/sites.caddy").read(), "Halogen's reply headers reach the access log"
+assert "s/^StrictForwardPorts=no$/StrictForwardPorts=yes/" in cf, "firewalld lets through ports others DNAT"
 assert "request>tls>server_name delete" in open("files/usr/share/halos/proxy/sites.caddy").read(), "the TLS name can make an access-log line too long for the journal"
 for c in ("Caddyfile.https", "Caddyfile.letsencrypt"):
     assert "log default {\n\t\texclude http.log.access\n\t}" in open(f"files/usr/share/halos/proxy/{c}").read(), f"{c}: Caddy's default logger would write API keys of requests no site matches"

@@ -160,6 +160,18 @@ typed("{ echo RESULT-START; cat /proc/cmdline; dmesg | grep -i secure; bootctl s
       "halosctl fail2ban unban 203.0.113.9 > /dev/null 2>&1; "
       "for i in 1 2 3 4 5 6 7 8 9 10; do nft list set inet f2b-table addr-set-halos-api 2>/dev/null | grep -c -F 203.0.113.9 > /dev/null || break; sleep 2; done; "
       "echo F2BUN $(nft list set inet f2b-table addr-set-halos-api 2>&1 | grep -c -F 203.0.113.9); "
+      # The same for an IPv6 address on the API and an IPv4 one on SSH (its own set, port 22).
+      "fail2ban-client set halos-api banip 2001:db8::9 > /dev/null 2>&1; fail2ban-client set sshd banip 203.0.113.10 > /dev/null 2>&1; "
+      "for i in 1 2 3 4 5 6 7 8 9 10; do nft list set inet f2b-table addr-set-sshd 2>/dev/null | grep -c -F 203.0.113.10 > /dev/null && break; sleep 2; done; "
+      "echo F2BV6 $(nft list set inet f2b-table addr6-set-halos-api 2>&1 | grep -c -F 2001:db8::9) "
+      "$(nft list chain inet f2b-table f2b-chain 2>&1 | grep -c -F 'tcp dport 8731 ip6 saddr @addr6-set-halos-api reject with tcp reset'); "
+      "echo F2BSSH $(nft list set inet f2b-table addr-set-sshd 2>&1 | grep -c -F 203.0.113.10) "
+      "$(nft list chain inet f2b-table f2b-chain 2>&1 | grep -c -F 'tcp dport 22 ip saddr @addr-set-sshd reject with tcp reset'); "
+      "halosctl fail2ban unban 2001:db8::9 > /dev/null 2>&1; halosctl fail2ban unban 203.0.113.10 > /dev/null 2>&1; "
+      "for i in 1 2 3 4 5 6 7 8 9 10; do nft list set inet f2b-table addr-set-sshd 2>/dev/null | grep -c -F 203.0.113.10 > /dev/null || break; sleep 2; done; "
+      "echo F2BUN2 $(nft list set inet f2b-table addr6-set-halos-api 2>&1 | grep -c -F 2001:db8::9) $(nft list set inet f2b-table addr-set-sshd 2>&1 | grep -c -F 203.0.113.10); "
+      # firewalld lets through only the ports it opens itself, not ports others DNAT.
+      "echo FWSTRICT $(grep -c -x StrictForwardPorts=yes /etc/firewalld/firewalld.conf) $(systemctl is-active firewalld); "
       # Why, if a ban didn't land: fail2ban's own last lines and SELinux's refusals for it.
       "journalctl -u fail2ban -n 15 --no-pager -o cat | sed -e 's/.*/F2BLOG &/'; "
       "echo F2BAVC $(ausearch -m avc -ts boot 2>/dev/null | grep -c -e fail2ban -e 'comm=.nft'); "

@@ -10,6 +10,12 @@ promoted.
 
 ## Unreleased
 
+- More hardening for fail2ban and the firewall: fail2ban can no longer reach the system's
+  message bus (so not firewalld either) and may use fewer system calls; Halogen's reply headers
+  are no longer written to the access log; and the firewall no longer lets through ports that a
+  rootful container publishes unless you open them in firewalld (rootless containers, as Halogen
+  is, aren't affected). (#134)
+
 - fail2ban now shuts addresses out through its own firewall table (nftables) instead of
   firewalld rules: connections a shut-out address already had open are cut too, a ban costs far
   less under a flood, and `firewall-cmd --reload` no longer drops the bans. The front door
