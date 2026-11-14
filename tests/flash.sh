@@ -222,8 +222,20 @@ ok "files an older pull left behind are removed"
 # A lookup table identical to the official one is shared, not downloaded again.
 reset_repo; cp "$work/repo/qwen38-flash-next-ngram.hgn" "$work/models/qwen38-flash-next-ngram.hgn"
 pull someone/Same-Table --as same || fail "pull failed"
-[ "$(stat -c %i "$work/models/flash/same/qwen38-flash-next-ngram.hgn")" = "$(stat -c %i "$work/models/qwen38-flash-next-ngram.hgn")" ] || fail "the table was not shared"
+cmp -s "$work/models/flash/same/qwen38-flash-next-ngram.hgn" "$work/models/qwen38-flash-next-ngram.hgn" || fail "the table was not shared"
 if grep -q ngram "$work/hf.log"; then fail "the shared table was downloaded"; fi
+# The checkpoint gets a file of its own, also when an earlier pull had hard-linked it: the
+# download container could otherwise write the official table through the link.
+if [ "$work/models/flash/same/qwen38-flash-next-ngram.hgn" -ef "$work/models/qwen38-flash-next-ngram.hgn" ]; then fail "the table is a hard link to the official one"; fi
+rm -f "$work/models/flash/same/qwen38-flash-next-ngram.hgn"; ln "$work/models/qwen38-flash-next-ngram.hgn" "$work/models/flash/same/qwen38-flash-next-ngram.hgn"
+pull someone/Same-Table --as same || fail "pull failed"
+if [ "$work/models/flash/same/qwen38-flash-next-ngram.hgn" -ef "$work/models/qwen38-flash-next-ngram.hgn" ]; then fail "an old hard link to the official table was kept"; fi
+cmp -s "$work/models/flash/same/qwen38-flash-next-ngram.hgn" "$work/models/qwen38-flash-next-ngram.hgn" || fail "the table's copy differs"
+# A link where the checkpoint's folder belongs is refused, and nothing is made through it.
+mkdir -p "$work/aside"; ln -s "$work/aside" "$work/models/flash/vialink"
+if pull someone/Same-Table --as vialink > "$work/out" 2>&1; then fail "a pull went through a link"; fi
+[ -z "$(ls -A "$work/aside")" ] || fail "a pull wrote through a link"
+rm "$work/models/flash/vialink"
 printf 'other' > "$work/models/qwen38-flash-next-ngram.hgn"
 pull someone/Same-Table --as differs || fail "pull failed"
 grep -q ngram "$work/hf.log" || fail "a different table was not downloaded"

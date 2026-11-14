@@ -104,7 +104,40 @@ grep -q ' run ' "$work/podman.log"
 grep ' verify ' "$work/podman.log" | grep -q -- '--network=none --cap-drop=all --security-opt no-new-privileges' \
   || { echo "verify ran with network or capabilities" >&2; exit 1; }
 if grep '/fetch.sh' "$work/podman.log" | grep -q -- '--network=none'; then echo "the download lost its network" >&2; exit 1; fi
+# The download container is named (a leftover one is replaced) and gets the folders mounted into
+# Halogen's container as mounts of their own, so it can't swap one for a link.
+grep '/fetch.sh' "$work/podman.log" | grep -v -- '--network=none' > "$work/dl.log" || true
+grep -q -- '--name halogen-fetch-download --replace' "$work/dl.log" || { echo "the download container isn't named and replaced" >&2; exit 1; }
+grep -q -- "-v $work/models/npu:/models/npu " "$work/dl.log" || { echo "the download container can rename the npu folder: $(tail -n 1 "$work/dl.log")" >&2; exit 1; }
+# An own-checkpoint folder that exists is pinned read-only.
+mkdir -p "$work/models/custom"; echo 'HALOGEN_NPU_MODELS=embed,rerank' > "$work/config.env"; : > "$work/podman.log"
+"$work/fetch" > /dev/null
+grep -q -- "-v $work/models/custom:/models/custom:ro " "$work/podman.log" || { echo "the custom folder isn't pinned read-only in the download container" >&2; exit 1; }
+rmdir "$work/models/custom"; echo 'HALOGEN_NPU_MODELS=embed' > "$work/config.env"; "$work/fetch" > /dev/null
 ok "changing the model list triggers a fetch, and verify runs offline with no capabilities"
+
+# A link where one of Halogen's model folders belongs stops the fetch before any container runs.
+mkdir -p "$work/elsewhere"; ln -s "$work/elsewhere" "$work/models/custom"
+echo 'HALOGEN_NPU_MODELS=embed,rerank' > "$work/config.env"; : > "$work/podman.log"
+if "$work/fetch" > "$work/out" 2>&1; then echo "the fetch ran with a link at custom" >&2; exit 1; fi
+grep -q 'is a link, not a folder' "$work/out" || { cat "$work/out" >&2; exit 1; }
+if grep -q ' run ' "$work/podman.log"; then echo "a container ran with a link at custom" >&2; exit 1; fi
+rm "$work/models/custom"; echo 'HALOGEN_NPU_MODELS=embed' > "$work/config.env"
+ok "a link in place of a model folder stops the fetch"
+
+# Links a download container could leave at the top of the models folder are never written or
+# moved through: the fetch's own notes replace them, and a "version folder" that is a link goes.
+echo secret > "$work/private"; mkdir -p "$work/keep/thing"
+ln -s "$work/private" "$work/models/.fetch-stamp.new"; ln -s "$work/private" "$work/models/.own-bases.new"
+ln -s "$work/keep" "$work/models/npu/1.2.3"
+echo 'HALOGEN_NPU_MODELS=embed,rerank' > "$work/config.env"
+"$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+[ "$(cat "$work/private")" = secret ] || { echo "the fetch wrote through a planted link" >&2; exit 1; }
+if [ ! -d "$work/keep/thing" ] || [ -e "$work/models/npu/thing" ] || [ -L "$work/models/npu/1.2.3" ]; then echo "the fetch moved folders through a planted link" >&2; exit 1; fi
+if [ -L "$work/models/.fetch-stamp" ] || [ ! -s "$work/models/.fetch-stamp" ]; then echo "the stamp wasn't written" >&2; exit 1; fi
+grep -q 'rm -f -i -t 0 halogen-fetch-download' "$work/podman.log" || { echo "a leftover download container isn't removed first" >&2; exit 1; }
+echo 'HALOGEN_NPU_MODELS=embed' > "$work/config.env"; "$work/fetch" > /dev/null
+ok "planted links at the fetch's own files and old version folders are not followed"
 
 echo 'hf_secret123' > "$work/hf-token"; rm "$work/models/.fetch-stamp"; : > "$work/podman.log"
 "$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }

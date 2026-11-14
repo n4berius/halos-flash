@@ -61,15 +61,35 @@ own_models() {
 }
 want="$(printf '%s\n' "$HALOGEN_IMAGE" "$HALOGEN_WEIGHTS_REPO" "$HALOGEN_WEIGHTS_REVISION" "$npu_models" "$vision" "$(own_models)" | sha256sum | cut -d' ' -f1)"
 
+# A download container an interrupted fetch left behind (it sits outside this service's cgroup,
+# and bash as PID 1 ignores SIGTERM) still has the network, the token and /models writable: it
+# goes before anything here trusts what is in the models folder.
+podman rm -f -i -t 0 halogen-fetch-download > /dev/null 2>&1 || true
+
+# Writes a new file from stdin, never through a link a download container left under that name
+# (which could point at the API key): the name is removed, then created exclusively.
+write_new() { rm -f -- "$1" && ( set -C; cat > "$1" ); }
+
+# A link where one of the folders mounted into Halogen's container belongs is refused before
+# anything is moved, made or mounted through it (prepare removes such links at boot, and
+# Halogen's start refuses them: preflight).
+for f in npu decider LFM custom flash; do
+  if [ -L "$models/$f" ]; then
+    echo "halogen-fetch: $models/$f is a link, not a folder: sudo systemctl restart halogen-prepare.service, then sudo halogenctl restart" >&2; exit 1
+  fi
+done
 mkdir -p "$npu_dir" || exit 1
 
 # Before 0.19, NPU models were kept per Halogen version (npu/0.18.23/<model>). Move them into
 # the one folder, the current version's first. The fetch below checks every file against this
 # image's record and downloads only what differs, so no model is fetched again needlessly.
 for old in "$npu_dir/$HALOGEN_VERSION" "$npu_dir"/[0-9]*.[0-9]*.[0-9]*; do
+  # A link with such a name is nobody's old folder: moving "its" models would move whatever
+  # it points to into the folder the download container writes.
+  if [ -L "$old" ]; then rm -f -- "$old"; continue; fi
   [ -d "$old" ] || continue
   for model in "$old"/*/; do
-    [ -d "$model" ] || continue
+    if [ ! -d "$model" ] || [ -L "${model%/}" ]; then continue; fi
     [ -e "$npu_dir/$(basename "$model")" ] || mv "$model" "$npu_dir/$(basename "$model")"
   done
   rm -rf "$old"
@@ -153,6 +173,13 @@ if [ -L "$models/.prompt-cache" ]; then
 fi
 [ -d "$models/.prompt-cache" ] || mkdir -m 0700 "$models/.prompt-cache" || exit 1
 hide_cache=(--tmpfs "/models/.prompt-cache:ro,size=4k,notmpcopyup")
+# In the download container (network, the token, /models writable) each of those folders is a
+# mount of its own: a mount point can't be renamed, removed or replaced from inside, so the
+# container can't swap one for a link before Halogen's next start. Only npu is written by the
+# download; the others are read-only there.
+pin=()
+[ ! -d "$models/npu" ] || [ -L "$models/npu" ] || pin+=(-v "$models/npu:/models/npu")
+for f in decider LFM custom flash; do [ ! -d "$models/$f" ] || [ -L "$models/$f" ] || pin+=(-v "$models/$f:/models/$f:ro"); done
 need_probe=""
 # Split the way the download container does (commas and spaces), so no path slips past.
 for id in ${npu_models//,/ }; do case "$id" in /*) need_probe=1 ;; esac; done
@@ -175,16 +202,18 @@ if [ -n "$need_probe" ]; then
 fi
 # Kept for halogenctl model list, which says which NPU model each of your checkpoints runs on.
 # Only a note: nothing reads it to decide what to fetch or serve.
-if printf '%s\n' "$own_bases" > "$models/.own-bases.new"; then mv -f "$models/.own-bases.new" "$models/.own-bases" || true; fi
+if printf '%s\n' "$own_bases" | write_new "$models/.own-bases.new"; then mv -f "$models/.own-bases.new" "$models/.own-bases" || true; fi
 
 wait_s=15
 while :; do
-  podman run --rm --pull=never --read-only --tmpfs /tmp \
+  # Named, and replacing one an interrupted fetch left running: a download container must not
+  # outlive its fetch with /srv/models still writable.
+  podman run --rm --pull=never --read-only --tmpfs /tmp --name halogen-fetch-download --replace \
     --cap-drop=all --security-opt no-new-privileges --entrypoint bash \
     -e HF_HOME=/tmp/hf -e HF_HUB_OFFLINE=0 -e HF_HUB_DISABLE_TELEMETRY=1 -e HF_HUB_DISABLE_PROGRESS_BARS=1 \
     -e "WEIGHTS_REPO=$HALOGEN_WEIGHTS_REPO" -e "WEIGHTS_REVISION=$HALOGEN_WEIGHTS_REVISION" \
     -e "NPU_MODELS=$npu_models" -e "OWN_BASES=$own_bases" -e "VISION=$vision" "${token_args[@]}" \
-    -v "$models:/models" "${hide_cache[@]}" -v "$helper:/fetch.sh:ro" \
+    -v "$models:/models" "${hide_cache[@]}" "${pin[@]}" -v "$helper:/fetch.sh:ro" \
     "$HALOGEN_IMAGE" /fetch.sh
   rc=$?
   case "$rc" in
@@ -207,5 +236,5 @@ if ! podman run --rm --pull=never --device /dev/kfd --device /dev/dri --group-ad
   exit 1
 fi
 
-printf '%s\n' "$want" > "$stamp.new" && mv "$stamp.new" "$stamp"
+printf '%s\n' "$want" | write_new "$stamp.new" && mv "$stamp.new" "$stamp"
 echo "halogen-fetch: models ready"

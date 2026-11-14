@@ -104,7 +104,7 @@ name, but allows saying halOS runs Halogen.
   files against HF's hashes (LFS sha256, or the git blob id for small files), runs Halogen's
   `verify` on the `.hgn` files except the table (verify doesn't list the table as a file it
   takes), removes files an older pull left, and records everything in `halos.info`. A table
-  identical to the official one is hard-linked, not downloaded. `fetch-models` re-verifies the
+  identical to the official one is copied (a reflink, #131), not downloaded. `fetch-models` re-verifies the
   chosen checkpoint when `verified_with` differs from `HALOGEN_VERSION`, and renders with
   `HALOGEN_FLASH_FILE=/dev/null` so the choice never changes what is fetched.
   `status`, `flash list` and the selftest read `render-config --show` to say what is served.
@@ -687,6 +687,27 @@ name, but allows saying halOS runs Halogen.
   check covered decider/LFM/custom; `npu` holds `.elf` NPU programs and weights, no libraries, and
   is to be confirmed with the same check before the PR merges. `halogen-autostart` also looks at `.ssh`, `mounts.conf`, `policy.json`, `storage.conf`,
   `registries.conf(.d)`, user-tmpfiles.d and D-Bus services.
+
+- Download-path hardening (#131, security audit of #128, owner agreed): `fetch-models` first
+  removes a leftover `halogen-fetch-download` container (`podman rm -f -i -t 0`; bash as PID 1
+  ignores SIGTERM and the container sits outside the service's cgroup), refuses a link at
+  `npu`/`decider`/`LFM`/`custom`/`flash`, and gives its download container (network, token,
+  `/models` writable; `--name … --replace`) each existing one as a mount of its own (`npu`
+  writable, the rest `:ro`): a mount point can't be renamed, removed or exchanged from inside
+  (EBUSY, also from a nested namespace; podman 4.9.3, rootful). The top level and `npu/*` stay
+  writable to it, so the host side never trusts names there: `write_new` (`rm -f`, then create
+  under `set -C`) for `.fetch-stamp.new`, `.own-bases.new` and flash-checkpoint's `halos.info.new`
+  (a planted `.fetch-stamp.new -> ../configs/api-key` used to replace the key with the stamp, a
+  hash the container can compute); the old `npu/<version>` move deletes a link of that name;
+  `fill_tokenizer` refuses a tokenizer folder holding links and copies with `cp -P`. `plain_dir`
+  and `mk_plain` (a `mkdir -p` that looks at each step) in `model-pull` and `flash-checkpoint`
+  refuse a bind source whose real path isn't its name under the real `/srv/models`. `flash pull`
+  copies a shared official lookup table (`cp --reflink=auto`: no extra blocks on XFS, a full
+  copy elsewhere) and removes a link or hard-linked table an older pull left, before its
+  container gets the folder. Left open (owner to decide): the top level read-only once the
+  official files are there, names for the pull containers, the stamp in `/var/lib/halogen`,
+  hashing the official table/tower/tokenizer after a download. None of this runs in the VM (no
+  download there): freyja's next fetch and pull are the first real run.
 
 ## Lessons already learned
 
