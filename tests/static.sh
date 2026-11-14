@@ -139,7 +139,7 @@ for path in glob.glob("files/usr/libexec/halogen/*"):
     if "hide_cache" in body:
         assert 'hide_cache=(--tmpfs "/models/.prompt-cache:ro,size=4k,notmpcopyup")' in body, f"{path}: the tmpfs must not copy the folder's files up"
 fc = open("files/usr/libexec/halogen/flash-checkpoint").read()
-assert "-$m/.prompt-cache -$l -/dev/shm -/sysroot -/var/log\"" in fc and "-p PrivateUsers=yes -p PrivateDevices=yes" in fc, "the convert sandbox can read the prompt cache, the request records, devices, shared memory or the journal"
+assert "-$m/.prompt-cache -$l -/dev/shm -/sysroot -/var/log\"" in fc and "-p PrivateUsers=yes -p PrivateDevices=yes" in fc and "-p RestrictAddressFamilies=none" not in fc and '-p "SystemCallFilter=~socket socketpair"' in fc, "the convert sandbox can read the prompt cache, the request records, devices, shared memory or the journal"
 # The folders Halogen's container can write and find again hold no programs; halogen never logs in.
 npuconf = open("variants/npu/etc/containers/systemd/users/970/halogen.container.d/10-npu.conf").read()
 for f in ("decider", "LFM", "custom"):

@@ -624,9 +624,16 @@ name, but allows saying halOS runs Halogen.
   mapping from them with OvisOCR3 and the NPU models loaded. The convert sandbox adds
   `PrivateUsers=yes`, `PrivateDevices=yes` and `-/dev/shm -/sysroot -/var/log` to
   `InaccessiblePaths` (the converter runs as host uid 970 in the `halogen` group, so it could open
-  `/dev/kfd`, the NPU and the shm Halogen shares with the host); the VM test runs the converter's
-  `--help` under the same properties in halogen's manager (`CONVSB`), since no conversion runs in
-  CI. `halogen-autostart` also looks at `.ssh`, `mounts.conf`, `policy.json`, `storage.conf`,
+  `/dev/kfd`, the NPU and the shm Halogen shares with the host); and it replaces
+  `RestrictAddressFamilies=none` with `SystemCallFilter=~socket socketpair` +
+  `SystemCallErrorNumber=EAFNOSUPPORT`: `systemd-run -p RestrictAddressFamilies=none` is refused
+  with "Invalid argument" on systemd 262 (fine in a unit file), so since #97 every conversion would
+  have failed at its first sandboxed step, after the download; `tests/flash.sh` fakes systemd-run
+  and never saw it (code review of #130, which booted systemd in a container). `flash-checkpoint
+  sandbox-check` now runs the real `sandboxed()` call (unbound from the convert unit) with probes
+  and the converter's `--help`, and the VM test runs it as halogen (`CONVSB`). The freyja maps
+  check covered decider/LFM/custom; `npu` holds `.elf` NPU programs and weights, no libraries, and
+  is to be confirmed with the same check before the PR merges. `halogen-autostart` also looks at `.ssh`, `mounts.conf`, `policy.json`, `storage.conf`,
   `registries.conf(.d)`, user-tmpfiles.d and D-Bus services.
 
 ## Lessons already learned

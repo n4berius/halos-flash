@@ -133,15 +133,14 @@ typed("{ echo RESULT-START; cat /proc/cmdline; dmesg | grep -i secure; bootctl s
       "echo AUDITEX $(ausearch -i -k halogen-config 2>/dev/null | grep -c -e 'audit-a.*nametype=CREATE') "
       "$(ausearch -i -k halogen-config 2>/dev/null | grep -c -e 'audit-b.*nametype=CREATE') "
       "$(ausearch -i -k quadlet 2>/dev/null | grep -c -e audit-q); rm -f /srv/configs/audit-a /srv/configs/audit-b; "
-      # Hardening: sshd refuses the halogen service user; the converter's sandbox properties are
-      # accepted by halogen's manager and the converter starts under them with no devices in sight
-      # (0 = it ran and saw no /dev/dri); on the NPU edition the own-checkpoint mounts are noexec.
+      # Hardening: sshd refuses the halogen service user; the converter's real sandbox (the same
+      # systemd-run call a conversion makes) starts under halogen's manager with its probes passing
+      # (work folder writable, models not, no devices, logs, shared memory or sockets, and the
+      # converter runs); on the NPU edition the model mounts are noexec.
       "echo SSHDENY $(sshd -T -C user=halogen,host=x,addr=203.0.113.9 | grep -c -i -e 'denyusers halogen'); "
-      "setpriv --reuid=970 --regid=970 --clear-groups env -C / XDG_RUNTIME_DIR=/run/user/970 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/970/bus "
-      "systemd-run --user --wait -q -p PrivateUsers=yes -p PrivateDevices=yes -p PrivateNetwork=yes -p ProtectSystem=strict -p NoNewPrivileges=yes "
-      "-p PrivateTmp=yes -p PrivateIPC=yes -p RestrictNamespaces=yes -p MemoryDenyWriteExecute=yes -p InaccessiblePaths='-/dev/shm -/sysroot -/var/log' "
-      "sh -c 'test ! -e /dev/dri && test ! -r /var/log && /usr/libexec/halogen/bf16-to-hgn --help > /dev/null'; echo CONVSB $?; "
-      "echo NPUMNT $(setpriv --reuid=halogen --regid=halogen --init-groups env -C / XDG_RUNTIME_DIR=/run/user/970 systemctl --user cat halogen.service 2>/dev/null | grep -e ExecStart= | grep -o -F :noexec,nosuid,nodev | grep -c -e noexec); "
+      "setpriv --reuid=970 --regid=970 --clear-groups env -C / HOME=/var/lib/halogen XDG_RUNTIME_DIR=/run/user/970 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/970/bus "
+      "/usr/libexec/halogen/flash-checkpoint sandbox-check 2>&1 | cat; echo CONVSB ${PIPESTATUS[0]}; "
+      "echo NPUMNT $(setpriv --reuid=halogen --regid=halogen --init-groups env -C / XDG_RUNTIME_DIR=/run/user/970 systemctl --user cat halogen.service 2>/dev/null | grep -e ExecStart= | grep -o -F noexec,nosuid,nodev | grep -c -e noexec); "
       "echo JOURNALCAP $(systemd-analyze cat-config systemd/journald.conf | grep -c -x SystemMaxUse=4G); "
       # The guided install (#42): volume sizes, hostname, admin user, and no password left behind.
       "lvs --noheadings --units g --nosuffix -o lv_name,lv_size halos; cat /etc/hostname; id admin; "
