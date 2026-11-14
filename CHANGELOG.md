@@ -10,6 +10,10 @@ promoted.
 
 ## Unreleased
 
+- fail2ban: an address that keeps failing SSH logins (5 in 10 minutes) or sending a wrong API key
+  (10 in 10 minutes) is shut out by the firewall for 10 minutes. On by default; this machine and
+  private networks are never shut out. `sudo halosctl fail2ban` shows the state, `unban <address>`
+  lets someone back in, `off` turns it off. (#129)
 - Hardening: Halogen refuses to start if one of the folders mounted into its container (`npu`,
   `decider`, `LFM`, `custom`) has been replaced by a link, as it already did for the prompt cache;
   the boot-time setup removes such a link and makes the folder again; the weight converter can no

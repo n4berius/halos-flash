@@ -601,6 +601,52 @@ name, but allows saying halOS runs Halogen.
   Not done yet: `noexec,nosuid,nodev` on the NPU edition's own-checkpoint folders, which needs a
   look at freyja first (whether Halogen maps anything executable from them).
 
+- fail2ban (#92, #129; owner: on by default, private networks exempt, API lenient): Fedora's
+  `fail2ban-server` + `fail2ban-firewalld` (1.1.0; the second sets `banaction =
+  firewallcmd-rich-rules`, runtime rules only), enabled. `jail.d/50-halos.conf`: `backend = systemd`,
+  `ignoreip` = localhost and the dashboard's private ranges, `[sshd]` with Fedora's 5 in 10 min /
+  10 min (its filter matches `sshd-session` too), `[halos-api]` 10 in 10 min / 10 min on port 8731.
+  `filter.d/halos-api.conf` reads halos-proxy's journal (Caddy's JSON access log): anchored at the
+  line's start, the address is the first field of `request` (`"remote_ip":"<ADDR>"`), status 401
+  (Halogen's answer to a missing or wrong key, api.md; Caddy passes it through). The pattern
+  begins `^\S+ caddy\[\d+\]: \{`: fail2ban's systemd backend hands a filter `<host>
+  <program>[<pid>]: <message>` (`formatJournalEntry`), not the bare message; the first version
+  began `^\{` and matched every test fed from a file (`journalctl -o cat`, the build's sample
+  lines) and nothing from the journal (security audit, which ran Caddy and a real journal file).
+  The build's sample lines carry the prefix (a bare-JSON line must not match), and the VM test
+  feeds `journalctl -o short-iso` less its date (with the date on, fail2ban-regex's own date
+  handling leaves a leading space) and also runs `fail2ban-regex systemd-journal` (`F2BJ`).
+  `usedns = no`, `maxmatches = 1`, `dbmaxmatches = 0`, `loglevel = NOTICE` (the audit measured
+  about 5 KB per failing address and 17 KB per ban with the defaults, and one journal line per
+  401), and `CPUQuota=50%`, `Nice=10`, `TasksMax=64` in the drop-in. Known limits, in INSTALL:
+  rich rules sit after firewalld's established-accept, so an open connection survives a ban;
+  bans are per address (IPv6 /64); shared addresses and proxies; `firewall-cmd --reload` drops
+  the rules unnoticed; with hundreds of bans `off` can leave rules (halosctl counts them).
+  Code review fixes: no `NoNewPrivileges` in the drop-in (selinux-policy 45.23 gives `init_t`
+  no `nnp_transition` to `fail2ban_t`, unlike `sshd_t`/`firewalld_t`, so the daemon would stay in
+  `init_t` and couldn't write its database; the VM prints its domain, `F2BDOM`); Caddy logs a
+  status of 500 or more at level `error`, so the VM's 503 line starts `{"level":"error"`: the VM
+  runs the shipped pattern with `info`/`401` swapped for `error`/`503` through the real journal
+  backend (`fail2ban-regex -m … systemd-journal "<pattern>"`); the access log cuts the uri at 300
+  characters (`multi_regexp`; a padded one made a line past journald's 48K `LineMax`, which split
+  it and hid the 401); `halosctl fail2ban` survives a failing client (set -e) and `unban` needs
+  dots or a colon (hex letters alone would be looked up as a name). Whether a wrong key (not only
+  a missing one) gets 401 is not in Halogen's docs: to confirm on freyja.
+  Not done, for the owner: the `nftables` action (cuts open connections, cheaper bans, needs
+  `CAP_NET_ADMIN` and a bench), `LineMax`/`max_header_size` against 48K line splits, more sandbox. Client text (the
+  uri) comes later with its quotes escaped, so it can't forge that field; the Containerfile runs
+  `fail2ban-client -t`, checks both jails in `-d`'s output and runs `fail2ban-regex` on a 401 line
+  and a forged one. `fail2ban.d/50-halos.conf`: `logtarget = SYSTEMD-JOURNAL`.
+  `fail2ban.service.d/10-halos.conf`: `StateDirectory=fail2ban` (bootc adds nothing to `/var` on an
+  installed machine, so the package's `/var/lib/fail2ban` wouldn't exist after an upgrade),
+  `ProtectSystem=strict`, no home, `CapabilityBoundingSet=CAP_DAC_READ_SEARCH` (bans go to
+  firewalld over D-Bus as uid 0), `MemoryMax=256M`. `halosctl fail2ban [on|off|unban <address>]`:
+  the service only; `unban` passes nothing but an address; output is cut to printable text.
+  Selftest `fail2ban` (both jails, a count of shut-out addresses, never the addresses). Audit watch
+  `-w /etc/fail2ban -k fail2ban`. Users override in `jail.d/90-local.local`. The VM test bans and
+  unbans an address (a rich rule appears and goes), and runs the filter on the front door's real
+  log line with its status set to 401 (Halogen is down there, so the real status is 503). In the VM it runs in `fail2ban_t`, bans and unbans through a rich rule, and uses about 21 MB. Not
+  covered: the initramfs SSH unlock; TLS handshake failures; a device on a private network.
 - Link checks (#128, security audit of #127, owner agreed): `preflight` fails on a link, or on
   something not a folder of its own user, at `/srv/models/{npu,decider,LFM,custom}` (each is
   mounted into Halogen's container by `10-npu.conf`, three writable; the download container can
