@@ -44,7 +44,8 @@ if [ "${state:-}" = ready ]; then :
 elif as_halogen test -e "$halogen_state/setup-pending"; then state="waiting for setup: sudo halosctl setup"
 elif [ "$fetch" = activating ]; then
   # As halogen: root never looks inside the halogen user's folders (see prepare).
-  if as_halogen test -f "$halogen_state/fetch-stamp"; then state="checking models"
+  # (The stamp in /srv/models is a machine from before #135, checking once after the upgrade.)
+  if as_halogen test -f "$halogen_state/fetch-stamp" || as_halogen test -f "$models/.fetch-stamp"; then state="checking models"
   else
     have="$(as_halogen du -s --block-size=1G --exclude="$models/flash" --exclude="$models/.prompt-cache" "$models" 2>/dev/null | cut -f1)"
     # A number only: this text came from another user's process.

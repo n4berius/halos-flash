@@ -175,6 +175,26 @@ grep -q "checking the official files" "$work/out" || { echo "the official files 
 rm -rf "$work/tok-aside"; echo 'HALOGEN_NPU_MODELS=embed' > "$work/config.env"; "$work/fetch" > /dev/null
 ok "after a download every official file is checked against its hash; a bad one is removed and fetched again"
 
+# A download cut short after the official files landed (here: an unknown NPU model, which the
+# download refuses only after the weights) still has them checked by the next fetch, though by
+# then they are all there.
+rm "$work/models/qwen38-flash-next-ngram.hgn"
+echo 'HALOGEN_NPU_MODELS=embed,nosuch' > "$work/config.env"
+FAKE_CONTENT=evil "$work/fetch" > "$work/out" 2>&1 && { echo "an unknown NPU model was accepted" >&2; exit 1; }
+[ -e "$work/models/qwen38-flash-next-ngram.hgn" ] || { cat "$work/out" >&2; echo "the test needs the file downloaded before the refusal" >&2; exit 1; }
+echo 'HALOGEN_NPU_MODELS=embed' > "$work/config.env"
+"$work/fetch" > "$work/out" 2>&1 && { echo "a file from a download cut short was never checked" >&2; exit 1; }
+grep -q "removed: qwen38-flash-next-ngram.hgn" "$work/out" || { cat "$work/out" >&2; exit 1; }
+"$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+[ "$(cat "$work/models/qwen38-flash-next-ngram.hgn")" = hello ] || { echo "the file wasn't fetched again" >&2; exit 1; }
+ok "files from a download that was cut short are checked by the next fetch"
+
+# The models live on a volume of their own: a stamp left after they went doesn't stop the fetch.
+rm "$work/models/qwen38-flash-next-v2.hgn"
+"$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+if grep -q "already match" "$work/out" || [ ! -f "$work/models/qwen38-flash-next-v2.hgn" ]; then echo "a stamp outlived the models it describes" >&2; exit 1; fi
+ok "a missing official file is fetched again even with a matching stamp"
+
 echo 'hf_secret123' > "$work/hf-token"; rm "$work/state/fetch-stamp"; : > "$work/podman.log"
 "$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
 grep -q "$work/hf-token:/run/secrets/hf-token:ro" "$work/podman.log" && grep -q 'HF_TOKEN_PATH=/run/secrets/hf-token' "$work/podman.log"

@@ -754,7 +754,13 @@ name, but allows saying halOS runs Halogen.
     removed (for `tokenizer/*`, `tokenizer.json` too, which is what the download looks for), the
     fetch fails without a stamp, and the next start downloads it again. About 118 GB is hashed
     then (about a minute, not measured on freyja); a fetch that downloaded only NPU programs
-    hashes nothing. NPU programs are still checked only inside the download container.
+    hashes nothing. The check is driven by a marker, `/var/lib/halogen/weights-unchecked`, set
+    before a download with the top writable and whenever there is no stamp (so the first fetch
+    after the upgrade to #135 hashes everything once), removed only once every file matched: a
+    fetch cut short after the files landed (an unknown NPU model is refused only after the
+    weights) is checked by the next one (code review reproduced the skip). The "already match"
+    exit also needs the official files there: the stamp lives on `/var`, the models on their own
+    volume. NPU programs are still checked only inside the download container.
   - The stamp and the checkpoint-base note are `/var/lib/halogen/fetch-stamp` and `own-bases`
     (`HALOGEN_STATE_DIR`), which no container mounts; the old `/srv/models/.fetch-stamp` and
     `.own-bases` are not migrated (a container could have forged them): an upgraded machine
