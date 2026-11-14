@@ -742,6 +742,18 @@ name, but allows saying halOS runs Halogen.
   hashing the official table/tower/tokenizer after a download. None of this runs in the VM (no
   download there): freyja's next fetch and pull are the first real run.
 
+- fail2ban hardening round 2 (#134, the audit of #132, owner agreed): fail2ban's unit adds
+  `SystemCallFilter=~@privileged @resources` with `SystemCallErrorNumber=EPERM` (a missed call
+  fails instead of killing it) and `InaccessiblePaths=/run/dbus/system_bus_socket` (with nft it
+  never needs firewalld; root fail2ban could otherwise drive firewalld over D-Bus, which the
+  policy allows `fail2ban_t`); the access log deletes `resp_headers`; the Containerfile sets
+  firewalld's `StrictForwardPorts=yes` (checks the line was `no` first), so ports DNAT'd by
+  others (rootful `podman -p`, or a NAT rule a compromised `CAP_NET_ADMIN` process adds) aren't
+  let through by firewalld's generic `ct status dnat accept`; Halogen is rootless on 127.0.0.1,
+  so nothing of halOS's is affected. The VM test also bans 2001:db8::9 on the API and
+  203.0.113.10 on SSH (`F2BV6 1 1`, `F2BSSH 1 1`, lifted by halosctl: `F2BUN2 0 0`) and checks
+  `FWSTRICT 1 active`.
+
 ## Lessons already learned
 
 - `setpriv` and `runuser` keep the caller's working folder. Run as halogen from an admin's home

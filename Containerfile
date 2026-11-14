@@ -208,6 +208,13 @@ RUN set -eu; \
     echo 'halogen:524288:65536' >> /etc/subgid; \
     firewall-offline-cmd --add-service=halogen; \
     firewall-offline-cmd --add-service=halos-dashboard; \
+    # Only ports firewalld itself opens are reachable: by default it also lets through any port a
+    # rootful container publishes (traffic DNAT'd by others), which something with CAP_NET_ADMIN
+    # could use to open one with a NAT rule of its own. halOS publishes none that way (Halogen is
+    # rootless, on 127.0.0.1); the security audit of #132.
+    grep -qx 'StrictForwardPorts=no' /etc/firewalld/firewalld.conf; \
+    sed -i 's/^StrictForwardPorts=no$/StrictForwardPorts=yes/' /etc/firewalld/firewalld.conf; \
+    grep -qx 'StrictForwardPorts=yes' /etc/firewalld/firewalld.conf; \
     systemctl enable firewalld.service halogen-prepare.service halos-status.timer halos-platform-profile.service; \
     systemctl enable halos-dashboard.service; \
     systemctl enable halos-proxy.service; \
