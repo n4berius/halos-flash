@@ -910,8 +910,8 @@ sudo halosctl fail2ban off                   # turn it off (on again: fail2ban o
   live in fail2ban's own firewall table (`sudo nft list table inet f2b-table`, there once
   somebody was shut out), beside firewalld's rules, and `sudo firewall-cmd --reload` leaves
   them alone.
-- The front door refuses a request whose first line and headers together exceed 32 KB (answer
-  431). No app comes near that; it keeps every request a single log line, so none slips past
+- The front door refuses a request whose first line and headers together exceed 32 KB (431 over
+  HTTP/1.1, a protocol error over HTTP/2). No app comes near that; it keeps every request a single log line, so none slips past
   the count.
 
 What it can't do:

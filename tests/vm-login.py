@@ -142,7 +142,7 @@ typed("{ echo RESULT-START; cat /proc/cmdline; dmesg | grep -i secure; bootctl s
       "/usr/libexec/halogen/flash-checkpoint sandbox-check 2>&1 | cat; echo CONVSB ${PIPESTATUS[0]}; "
       "echo NPUMNT $(setpriv --reuid=halogen --regid=halogen --init-groups env -C / XDG_RUNTIME_DIR=/run/user/970 systemctl --user cat halogen.service 2>/dev/null | grep -e ExecStart= | grep -o -F noexec,nosuid,nodev | grep -c -e noexec); "
       "echo JOURNALCAP $(systemd-analyze cat-config systemd/journald.conf | grep -c -x SystemMaxUse=4G); "
-      # fail2ban (#92): running with both jails; a ban becomes a firewalld rule and halosctl lifts
+      # fail2ban (#92): running with both jails; a ban becomes an entry in its nftables set and halosctl lifts
       # it; and the API filter matches the front door's real log line (a 503 here, Halogen being
       # down, with its status set to 401: the line's shape is what the filter depends on).
       "echo F2B $(systemctl is-active fail2ban) $(fail2ban-client status | grep -c -e 'halos-api, sshd'); "

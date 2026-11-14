@@ -632,7 +632,7 @@ name, but allows saying halOS runs Halogen.
   it and hid the 401); `halosctl fail2ban` survives a failing client (set -e) and `unban` needs
   dots or a colon (hex letters alone would be looked up as a name). Whether a wrong key (not only
   a missing one) gets 401 is not in Halogen's docs: to confirm on freyja.
-  Not done, for the owner: the `nftables` action (cuts open connections, cheaper bans, needs
+  Done since in #132 (see above): the `nftables` action (cuts open connections, cheaper bans, needs
   `CAP_NET_ADMIN` and a bench), `LineMax`/`max_header_size` against 48K line splits, more sandbox. Client text (the
   uri) comes later with its quotes escaped, so it can't forge that field; the Containerfile runs
   `fail2ban-client -t`, checks both jails in `-d`'s output and runs `fail2ban-regex` on a 401 line
@@ -702,7 +702,12 @@ name, but allows saying halOS runs Halogen.
   `F2BBAN 1 2`, `F2BRELOAD 1`, `F2BUN 0`, with fail2ban's log and AVC lines printed. Caddy's
   `max_header_size 32KB` (all three Caddyfiles; Go adds 4 KB of slack, 431 above) with journald's
   `LineMax=256K`: with Caddy 2.11.9 a 36,000-character Host gave a 36.4K log line, a 40,000 one
-  431, and bytes that aren't text in Host or the method get Go's 400 before any log line. Not
+  431 (HTTP/2: no slack, a protocol error above about 32.7K). Over HTTP/1.1 bytes that aren't
+  text in Host or the method get Go's 400 before any log line; over HTTP/2 (custom-certificate
+  mode) a Host of 31,000 such bytes is logged six characters each, one line of 186K, which is
+  what `LineMax` is sized for. `ExecStartPre=-nft delete table inet f2b-table`: fail2ban removes
+  only what it made in the same run, so after a kill an ended ban stayed (code review, run).
+  The paragraph on #129 below describes the rich-rule method this replaced. Not
   measured: the extra netfilter hook's cost (bench on freyja), and a real ban cutting a real
   open connection.
 

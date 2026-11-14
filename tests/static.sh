@@ -147,7 +147,7 @@ for f in ("decider", "LFM", "custom"):
 assert "\nVolume=/srv/models/npu:/models/npu:ro,noexec,nosuid,nodev\n" in npuconf
 assert re.search(r"^DenyUsers halogen$", open("files/etc/ssh/sshd_config.d/00-halos.conf").read(), re.M), "the halogen service user could log in over SSH"
 assert "-$m/.prompt-cache" in open("files/usr/libexec/halogen/flash-checkpoint").read(), "the convert sandbox can read the prompt cache"
-# fail2ban (#92): installed with its firewalld action, both jails on and reading the journal, this
+# fail2ban (#92): installed with its nftables action, both jails on and reading the journal, this
 # machine and private networks never shut out, checked at build, sandboxed, and its folder watched.
 jail = open("files/etc/fail2ban/jail.d/50-halos.conf").read()
 assert "fail2ban-server nftables" in cf and "fail2ban-firewalld" not in cf and 'banaction = nftables[type=multiport, blocktype="reject with tcp reset"]' in jail and "systemctl enable fail2ban.service" in cf and "fail2ban-client -t" in cf and "fail2ban-regex" in cf
@@ -159,7 +159,8 @@ assert '\nfailregex = ^\\S+ caddy\\[\\d+\\]: \\{"level"' in flt and '"remote_ip"
 assert "\nusedns = no\n" in jail and "loglevel = NOTICE" in open("files/etc/fail2ban/fail2ban.d/50-halos.conf").read()
 sb = open("files/usr/lib/systemd/system/fail2ban.service.d/10-halos.conf").read()
 for opt in ("CPUQuota=", "TasksMax=", "StateDirectory=fail2ban", "ProtectSystem=strict", "ProtectHome=yes", "MemoryMax=", "CapabilityBoundingSet=CAP_DAC_READ_SEARCH CAP_NET_ADMIN\n",
-            "IPAddressDeny=any", "SystemCallFilter=@system-service", "ProtectProc=invisible"):
+            "IPAddressDeny=any", "SystemCallFilter=@system-service", "ProtectProc=invisible", "PrivateIPC=yes", "UMask=0077",
+            "ExecStartPre=-/usr/sbin/nft delete table inet f2b-table"):
     assert opt in sb, f"fail2ban's sandbox lacks {opt}"
 # Access-log lines stay whole for fail2ban: the header cap in every Caddyfile, and journald's LineMax above 6 x (cap + 4 KB).
 for c in ("Caddyfile", "Caddyfile.https", "Caddyfile.letsencrypt"):
