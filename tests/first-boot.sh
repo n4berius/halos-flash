@@ -56,7 +56,10 @@ case "$1" in
          [ "$mode" = probe ] || export NO_PROBE=1
          HALOGEN_PINS="$FAKE/opt/models.txt" HALOGEN_MODELS_ROOT="$FAKE/mount" WEIGHTS_REPO=r WEIGHTS_REVISION=main \
          HALOGEN_NPU_BIN="$FAKE/bin/halogen-npu" FETCH_MODE="$mode" OWN_BASES="$bases" \
-         NPU_MODELS="$npu" VISION="$vision" bash "$HELPER_SRC" ;;
+         NPU_MODELS="$npu" VISION="$vision" bash "$HELPER_SRC"; rc=$?
+         # What a hostile download could leave behind it (a test plants it here).
+         [ ! -f "$FAKE/plant" ] || { bash "$FAKE/plant"; /usr/bin/rm -f "$FAKE/plant"; }
+         exit "$rc" ;;
     esac ;;
 esac
 S
@@ -65,6 +68,13 @@ cat > "$work/bin/halogen-npu" <<'S'
 # Halogen's probe names the model a checkpoint was tuned from.
 [ -z "${NO_PROBE:-}" ] || { echo "probe ran in the download container" >> "$FAKE/probe-leak"; exit 1; }
 [ "$1" = probe ] && [ -f "$2/config.json" ] && echo "task=generate base=$(cat "$2/base" 2>/dev/null || echo lfm3)"
+S
+# rm that fails on the tokenizer folder itself when asked: what a download that made the models
+# folder read-only would cause for a user without root's rights (CI's runner; this test may run as root).
+cat > "$work/bin/rm" <<'S'
+#!/bin/bash
+if [ -n "${FAKE_RM_FAIL:-}" ]; then for a in "$@"; do [ "$a" != "$FAKE/models/tokenizer" ] || { echo "rm: Permission denied" >&2; exit 1; }; done; fi
+exec /usr/bin/rm "$@"
 S
 chmod +x "$work/bin/"*
 ln -s "$work/models" "$work/mount"
@@ -197,6 +207,17 @@ rm "$work/models/qwen38-flash-next-ngram.hgn"; printf 'HALOGEN_NPU_MODELS=embed\
 if [ -e "$work/models/qwen38-flash-next-vision.hgn" ] || [ -e "$work/models/tokenizer/added_tokens.json" ]; then cat "$work/out" >&2; echo "a bad tower or a stray tokenizer file was kept" >&2; exit 1; fi
 echo 'HALOGEN_NPU_MODELS=embed' > "$work/config.env"; "$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
 ok "a kept vision tower is checked while off, and stray tokenizer files are removed"
+
+# A download that leaves a link in place of the tokenizer and a folder it can't be removed from
+# never makes the check delete through the link: the fetch stops instead.
+mkdir -p "$work/victim/sub"; echo key > "$work/victim/api-key"; echo x > "$work/victim/sub/more"
+rm "$work/models/qwen38-flash-next-ngram.hgn"
+printf '/usr/bin/rm -rf "%s/models/tokenizer"; ln -s "%s/victim" "%s/models/tokenizer"\n' "$work" "$work" "$work" > "$work/plant"
+FAKE_RM_FAIL=1 "$work/fetch" > "$work/out" 2>&1 && { cat "$work/out" >&2; ls -la "$work/models" >&2; echo "the fetch went on past a link it couldn't remove" >&2; exit 1; }
+if [ "$(cat "$work/victim/api-key" 2>/dev/null)" != key ] || [ ! -f "$work/victim/sub/more" ]; then echo "the check deleted files through a link" >&2; exit 1; fi
+/usr/bin/rm -f "$work/models/tokenizer"; "$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+[ -f "$work/models/tokenizer/tokenizer.json" ] || { echo "the fetch didn't recover" >&2; exit 1; }
+ok "a link in place of the tokenizer that can't be removed stops the fetch, and nothing is deleted through it"
 
 # The models live on a volume of their own: a stamp left after they went doesn't stop the fetch.
 rm "$work/models/qwen38-flash-next-v2.hgn"

@@ -128,7 +128,9 @@ esac
 official=(qwen38-flash-next-v2.hgn qwen38-flash-next-ngram.hgn)
 [ -z "$vision" ] || official+=(qwen38-flash-next-vision.hgn)
 for f in "${official[@]}" tokenizer; do
-  if [ -L "$models/$f" ]; then rm -f -- "$models/$f"; echo "halogen-fetch: removed a link at $models/$f"; fi
+  if [ -L "$models/$f" ]; then
+    rm -f -- "$models/$f" || exit 1; echo "halogen-fetch: removed a link at $models/$f"
+  fi
 done
 # A marker that the official files are still to be checked: set before a download that can write
 # them, and when this machine has no stamp yet (an install from before the check, or one whose
@@ -269,7 +271,13 @@ done
 if [ -e "$unchecked" ]; then
   echo "halogen-fetch: checking the official files against this release's hashes"
   bad=""
-  if [ -L "$models/tokenizer" ]; then rm -f -- "$models/tokenizer"; bad=" tokenizer"; fi
+  # The download could also make the folders read-only to keep a link it planted (a failed rm
+  # would then leave it, and what follows would go through it): they are opened up first, and
+  # any removal that fails stops the fetch. chmod -R doesn't follow links.
+  chmod u+rwx -- "$models" || exit 1
+  if [ -L "$models/tokenizer" ]; then rm -f -- "$models/tokenizer" || exit 1; bad=" tokenizer"; fi
+  [ ! -L "$models/tokenizer" ] || exit 1
+  if [ -d "$models/tokenizer" ]; then chmod -R u+rwX -- "$models/tokenizer" || exit 1; fi
   # The vision tower too when it is kept but not wanted now: turned on later, it would be there
   # and never checked.
   check=("${official[@]}")
@@ -280,15 +288,16 @@ if [ -e "$unchecked" ]; then
     want_sum="$(awk -v f="$f" '$2 == f { print $1; exit }' "$sums")"
     if [ -z "$want_sum" ]; then echo "halogen-fetch: $sums has no hash for $f" >&2; exit 1; fi
     if [ -L "$models/$f" ] || [ ! -f "$models/$f" ] || [ "$(sha256sum < "$models/$f" | cut -d' ' -f1)" != "$want_sum" ]; then
-      rm -f -- "$models/$f"; bad="$bad $f"
-      case "$f" in tokenizer/*) rm -f -- "$models/tokenizer/tokenizer.json" ;; esac
+      rm -f -- "$models/$f" || exit 1; bad="$bad $f"
+      case "$f" in tokenizer/*) rm -f -- "$models/tokenizer/tokenizer.json" || exit 1 ;; esac
     fi
   done
   # Anything else in tokenizer/ isn't this release's (Halogen reads the folder whole): it goes.
   for f in "$models"/tokenizer/* "$models"/tokenizer/.[!.]*; do
+    if [ ! -d "$models/tokenizer" ] || [ -L "$models/tokenizer" ]; then break; fi
     [ -e "$f" ] || [ -L "$f" ] || continue
     if ! grep -qxF "tokenizer/${f##*/}" < <(awk '/^[0-9a-f]{64}  /{print $2}' "$sums") || [ -L "$f" ] || [ ! -f "$f" ]; then
-      rm -rf -- "$f"; echo "halogen-fetch: removed tokenizer/${f##*/}, which isn't one of this release's files"
+      rm -rf -- "$f" || exit 1; echo "halogen-fetch: removed tokenizer/${f##*/}, which isn't one of this release's files"
     fi
   done
   if [ -n "$bad" ]; then

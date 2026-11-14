@@ -762,7 +762,12 @@ name, but allows saying halOS runs Halogen.
     exit also needs the official files there: the stamp lives on `/var`, the models on their own
     volume. A kept vision tower is hashed while the tower is off (turned on later it would be
     there, unchecked), and anything in `tokenizer/` that `weights.sha256` doesn't list is
-    removed (security audit). NPU programs are checked only inside the download container and by
+    removed (security audit). Before the check it opens up `/srv/models` and `tokenizer/`
+    (`chmod`, which doesn't follow links) and stops on any removal that fails: a download that
+    planted `tokenizer -> /srv/configs` and made `/models` read-only (it owns the mount root, so
+    a `--cap-drop=all` container can) had the cleanup `rm -rf` the API key through the link
+    (security audit of round 3, reproduced; the test fakes the failing `rm`, since it may run as
+    root). NPU programs are checked only inside the download container and by
     Halogen's own `HALOGEN_NPU_VERIFY=1` (locked) at its start, against the image's record.
     Left open (security audit, for the owner): `preflight` refusing links at the official names
     and in `npu`, removing links and unlisted files in `npu/<id>` after a download, running the
