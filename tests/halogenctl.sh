@@ -14,11 +14,21 @@ f runuser 'echo "runuser $*" >> "$FAKE/log"; [ "$1 $2 $3" = "-u halogen --" ] ||
 f systemctl 'echo "systemctl $*" >> "$FAKE/log"; case "$*" in *"is-active --quiet halogen.service"*) [ -z "${FAKE_INACTIVE:-}" ] ;; esac'
 # model-pull and render-config, run through systemd-run as halogen.
 f systemd-run 'case "$*" in
+  *flash-checkpoint\ use\ *|*flash-checkpoint\ remove\ *|*model-pull\ --remove\ *)
+    # The real helper, as it runs under the lock; FAKE_BEFORE is what another terminal does
+    # while halogenctl was asking.
+    echo "systemd-run $*" >> "$FAKE/log"; [ -z "${FAKE_BEFORE:-}" ] || bash -c "$FAKE_BEFORE"
+    while [ $# -gt 0 ] && [ "${1#/}" = "$1" ]; do shift; done
+    s="$1"; shift; exec "$FAKE_REPO/files/usr/libexec/halogen/${s##*/}" "$@" ;;
   *model-pull*) echo "path=/models/LFM/LFM3-1.7B"; echo "fast=1" ;;
   *render-config*) grep -E "^HALOGEN_(NPU_MODELS|AGENT_GUARD)=" "$FAKE/configs/halogen.env" || true ;;
 esac'
-mkdir -p "$work/hstate"
+mkdir -p "$work/hstate" "$work/locks"
 export HALOGEN_STATE_DIR="$work/hstate" PATH="$work/bin:$PATH" HALOGEN_CONFIGS_DIR="$work/configs"
+# The helpers that run under a checkpoint's lock run for real (#119); root's GPU lock is here.
+export FAKE_REPO="$repo" HALOS_LOCK_DIR="$work/locks" HALOGEN_RELEASE_FILE="$work/release.env" HALOGEN_RENDER="$work/bin/render-show"
+printf 'HALOGEN_IMAGE=x\nHALOGEN_VERSION=0.19.1\n' > "$work/release.env"
+f render-show 'grep -E "^HALOGEN_NPU_MODELS=" "$FAKE/configs/halogen.env" || true'
 export HALOGEN_ALLOWED_FILE="$repo/variants/npu/usr/share/halogen/options.allowed"
 export HALOGEN_LOCKED_FILE="$repo/files/usr/share/halogen/locked.env"
 ctl="$repo/files/usr/bin/halogenctl"
@@ -61,13 +71,60 @@ printf 'HALOGEN_FLASH_CTX=1\n' > "$work/configs/halogen.env"
   || { echo "no HALOGEN_NPU_MODELS line was added:" >&2; cat "$work/configs/halogen.env" >&2; exit 1; }
 ok "model pull adds HALOGEN_NPU_MODELS when the file has none"
 
+# While a flash check holds the GPU, a restart you ask for, and model pull's offer to restart,
+# refuse after the answer, before anything is changed (#139).
+exec 7> "$work/locks/gpu.lock"; flock -n 7
+printf 'HALOGEN_FLASH_CTX=1\n' > "$work/configs/halogen.env"; : > "$work/log"
+{ sleep 2; cat "$work/answer"; } | script -qec "$ctl model pull LiquidAI/LFM3-1.7B" /dev/null > "$work/out" 2>&1 || true
+if [ "$(cat "$work/configs/halogen.env")" != HALOGEN_FLASH_CTX=1 ] || grep -q 'restart halogen.service' "$work/log"; then
+  cat "$work/out" >&2; echo "model pull changed the settings or restarted Halogen during a flash check" >&2; exit 1
+fi
+grep -q 'Another halogenctl command is using the GPU' "$work/out" || { cat "$work/out" >&2; exit 1; }
+for cmd in restart start; do
+  if "$ctl" "$cmd" > "$work/out" 2>&1 || grep -q "$cmd halogen.service" "$work/log"; then echo "$cmd ran during a flash check" >&2; exit 1; fi
+done
+exec 7>&-
+ok "a restart, and model pull's restart, wait for a flash check's GPU"
+
 # model remove deletes as halogen, so a folder link planted by a container can't steer root's rm.
 mkdir -p "$work/models/LFM/old-model"; echo w > "$work/models/LFM/old-model/x"
+# A removal leaves no process group in the lock (only a pull can go on in the background).
+echo 4242 > "$work/hstate/pull-npu-old-model.lock"
 : > "$work/log"
 { sleep 2; echo y; } | HALOGEN_MODELS_DIR="$work/models" script -qec "$ctl model remove old-model" /dev/null > "$work/out" 2>&1 || true
 [ ! -e "$work/models/LFM/old-model" ] || { echo "model remove didn't delete:" >&2; cat "$work/out" >&2; exit 1; }
-grep -q "runuser -u halogen -- env -C / rm -rf -- $work/models/LFM/old-model" "$work/log" || { echo "model remove deleted as root" >&2; exit 1; }
+grep -q "systemd-run .*model-pull --remove LFM old-model" "$work/log" || { echo "model remove didn't delete as halogen, under the model's lock" >&2; exit 1; }
+[ ! -s "$work/hstate/pull-npu-old-model.lock" ] || { echo "a removal wrote a process group into the model's lock" >&2; exit 1; }
 ok "model remove deletes as halogen"
+
+# The folder you are asked about is the one deleted, or nothing is (security audit A1): a link
+# in the first folder is skipped when asking, and a folder replaced by a link while you were
+# asked doesn't move the removal to another folder of the same name.
+mkdir -p "$work/models/decider/same" "$work/models/custom/same" "$work/elsewhere"
+echo keep > "$work/models/custom/same/x"
+{ sleep 2; echo y; } | FAKE_BEFORE="rm -rf \"$work/models/decider/same\"; ln -s \"$work/elsewhere\" \"$work/models/decider/same\"" HALOGEN_MODELS_DIR="$work/models" \
+  script -qec "$ctl model remove same" /dev/null > "$work/out" 2>&1 || true
+[ -f "$work/models/custom/same/x" ] || { cat "$work/out" >&2; echo "model remove deleted another folder than the one it asked about" >&2; exit 1; }
+grep -q 'changed while you were asked' "$work/out" || { cat "$work/out" >&2; exit 1; }
+{ sleep 2; echo n; } | HALOGEN_MODELS_DIR="$work/models" script -qec "$ctl model remove same" /dev/null > "$work/out" 2>&1 || true
+grep -q "Delete $work/models/custom/same " "$work/out" || { cat "$work/out" >&2; echo "model remove asked about a link" >&2; exit 1; }
+rm -rf "$work/models/decider/same" "$work/models/custom/same" "$work/elsewhere"
+ok "model remove deletes only the folder it asked about, never through a link"
+
+# What changed while model remove was asking is checked again under the model's lock (#119): a
+# model added to HALOGEN_NPU_MODELS meanwhile is kept, and so is one a pull is writing.
+mkdir -p "$work/models/LFM/new-model"; cp "$work/configs/halogen.env" "$work/env.bak"
+{ sleep 2; echo y; } | FAKE_BEFORE="echo HALOGEN_NPU_MODELS=/models/LFM/new-model >> \"\$FAKE/configs/halogen.env\"" HALOGEN_MODELS_DIR="$work/models" \
+  script -qec "$ctl model remove new-model" /dev/null > "$work/out" 2>&1 || true
+[ -d "$work/models/LFM/new-model" ] || { cat "$work/out" >&2; echo "model remove deleted a model added to the settings while it asked" >&2; exit 1; }
+grep -q 'added meanwhile' "$work/out" || { cat "$work/out" >&2; exit 1; }
+cp "$work/env.bak" "$work/configs/halogen.env"
+exec 7>> "$work/hstate/pull-npu-new-model.lock"; flock -n 7
+{ sleep 2; echo y; } | HALOGEN_MODELS_DIR="$work/models" script -qec "$ctl model remove new-model" /dev/null > "$work/out" 2>&1 || true
+exec 7>&-
+[ -d "$work/models/LFM/new-model" ] || { echo "model remove deleted a model a pull was writing" >&2; exit 1; }
+grep -q 'Another pull of new-model is running' "$work/out" || { cat "$work/out" >&2; exit 1; }
+ok "model remove checks again under the model's lock after asking"
 
 # options: every option this release offers, and which ones halogen.env doesn't mention yet.
 template="$repo/variants/npu/usr/share/halogen/halogen.env.default"
@@ -151,6 +208,12 @@ ok "model list still works with no NPU folder and no readable settings"
 
 # flash: your own Flash checkpoints beside the official one, switched only to verified ones.
 f systemd-run 'case "$*" in
+  *flash-checkpoint\ use\ *|*flash-checkpoint\ remove\ *|*model-pull\ --remove\ *)
+    # The real helper, as it runs under the lock; FAKE_BEFORE is what another terminal does
+    # while halogenctl was asking.
+    echo "systemd-run $*" >> "$FAKE/log"; [ -z "${FAKE_BEFORE:-}" ] || bash -c "$FAKE_BEFORE"
+    while [ $# -gt 0 ] && [ "${1#/}" = "$1" ]; do shift; done
+    s="$1"; shift; exec "$FAKE_REPO/files/usr/libexec/halogen/${s##*/}" "$@" ;;
   *render-config*) c="$(cat "$FAKE/configs/flash-checkpoint" 2>/dev/null)"
     if [ -n "${FAKE_FALLBACK:-}" ] || [ -z "$c" ] || [ "$c" = official ]; then
       [ -z "${FAKE_FALLBACK:-}" ] || echo "halogen-config: $c has not passed Halogens verify; using the official one" >&2
@@ -176,7 +239,7 @@ if "$ctl" flash use nothing --yes > "$work/out" 2>&1; then echo "a missing check
 if "$ctl" flash use ../mine --yes > "$work/out" 2>&1; then echo "a path was accepted as a name" >&2; exit 1; fi
 : > "$work/log"
 "$ctl" flash use mine --yes > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
-if [ "$(cat "$work/configs/flash-checkpoint")" != mine ] || ! grep -q 'runuser -u halogen -- env -C / sh -c' "$work/log" ||
+if [ "$(cat "$work/configs/flash-checkpoint")" != mine ] || ! grep -q 'systemd-run .*flash-checkpoint use mine' "$work/log" ||
    ! grep -q 'systemctl --user --machine=halogen@.host restart halogen.service' "$work/log"; then
   echo "use did not write the choice as halogen and restart" >&2; exit 1
 fi
@@ -191,7 +254,7 @@ grep -q 'you chose mine, but Halogen serves the official one' "$work/out" || { e
 if "$ctl" flash remove mine --yes > "$work/out" 2>&1; then echo "the active checkpoint was removed" >&2; exit 1; fi
 if "$ctl" flash remove official --yes > "$work/out" 2>&1; then echo "official was removable" >&2; exit 1; fi
 "$ctl" flash remove broken --yes > /dev/null
-if [ -e "$fm/flash/broken" ] || ! grep -q "runuser -u halogen -- env -C / rm -rf -- $fm/flash/broken" "$work/log"; then
+if [ -e "$fm/flash/broken" ] || ! grep -q "systemd-run .*flash-checkpoint remove broken" "$work/log"; then
   echo "remove didn't delete as halogen" >&2; exit 1
 fi
 "$ctl" flash use official --yes > /dev/null
@@ -199,6 +262,63 @@ fi
 "$ctl" flash pull someone/Mine-HGN --as mine > "$work/out" 2>/dev/null; grep -q 'sudo halogenctl flash use mine' "$work/out" || { echo "pull doesn't say how to use it" >&2; exit 1; }
 "$ctl" flash verify mine > /dev/null; grep -q 'verify mine' "$work/log" || exit 1
 ok "flash lists, switches only to verified checkpoints after asking, never removes the active or official one, all as halogen"
+
+# What another terminal does while flash use or remove asks is checked again under the
+# checkpoint's lock (#119), and a checkpoint another command holds is a busy message.
+mkdir -p "$fm/flash/other"; printf 'repo=someone/Other\ncheckpoint=model.hgn\nverified=pass\n' > "$fm/flash/other/halos.info"
+: > "$work/log"
+if FAKE_BEFORE="printf %s other > \"\$FAKE/configs/flash-checkpoint\"" "$ctl" flash remove other --yes > "$work/out" 2>&1 || [ ! -d "$fm/flash/other" ]; then
+  cat "$work/out" >&2; echo "flash remove deleted the checkpoint chosen while it asked" >&2; exit 1
+fi
+grep -q 'chosen meanwhile' "$work/out" || { cat "$work/out" >&2; exit 1; }
+echo official > "$work/configs/flash-checkpoint"; : > "$work/log"
+if FAKE_BEFORE="sed -i s/verified=pass/verified=fail/ \"$fm/flash/other/halos.info\"" "$ctl" flash use other --yes > "$work/out" 2>&1; then
+  echo "flash use chose a checkpoint that failed verify while it asked" >&2; exit 1
+fi
+if [ "$(cat "$work/configs/flash-checkpoint")" != official ] || grep -q 'restart halogen.service' "$work/log"; then echo "a refused switch changed the choice or restarted" >&2; exit 1; fi
+sed -i s/verified=fail/verified=pass/ "$fm/flash/other/halos.info"
+if FAKE_BEFORE="rm -rf \"$fm/flash/other\"" "$ctl" flash use other --yes > "$work/out" 2>&1 || grep -q 'restart halogen.service' "$work/log"; then
+  echo "flash use chose a checkpoint removed while it asked" >&2; exit 1
+fi
+grep -q 'No checkpoint called other (any more)' "$work/out" || { cat "$work/out" >&2; echo "a removed checkpoint wasn't named as gone" >&2; exit 1; }
+mkdir -p "$fm/flash/other"; printf 'repo=someone/Other\ncheckpoint=model.hgn\nverified=pass\n' > "$fm/flash/other/halos.info"
+exec 7>> "$work/hstate/pull-flash-other.lock"; flock -n 7
+if "$ctl" flash use other --yes > "$work/out" 2>&1 || "$ctl" flash remove other --yes >> "$work/out" 2>&1; then echo "use or remove ran beside a pull of the same checkpoint" >&2; exit 1; fi
+exec 7>&-
+if [ ! -d "$fm/flash/other" ] || [ "$(cat "$work/configs/flash-checkpoint")" != official ]; then echo "a busy checkpoint was changed" >&2; exit 1; fi
+grep -q 'Another pull, check or other command on other is running' "$work/out" || { cat "$work/out" >&2; exit 1; }
+# A folder at the choice's name: the switch fails and says so, instead of seeming to work with
+# the choice saved inside that folder (security audit A2).
+rm -f "$work/configs/flash-checkpoint"; mkdir "$work/configs/flash-checkpoint"; : > "$work/log"
+if "$ctl" flash use other --yes > "$work/out" 2>&1 || grep -q 'restart halogen.service' "$work/log"; then
+  cat "$work/out" >&2; echo "flash use reported a switch it couldn't save" >&2; exit 1
+fi
+grep -q "Couldn't save the choice" "$work/out" || { cat "$work/out" >&2; exit 1; }
+[ -z "$(ls -A "$work/configs/flash-checkpoint")" ] || { echo "the choice was saved inside a folder" >&2; exit 1; }
+rmdir "$work/configs/flash-checkpoint"; echo official > "$work/configs/flash-checkpoint"
+# Switching (back to official too) works whatever stands at .prompt-cache: use starts no
+# container. A switch leaves no process group in the lock.
+rm -rf "$fm/.prompt-cache"; ln -s "$work/nowhere" "$fm/.prompt-cache"; echo 4242 > "$work/hstate/pull-flash-other.lock"
+"$ctl" flash use other --yes > "$work/out" 2>&1 || { cat "$work/out" >&2; echo "flash use failed with .prompt-cache a link" >&2; exit 1; }
+[ ! -s "$work/hstate/pull-flash-other.lock" ] || { echo "a switch wrote a process group into the checkpoint's lock" >&2; exit 1; }
+"$ctl" flash use official --yes > "$work/out" 2>&1 || { cat "$work/out" >&2; echo "going back to official failed with .prompt-cache a link" >&2; exit 1; }
+[ "$(cat "$work/configs/flash-checkpoint")" = official ] || exit 1
+rm "$fm/.prompt-cache"
+# A flash check holds the GPU with Halogen stopped: a second check, or a switch that restarts
+# Halogen, is refused after the answer, without stopping anything. A question left open holds
+# nothing, so the second check gets as far as asking.
+exec 7> "$work/locks/gpu.lock"; flock -n 7; : > "$work/log"
+if "$ctl" flash check mine --yes > "$work/out" 2>&1; then echo "a second flash check ran beside the first" >&2; exit 1; fi
+if grep -q -e 'stop halogen' -e 'halogen-flash-check' -e '^prepare ' "$work/log"; then echo "a refused check prepared, stopped Halogen or the running check" >&2; exit 1; fi
+if "$ctl" flash use other --yes > "$work/out" 2>&1 || grep -q 'restart halogen.service' "$work/log"; then echo "a switch restarted Halogen during a check" >&2; exit 1; fi
+grep -q 'Another halogenctl command is using the GPU' "$work/out" || { cat "$work/out" >&2; exit 1; }
+for cmd in "check mine" "use other"; do
+  # shellcheck disable=SC2086 # two words on purpose
+  "$ctl" flash $cmd < /dev/null > "$work/out" 2>&1 || true
+  grep -q 'add --yes' "$work/out" || { cat "$work/out" >&2; echo "flash $cmd took the GPU lock before the question" >&2; exit 1; }
+done
+exec 7>&-
+ok "flash use and remove check again under the checkpoint's lock after asking; a check holds the GPU"
 
 # flash check stops Halogen for the GPU, and starts it again whatever happens.
 : > "$work/log"
