@@ -471,10 +471,11 @@ if [ "${running:-0}" = 1 ]; then
 fi
 # A tiny container set up like Halogen's (read-only, the key mounted into /run/secrets) starts as
 # halogen: a podman or crun update can break that setup for every start of Halogen (crun 1.31 did).
+# In a session of its own (setsid): what halogen's podman runs can't reach the terminal root uses.
 if have podman && [ -x "${HALOS_CONTAINER_CHECK:-/usr/libexec/halogen/container-check}" ]; then
   huid="$(id -u halogen 2> /dev/null || echo 970)"
   ccout="$(run setpriv --reuid="$huid" --regid="$huid" --clear-groups env -C / HOME=/var/lib/halogen XDG_RUNTIME_DIR="/run/user/$huid" \
-    "${HALOS_CONTAINER_CHECK:-/usr/libexec/halogen/container-check}")"; ccrc=$?
+    setsid "${HALOS_CONTAINER_CHECK:-/usr/libexec/halogen/container-check}")"; ccrc=$?
   ccout="$(printf '%s\n' "$ccout" | tr -cd '[:print:]\n' | tail -n 2 | tr '\n' ' ')"
   case "$ccrc" in
     0) say PASS container-start "a container set up like Halogen's starts" ;;

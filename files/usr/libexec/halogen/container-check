@@ -20,7 +20,7 @@ if ! podman image exists "$img" 2> /dev/null; then
 fi
 echo stand-in > "$work/key" || exit 2
 # A leftover from a check cut short (the selftest's time limit) goes first.
-podman rm -f -i -t 0 halos-container-check > /dev/null 2>&1 || true
+podman rm -v -f -i -t 0 halos-container-check > /dev/null 2>&1 || true
 if out="$(podman run --rm --name halos-container-check --pull=never --read-only --tmpfs /run --network=none --cap-drop all \
     --security-opt=no-new-privileges -v /tmp -v /var/tmp -v /root \
     -v "$work/key:/run/secrets/halogen-api-key:ro" "$img" --version 2>&1)"; then

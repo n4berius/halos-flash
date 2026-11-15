@@ -806,7 +806,18 @@ name, but allows saying halOS runs Halogen.
   (weekly, rebuilds the newest stable tag and moves `stable`, no VM test) and promotions of an
   older release would ship crun 1.31 until a release containing #137 exists (code review; the
   owner was asked to disable Refresh until then). `container-check` names its container
-  (`halos-container-check`, a leftover removed first). (#137)
+  (`halos-container-check`, a leftover removed first with its volumes). Security audit of #137:
+  the pinned RPM is Fedora's signed copy (Koji `data/signed/f577861e/`, same header and payload
+  as the base's 1.30.1; the build runs `rpmkeys -K` against Fedora 45's key besides the sha256)
+  and the downgrade changes only crun; CVE-2026-115520 (CRIU) is unreachable here and no
+  practical path to 115521 was found (pinned image; every mount target a direct child of a
+  read-only or pinned folder); the build warns once Fedora ships crun beyond 1.31. The selftest
+  starts container-check with `setsid`: code run as halogen under root's selftest could
+  otherwise open root's terminal (`/dev/tty`, `tcsetpgrp`: read keystrokes, fake a prompt;
+  TIOCSTI is already off). The older halogen-run selftest lines (`podman exec`, `systemctl --user`)
+  have the same pattern: left for the owner to agree. Alternatives that keep 1.31, unverified: mount
+  a folder with the key on an empty folder the pinned image already has and point
+  `HALOGEN_API_KEY_FILE` there; or drop `ReadOnly=true`. (#137)
 
 ## Lessons already learned
 
