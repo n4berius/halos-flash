@@ -458,7 +458,7 @@ grep -qx 'flash-tool verify mine' "$work/flash.log" || { echo "not re-checked af
 # next start, not to have failed.
 printf '#!/bin/bash\nexit 75\n' > "$work/flash-tool"
 "$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
-if grep -q 'failed the check' "$work/out" || ! grep -q 'checked again at the next start' "$work/out"; then cat "$work/out" >&2; echo "a busy checkpoint was reported as failed" >&2; exit 1; fi
+if grep -q 'failed the check' "$work/out" || ! grep -q 'serves it as checked by Halogen 0.0.1, not .*checked again at the next start' "$work/out"; then cat "$work/out" >&2; echo "a busy checkpoint was reported as failed" >&2; exit 1; fi
 # shellcheck disable=SC2016 # expanded when the fake runs
 printf '#!/bin/bash\necho "flash-tool $*" >> "$FAKE/flash.log"\n' > "$work/flash-tool"
 ok "your own Flash checkpoint is checked again after a Halogen update"

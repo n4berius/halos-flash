@@ -30,29 +30,34 @@ take_lock() {
     else echo "Another pull of $name is running. Wait for it to end, then try again." >&2; fi
     exit 75
   fi
-  ps -o pgid= -p "$$" 2>/dev/null | tr -cd 0-9 > "$lock" || true
+  # The process group only for a pull, the one that can go on in the background; a removal
+  # leaves the lock empty, so a command it blocks says "wait", never names a group to stop.
+  if [ "${1:-}" = pull ]; then ps -o pgid= -p "$$" 2>/dev/null | tr -cd 0-9 > "$lock" || true
+  else : > "$lock" || true; fi
 }
 plain_dir() { [ -d "$1" ] && [ "$(realpath -e -- "$1" 2>/dev/null)" = "$(realpath -e -- "$models")/${1#"$models"/}" ]; }
 
-# model-pull --remove <name>: halogenctl model remove, after it asked. Under the name's lock, the
-# checks it made before asking are made again: the folder is still there and plain, and the
-# model isn't in HALOGEN_NPU_MODELS (it may have been added meanwhile). As halogen, so a link
-# can't steer the removal.
+# model-pull --remove <kind> <name>: halogenctl model remove, after it asked about
+# /srv/models/<kind>/<name>. Under the name's lock, the checks it made before asking are made
+# again on that folder only: still there and plain, and not in HALOGEN_NPU_MODELS (it may have
+# been added meanwhile). Never another folder of the same name. As halogen, so a link can't
+# steer the removal.
 if [ "${1:-}" = --remove ]; then
-  name="${2:-}"
+  kind="${2:-}"; name="${3:-}"
+  case "$kind" in decider|LFM|custom) ;; *) echo "usage: model-pull --remove decider|LFM|custom <name>" >&2; exit 2 ;; esac
   case "$name" in
     *[!A-Za-z0-9._-]*|.*|'') echo "usage: halogenctl model remove <name>, as sudo halogenctl model list shows it" >&2; exit 2 ;;
   esac
   take_lock
-  dir=""
-  for kind in decider LFM custom; do
-    if plain_dir "$models/$kind/$name"; then dir="$models/$kind/$name"; break; fi
-  done
-  [ -n "$dir" ] || { echo "No model called $name (any more). See: sudo halogenctl model list" >&2; exit 1; }
+  dir="$models/$kind/$name"
+  plain_dir "$dir" || { echo "$dir changed while you were asked (it is gone, or no longer a plain folder), so nothing was deleted. See: sudo halogenctl model list" >&2; exit 1; }
   if ! settings="$("${HALOGEN_RENDER:-/usr/libexec/halogen/render-config}" --show 2> /dev/null)"; then
     echo "Couldn't read the settings, so $name is kept (it may be in use)." >&2; exit 1
   fi
-  if grep '^HALOGEN_NPU_MODELS=' <<< "$settings" | tr '=,' '\n' | sed 's/:fast$//' | grep -qxF -- "/models/${dir#"$models"/}"; then
+  # Into a variable, then grep without -q: grep -q stops reading early, and under pipefail the
+  # writer's SIGPIPE would fail the pipe at random.
+  served="$(grep '^HALOGEN_NPU_MODELS=' <<< "$settings" | tr '=,' '\n' | sed 's/:fast$//' || true)"
+  if grep -xF -- "/models/$kind/$name" <<< "$served" > /dev/null; then
     echo "$name is in HALOGEN_NPU_MODELS (added meanwhile). Take it out of /srv/configs/halogen.env first." >&2; exit 1
   fi
   rm -rf -- "$dir" || { echo "Couldn't delete all of $dir." >&2; exit 1; }
@@ -88,7 +93,7 @@ esac
 # replaced at the next pull of this name, and the last one is removed when this ends (a SIGKILL,
 # or a stop that outlasts systemd's timeout, skips that: the next pull of the name removes it).
 ctr="halogen-pull-npu-$name"
-take_lock
+take_lock pull
 # podman and its conmon would inherit the lock (fd 9) and hold it after a hard kill, for as long
 # as a leftover container runs: every podman call closes it.
 podman() { command podman "$@" 9>&-; }

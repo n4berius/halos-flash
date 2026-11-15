@@ -900,14 +900,28 @@ name, but allows saying halOS runs Halogen.
   step to the helper, which checks again under the lock: `flash use` (the folder is still plain,
   `halos.info` there, `verified=pass`; the choice is written with `write_new` + `mv`), `flash
   remove` (still plain, not chosen meanwhile), `model remove` (still plain, not in
-  `HALOGEN_NPU_MODELS`, read with `render-config --show`, refused if that fails). `fetch-models`
-  says a busy re-verify (75) is "checked again at the next start", not "failed". GPU: halogenctl's
-  `gpu_lock` (`/run/halos-locks/gpu.lock`, a folder only root writes, fd 8, held until exit), taken
-  by `flash check` before asking (so a second check never arms the trap that stops the first's
-  `halogen-flash-check` unit and starts Halogen) and by `flash use` before asking (its restart
-  would put Halogen on the GPU beside a measurement). Lock order: GPU, then the checkpoint's.
-  Tests: `tests/halogenctl.sh` runs the real helpers through the fake `systemd-run` with
-  `FAKE_BEFORE` standing in for another terminal during the question.
+  `HALOGEN_NPU_MODELS`, read with `render-config --show`, refused if that fails; halogenctl passes
+  the kind it asked about, `model-pull --remove <kind> <name>`, its lookup skips links, and the
+  helper checks only that folder: "changed while you were asked", never another folder of the same
+  name, security audit A1). The choice is written with `mv -T -f`, so a folder at its name fails
+  the switch (A2). The choice write now runs in halogen's manager (`flash-checkpoint use`), so the
+  `halogen-config` audit watch no longer records it; the halogenctl exec rule still records the
+  command. The `.prompt-cache` check is skipped for `use|remove|sandbox-check` (no container), so
+  `flash use official` works whatever stands there. The lock file gets the holder's process group
+  only for pull and convert (`name_lock <name> owned`, `take_lock pull`); other commands leave it
+  empty, so a command they block says "wait", not "kill". `fetch-models` says a busy re-verify (75)
+  serves the checkpoint as checked by the older Halogen this time and checks it again at the next
+  start, not "failed" (render-config unchanged). GPU: halogenctl's `gpu_lock`
+  (`/run/halos-locks/gpu.lock`, a folder only root writes, fd 8, held until exit), taken after the
+  answer, so a question left open blocks nothing: by `flash check` before `check-prepare` (so a
+  second check never arms the trap that stops the first's `halogen-flash-check` unit and starts
+  Halogen), by `flash use` after `restart_now`, by `start|restart`, and by `model pull` before it
+  edits `halogen.env` for its restart. Lock order: GPU, then the checkpoint's. Left for the owner
+  to agree (audit B1–B4, review 8): close fd 8 for what runs as halogen (`8>&-`); name the real
+  lock holder (`/proc/locks`) instead of the written group; timeouts and type checks on reads of
+  the choice file (`head -c 256`); more tests; name and remove the ppl check's container. Tests:
+  `tests/halogenctl.sh` runs the real helpers through the fake `systemd-run` with `FAKE_BEFORE`
+  standing in for another terminal during the question.
 
 ## Lessons already learned
 

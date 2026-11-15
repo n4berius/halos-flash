@@ -82,7 +82,11 @@ name_lock() {
   local lock="$state/pull-flash-$1.lock"
   exec 9>> "$lock" || die "Can't open the checkpoint lock in $state."
   flock -n 9 || lock_busy "$lock" "pull, check or other command on $1"
-  ps -o pgid= -p "$$" 2>/dev/null | tr -cd 0-9 > "$lock" || true
+  # The process group only for a pull or a conversion ($2 = owned), the ones that go on in the
+  # background after Ctrl-C; any other command leaves the lock empty, so one it blocks says
+  # "wait", never names a group to stop.
+  if [ "${2:-}" = owned ]; then ps -o pgid= -p "$$" 2>/dev/null | tr -cd 0-9 > "$lock" || true
+  else : > "$lock" || true; fi
 }
 # In a subshell of its own, with the client in the background: a stop (TERM, HUP or INT) is acted
 # on at once, not after the client returns (it waits on a container that may ignore the signal),
@@ -106,10 +110,16 @@ online() (
 # mount point on a read-only /models, so a missing folder is made first (this runs as halogen, as
 # prepare does at boot). A link in its place is refused: the tmpfs would land on whatever it points
 # to, and Halogen's start refuses it anyway (preflight).
-if [ -L "$models/.prompt-cache" ]; then
-  echo "$models/.prompt-cache is a link, not a folder. Remove it, then start again: sudo halogenctl restart" >&2; exit 1
-fi
-[ -d "$models/.prompt-cache" ] || mkdir -m 0700 "$models/.prompt-cache" || exit 1
+# Not for use, remove and sandbox-check, which start no container: going back to the official
+# checkpoint must work whatever stands there.
+case "${1:-}" in
+  sandbox-check|use|remove) ;;
+  *)
+    if [ -L "$models/.prompt-cache" ]; then
+      echo "$models/.prompt-cache is a link, not a folder. Remove it, then start again: sudo halogenctl restart" >&2; exit 1
+    fi
+    [ -d "$models/.prompt-cache" ] || mkdir -m 0700 "$models/.prompt-cache" || exit 1 ;;
+esac
 hide_cache=(--tmpfs "/models/.prompt-cache:ro,size=4k,notmpcopyup")
 # A folder is mounted into a container only when no link stands in its path: podman follows a
 # link at a mount source, and a container that can write a folder here (Halogen's own, or an
@@ -429,7 +439,7 @@ convert_prepare() {
   [[ "$revision" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || die "'$revision' is not a branch, tag or commit"
   name="${name:-${repo##*/}}"
   valid_name "$name" || die "'$name' can't be a checkpoint name: use letters, digits, '.', '_' or '-', not 'official' (pick one with --as)"
-  name_lock "$name"; ctr_owned=1
+  name_lock "$name" owned; ctr_owned=1
   [ ! -e "$models/flash/$name" ] || die "$models/flash/$name already exists. Pick another name with --as, or remove it first: sudo halogenctl flash remove $name"
   [ -x "$converter" ] || die "This image has no converter ($converter)."
   list_repo "$repo" "$revision"
@@ -491,7 +501,7 @@ convert_run() {
     esac
   done
   valid_name "$name" || die "bad name"
-  name_lock "$name"; ctr_owned=1
+  name_lock "$name" owned; ctr_owned=1
   work="$convert_dir/$name"; info="$work/convert.info"; src="$work/source"; out="$models/flash/$name"; staged="$work/out/$name"
   [ -f "$info" ] || die "Nothing prepared for $name: start with sudo halogenctl flash convert <repo>"
   repo="$(info_get "$info" repo)"; commit="$(info_get "$info" commit)"
@@ -626,9 +636,11 @@ case "${1:-}" in
         die "$name has not passed Halogen's verify (any more), so it can't be used. Check it: sudo halogenctl flash verify $name"
       fi
     fi
-    # Written fresh, never through whatever stands at the name.
-    if ! printf '%s\n' "$name" | ( umask 027; write_new "$flash_choice.new" ) || ! mv -f -- "$flash_choice.new" "$flash_choice"; then
-      die "Couldn't save the choice in $flash_choice."
+    # Written fresh, never through whatever stands at the name; -T, or a folder there would
+    # take the file inside it and the switch would seem to work.
+    if ! printf '%s\n' "$name" | ( umask 027; write_new "$flash_choice.new" ) || ! mv -T -f -- "$flash_choice.new" "$flash_choice"; then
+      rm -f -- "$flash_choice.new"
+      die "Couldn't save the choice in $flash_choice (is something other than a file there?)."
     fi
     exit 0 ;;
   remove)
@@ -670,7 +682,7 @@ esac
 [[ "$revision" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || die "'$revision' is not a branch, tag or commit"
 name="${name:-${repo##*/}}"
 valid_name "$name" || die "'$name' can't be a checkpoint name: use letters, digits, '.', '_' or '-', not 'official' (pick one with --as)"
-name_lock "$name"; ctr_owned=1
+name_lock "$name" owned; ctr_owned=1
 podman rm -f -i -t 0 "halogen-pull-flash-$name" > /dev/null 2>&1 || true
 dir="$models/flash/$name"
 info="$dir/halos.info"

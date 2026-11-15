@@ -39,7 +39,7 @@ gpu_lock() {
   local d="${HALOS_LOCK_DIR:-/run/halos-locks}"
   install -d -m 0700 -- "$d" || exit 1
   exec 8> "$d/gpu.lock" || exit 1
-  flock -n 8 || { echo "A flash check is measuring a checkpoint, with Halogen stopped for it. Wait for it to end (it starts Halogen again), then try again." >&2; exit 75; }
+  flock -n 8 || { echo "Another halogenctl command is using the GPU or restarting Halogen (a flash check, or a flash use about to restart it). Wait for it to end, then try again." >&2; exit 75; }
 }
 chosen_flash() {
   local c; c="$(as_owner head -n 1 "$flash_choice" 2>/dev/null | tr -cd 'A-Za-z0-9._-')" || true
@@ -87,7 +87,7 @@ case "${1:-status}" in
       fi
     fi
     duplicate_settings ;;
-  start|restart) start_halogen "$1" ;;
+  start|restart) gpu_lock; start_halogen "$1" ;;
   stop) unit stop halogen.service ;;
   logs) exec journalctl --no-pager "${follow[@]}" -n "$lines" _SYSTEMD_USER_UNIT=halogen.service + _SYSTEMD_USER_UNIT=halogen-fetch.service ;;
   fetch-logs) exec journalctl --no-pager "${follow[@]}" -n "$lines" _SYSTEMD_USER_UNIT=halogen-fetch.service ;;
@@ -199,7 +199,6 @@ case "${1:-status}" in
         if [ "$(unit is-active halogen-fetch.service 2>/dev/null)" = activating ]; then
           echo "Halogen is downloading models (sudo halogenctl fetch-logs). Check $name when that is done." >&2; exit 1
         fi
-        gpu_lock
         echo "This measures $name against the official checkpoint on a public test text (wikitext-2),"
         echo "with Halogen's ppl. It needs the GPU, so Halogen stops answering for about 15 minutes, or"
         echo "about 25 the first time on a Halogen version, when the official checkpoint is measured too."
@@ -208,6 +207,9 @@ case "${1:-status}" in
           read -rp "Stop Halogen and measure $name? [y/N] " answer
           [ "$answer" = y ] || [ "$answer" = Y ] || { echo "Nothing changed."; exit 1; }
         fi
+        # Taken after the answer, so a question left open never blocks another command; a second
+        # check never gets as far as the trap below, which would stop the first's measurement.
+        gpu_lock
         # Before Halogen stops: the name, the verify result and the test text (downloaded once).
         as_halogen /usr/libexec/halogen/flash-checkpoint check-prepare "$name"
         # From here on Halogen comes back whatever happens: Ctrl-C, a dropped SSH session, a
@@ -277,8 +279,9 @@ case "${1:-status}" in
           echo "$name: $(flash_info "$name" checkpoint) from $(flash_info "$name" repo), commit $(flash_info "$name" commit | cut -c1-12)."
           echo "halOS can't judge a checkpoint's answers. Compare them with the official model's before relying on it."
         fi
-        gpu_lock
         restart_now "Switch Halogen to $name?"
+        # After the answer: the restart below must not come during a flash check's measurement.
+        gpu_lock
         # As halogen, under the checkpoint's lock: the checks above are made again, since a pull,
         # a removal or a failed verify may have come while you were asked (#119).
         as_halogen /usr/libexec/halogen/flash-checkpoint use "$name" || { echo "Nothing changed." >&2; exit 1; }
@@ -387,6 +390,8 @@ case "${1:-status}" in
         if [ -t 0 ]; then
           read -rp "Make that change and restart Halogen now? [y/N] " answer
           if [ "$answer" = y ] || [ "$answer" = Y ]; then
+            # Not during a flash check's measurement, and before anything is changed.
+            gpu_lock
             # Replace the last HALOGEN_NPU_MODELS line, or add one, as halogen. awk takes the new
             # line as data (ENVIRON), so nothing in the file's old value can run as a command.
             # shellcheck disable=SC2016 # expanded by the halogen shell and awk
@@ -454,9 +459,11 @@ case "${1:-status}" in
         case "$name" in
           *[!A-Za-z0-9._-]*|.*|'') echo "usage: halogenctl model remove <name>, as sudo halogenctl model list shows it" >&2; exit 2 ;;
         esac
+        # A link is skipped, as model-pull skips it: the folder you are asked about is the one
+        # that is deleted, or nothing is.
         dir=""
         for kind in decider LFM custom; do
-          if [ -d "$models/$kind/$name" ]; then dir="$models/$kind/$name"; break; fi
+          if [ -d "$models/$kind/$name" ] && as_owner test ! -L "$models/$kind/$name"; then dir="$models/$kind/$name"; break; fi
         done
         [ -n "$dir" ] || { echo "No model called $name. See: sudo halogenctl model list" >&2; exit 1; }
         if in_use "/models/${dir#"$models"/}"; then
@@ -467,8 +474,8 @@ case "${1:-status}" in
         [ "$answer" = y ] || [ "$answer" = Y ] || exit 0
         # As halogen, under the model's lock: not being pulled, still a plain folder (a link planted
         # by a container must not let root delete through it), and not added to
-        # HALOGEN_NPU_MODELS while you were asked (#119).
-        as_halogen /usr/libexec/halogen/model-pull --remove "$name" || exit 1
+        # HALOGEN_NPU_MODELS while you were asked (#119). Only the folder you were asked about.
+        as_halogen /usr/libexec/halogen/model-pull --remove "$kind" "$name" || exit 1
         ;;
       *) echo "usage: halogenctl model pull <hf-repo> [--revision <rev>] [--as <name>] | list | remove <name>" >&2; exit 2 ;;
     esac

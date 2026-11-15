@@ -116,12 +116,14 @@ done
 choice="$(head -n 1 "$flash_choice" 2>/dev/null | tr -cd 'A-Za-z0-9._-')"
 case "$choice" in ''|official|[!A-Za-z0-9]*) ;; *)
   info="$models/flash/$choice/halos.info"
+  checked_with="$(sed -n 's/^verified_with=//p' "$info" 2>/dev/null | tail -n 1 | tr -cd 'A-Za-z0-9._-')"
   if [ -f "$info" ] && [ "$(sed -n 's/^verified=//p' "$info" | tail -n 1)" = pass ] &&
-     [ "$(sed -n 's/^verified_with=//p' "$info" | tail -n 1)" != "$HALOGEN_VERSION" ]; then
+     [ "$checked_with" != "$HALOGEN_VERSION" ]; then
     echo "halogen-fetch: checking your Flash checkpoint $choice again with Halogen $HALOGEN_VERSION"
     "$flash_tool" verify "$choice"; vrc=$?
     if [ "$vrc" = 75 ]; then
-      echo "halogen-fetch: another command is working on $choice, so it is checked again at the next start" >&2
+      # render-config still serves it on the older check: say so, rather than suggest it was checked.
+      echo "halogen-fetch: another command is working on $choice, so this time Halogen serves it as checked by Halogen ${checked_with:-of an earlier release}, not $HALOGEN_VERSION; it is checked again at the next start" >&2
     elif [ "$vrc" != 0 ]; then
       echo "halogen-fetch: $choice failed the check, so Halogen serves the official checkpoint. Check it again: sudo halogenctl flash verify $choice" >&2
     fi

@@ -135,8 +135,10 @@ Edit settings with `sudo nano /srv/configs/halogen.env`, then `sudo halogenctl r
 One command at a time works on a given checkpoint: `pull`, `convert`, `verify`, `check`, `use` and
 `remove` of the same name (and `model pull`/`model remove` of the same model) refuse with "Another
 … is running" while another one is at it, and `use` and `remove` check again, after you answered,
-that nothing changed meanwhile. While a `flash check` measures, a second check and `flash use` wait
-for it (they say so). Commands on different checkpoints run side by side.
+that nothing changed meanwhile. While a `flash check` measures, a second check, `flash use`,
+`start`, `restart` and `model pull`'s offer to restart refuse after you answer (they say so, and
+change nothing): run them again when the check has ended. Commands on different checkpoints run
+side by side.
 
 ## halogen-enroll-tpm
 
