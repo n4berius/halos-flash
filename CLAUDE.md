@@ -769,7 +769,7 @@ name, but allows saying halOS runs Halogen.
     (security audit of round 3, reproduced; the test fakes the failing `rm`, since it may run as
     root). NPU programs are checked only inside the download container and by
     Halogen's own `HALOGEN_NPU_VERIFY=1` (locked) at its start, against the image's record.
-    Round 3 (#PRNUM, the rest of #135's audit, owner agreed): `preflight` fails on a link at
+    Round 3 (#136, the rest of #135's audit, owner agreed): `preflight` fails on a link at
     the official names or `tokenizer`, and on any link or non-file/non-folder under `tokenizer/`
     or `npu/` (one `find … -print -quit` each; halOS and hf make none: hf's `--local-dir`
     metadata in `npu/<id>/.cache/huggingface` is plain files), and on a folder its owner can't

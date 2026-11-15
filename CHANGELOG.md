@@ -17,7 +17,7 @@ promoted.
   again); the clean-up never follows a link out of the models folder; a `model pull`,
   `flash pull` or `flash convert` that is stopped removes its download at once; and two pulls of
   the same name can no longer run at once and break each other (the second says so, and how to
-  stop the first). (#PRNUM)
+  stop the first). (#136)
 
 - More hardening of the downloads: once the official files are on the disk, a model download
   can no longer change them (only the NPU folder is writable to it); after a download that could,
