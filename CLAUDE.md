@@ -801,7 +801,12 @@ name, but allows saying halOS runs Halogen.
   crun at 1.30.1 (`CRUN_PIN_URL`/`CRUN_PIN_SHA256` in versions.env, Koji's RPM checked by sha256,
   `dnf downgrade` after the main install, the build checks the version); 1.31's two CVE fixes
   (CRIU restore keys; deferred read-only remount target resolution) are given up until then.
-  Remove the hold once Fedora ships podman#30265 or a crun fix. (#137)
+  Remove the hold once Fedora ships podman#30265 or a crun fix (versions.env lists the places;
+  the build log prints the base's crun). Old code rebuilt from a tag has no hold: `refresh.yml`
+  (weekly, rebuilds the newest stable tag and moves `stable`, no VM test) and promotions of an
+  older release would ship crun 1.31 until a release containing #137 exists (code review; the
+  owner was asked to disable Refresh until then). `container-check` names its container
+  (`halos-container-check`, a leftover removed first). (#137)
 
 ## Lessons already learned
 

@@ -154,7 +154,8 @@ RUN set -eu; \
     curl -fsSL --retry 3 -o /tmp/crun.rpm "$CRUN_PIN_URL"; \
     echo "$CRUN_PIN_SHA256  /tmp/crun.rpm" | sha256sum -c -; \
     want="$(rpm -qp --qf '%{NAME}-%{VERSION}-%{RELEASE}' /tmp/crun.rpm)"; \
-    if [ "$(rpm -q --qf '%{NAME}-%{VERSION}-%{RELEASE}' crun)" != "$want" ]; then dnf -y downgrade /tmp/crun.rpm || dnf -y install /tmp/crun.rpm; fi; \
+    echo "crun in Fedora's base today: $(rpm -q crun); held at: $want"; \
+    if [ "$(rpm -q --qf '%{NAME}-%{VERSION}-%{RELEASE}' crun)" != "$want" ]; then dnf -y --setopt=install_weak_deps=False downgrade /tmp/crun.rpm || dnf -y --setopt=install_weak_deps=False install /tmp/crun.rpm; fi; \
     [ "$(rpm -q --qf '%{NAME}-%{VERSION}-%{RELEASE}' crun)" = "$want" ]; \
     rm -f /tmp/crun.rpm; dnf clean all; rm -rf /var/log/dnf5.log /var/lib/dnf /var/cache/libdnf5 /run/dnf
 COPY files/ /
