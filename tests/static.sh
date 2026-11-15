@@ -144,6 +144,9 @@ for path in glob.glob("files/usr/libexec/halogen/*"):
             assert '"${hide_cache[@]}"' in line, f"{path} mounts all of /srv/models without hiding the prompt cache: {line.strip()}"
     if "hide_cache" in body:
         assert 'hide_cache=(--tmpfs "/models/.prompt-cache:ro,size=4k,notmpcopyup")' in body, f"{path}: the tmpfs must not copy the folder's files up"
+# A container set up like Halogen's is started by the selftest (and so by the VM test), since the
+# VM never starts Halogen: crun 1.31 broke every start of it unseen by CI.
+assert "container-check" in open("files/usr/libexec/halogen/selftest").read() and "'PASS container-start:'" in open("tests/iso-install.sh").read()
 fc = open("files/usr/libexec/halogen/flash-checkpoint").read()
 # Download path: the shared lookup table is a reflink copy first (a hard link lets the next pull's
 # container write the official file), and no folder is mounted through a link.

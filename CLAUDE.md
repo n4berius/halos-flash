@@ -786,6 +786,19 @@ name, but allows saying halOS runs Halogen.
     in the trap (its containers run in pipelines and `$(...)`), and only a pull or a conversion
     (`ctr_owned`) names or removes one, so `verify`/`check` never touch a running pull's.
 
+- crun 1.31 (Fedora, Nov 2026; crun#2480, podman#30265 proposed) no longer creates a missing mount
+  point under a read-only root (commit ef668b8, "do not defer the read-only remount of bind
+  mounts"), so podman's `--read-only` with a file mounted at `/run/secrets/…` (Halogen's key; its
+  image has no `/run/secrets`) fails every start: `crun: open …/merged/run/secrets/halogen-api-key:
+  No such file or directory`, exit 127. freyja's edge image from #132's merge hit it; the rollback
+  (crun 1.30.1) works. The base image `quay.io/fedora/fedora-bootc:45` is a moving tag (#121), so a
+  base update changes podman/crun without any change here, and the VM test never starts Halogen
+  (no models). `/usr/libexec/halogen/container-check` (as halogen) imports a tiny image (Fedora's
+  static `ldconfig` and the folders Halogen's image has, not `/run/secrets`) as
+  `localhost/halos-container-check:1` and runs it with Halogen's shape (`--read-only --tmpfs /run`,
+  scratch volumes, a stand-in key at `/run/secrets/halogen-api-key`, no network or capabilities);
+  the selftest's `container-start` runs it (FAIL on 1), so the VM test does too. (#137)
+
 ## Lessons already learned
 
 - `setpriv` and `runuser` keep the caller's working folder. Run as halogen from an admin's home

@@ -1,0 +1,29 @@
+#!/bin/bash
+# Starts a tiny container set up the way Halogen's is (read-only files, /run in memory, a key file
+# mounted into /run/secrets, scratch volumes, no network, no capabilities), as halogen. Halogen's
+# own image is too large for the VM test, and the VM never starts Halogen, so this is how a
+# podman or crun update that breaks that setup is caught before it reaches a machine: crun 1.31
+# stopped creating the missing /run/secrets mount point under a read-only root (crun#2480), and
+# every start of Halogen failed. The selftest runs it too. The key is a stand-in, never the real one.
+# Exit 0: it started; 1: it didn't (podman's words follow); 2: the check couldn't be made.
+set -uo pipefail
+img=localhost/halos-container-check:1
+work="$(mktemp -d)" || exit 2
+trap 'rm -rf "$work"' EXIT
+if ! podman image exists "$img" 2> /dev/null; then
+  # ldconfig is a static program, so it runs alone. The folders are those Halogen's image has;
+  # /run/secrets is not one of them, as in Halogen's.
+  mkdir -p "$work/root/usr/sbin" "$work/root"/{dev,proc,sys,run,tmp,var/tmp,root,etc} || exit 2
+  cp "${HALOS_CHECK_PROGRAM:-/usr/sbin/ldconfig}" "$work/root/usr/sbin/ldconfig" || exit 2
+  tar -C "$work/root" -c . | podman import --change 'ENTRYPOINT ["/usr/sbin/ldconfig"]' - "$img" > /dev/null 2>&1 \
+    || { echo "container-check: couldn't make the test image" >&2; exit 2; }
+fi
+echo stand-in > "$work/key" || exit 2
+if out="$(podman run --rm --pull=never --read-only --tmpfs /run --network=none --cap-drop all \
+    --security-opt=no-new-privileges -v /tmp -v /var/tmp -v /root \
+    -v "$work/key:/run/secrets/halogen-api-key:ro" "$img" --version 2>&1)"; then
+  echo "container-check: a container set up like Halogen's starts"
+  exit 0
+fi
+printf '%s\n' "$out" | tr -cd '[:print:]\n' | tail -n 3 >&2
+exit 1
