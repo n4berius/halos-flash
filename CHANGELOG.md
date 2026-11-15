@@ -15,7 +15,7 @@ promoted.
   stops, `flash use` and `flash remove` (and `model remove`) check again after you answered that
   nothing changed meanwhile (so a removal can't delete the checkpoint just chosen), and a second
   `flash check`, or a `flash use`, waits for a running check instead of putting a second job on
-  the GPU. (#PRNUM)
+  the GPU. (#139)
 
 - The selftest's checks that run as the halogen user (Halogen's scratch folders, its generated
   service) now run in a session of their own, so nothing they start can reach the terminal you

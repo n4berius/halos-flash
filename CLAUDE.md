@@ -889,7 +889,7 @@ name, but allows saying halOS runs Halogen.
   (`as_owner`) runs only plain programs (`test`, `cat`, `head`, `stat`, `sed`, `du`, `find`) whose
   behaviour halogen can't change, so it stays as it is.
 
-- Checkpoint locks (#PRNUM, Codex #119, after the per-pull locks of #136): every command on a
+- Checkpoint locks (#139, Codex #119, after the per-pull locks of #136): every command on a
   Flash checkpoint takes `/var/lib/halogen/pull-flash-<name>.lock` (`name_lock`: pull, both convert
   steps, `verify`, `check-prepare`, `check`, and the new `flash-checkpoint use|remove <name>`), and
   `model-pull` and the new `model-pull --remove <name>` take `pull-npu-<name>.lock` (`take_lock`);
