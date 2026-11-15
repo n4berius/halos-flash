@@ -48,7 +48,9 @@ if ! flock -n 9; then
   # The process group written in the lock, with a way to stop it, when it is still this user's
   # (a pull stopped with Ctrl-C goes on in the background).
   g="$(head -c 16 -- "$lock" 2>/dev/null | tr -cd 0-9)"
-  if [ -n "$g" ] && [ "$(stat -c %u "/proc/$g" 2>/dev/null)" = "$(id -u)" ]; then
+  # Only a real process group of this user's, and never 1 (kill -- -1 signals everything).
+  if [ -n "$g" ] && [ "$g" -gt 1 ] && [ "$(ps -o pgid= -p "$g" 2>/dev/null | tr -cd 0-9)" = "$g" ] \
+     && [ "$(stat -c %u "/proc/$g" 2>/dev/null)" = "$(id -u)" ]; then
     echo "Another pull of $name is running. One stopped with Ctrl-C goes on in the background; to stop it: sudo kill -- -$g" >&2
   else echo "Another pull of $name is running. Wait for it to end, then try again." >&2; fi
   exit 1

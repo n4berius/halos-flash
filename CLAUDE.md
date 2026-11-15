@@ -806,10 +806,18 @@ name, but allows saying halOS runs Halogen.
     and so does every podman call (`podman() { command podman "$@" 9>&-; }`: conmon inherited it,
     so after a hard kill a leftover container kept the name locked for as long as it ran; checked
     rootful with podman 4.9.3, rootless's pause process not checked). The lock file holds the
-    holder's process group; a refused pull prints `sudo kill -- -<pgid>` when `/proc/<pgid>` is
-    still this user's (a pull stopped with Ctrl-C under `systemd-run --pipe` keeps running),
-    else just "wait". flash pull refuses a `tokenizer/` that is a link before removing anything
-    in it (the pull's container could leave one pointing at a folder of matching copies).
+    holder's process group; a refused pull prints `sudo kill -- -<pgid>` when the number is above
+    1, `ps -o pgid=` of it is itself (a live group leader) and `/proc/<pgid>` is still this
+    user's (a pull stopped with Ctrl-C under `systemd-run --pipe` keeps running), else just
+    "wait" (`1` would have printed `kill -- -1`, every process, run as root: re-review). flash
+    pull refuses a `tokenizer/` that is a link before removing anything in it (the pull's
+    container could leave one pointing at a folder of matching copies; the message gives the
+    `sudo rm` that removes the link), and copies the official tokenizer into a checkpoint
+    without one only when it holds no link. The tokenizer check's stray-file sweep (from #135)
+    matches names in a `declare -A` set too (`tokenizer.json<newline>evil` passed `grep -qxF`).
+    Re-review found four tests that passed without their change; each test now fails with its
+    change reverted (a folder name with a newline, the listing step hung for the stop, a link
+    in `npu` leaving the top read-only, the flash hint).
     `weights-sums.sh` stops on a `Link: … rel="next"` header and on `tokenizer/<sub>/…` files
     (`WEIGHTS_SUMS_OUT` for `tests/weights-sums.sh`).
   - The stamp and the checkpoint-base note are `/var/lib/halogen/fetch-stamp` and `own-bases`

@@ -353,10 +353,13 @@ if [ -e "$unchecked" ]; then
     fi
   done
   # Anything else in tokenizer/ isn't this release's (Halogen reads the folder whole): it goes.
+  # Exact names: one holding a newline must not pass for a listed one.
+  declare -A sum_names=()
+  while read -r _ n; do sum_names["$n"]=1; done < <(awk '/^[0-9a-f]{64}  /{print}' "$sums")
   for f in "$models"/tokenizer/* "$models"/tokenizer/.[!.]*; do
     if [ ! -d "$models/tokenizer" ] || [ -L "$models/tokenizer" ]; then break; fi
     [ -e "$f" ] || [ -L "$f" ] || continue
-    if ! grep -qxF "tokenizer/${f##*/}" < <(awk '/^[0-9a-f]{64}  /{print $2}' "$sums") || [ -L "$f" ] || [ ! -f "$f" ]; then
+    if [ -z "${sum_names["tokenizer/${f##*/}"]+x}" ] || [ -L "$f" ] || [ ! -f "$f" ]; then
       rm -rf -- "$f" || exit 1; echo "halogen-fetch: removed tokenizer/${f##*/}, which isn't one of this release's files"
     fi
   done

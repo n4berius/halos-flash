@@ -132,6 +132,10 @@ grep -q "to stop it: sudo kill -- -$(ps -o pgid= -p "$$" | tr -cd 0-9)" "$work/o
 echo 999999999 > "$work/state/pull-npu-Busy.lock"
 "$pull" LiquidAI/Busy > "$work/out" 2>&1 || true
 if grep -q "sudo kill" "$work/out"; then echo "the busy message offered to kill a process that isn't there" >&2; exit 1; fi
+# Never 1 (kill -- -1 would signal everything), and only a real process group's leader.
+echo 1 > "$work/state/pull-npu-Busy.lock"
+"$pull" LiquidAI/Busy > "$work/out" 2>&1 || true
+if grep -q "sudo kill" "$work/out"; then echo "the busy message offered kill -- -1" >&2; exit 1; fi
 exec 8>&-
 # A pull writes its own process group in the lock, and no podman call gets the lock's descriptor.
 rm -f "$work/fd9.log"

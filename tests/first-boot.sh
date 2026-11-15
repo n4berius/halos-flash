@@ -274,6 +274,35 @@ embed.hnpw"
 [ ! -e "$work/models/npu/embed/a
 embed.hnpw" ] || { echo "a name with a newline passed for a listed file" >&2; exit 1; }
 ok "names are matched exactly against the record"
+# The same for a folder whose name holds a newline: its file's path reads as two lines, the second
+# a listed name.
+mkdir -p "$work/models/npu/embed/a
+embed"; printf x > "$work/models/npu/embed/a
+embed/embed.hnpw"
+: > "$work/state/npu-unclean"; "$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+[ ! -e "$work/models/npu/embed/a
+embed/embed.hnpw" ] || { echo "a path with a newline passed for a listed file" >&2; exit 1; }
+/usr/bin/rm -rf "$work/models/npu/embed/a
+embed"
+ok "a folder name with a newline doesn't pass for a listed file either"
+
+# A link in npu with the official files there: the download still has the top of /models
+# read-only and hashes nothing (the npu state is only the fast path's business), and the link goes.
+ln -s "$work/victim" "$work/models/npu/embed/stray"; : > "$work/podman.log"
+"$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+grep '/fetch.sh' "$work/podman.log" | grep -v -- '--network=none' > "$work/dl.log" || true
+grep -q -- "-v $work/models:/models:ro " "$work/dl.log" || { cat "$work/out" >&2; echo "a link in npu made the top of /models writable to the download" >&2; exit 1; }
+if grep -q "checking the official files" "$work/out" || [ -e "$work/state/weights-unchecked" ]; then echo "a link in npu made the fetch hash the official files" >&2; exit 1; fi
+[ ! -L "$work/models/npu/embed/stray" ] || { echo "the link in npu was left" >&2; exit 1; }
+ok "a link in npu doesn't open the official files to the download, and is removed"
+
+# The tokenizer check matches names exactly too: tokenizer.json<newline>evil isn't tokenizer.json.
+printf x > "$work/models/tokenizer/tokenizer.json
+evil"
+: > "$work/state/weights-unchecked"; "$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+[ ! -e "$work/models/tokenizer/tokenizer.json
+evil" ] || { echo "a tokenizer file named with a newline passed for a listed one" >&2; exit 1; }
+ok "a tokenizer file whose name holds a newline is removed"
 
 # With the stamp matching, a link inside tokenizer/ or at the vision tower's name (the tower off)
 # is removed rather than left behind a "models already match" (preflight would refuse it).

@@ -130,6 +130,13 @@ ok "the lookup table is fetched only when the checkpoint needs it, and a missing
 reset_repo; rm -r "$work/repo/tokenizer"
 pull someone/No-Tokenizer --as no-tok || fail "pull failed"
 { grep -q official "$work/models/flash/no-tok/tokenizer/tokenizer.json" && [ ! -L "$work/models/flash/no-tok/tokenizer" ]; } || fail "official tokenizer not copied"
+# The official tokenizer is copied only as plain files: a link in it (or in its place) stops the pull.
+ln -s /etc/hostname "$work/models/tokenizer/extra.json"
+reset_repo; rm -r "$work/repo/tokenizer"
+if pull someone/No-Tokenizer --as no-tok2; then fail "a pull copied an official tokenizer holding a link"; fi
+grep -q "official tokenizer folder holds a link" "$work/out" || fail "the link in the official tokenizer wasn't named"
+[ ! -L "$work/models/flash/no-tok2/tokenizer/extra.json" ] || fail "a link was copied into the checkpoint"
+rm -f "$work/models/tokenizer/extra.json"; rm -rf "$work/models/flash/no-tok2"
 ok "a repository without a tokenizer gets a copy of the official one"
 # A tokenizer/ with only a chat template and settings (Signal-3.8-Flash-Next-HGN-v2) gets the
 # official vocabulary; its own chat template stays. A checkpoint pulled before the fix is filled
@@ -244,6 +251,19 @@ grep -q "Another pull or conversion of busy is running" "$work/out" || fail "the
 if grep -q "halogen-pull-flash-busy" "$work/podman.log"; then fail "the second pull touched the first one's container"; fi
 exec 8>&-
 ok "a second pull of the same name stops before it touches the first one's container"
+# The busy message says how to stop the holder only when it is a live process group of this user's,
+# never for 1 or one that is gone.
+exec 8>> "$work/state/pull-flash-busy.lock"; flock -n 8
+ps -o pgid= -p "$$" | tr -cd 0-9 > "$work/state/pull-flash-busy.lock"
+pull someone/My-Flash-HGN --as busy || true
+grep -q "to stop it: sudo kill -- -$(ps -o pgid= -p "$$" | tr -cd 0-9)" "$work/out" || fail "the busy message didn't say how to stop the pull"
+for g in 999999999 1; do
+  echo "$g" > "$work/state/pull-flash-busy.lock"
+  pull someone/My-Flash-HGN --as busy || true
+  if grep -q "sudo kill" "$work/out"; then fail "the busy message offered to kill $g"; fi
+done
+exec 8>&-
+ok "the busy message says how to stop a live pull, and never offers kill -- -1"
 
 # No podman call gets the lock's descriptor (conmon would keep the name locked after a hard kill),
 # and the progress loop lets go of the lock with the command: right after it, the name is free.
@@ -268,6 +288,20 @@ if kill -0 "$(cat "$work/hang.pid")" 2> /dev/null; then fail "the container outl
 grep -q -x 'podman rm -f -i -t 0 halogen-pull-flash-hang' "$work/podman.log" || fail "the container wasn't removed: $(cat "$work/podman.log")"
 rm -f "$work/hang.pid"; rm -rf "$work/models/flash/hang"
 ok "a stop during a flash pull removes its container at once"
+# The same while the repository is being listed (a container run inside $(...), where only the
+# function's own trap can act at once).
+: > "$work/podman.log"; rm -f "$work/hang.pid"; listing > "$work/listing"
+FAKE_HANG=python3 setsid "$tool" pull someone/My-Flash-HGN --as hang > "$work/out" 2>&1 &
+p=$!
+for _ in $(seq 100); do [ -s "$work/hang.pid" ] && break; sleep 0.1; done
+[ -s "$work/hang.pid" ] || { cat "$work/out" >&2; fail "the fake listing never started"; }
+kill -TERM -- "-$p"
+for _ in $(seq 50); do kill -0 "$p" 2> /dev/null || break; sleep 0.1; done
+if kill -0 "$p" 2> /dev/null; then kill -9 -- "-$p"; fail "the pull kept waiting on a listing that ignores TERM"; fi
+wait "$p" || true
+if kill -0 "$(cat "$work/hang.pid")" 2> /dev/null; then fail "the listing outlived the stop"; fi
+rm -f "$work/hang.pid"; rm -rf "$work/models/flash/hang"
+ok "a stop while a flash pull lists its repository ends it at once"
 
 # The pull's container could leave tokenizer/ as a link to a folder holding the right files: the
 # hashes pass through it, but nothing is then removed through it.
@@ -275,6 +309,7 @@ mkdir -p "$work/victim3"; echo keep > "$work/victim3/keepme"
 printf 'cp -r "$1/tokenizer/." "%s/victim3/"; rm -rf "$1/tokenizer"; ln -s "%s/victim3" "$1/tokenizer"\n' "$work" "$work" > "$work/plant"
 if pull someone/My-Flash-HGN --as linked-tok; then fail "a pull went on with tokenizer/ a link"; fi
 [ "$(cat "$work/victim3/keepme" 2>/dev/null)" = keep ] || fail "a pull removed files through a link at tokenizer/"
+grep -qF "sudo rm $work/models/flash/linked-tok/tokenizer" "$work/out" || fail "the refusal didn't give the command that removes the link"
 rm -rf "$work/models/flash/linked-tok" "$work/victim3"
 ok "a link in place of a pulled checkpoint's tokenizer/ stops the pull, and nothing is removed through it"
 

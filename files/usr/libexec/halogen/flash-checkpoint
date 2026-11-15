@@ -30,7 +30,9 @@ podman() { command podman "$@" 9>&-; }
 lock_busy() {
   local g
   g="$(head -c 16 -- "$1" 2>/dev/null | tr -cd 0-9)"
-  if [ -n "$g" ] && [ "$(stat -c %u "/proc/$g" 2>/dev/null)" = "$(id -u)" ]; then
+  # Only a real process group of this user's, and never 1 (kill -- -1 signals everything).
+  if [ -n "$g" ] && [ "$g" -gt 1 ] && [ "$(ps -o pgid= -p "$g" 2>/dev/null | tr -cd 0-9)" = "$g" ] \
+     && [ "$(stat -c %u "/proc/$g" 2>/dev/null)" = "$(id -u)" ]; then
     die "Another $2 is running. One stopped with Ctrl-C goes on in the background; to stop it: sudo kill -- -$g"
   fi
   die "Another $2 is running. Wait for it to end, then try again."
@@ -745,7 +747,7 @@ for f in "$dir"/*.hgn; do
   [ "$keep" = 1 ] || { echo "Removing $(basename "$f") from an earlier pull."; rm -f -- "$f"; }
 done
 # The pull's container could leave a link in place of tokenizer/: nothing is removed through it.
-[ ! -L "$dir/tokenizer" ] || die "$dir/tokenizer is a link, not a folder. Remove it, then pull again."
+[ ! -L "$dir/tokenizer" ] || die "$dir/tokenizer is a link, not a folder. Remove the link (sudo rm $dir/tokenizer), then pull again."
 if [ "${#tokenizer[@]}" -gt 0 ]; then
   for f in "$dir"/tokenizer/* "$dir"/tokenizer/.[!.]*; do
     [ -e "$f" ] || [ -L "$f" ] || continue
@@ -758,6 +760,10 @@ fi
 # tokenizer, copied rather than linked; Halogen checks its chat template at start.
 if [ "${#tokenizer[@]}" = 0 ]; then
   echo "$repo has no tokenizer/, so the official tokenizer is copied in."
+  # The official tokenizer must be a folder of plain files: a link there would be copied as one.
+  if [ -L "$models/tokenizer" ] || [ -n "$(find "$models/tokenizer" -maxdepth 1 -type l 2>/dev/null | head -n 1)" ]; then
+    die "The official tokenizer folder holds a link; download it again (sudo rm -r $models/tokenizer, then sudo halogenctl restart)."
+  fi
   rm -rf "$dir/tokenizer" || exit 1
   cp -r -P "$models/tokenizer" "$dir/tokenizer" || exit 1
 fi
