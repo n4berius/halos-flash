@@ -127,32 +127,53 @@ esac
 # the tokenizer. A link in place of one is never a download: it goes, and the file is fetched.
 official=(qwen38-flash-next-v2.hgn qwen38-flash-next-ngram.hgn)
 [ -z "$vision" ] || official+=(qwen38-flash-next-vision.hgn)
-for f in "${official[@]}" tokenizer; do
+# All three .hgn names count (a vision tower kept while it is off too), and what is in tokenizer/.
+for f in qwen38-flash-next-v2.hgn qwen38-flash-next-ngram.hgn qwen38-flash-next-vision.hgn tokenizer; do
   if [ -L "$models/$f" ]; then
     rm -f -- "$models/$f" || exit 1; echo "halogen-fetch: removed a link at $models/$f"
   fi
 done
+# What stood there is then missing: tokenizer.json goes too, so this fetch downloads the
+# tokenizer again (and checks it).
+if [ -d "$models/tokenizer" ]; then
+  while IFS= read -r -d '' p; do
+    rm -f -- "$p" "$models/tokenizer/tokenizer.json" || exit 1
+    echo "halogen-fetch: removed ${p#"$models"/}, a link or not a plain file"
+  done < <(find "$models/tokenizer" -mindepth 1 \( -type l -o \( ! -type f ! -type d \) \) -print0 2>/dev/null)
+fi
 # A marker that the official files are still to be checked: set before a download that can write
 # them, and when this machine has no stamp yet (an install from before the check, or one whose
 # stamp is gone); removed only once every file matched. A fetch cut short leaves it, so the
 # next one checks, whichever way it ended.
 unchecked="$state/weights-unchecked"
 [ -e "$stamp" ] || : | write_new "$unchecked" || exit 1
+# Something only files and folders stand in, every folder readable (find stops at one it
+# can't read, and a link behind it would go unseen); 1 when not, or when find fails.
+plain_tree() {
+  local out
+  if [ ! -d "$1" ] || [ -L "$1" ]; then return 1; fi
+  out="$(find "$1" -mindepth 1 \( -type l -o \( ! -type f ! -type d \) -o \( -type d ! -perm -u=rx \) \) -print -quit 2>/dev/null)" || return 1
+  [ -z "$out" ]
+}
 official_there() {
   local f
   [ ! -L "$models/tokenizer" ] || return 1
+  [ ! -L "$models/qwen38-flash-next-vision.hgn" ] || return 1
   for f in "${official[@]}" tokenizer/tokenizer.json; do
     if [ ! -f "$models/$f" ] || [ -L "$models/$f" ]; then return 1; fi
   done
-  # A link (or anything but files and folders) under npu isn't the fast path either: the cleanup
-  # after the download removes it (Halogen's start would refuse it: preflight).
-  [ ! -d "$npu_dir" ] || [ -z "$(find "$npu_dir" -mindepth 1 \( -type l -o \( ! -type f ! -type d \) \) -print -quit 2>/dev/null)" ]
+  plain_tree "$models/tokenizer"
 }
+# The NPU folder is cleaned after each download (below). A marker says that is still owed: set
+# before the download, removed once the cleanup is done; a fetch cut short in between leaves it,
+# so the next one doesn't take the fast path.
+npu_unclean="$state/npu-unclean"
+npu_clean() { [ ! -e "$npu_unclean" ] && { [ ! -d "$npu_dir" ] || plain_tree "$npu_dir"; }; }
 
 # A machine from before the note, or from before both moved out of /srv/models, fetches (and
 # checks) once more, to write them: nothing is downloaded when the files are there.
 # The models folder is a volume of its own: emptied or replaced, the stamp alone would be wrong.
-if [ "$(cat "$stamp" 2>/dev/null)" = "$want" ] && [ -e "$bases_note" ] && [ ! -e "$unchecked" ] && official_there; then
+if [ "$(cat "$stamp" 2>/dev/null)" = "$want" ] && [ -e "$bases_note" ] && [ ! -e "$unchecked" ] && official_there && npu_clean; then
   echo "halogen-fetch: models already match this release"
   exit 0
 fi
@@ -244,6 +265,7 @@ if printf '%s\n' "$own_bases" | write_new "$bases_note.new"; then mv -f "$bases_
 # release carries (weights.sha256) once it is done.
 top=":ro"
 if ! official_there; then top=""; : | write_new "$unchecked" || exit 1; fi
+: | write_new "$npu_unclean" || exit 1
 
 wait_s=15
 while :; do
@@ -276,19 +298,31 @@ if ! pins_list="$(podman run --rm --pull=never --network=none --read-only --cap-
     --security-opt no-new-privileges --entrypoint cat "$HALOGEN_IMAGE" /opt/halogen/npu/models.txt)"; then
   echo "halogen-fetch: cannot read the NPU model record from Halogen's image" >&2; exit 1
 fi
-allowed="$(awk '$1 == "file" { print $2 "/" $3 } $1 == "model" { print $2 "/" }' <<< "$pins_list")"
+# Exact names: a file name holding a newline must not pass for two listed names.
+declare -A known_model=() listed=()
+while read -r kind a b _; do
+  case "$kind" in model) known_model["$a"]=1 ;; file) listed["$a/$b"]=1 ;; esac
+done <<< "$pins_list"
+# The download could have made folders read-only, or unreadable, to keep a link it planted: they
+# are opened up first (chmod -R doesn't follow links), and any removal that fails stops the fetch.
+chmod -R u+rwX -- "$npu_dir" || exit 1
 while IFS= read -r -d '' p; do
-  rm -f -- "$p" && echo "halogen-fetch: removed ${p#"$models"/}, a link or not a plain file"
+  rm -f -- "$p" || exit 1; echo "halogen-fetch: removed ${p#"$models"/}, a link or not a plain file"
 done < <(find "$npu_dir" -mindepth 1 \( -type l -o \( ! -type f ! -type d \) \) -print0 2>/dev/null)
-for d in "$npu_dir"/*/; do
-  id="${d%/}"; id="${id##*/}"
-  grep -qxF -- "$id/" <<< "$allowed" || continue
+plain_tree "$npu_dir" || { echo "halogen-fetch: $npu_dir still holds a link or something unreadable" >&2; exit 1; }
+for d in "$npu_dir"/*; do
+  # No trailing slash and no links: the walk below never leaves npu.
+  if [ -L "$d" ] || [ ! -d "$d" ]; then continue; fi
+  id="${d##*/}"
+  [ -n "${known_model["$id"]+x}" ] || continue
   while IFS= read -r -d '' p; do
     rel="${p#"$npu_dir"/}"
     case "$rel" in "$id"/.cache/huggingface/*) continue ;; esac
-    grep -qxF -- "$rel" <<< "$allowed" || { rm -f -- "$p" && echo "halogen-fetch: removed npu/$rel, which this release's record doesn't list"; }
+    [ -n "${listed["$rel"]+x}" ] && continue
+    rm -f -- "$p" || exit 1; echo "halogen-fetch: removed npu/${rel//[^[:print:]]/?}, which this release's record doesn't list"
   done < <(find "$d" -type f -print0)
 done
+rm -f -- "$npu_unclean" || exit 1
 
 # After a download that could write the official files, each is checked against this release's
 # hashes. A file that differs (or a link) is removed and the fetch fails, so the next start

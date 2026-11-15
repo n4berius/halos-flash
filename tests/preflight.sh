@@ -36,6 +36,10 @@ ln -s "$work/elsewhere" "$work/models/qwen38-flash-next-ngram.hgn"; expect_fail 
 ln -s "$work/elsewhere" "$work/models/npu/embed/b.hnpw"; expect_fail "a link inside the NPU folder"; rm "$work/models/npu/embed/b.hnpw"
 mkfifo "$work/models/npu/embed/fifo"; expect_fail "a FIFO inside the NPU folder"; rm "$work/models/npu/embed/fifo"
 ln -s "$work/elsewhere" "$work/models/tokenizer/merges.txt"; expect_fail "a link inside the tokenizer folder"; rm "$work/models/tokenizer/merges.txt"
+# A folder that can't be listed hides what is in it (a link at a listed name, say).
+# (Empty here: this test may run as root, who would list it anyway.)
+mkdir -p "$work/models/npu/hidden"; chmod 0111 "$work/models/npu/hidden"
+expect_fail "an NPU folder that can't be listed"; chmod 0755 "$work/models/npu/hidden"; rm -rf "$work/models/npu/hidden"
 run > /dev/null; rm -rf "$work/models/npu" "$work/models/tokenizer"
 : > "$work/models/LFM"; expect_fail "a file in place of an own-checkpoint folder"; rm "$work/models/LFM"
 rm "$work/dev/accel/accel0"; expect_fail "a missing NPU"

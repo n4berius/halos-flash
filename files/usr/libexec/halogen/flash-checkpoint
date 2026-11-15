@@ -22,6 +22,19 @@ state="${HALOGEN_STATE_DIR:-/var/lib/halogen}"
 table=qwen38-flash-next-ngram.hgn
 vision=qwen38-flash-next-vision.hgn
 die() { echo "$*" >&2; exit 1; }
+# podman and its conmon would inherit the pull lock (fd 9) and hold it after a hard kill, for as
+# long as a leftover container runs: every podman call closes it.
+podman() { command podman "$@" 9>&-; }
+# Says who holds a pull lock: the process group written in it, with a way to stop it, when that
+# is still one of this user's (a pull stopped with Ctrl-C goes on in the background).
+lock_busy() {
+  local g
+  g="$(head -c 16 -- "$1" 2>/dev/null | tr -cd 0-9)"
+  if [ -n "$g" ] && [ "$(stat -c %u "/proc/$g" 2>/dev/null)" = "$(id -u)" ]; then
+    die "Another $2 is running. One stopped with Ctrl-C goes on in the background; to stop it: sudo kill -- -$g"
+  fi
+  die "Another $2 is running. Wait for it to end, then try again."
+}
 flash_choice="${HALOGEN_FLASH_FILE:-/srv/configs/flash-checkpoint}"
 valid_name() {
   case "$1" in [A-Za-z0-9]*) ;; *) return 1 ;; esac
@@ -55,8 +68,10 @@ trap 'exit 130' INT; trap 'exit 143' TERM HUP
 # the first's container, and the first's end would remove the second's. Taken before anything is
 # removed or started, and held until this ends.
 name_lock() {
-  exec 9>> "$state/pull-flash-$1.lock" || die "Can't open the pull lock in $state."
-  flock -n 9 || die "Another pull or conversion of $1 is running. Wait for it to end, then try again."
+  local lock="$state/pull-flash-$1.lock"
+  exec 9>> "$lock" || die "Can't open the pull lock in $state."
+  flock -n 9 || lock_busy "$lock" "pull or conversion of $1"
+  ps -o pgid= -p "$$" 2>/dev/null | tr -cd 0-9 > "$lock" || true
 }
 # In a subshell of its own, with the client in the background: a stop (TERM, HUP or INT) is acted
 # on at once, not after the client returns (it waits on a container that may ignore the signal),
@@ -729,11 +744,13 @@ for f in "$dir"/*.hgn; do
   keep=0; for w in "${wanted[@]}"; do [ "$w" != "$(basename "$f")" ] || keep=1; done
   [ "$keep" = 1 ] || { echo "Removing $(basename "$f") from an earlier pull."; rm -f -- "$f"; }
 done
+# The pull's container could leave a link in place of tokenizer/: nothing is removed through it.
+[ ! -L "$dir/tokenizer" ] || die "$dir/tokenizer is a link, not a folder. Remove it, then pull again."
 if [ "${#tokenizer[@]}" -gt 0 ]; then
   for f in "$dir"/tokenizer/* "$dir"/tokenizer/.[!.]*; do
     [ -e "$f" ] || [ -L "$f" ] || continue
     keep=0; for w in "${tokenizer[@]}"; do [ "$w" != "tokenizer/$(basename "$f")" ] || keep=1; done
-    [ "$keep" = 1 ] || rm -rf -- "$f"
+    [ "$keep" = 1 ] || rm -rf -- "$f" || exit 1
   done
 fi
 
@@ -741,7 +758,8 @@ fi
 # tokenizer, copied rather than linked; Halogen checks its chat template at start.
 if [ "${#tokenizer[@]}" = 0 ]; then
   echo "$repo has no tokenizer/, so the official tokenizer is copied in."
-  rm -rf "$dir/tokenizer" && cp -r "$models/tokenizer" "$dir/tokenizer" || exit 1
+  rm -rf "$dir/tokenizer" || exit 1
+  cp -r -P "$models/tokenizer" "$dir/tokenizer" || exit 1
 fi
 
 { echo "repo=$repo"

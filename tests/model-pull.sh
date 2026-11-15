@@ -10,6 +10,8 @@ cat > "$work/bin/podman" <<'S'
 #!/bin/bash
 # Runs the requested program on the host, with /models mapped to the test's folder.
 echo "podman $*" >> "$FAKE/podman.log"
+# The pull lock (fd 9) must not reach podman: its conmon would hold it after a hard kill.
+[ ! -e /proc/self/fd/9 ] || echo "podman $*" >> "$FAKE/fd9.log"
 # Removing the container ends a "container" that ignores SIGTERM (FAKE_HANG below).
 if [ "$1" = rm ] && [ -s "$FAKE/hang.pid" ]; then kill -9 "$(cat "$FAKE/hang.pid")" 2> /dev/null; fi
 [ "$1" = run ] || exit 0
@@ -122,6 +124,20 @@ if "$pull" LiquidAI/Busy > "$work/out" 2>&1; then echo "two pulls of one name ra
 grep -q "Another pull of Busy is running" "$work/out" || { cat "$work/out" >&2; exit 1; }
 if [ -s "$work/podman.log" ]; then echo "the second pull touched a container: $(cat "$work/podman.log")" >&2; exit 1; fi
 exec 8>&-
+# The lock names the holder's process group: still one of this user's, the message says how to
+# stop it (a pull stopped with Ctrl-C goes on in the background); otherwise, just wait.
+exec 8>> "$work/state/pull-npu-Busy.lock"; flock -n 8; ps -o pgid= -p "$$" | tr -cd 0-9 > "$work/state/pull-npu-Busy.lock"
+"$pull" LiquidAI/Busy > "$work/out" 2>&1 || true
+grep -q "to stop it: sudo kill -- -$(ps -o pgid= -p "$$" | tr -cd 0-9)" "$work/out" || { cat "$work/out" >&2; echo "the busy message didn't say how to stop the pull" >&2; exit 1; }
+echo 999999999 > "$work/state/pull-npu-Busy.lock"
+"$pull" LiquidAI/Busy > "$work/out" 2>&1 || true
+if grep -q "sudo kill" "$work/out"; then echo "the busy message offered to kill a process that isn't there" >&2; exit 1; fi
+exec 8>&-
+# A pull writes its own process group in the lock, and no podman call gets the lock's descriptor.
+rm -f "$work/fd9.log"
+"$pull" LiquidAI/LFM3-1.7B > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+[ -n "$(tr -cd 0-9 < "$work/state/pull-npu-LFM3-1.7B.lock")" ] || { echo "the lock holds no process group" >&2; exit 1; }
+[ ! -s "$work/fd9.log" ] || { cat "$work/fd9.log" >&2; echo "podman got the pull lock's descriptor" >&2; exit 1; }
 ok "a second pull of the same name stops before it touches the first one's container"
 
 # A stop (TERM to the whole unit, as systemd sends it) removes the container at once, though the

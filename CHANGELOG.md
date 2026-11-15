@@ -10,11 +10,14 @@ promoted.
 
 ## Unreleased
 
-- Downloads, a last round: Halogen refuses to start when a link stands where it loads its model
-  files from (the official files, the tokenizer, anything in the NPU folder); after a download
-  the NPU folder keeps only the files Halogen's own record lists; a `model pull`, `flash pull` or
-  `flash convert` that is stopped removes its download at once; two pulls of the same name can
-  no longer run at once and break each other (the second says so and stops). (#PRNUM)
+- Downloads, a last round: Halogen refuses to start when a link (or a folder it can't read)
+  stands where it loads its model files from (the official files, the tokenizer, the NPU
+  folder), and the next fetch removes it; after a download the NPU folder keeps only the files
+  Halogen's own record lists for the models it knows (a rollback may download a few files
+  again); the clean-up never follows a link out of the models folder; a `model pull`,
+  `flash pull` or `flash convert` that is stopped removes its download at once; and two pulls of
+  the same name can no longer run at once and break each other (the second says so, and how to
+  stop the first). (#PRNUM)
 
 - More hardening of the downloads: once the official files are on the disk, a model download
   can no longer change them (only the NPU folder is writable to it); after a download that could,

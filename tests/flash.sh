@@ -32,6 +32,10 @@ cat > "$work/bin/podman" <<'S'
 #!/bin/bash
 # Plays the pinned image: /models is the test's folder, and the entrypoint picks the tool.
 echo "podman $*" >> "$FAKE/podman.log"
+# The pull lock (fd 9) must not reach podman: its conmon would hold it after a hard kill.
+[ ! -e /proc/self/fd/9 ] || echo "podman $*" >> "$FAKE/fd9.log"
+# Removing the container ends a "container" that ignores SIGTERM (FAKE_HANG below).
+if [ "$1" = rm ] && [ -s "$FAKE/hang.pid" ]; then kill -9 "$(cat "$FAKE/hang.pid")" 2> /dev/null; fi
 [ "$1" = run ] || exit 0
 shift; entry=""
 while [ $# -gt 0 ]; do
@@ -42,6 +46,8 @@ while [ $# -gt 0 ]; do
     *) shift; break ;;
   esac
 done
+# FAKE_HANG=<entrypoint>: that step's "container" ignores SIGTERM until it is removed.
+if [ -n "${FAKE_HANG:-}" ] && [ "$FAKE_HANG" = "$entry" ]; then trap '' TERM INT HUP; sleep 30 & echo "$!" > "$FAKE/hang.pid"; wait; exit 1; fi
 case "$entry" in
   python3) cat > /dev/null; if [ -n "${FAKE_HUB_ERROR:-}" ]; then echo "error $FAKE_HUB_ERROR"; else cat "$FAKE/listing"; fi ;;
   hf) shift; shift; files=(); dir=""; rev=""
@@ -51,7 +57,9 @@ case "$entry" in
       echo "hf $rev ${files[*]}" >> "$FAKE/hf.log"
       echo "Hint: update hf"
       for f in "${files[@]}"; do mkdir -p "$(dirname "$dir/$f")"; cp "$FAKE/repo/$f" "$dir/$f"; done
-      [ -z "${FAKE_CORRUPT:-}" ] || printf 'x' >> "$dir/$FAKE_CORRUPT" ;;
+      [ -z "${FAKE_CORRUPT:-}" ] || printf 'x' >> "$dir/$FAKE_CORRUPT"
+      # What a hostile download could leave behind it (a test plants it here).
+      [ ! -f "$FAKE/plant" ] || { bash "$FAKE/plant" "$dir"; rm -f "$FAKE/plant"; } ;;
   /usr/local/bin/flash_serve) echo "loading"; echo "${FAKE_FACTS-61.2 0 1}" ;;
   "") if [ "$1" = ppl ]; then
         echo "ppl ${*:2}" >> "$FAKE/ppl.log"; echo "halogen ppl: prose" >&2
@@ -236,6 +244,39 @@ grep -q "Another pull or conversion of busy is running" "$work/out" || fail "the
 if grep -q "halogen-pull-flash-busy" "$work/podman.log"; then fail "the second pull touched the first one's container"; fi
 exec 8>&-
 ok "a second pull of the same name stops before it touches the first one's container"
+
+# No podman call gets the lock's descriptor (conmon would keep the name locked after a hard kill),
+# and the progress loop lets go of the lock with the command: right after it, the name is free.
+rm -f "$work/fd9.log"
+reset_repo; HALOGEN_PROGRESS_S=5 pull someone/My-Flash-HGN --as prog || { cat "$work/out" >&2; fail "a pull with progress failed"; }
+[ ! -s "$work/fd9.log" ] || fail "podman got the pull lock's descriptor: $(cat "$work/fd9.log")"
+flock -n "$work/state/pull-flash-prog.lock" true || fail "the lock outlived the pull (its progress loop held it)"
+ok "the pull lock reaches no podman call and is free as soon as the pull ends"
+
+# A stop (TERM to the whole unit) removes the download's container at once, though it ignores
+# the signal.
+: > "$work/podman.log"; rm -f "$work/hang.pid"; listing > "$work/listing"
+FAKE_HANG=hf setsid "$tool" pull someone/My-Flash-HGN --as hang > "$work/out" 2>&1 &
+p=$!
+for _ in $(seq 100); do [ -s "$work/hang.pid" ] && break; sleep 0.1; done
+[ -s "$work/hang.pid" ] || { cat "$work/out" >&2; fail "the fake download never started"; }
+kill -TERM -- "-$p"
+for _ in $(seq 50); do kill -0 "$p" 2> /dev/null || break; sleep 0.1; done
+if kill -0 "$p" 2> /dev/null; then kill -9 -- "-$p"; fail "the pull kept waiting on a container that ignores TERM"; fi
+wait "$p" || true
+if kill -0 "$(cat "$work/hang.pid")" 2> /dev/null; then fail "the container outlived the stop"; fi
+grep -q -x 'podman rm -f -i -t 0 halogen-pull-flash-hang' "$work/podman.log" || fail "the container wasn't removed: $(cat "$work/podman.log")"
+rm -f "$work/hang.pid"; rm -rf "$work/models/flash/hang"
+ok "a stop during a flash pull removes its container at once"
+
+# The pull's container could leave tokenizer/ as a link to a folder holding the right files: the
+# hashes pass through it, but nothing is then removed through it.
+mkdir -p "$work/victim3"; echo keep > "$work/victim3/keepme"
+printf 'cp -r "$1/tokenizer/." "%s/victim3/"; rm -rf "$1/tokenizer"; ln -s "%s/victim3" "$1/tokenizer"\n' "$work" "$work" > "$work/plant"
+if pull someone/My-Flash-HGN --as linked-tok; then fail "a pull went on with tokenizer/ a link"; fi
+[ "$(cat "$work/victim3/keepme" 2>/dev/null)" = keep ] || fail "a pull removed files through a link at tokenizer/"
+rm -rf "$work/models/flash/linked-tok" "$work/victim3"
+ok "a link in place of a pulled checkpoint's tokenizer/ stops the pull, and nothing is removed through it"
 
 # A lookup table identical to the official one is shared, not downloaded again.
 reset_repo; cp "$work/repo/qwen38-flash-next-ngram.hgn" "$work/models/qwen38-flash-next-ngram.hgn"
@@ -438,4 +479,17 @@ grep -q 'start it again to retry' "$work/out" || fail "the retry wasn't explaine
 [ ! -e "$out" ] || fail "output from a failed conversion"
 if run conv --threads 99; then fail "took 99 threads"; fi
 ok "convert-run keeps the weights when asked, and refuses a corrupt download, a failed conversion and bad options"
+
+# A conversion holds the name's lock too: a pull or a second conversion of it waits its turn.
+exec 8>> "$work/state/pull-flash-conv.lock"; flock -n 8
+if prepare someone/Flash-BF16 --as conv; then fail "convert-prepare ran beside a pull of the same name"; fi
+grep -q "Another pull or conversion of conv is running" "$work/out" || fail "convert-prepare didn't name the lock: $(cat "$work/out")"
+if run conv; then fail "convert-run ran beside a pull of the same name"; fi
+grep -q "Another pull or conversion of conv is running" "$work/out" || fail "convert-run didn't name the lock: $(cat "$work/out")"
+exec 8>&-
+# Its progress loop (ten times the pull's interval) lets go of the lock with it.
+rm -rf "$out" "$work/models/flash/.convert"; prepare someone/Flash-BF16 --as conv > /dev/null
+HALOGEN_PROGRESS_S=3 run conv || fail "a conversion with progress failed"
+flock -n "$work/state/pull-flash-conv.lock" true || fail "the lock outlived the conversion (its progress loop held it)"
+ok "convert-prepare and convert-run take the name's lock, and let go of it when they end"
 

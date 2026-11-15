@@ -60,8 +60,11 @@ for f in qwen38-flash-next-v2.hgn qwen38-flash-next-ngram.hgn qwen38-flash-next-
 done
 for d in "$m/tokenizer" "$m/npu"; do
   if [ ! -d "$d" ] || [ -L "$d" ]; then continue; fi
-  odd="$(find "$d" -mindepth 1 \( -type l -o \( ! -type f ! -type d \) \) -print -quit 2>/dev/null)"
-  if [ -n "$odd" ]; then
+  # A folder its owner can't list hides what is in it (find skips it with an error): that counts
+  # too, as does find failing at all.
+  if ! odd="$(find "$d" -mindepth 1 \( -type l -o \( ! -type f ! -type d \) -o \( -type d ! -perm -u=rx \) \) -print -quit 2>/dev/null)"; then
+    fail "$d can't be read through. Restart Halogen (sudo halogenctl restart): the fetch opens it up and cleans it"
+  elif [ -n "$odd" ]; then
     fail "$(printf '%s' "$odd" | tr -cd '[:print:]') is a link or not a plain file. Restart Halogen (sudo halogenctl restart): the fetch removes it and downloads what is missing"
   fi
 done

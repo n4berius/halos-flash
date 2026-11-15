@@ -74,7 +74,11 @@ S
 # folder read-only would cause for a user without root's rights (CI's runner; this test may run as root).
 cat > "$work/bin/rm" <<'S'
 #!/bin/bash
-if [ -n "${FAKE_RM_FAIL:-}" ]; then for a in "$@"; do [ "$a" != "$FAKE/models/tokenizer" ] || { echo "rm: Permission denied" >&2; exit 1; }; done; fi
+# FAKE_RM_FAIL=1: the tokenizer folder; a path: that path.
+if [ -n "${FAKE_RM_FAIL:-}" ]; then
+  t="$FAKE/models/tokenizer"; [ "$FAKE_RM_FAIL" = 1 ] || t="$FAKE_RM_FAIL"
+  for a in "$@"; do [ "$a" != "$t" ] || { echo "rm: Permission denied" >&2; exit 1; }; done
+fi
 exec /usr/bin/rm "$@"
 S
 chmod +x "$work/bin/"*
@@ -246,6 +250,46 @@ fi
 grep -q -- "--network=none --read-only --cap-drop=all --security-opt no-new-privileges --entrypoint cat" "$work/podman.log" || { echo "the record wasn't read offline" >&2; exit 1; }
 rm -rf "$work/models/npu/oldmodel"
 ok "after a download, npu keeps only what the image's record lists"
+
+# A link at a known model's folder that can't be removed (the download made npu read-only): the
+# cleanup never walks it, and the fetch stops; the files it points at stay.
+mkdir -p "$work/victim2/sub"; echo key > "$work/victim2/api-key"; echo x > "$work/victim2/sub/more"
+printf 'ln -s "%s/victim2" "%s/models/npu/lfm3-vl"\n' "$work" "$work" > "$work/plant"
+rm -f "$work/state/fetch-stamp"
+FAKE_RM_FAIL="$work/models/npu/lfm3-vl" "$work/fetch" > "$work/out" 2>&1 && { cat "$work/out" >&2; echo "the fetch went on past a link in npu it couldn't remove" >&2; exit 1; }
+if [ "$(cat "$work/victim2/api-key" 2>/dev/null)" != key ] || [ ! -f "$work/victim2/sub/more" ]; then echo "the npu cleanup deleted files through a link" >&2; exit 1; fi
+[ -e "$work/state/npu-unclean" ] || { echo "a cleanup that stopped left no marker" >&2; exit 1; }
+# The marker keeps the next fetch off the fast path, even with the link gone and the stamp there.
+/usr/bin/rm -f "$work/models/npu/lfm3-vl"; "$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+"$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+grep -q "already match" "$work/out" || { cat "$work/out" >&2; echo "the fast path never came back" >&2; exit 1; }
+: > "$work/state/npu-unclean"; "$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+if grep -q "already match" "$work/out" || [ -e "$work/state/npu-unclean" ]; then echo "a cleanup still owed took the fast path" >&2; exit 1; fi
+ok "a link at an NPU model's folder that can't be removed stops the fetch, and a cleanup still owed is done next time"
+
+# A file name with a newline in it doesn't pass for a listed file.
+printf x > "$work/models/npu/embed/a
+embed.hnpw"
+: > "$work/state/npu-unclean"; "$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+[ ! -e "$work/models/npu/embed/a
+embed.hnpw" ] || { echo "a name with a newline passed for a listed file" >&2; exit 1; }
+ok "names are matched exactly against the record"
+
+# With the stamp matching, a link inside tokenizer/ or at the vision tower's name (the tower off)
+# is removed rather than left behind a "models already match" (preflight would refuse it).
+"$work/fetch" > /dev/null 2>&1
+echo secret > "$work/private"
+for planted in tokenizer/merges.txt qwen38-flash-next-vision.hgn; do
+  /usr/bin/rm -f "$work/models/$planted"; ln -s "$work/private" "$work/models/$planted"
+  "$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+  [ ! -L "$work/models/$planted" ] || { echo "a link at $planted was left in place" >&2; exit 1; }
+  # A tokenizer file removed is fetched again in the same run (the tower is off: nothing to fetch).
+  case "$planted" in tokenizer/*) if grep -q "already match" "$work/out"; then echo "a link at $planted took the fast path" >&2; exit 1; fi ;; esac
+done
+[ "$(cat "$work/private")" = secret ] || { echo "a write went through a planted link" >&2; exit 1; }
+"$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+grep -q "already match" "$work/out" || { cat "$work/out" >&2; echo "the fast path didn't come back" >&2; exit 1; }
+ok "a link in tokenizer/ or at the vision tower's name leaves the fast path and is removed"
 
 echo 'hf_secret123' > "$work/hf-token"; rm "$work/state/fetch-stamp"; : > "$work/podman.log"
 "$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
