@@ -147,6 +147,16 @@ RUN dnf -y --setopt=install_weak_deps=False install \
       grep -qx "$kv" /etc/audit/auditd.conf || { echo "auditd.conf lacks: $kv" >&2; exit 1; }; done && \
     if grep -qiE '^[a-z_]*_action *= *(HALT|SINGLE)' /etc/audit/auditd.conf; then echo "auditd.conf could stop the machine" >&2; exit 1; fi
 
+# crun held at the version that starts Halogen (versions.env says why), checked by its sha256.
+ARG CRUN_PIN_URL
+ARG CRUN_PIN_SHA256
+RUN set -eu; \
+    curl -fsSL --retry 3 -o /tmp/crun.rpm "$CRUN_PIN_URL"; \
+    echo "$CRUN_PIN_SHA256  /tmp/crun.rpm" | sha256sum -c -; \
+    want="$(rpm -qp --qf '%{NAME}-%{VERSION}-%{RELEASE}' /tmp/crun.rpm)"; \
+    if [ "$(rpm -q --qf '%{NAME}-%{VERSION}-%{RELEASE}' crun)" != "$want" ]; then dnf -y downgrade /tmp/crun.rpm || dnf -y install /tmp/crun.rpm; fi; \
+    [ "$(rpm -q --qf '%{NAME}-%{VERSION}-%{RELEASE}' crun)" = "$want" ]; \
+    rm -f /tmp/crun.rpm; dnf clean all; rm -rf /var/log/dnf5.log /var/lib/dnf /var/cache/libdnf5 /run/dnf
 COPY files/ /
 COPY variants/${HALOGEN_VARIANT}/ /
 COPY LICENSE THIRD-PARTY-NOTICES.md /usr/share/licenses/halos-flash/

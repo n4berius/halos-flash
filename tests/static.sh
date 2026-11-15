@@ -146,6 +146,8 @@ for path in glob.glob("files/usr/libexec/halogen/*"):
         assert 'hide_cache=(--tmpfs "/models/.prompt-cache:ro,size=4k,notmpcopyup")' in body, f"{path}: the tmpfs must not copy the folder's files up"
 # A container set up like Halogen's is started by the selftest (and so by the VM test), since the
 # VM never starts Halogen: crun 1.31 broke every start of it unseen by CI.
+assert re.fullmatch(r"[0-9a-f]{64}", pins["CRUN_PIN_SHA256"]) and pins["CRUN_PIN_URL"].startswith("https://kojipkgs.fedoraproject.org/packages/crun/"), "crun's hold needs an exact package and its sha256"
+assert 'sha256sum -c -' in cf and '"CRUN_PIN_SHA256=$CRUN_PIN_SHA256"' in open("scripts/build.sh").read(), "crun's hold isn't checked or isn't passed to the build"
 assert "container-check" in open("files/usr/libexec/halogen/selftest").read() and "'PASS container-start:'" in open("tests/iso-install.sh").read()
 fc = open("files/usr/libexec/halogen/flash-checkpoint").read()
 # Download path: the shared lookup table is a reflink copy first (a hard link lets the next pull's

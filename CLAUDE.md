@@ -797,7 +797,11 @@ name, but allows saying halOS runs Halogen.
   static `ldconfig` and the folders Halogen's image has, not `/run/secrets`) as
   `localhost/halos-container-check:1` and runs it with Halogen's shape (`--read-only --tmpfs /run`,
   scratch volumes, a stand-in key at `/run/secrets/halogen-api-key`, no network or capabilities);
-  the selftest's `container-start` runs it (FAIL on 1), so the VM test does too. (#137)
+  the selftest's `container-start` runs it (FAIL on 1), so the VM test does too. The image holds
+  crun at 1.30.1 (`CRUN_PIN_URL`/`CRUN_PIN_SHA256` in versions.env, Koji's RPM checked by sha256,
+  `dnf downgrade` after the main install, the build checks the version); 1.31's two CVE fixes
+  (CRIU restore keys; deferred read-only remount target resolution) are given up until then.
+  Remove the hold once Fedora ships podman#30265 or a crun fix. (#137)
 
 ## Lessons already learned
 
