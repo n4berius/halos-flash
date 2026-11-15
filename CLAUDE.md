@@ -800,15 +800,17 @@ name, but allows saying halOS runs Halogen.
   203.0.113.10 on SSH (`F2BV6 1 1`, `F2BSSH 1 1`, lifted by halosctl: `F2BUN2 0 0`); the selftest's `firewall-ports` reads the same chain (a locally changed firewalld.conf keeps its own value through updates); the VM test checks
   `FWSTRICT` (firewalld's running `filter_INPUT_dnat` chain rejects) and `F2BSEC 1 1` (seccomp on, no bus socket in its mount namespace).
 
-- Selftest sessions (#138, the security audit of #137, owner agreed): every command the selftest
-  (root) runs as halogen through `setpriv` starts with `setsid` (`podman exec` for `scratch`,
-  `systemctl --user cat halogen.service` for `records` and `prompt-cache`): halogen's own podman
-  and systemd settings decide what those programs run, and a process sharing root's terminal
-  could open `/dev/tty`, take the foreground (`tcsetpgrp`) and read keystrokes or fake a prompt
-  (TIOCSTI is already off). Under `timeout` the exec'd command isn't a group leader, so `setsid`
-  doesn't fork and the timeout still reaches it. `tests/static.sh` fails on a `setpriv --reuid`
-  line without it. `runuser -u halogen` (`as_owner`) runs only plain programs (`test`, `cat`,
-  `head`) whose behaviour halogen can't change, so it stays as it is.
+- Selftest sessions (#138, the security audit of #137, owner agreed): whatever root runs as halogen
+  through `setpriv` that reaches halogen-controlled programs (podman, `systemctl --user`) runs in a
+  session of its own: halogen's own podman and systemd settings decide what those run, and a
+  process sharing root's terminal could open `/dev/tty`, take the foreground (`tcsetpgrp`) and read
+  keystrokes or fake a prompt (TIOCSTI is already off). In the selftest `run_alone` (`setsid -w
+  timeout …`): setsid goes before timeout, since GNU timeout signals its own process group and a
+  child that left it took its children out of the limit (code review: `timeout 2 setsid sh -c
+  'sleep 8 & wait'` returned after 8 s). halogenctl's `as_manager` (`daemon-reload`, not timed)
+  ends in `setsid -w systemctl`. `tests/static.sh` checks both files. `runuser -u halogen`
+  (`as_owner`) runs only plain programs (`test`, `cat`, `head`, `stat`, `sed`, `du`, `find`) whose
+  behaviour halogen can't change, so it stays as it is.
 
 ## Lessons already learned
 
