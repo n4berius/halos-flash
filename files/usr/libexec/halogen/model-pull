@@ -12,6 +12,54 @@ state="${HALOGEN_STATE_DIR:-/var/lib/halogen}"
 # shellcheck disable=SC1090
 . "$release"
 
+# One command on a name at a time (#119): a pull, or a removal (halogenctl model remove, after it
+# asked). A second pull would replace the first's container, and the first's end would remove the
+# second's; a removal must not delete what a pull is writing. Taken before anything is removed,
+# and held until this ends; a busy one is a message (exit 75), never a wait.
+take_lock() {
+  lock="$state/pull-npu-$name.lock"
+  exec 9>> "$lock" || { echo "Can't open the model lock in $state." >&2; exit 1; }
+  if ! flock -n 9; then
+    # The process group written in the lock, with a way to stop it, when it is still this user's
+    # (a pull stopped with Ctrl-C goes on in the background).
+    g="$(head -c 16 -- "$lock" 2>/dev/null | tr -cd 0-9)"
+    # Only a real process group of this user's, and never 1 (kill -- -1 signals everything).
+    if [ -n "$g" ] && [ "$g" -gt 1 ] && [ "$(ps -o pgid= -p "$g" 2>/dev/null | tr -cd 0-9)" = "$g" ] \
+       && [ "$(stat -c %u "/proc/$g" 2>/dev/null)" = "$(id -u)" ]; then
+      echo "Another pull of $name is running. One stopped with Ctrl-C goes on in the background; to stop it: sudo kill -- -$g" >&2
+    else echo "Another pull of $name is running. Wait for it to end, then try again." >&2; fi
+    exit 75
+  fi
+  ps -o pgid= -p "$$" 2>/dev/null | tr -cd 0-9 > "$lock" || true
+}
+plain_dir() { [ -d "$1" ] && [ "$(realpath -e -- "$1" 2>/dev/null)" = "$(realpath -e -- "$models")/${1#"$models"/}" ]; }
+
+# model-pull --remove <name>: halogenctl model remove, after it asked. Under the name's lock, the
+# checks it made before asking are made again: the folder is still there and plain, and the
+# model isn't in HALOGEN_NPU_MODELS (it may have been added meanwhile). As halogen, so a link
+# can't steer the removal.
+if [ "${1:-}" = --remove ]; then
+  name="${2:-}"
+  case "$name" in
+    *[!A-Za-z0-9._-]*|.*|'') echo "usage: halogenctl model remove <name>, as sudo halogenctl model list shows it" >&2; exit 2 ;;
+  esac
+  take_lock
+  dir=""
+  for kind in decider LFM custom; do
+    if plain_dir "$models/$kind/$name"; then dir="$models/$kind/$name"; break; fi
+  done
+  [ -n "$dir" ] || { echo "No model called $name (any more). See: sudo halogenctl model list" >&2; exit 1; }
+  if ! settings="$("${HALOGEN_RENDER:-/usr/libexec/halogen/render-config}" --show 2> /dev/null)"; then
+    echo "Couldn't read the settings, so $name is kept (it may be in use)." >&2; exit 1
+  fi
+  if grep '^HALOGEN_NPU_MODELS=' <<< "$settings" | tr '=,' '\n' | sed 's/:fast$//' | grep -qxF -- "/models/${dir#"$models"/}"; then
+    echo "$name is in HALOGEN_NPU_MODELS (added meanwhile). Take it out of /srv/configs/halogen.env first." >&2; exit 1
+  fi
+  rm -rf -- "$dir" || { echo "Couldn't delete all of $dir." >&2; exit 1; }
+  echo "Deleted $name."
+  exit 0
+fi
+
 repo=""; revision=""; name=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -40,22 +88,7 @@ esac
 # replaced at the next pull of this name, and the last one is removed when this ends (a SIGKILL,
 # or a stop that outlasts systemd's timeout, skips that: the next pull of the name removes it).
 ctr="halogen-pull-npu-$name"
-# One pull of a name at a time: a second would replace the first's container, and the first's end
-# would remove the second's. Taken before anything is removed, and held until this ends.
-lock="$state/pull-npu-$name.lock"
-exec 9>> "$lock" || { echo "Can't open the pull lock in $state." >&2; exit 1; }
-if ! flock -n 9; then
-  # The process group written in the lock, with a way to stop it, when it is still this user's
-  # (a pull stopped with Ctrl-C goes on in the background).
-  g="$(head -c 16 -- "$lock" 2>/dev/null | tr -cd 0-9)"
-  # Only a real process group of this user's, and never 1 (kill -- -1 signals everything).
-  if [ -n "$g" ] && [ "$g" -gt 1 ] && [ "$(ps -o pgid= -p "$g" 2>/dev/null | tr -cd 0-9)" = "$g" ] \
-     && [ "$(stat -c %u "/proc/$g" 2>/dev/null)" = "$(id -u)" ]; then
-    echo "Another pull of $name is running. One stopped with Ctrl-C goes on in the background; to stop it: sudo kill -- -$g" >&2
-  else echo "Another pull of $name is running. Wait for it to end, then try again." >&2; fi
-  exit 1
-fi
-ps -o pgid= -p "$$" 2>/dev/null | tr -cd 0-9 > "$lock" || true
+take_lock
 # podman and its conmon would inherit the lock (fd 9) and hold it after a hard kill, for as long
 # as a leftover container runs: every podman call closes it.
 podman() { command podman "$@" 9>&-; }
@@ -72,7 +105,6 @@ fi
 # link at a mount source, and a container that can write a folder here (Halogen's own, or an
 # earlier download) could plant one that points at /srv/configs. The folder must be exactly where
 # its name says, under the real /srv/models.
-plain_dir() { [ -d "$1" ] && [ "$(realpath -e -- "$1" 2>/dev/null)" = "$(realpath -e -- "$models")/${1#"$models"/}" ]; }
 # mkdir -p under the models folder that never goes through a link: each step is looked at first.
 mk_plain() {
   local rel="${1#"$models"/}" p="$models" c parts

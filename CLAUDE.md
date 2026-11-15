@@ -889,6 +889,26 @@ name, but allows saying halOS runs Halogen.
   (`as_owner`) runs only plain programs (`test`, `cat`, `head`, `stat`, `sed`, `du`, `find`) whose
   behaviour halogen can't change, so it stays as it is.
 
+- Checkpoint locks (#PRNUM, Codex #119, after the per-pull locks of #136): every command on a
+  Flash checkpoint takes `/var/lib/halogen/pull-flash-<name>.lock` (`name_lock`: pull, both convert
+  steps, `verify`, `check-prepare`, `check`, and the new `flash-checkpoint use|remove <name>`), and
+  `model-pull` and the new `model-pull --remove <name>` take `pull-npu-<name>.lock` (`take_lock`);
+  a held lock is a message and exit 75, never a wait. The locks are taken by the halogen-side
+  helpers, not by halogenctl: halogenctl's helpers run through `systemd-run` in halogen's manager,
+  outside root's process tree (a pull stopped with Ctrl-C goes on, still holding its lock), and
+  root must not open files in halogen's folder. So halogenctl asks first, then hands the final
+  step to the helper, which checks again under the lock: `flash use` (the folder is still plain,
+  `halos.info` there, `verified=pass`; the choice is written with `write_new` + `mv`), `flash
+  remove` (still plain, not chosen meanwhile), `model remove` (still plain, not in
+  `HALOGEN_NPU_MODELS`, read with `render-config --show`, refused if that fails). `fetch-models`
+  says a busy re-verify (75) is "checked again at the next start", not "failed". GPU: halogenctl's
+  `gpu_lock` (`/run/halos-locks/gpu.lock`, a folder only root writes, fd 8, held until exit), taken
+  by `flash check` before asking (so a second check never arms the trap that stops the first's
+  `halogen-flash-check` unit and starts Halogen) and by `flash use` before asking (its restart
+  would put Halogen on the GPU beside a measurement). Lock order: GPU, then the checkpoint's.
+  Tests: `tests/halogenctl.sh` runs the real helpers through the fake `systemd-run` with
+  `FAKE_BEFORE` standing in for another terminal during the question.
+
 ## Lessons already learned
 
 - `setpriv` and `runuser` keep the caller's working folder. Run as halogen from an admin's home

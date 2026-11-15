@@ -10,6 +10,13 @@ promoted.
 
 ## Unreleased
 
+- Two commands working on the same checkpoint at once no longer get in each other's way: a pull,
+  check, switch or removal of a checkpoint (or model) another command is busy with says so and
+  stops, `flash use` and `flash remove` (and `model remove`) check again after you answered that
+  nothing changed meanwhile (so a removal can't delete the checkpoint just chosen), and a second
+  `flash check`, or a `flash use`, waits for a running check instead of putting a second job on
+  the GPU. (#PRNUM)
+
 - The selftest's checks that run as the halogen user (Halogen's scratch folders, its generated
   service) now run in a session of their own, so nothing they start can reach the terminal you
   run `sudo halogenctl selftest` from. (#138)

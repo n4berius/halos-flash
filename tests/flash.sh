@@ -247,10 +247,21 @@ ok "files an older pull left behind are removed"
 exec 8>> "$work/state/pull-flash-busy.lock"; flock -n 8
 : > "$work/podman.log"
 if pull someone/My-Flash-HGN --as busy; then fail "two pulls of one name ran at once"; fi
-grep -q "Another pull or conversion of busy is running" "$work/out" || fail "the lock wasn't named"
+grep -q "Another pull, check or other command on busy is running" "$work/out" || fail "the lock wasn't named"
 if grep -q "halogen-pull-flash-busy" "$work/podman.log"; then fail "the second pull touched the first one's container"; fi
 exec 8>&-
 ok "a second pull of the same name stops before it touches the first one's container"
+# verify, check-prepare and check take the same lock (#119): a pull writing the checkpoint is a
+# busy answer (75), not a verify of half-written files or a measurement of them.
+exec 8>> "$work/state/pull-flash-mine.lock"; flock -n 8
+for c in verify check-prepare check; do
+  rc=0; "$tool" "$c" mine > "$work/out" 2>&1 || rc=$?
+  if [ "$rc" != 75 ] || ! grep -q "Another pull, check or other command on mine is running" "$work/out"; then
+    cat "$work/out" >&2; fail "$c ran beside a pull of the same checkpoint (rc $rc)"
+  fi
+done
+exec 8>&-
+ok "verify and check wait their turn behind a pull of the same checkpoint"
 # The busy message says how to stop the holder only when it is a live process group of this user's,
 # never for 1 or one that is gone.
 exec 8>> "$work/state/pull-flash-busy.lock"; flock -n 8
@@ -518,9 +529,9 @@ ok "convert-run keeps the weights when asked, and refuses a corrupt download, a 
 # A conversion holds the name's lock too: a pull or a second conversion of it waits its turn.
 exec 8>> "$work/state/pull-flash-conv.lock"; flock -n 8
 if prepare someone/Flash-BF16 --as conv; then fail "convert-prepare ran beside a pull of the same name"; fi
-grep -q "Another pull or conversion of conv is running" "$work/out" || fail "convert-prepare didn't name the lock: $(cat "$work/out")"
+grep -q "Another pull, check or other command on conv is running" "$work/out" || fail "convert-prepare didn't name the lock: $(cat "$work/out")"
 if run conv; then fail "convert-run ran beside a pull of the same name"; fi
-grep -q "Another pull or conversion of conv is running" "$work/out" || fail "convert-run didn't name the lock: $(cat "$work/out")"
+grep -q "Another pull, check or other command on conv is running" "$work/out" || fail "convert-run didn't name the lock: $(cat "$work/out")"
 exec 8>&-
 # Its progress loop (ten times the pull's interval) lets go of the lock with it.
 rm -rf "$out" "$work/models/flash/.convert"; prepare someone/Flash-BF16 --as conv > /dev/null

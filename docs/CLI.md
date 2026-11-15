@@ -132,6 +132,12 @@ Edit settings with `sudo nano /srv/configs/halogen.env`, then `sudo halogenctl r
 | `halogenctl flash convert-logs [lines]`, `flash convert-stop [<name>] [--yes]` | `convert-logs` follows a conversion. `convert-stop` stops it; with a name it also deletes that conversion's downloaded weights (it asks first), and without one it lists what is left on disk. |
 | `halogenctl flash remove <name> [--yes]` | Deletes one of yours (not the one in use). |
 
+One command at a time works on a given checkpoint: `pull`, `convert`, `verify`, `check`, `use` and
+`remove` of the same name (and `model pull`/`model remove` of the same model) refuse with "Another
+… is running" while another one is at it, and `use` and `remove` check again, after you answered,
+that nothing changed meanwhile. While a `flash check` measures, a second check and `flash use` wait
+for it (they say so). Commands on different checkpoints run side by side.
+
 ## halogen-enroll-tpm
 
 `sudo halogen-enroll-tpm [device]` binds the encrypted disk to this machine's TPM, so it unlocks

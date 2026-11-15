@@ -31,6 +31,16 @@ models="${HALOGEN_MODELS_DIR:-/srv/models}"
 flash_choice="$configs/flash-checkpoint"
 official=qwen38-flash-next-v2.hgn
 # The Flash checkpoint halogenctl flash use chose: official, or a name under /srv/models/flash.
+# Root's own lock for what needs the GPU while Halogen is stopped or restarted (#119): a flash
+# check measures with Halogen stopped, and a second check (its clean-up stops the first's
+# measurement and starts Halogen) or a flash use (it restarts Halogen) would put two on the GPU.
+# In a folder under /run only root writes, so no link stands in its way. Held until this ends.
+gpu_lock() {
+  local d="${HALOS_LOCK_DIR:-/run/halos-locks}"
+  install -d -m 0700 -- "$d" || exit 1
+  exec 8> "$d/gpu.lock" || exit 1
+  flock -n 8 || { echo "A flash check is measuring a checkpoint, with Halogen stopped for it. Wait for it to end (it starts Halogen again), then try again." >&2; exit 75; }
+}
 chosen_flash() {
   local c; c="$(as_owner head -n 1 "$flash_choice" 2>/dev/null | tr -cd 'A-Za-z0-9._-')" || true
   echo "${c:-official}"
@@ -189,6 +199,7 @@ case "${1:-status}" in
         if [ "$(unit is-active halogen-fetch.service 2>/dev/null)" = activating ]; then
           echo "Halogen is downloading models (sudo halogenctl fetch-logs). Check $name when that is done." >&2; exit 1
         fi
+        gpu_lock
         echo "This measures $name against the official checkpoint on a public test text (wikitext-2),"
         echo "with Halogen's ppl. It needs the GPU, so Halogen stops answering for about 15 minutes, or"
         echo "about 25 the first time on a Halogen version, when the official checkpoint is measured too."
@@ -266,9 +277,11 @@ case "${1:-status}" in
           echo "$name: $(flash_info "$name" checkpoint) from $(flash_info "$name" repo), commit $(flash_info "$name" commit | cut -c1-12)."
           echo "halOS can't judge a checkpoint's answers. Compare them with the official model's before relying on it."
         fi
+        gpu_lock
         restart_now "Switch Halogen to $name?"
-        # shellcheck disable=SC2016 # expanded by the halogen shell, from its arguments
-        printf '%s\n' "$name" | as_owner sh -c 'umask 027; cat > "$1.new" && mv -f "$1.new" "$1"' sh "$flash_choice"
+        # As halogen, under the checkpoint's lock: the checks above are made again, since a pull,
+        # a removal or a failed verify may have come while you were asked (#119).
+        as_halogen /usr/libexec/halogen/flash-checkpoint use "$name" || { echo "Nothing changed." >&2; exit 1; }
         start_halogen restart
         echo "Switched to $name. Halogen is starting; follow it with: sudo halogenctl logs"
         [ "$name" = official ] || echo "If it doesn't start, go back with: sudo halogenctl flash use official"
@@ -344,8 +357,10 @@ case "${1:-status}" in
           read -rp "Delete $dir ($(as_owner du -sh "$dir" | cut -f1))? [y/N] " answer
           [ "$answer" = y ] || [ "$answer" = Y ] || exit 0
         fi
-        # As halogen: a folder link planted by a container must not let root delete through it.
-        as_owner rm -rf -- "$dir" && echo "Deleted $name."
+        # As halogen, under the checkpoint's lock: still there, still a plain folder (a link
+        # planted by a container must not let root delete through it), and not chosen while you
+        # were asked (#119).
+        as_halogen /usr/libexec/halogen/flash-checkpoint remove "$name" || exit 1
         ;;
       *) echo "usage: halogenctl flash pull <hf-repo> [--revision <rev>] [--as <name>] [--file <checkpoint.hgn>] | convert <hf-repo> [--revision <rev>] [--as <name>] [--threads <n>] [--keep-source] [--yes] | convert-logs [lines] | convert-stop [<name>] [--yes] | list | use <name>|official [--yes] | verify <name> | check <name> [--yes] | remove <name> [--yes]" >&2; exit 2 ;;
     esac
@@ -450,8 +465,10 @@ case "${1:-status}" in
         [ -t 0 ] || { echo "Run this in a terminal: it asks before deleting." >&2; exit 1; }
         read -rp "Delete $dir ($(as_owner du -sh "$dir" | cut -f1))? [y/N] " answer
         [ "$answer" = y ] || [ "$answer" = Y ] || exit 0
-        # As halogen: a folder link planted by a container must not let root delete through it.
-        as_owner rm -rf -- "$dir" && echo "Deleted $name."
+        # As halogen, under the model's lock: not being pulled, still a plain folder (a link planted
+        # by a container must not let root delete through it), and not added to
+        # HALOGEN_NPU_MODELS while you were asked (#119).
+        as_halogen /usr/libexec/halogen/model-pull --remove "$name" || exit 1
         ;;
       *) echo "usage: halogenctl model pull <hf-repo> [--revision <rev>] [--as <name>] | list | remove <name>" >&2; exit 2 ;;
     esac

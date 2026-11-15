@@ -3,6 +3,8 @@
 # the halogen user; halogenctl flash pull and flash verify start it.
 #   flash-checkpoint pull <hf-repo> [--revision <rev>] [--as <name>] [--file <checkpoint.hgn>]
 #   flash-checkpoint verify <name>
+#   flash-checkpoint use <name>|official    (halogenctl flash use, after it asked; writes the choice)
+#   flash-checkpoint remove <name>          (halogenctl flash remove, after it asked)
 #   flash-checkpoint check-prepare <name>   (checks the name, downloads the test text)
 #   flash-checkpoint check <name>           (halogenctl stops Halogen first: ppl needs the GPU)
 #   flash-checkpoint convert-prepare <hf-repo> [--revision <rev>] [--as <name>]
@@ -33,17 +35,21 @@ lock_busy() {
   # Only a real process group of this user's, and never 1 (kill -- -1 signals everything).
   if [ -n "$g" ] && [ "$g" -gt 1 ] && [ "$(ps -o pgid= -p "$g" 2>/dev/null | tr -cd 0-9)" = "$g" ] \
      && [ "$(stat -c %u "/proc/$g" 2>/dev/null)" = "$(id -u)" ]; then
-    die "Another $2 is running. One stopped with Ctrl-C goes on in the background; to stop it: sudo kill -- -$g"
+    echo "Another $2 is running. One stopped with Ctrl-C goes on in the background; to stop it: sudo kill -- -$g" >&2
+    exit 75
   fi
-  die "Another $2 is running. Wait for it to end, then try again."
+  echo "Another $2 is running. Wait for it to end, then try again." >&2
+  exit 75
 }
-flash_choice="${HALOGEN_FLASH_FILE:-/srv/configs/flash-checkpoint}"
+flash_choice="${HALOGEN_FLASH_FILE:-${HALOGEN_CONFIGS_DIR:-/srv/configs}/flash-checkpoint}"
 valid_name() {
   case "$1" in [A-Za-z0-9]*) ;; *) return 1 ;; esac
   case "$1" in *[!A-Za-z0-9._-]*|official) return 1 ;; esac
 }
-[ "${1:-}" = sandbox-check ] || podman image exists "$HALOGEN_IMAGE" \
-  || die "The Halogen image isn't downloaded yet. Let the first boot finish: sudo halogenctl fetch-logs"
+case "${1:-}" in
+  sandbox-check|use|remove) ;;
+  *) podman image exists "$HALOGEN_IMAGE" || die "The Halogen image isn't downloaded yet. Let the first boot finish: sudo halogenctl fetch-logs" ;;
+esac
 
 token_args=()
 [ ! -s "$hf_token" ] || token_args=(-v "$hf_token:/run/secrets/hf-token:ro" -e HF_TOKEN_PATH=/run/secrets/hf-token)
@@ -66,13 +72,16 @@ cleanup() {
 }
 trap cleanup EXIT
 trap 'exit 130' INT; trap 'exit 143' TERM HUP
-# One pull or conversion of a name at a time (both write under its name): a second would replace
-# the first's container, and the first's end would remove the second's. Taken before anything is
-# removed or started, and held until this ends.
+# One command on a checkpoint at a time (#119): pull, conversion, verify, check, use and remove
+# all take the name's lock, so none sees the folder or its halos.info half-written by another, a
+# removal can't take away the checkpoint a switch just chose, and a pull can't start replacing the
+# one being switched to. A second pull would also replace the first's container, and the first's
+# end would remove the second's. Taken before anything is removed or started, and held until this
+# ends; one that is taken already is a busy message (exit 75), never a wait.
 name_lock() {
   local lock="$state/pull-flash-$1.lock"
-  exec 9>> "$lock" || die "Can't open the pull lock in $state."
-  flock -n 9 || lock_busy "$lock" "pull or conversion of $1"
+  exec 9>> "$lock" || die "Can't open the checkpoint lock in $state."
+  flock -n 9 || lock_busy "$lock" "pull, check or other command on $1"
   ps -o pgid= -p "$$" 2>/dev/null | tr -cd 0-9 > "$lock" || true
 }
 # In a subshell of its own, with the client in the background: a stop (TERM, HUP or INT) is acted
@@ -564,12 +573,14 @@ case "${1:-}" in
     valid_name "$name" || die "usage: halogenctl flash check <name>, as sudo halogenctl flash list shows it"
     [ -f "$models/flash/$name/halos.info" ] || die "No checkpoint called $name. See: sudo halogenctl flash list"
     if [ -L "$models/flash/$name" ] || [ -L "$models/flash/$name/halos.info" ]; then die "$models/flash/$name holds links; pull it again."; fi
+    name_lock "$name"
     if [ "$1" = check-prepare ]; then check_prepare "$name"; else check_dir_run "$name"; fi
     exit 0 ;;
   verify)
     name="${2:-}"
     valid_name "$name" || die "usage: halogenctl flash verify <name>, as sudo halogenctl flash list shows it"
     [ -f "$models/flash/$name/halos.info" ] || die "No checkpoint called $name. See: sudo halogenctl flash list"
+    name_lock "$name"
     if verify_dir "$name"; then echo "$name passed Halogen's verify."
     else die "$name failed Halogen's verify (above), so it can't be used. Pull it again, or remove it: sudo halogenctl flash remove $name"; fi
     exit 0 ;;
@@ -600,6 +611,40 @@ case "${1:-}" in
     r=$?; rm -f "$work/probe"; rmdir "$work" 2> /dev/null
     if [ "$r" = 0 ]; then echo "sandbox-check: ok"; fi
     exit "$r" ;;
+  use)
+    # Under the name's lock, after halogenctl asked: the checks it made before asking are made
+    # again, since a pull, a removal or a failed verify may have come in between (#119).
+    name="${2:-}"
+    if [ "$name" != official ]; then
+      valid_name "$name" || die "usage: halogenctl flash use <name>|official"
+      name_lock "$name"
+      d="$models/flash/$name"
+      if ! plain_dir "$d" || [ ! -f "$d/halos.info" ] || [ -L "$d/halos.info" ]; then
+        die "No checkpoint called $name (any more). See: sudo halogenctl flash list"
+      fi
+      if [ "$(info_get "$d/halos.info" verified)" != pass ]; then
+        die "$name has not passed Halogen's verify (any more), so it can't be used. Check it: sudo halogenctl flash verify $name"
+      fi
+    fi
+    # Written fresh, never through whatever stands at the name.
+    if ! printf '%s\n' "$name" | ( umask 027; write_new "$flash_choice.new" ) || ! mv -f -- "$flash_choice.new" "$flash_choice"; then
+      die "Couldn't save the choice in $flash_choice."
+    fi
+    exit 0 ;;
+  remove)
+    # Under the name's lock, after halogenctl asked: still there, still a plain folder, and not
+    # the one chosen meanwhile (#119). As halogen, so a link can't steer the removal.
+    name="${2:-}"
+    valid_name "$name" || die "usage: halogenctl flash remove <name> (the official checkpoint is always kept)"
+    name_lock "$name"
+    d="$models/flash/$name"
+    plain_dir "$d" || die "No checkpoint called $name (any more). See: sudo halogenctl flash list"
+    if [ "$(head -n 1 -- "$flash_choice" 2> /dev/null | tr -cd 'A-Za-z0-9._-')" = "$name" ]; then
+      die "$name is the active checkpoint (it was chosen meanwhile). Switch first: sudo halogenctl flash use official"
+    fi
+    rm -rf -- "$d" || die "Couldn't delete all of $d."
+    echo "Deleted $name."
+    exit 0 ;;
   convert-prepare) shift; convert_prepare "$@"; exit 0 ;;
   convert-run) shift; convert_run "$@"; exit 0 ;;
   pull) shift ;;
