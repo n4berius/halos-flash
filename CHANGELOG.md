@@ -10,6 +10,14 @@ promoted.
 
 ## Unreleased
 
+- Downloads, a last round: Halogen refuses to start when a link (or a folder it can't read)
+  stands where it loads its model files from (the official files, the tokenizer, the NPU
+  folder), and the next fetch removes it; after a download the NPU folder keeps only the files
+  Halogen's own record lists for the models it knows (a rollback may download a few files
+  again); the clean-up never follows a link out of the models folder; a `model pull`,
+  `flash pull` or `flash convert` that is stopped removes its download at once; and two pulls of
+  the same name can no longer run at once and break each other (the second says so, and how to
+  stop the first). (#136)
 - The selftest (and the install test every change goes through) now starts a tiny container set
   up the way Halogen's is. A Fedora update to the program podman starts containers with (crun
   1.31) broke every start of Halogen, and nothing caught it before it reached a machine; the

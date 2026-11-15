@@ -8,6 +8,7 @@ release="${HALOGEN_RELEASE_FILE:-/usr/share/halogen/release.env}"
 models="${HALOGEN_MODELS_DIR:-/srv/models}"
 hf_token="${HALOGEN_HF_TOKEN_FILE:-/srv/configs/hf-token}"
 progress_s="${HALOGEN_PROGRESS_S:-30}"
+state="${HALOGEN_STATE_DIR:-/var/lib/halogen}"
 # shellcheck disable=SC1090
 . "$release"
 
@@ -39,6 +40,25 @@ esac
 # replaced at the next pull of this name, and the last one is removed when this ends (a SIGKILL,
 # or a stop that outlasts systemd's timeout, skips that: the next pull of the name removes it).
 ctr="halogen-pull-npu-$name"
+# One pull of a name at a time: a second would replace the first's container, and the first's end
+# would remove the second's. Taken before anything is removed, and held until this ends.
+lock="$state/pull-npu-$name.lock"
+exec 9>> "$lock" || { echo "Can't open the pull lock in $state." >&2; exit 1; }
+if ! flock -n 9; then
+  # The process group written in the lock, with a way to stop it, when it is still this user's
+  # (a pull stopped with Ctrl-C goes on in the background).
+  g="$(head -c 16 -- "$lock" 2>/dev/null | tr -cd 0-9)"
+  # Only a real process group of this user's, and never 1 (kill -- -1 signals everything).
+  if [ -n "$g" ] && [ "$g" -gt 1 ] && [ "$(ps -o pgid= -p "$g" 2>/dev/null | tr -cd 0-9)" = "$g" ] \
+     && [ "$(stat -c %u "/proc/$g" 2>/dev/null)" = "$(id -u)" ]; then
+    echo "Another pull of $name is running. One stopped with Ctrl-C goes on in the background; to stop it: sudo kill -- -$g" >&2
+  else echo "Another pull of $name is running. Wait for it to end, then try again." >&2; fi
+  exit 1
+fi
+ps -o pgid= -p "$$" 2>/dev/null | tr -cd 0-9 > "$lock" || true
+# podman and its conmon would inherit the lock (fd 9) and hold it after a hard kill, for as long
+# as a leftover container runs: every podman call closes it.
+podman() { command podman "$@" 9>&-; }
 cleanup() { [ -z "${reporter:-}" ] || kill "$reporter" 2>/dev/null; podman rm -f -i -t 0 "$ctr" > /dev/null 2>&1 || true; }
 trap cleanup EXIT
 trap 'exit 130' INT; trap 'exit 143' TERM HUP
@@ -84,18 +104,24 @@ args=()
 # No NPU device: Halogen's probe reads only the checkpoint's config and tokenizer, and the
 # download needs none either. XRT comes with Halogen's image.
 # NET=none for steps that only read local files (the probe reads an untrusted checkpoint).
-in_image() {
+# In a subshell of its own, with the client in the background: a stop (TERM, HUP or INT) is acted
+# on at once, not after the client returns (it waits on a container that may ignore the signal),
+# and the container goes with it.
+in_image() (
+  trap 'podman rm -f -i -t 0 "$ctr" > /dev/null 2>&1; exit 143' TERM HUP
+  trap 'podman rm -f -i -t 0 "$ctr" > /dev/null 2>&1; exit 130' INT
   podman run --rm --pull=never --name "$ctr" --replace --read-only --tmpfs /tmp --cap-drop=all --security-opt no-new-privileges \
     ${NET:+--network="$NET" -e HF_HUB_OFFLINE=1} \
     -e HF_HOME=/tmp/hf -e HF_HUB_OFFLINE=0 -e HF_HUB_DISABLE_TELEMETRY=1 -e HF_HUB_DISABLE_PROGRESS_BARS=1 \
-    ${args[@]+"${args[@]}"} --entrypoint "$1" "$HALOGEN_IMAGE" "${@:2}"
-}
+    ${args[@]+"${args[@]}"} --entrypoint "$1" "$HALOGEN_IMAGE" "${@:2}" <&0 &
+  wait "$!"
+)
 
 echo "Downloading $repo${revision:+ at $revision} into $models/$rel. An interrupted download resumes."
 if [ "$progress_s" -gt 0 ]; then
   while sleep "$progress_s" > /dev/null 2>&1; do
     echo "  $(du -sh "$dir" 2>/dev/null | cut -f1) so far"
-  done &
+  done 9>&- &
   reporter=$!
 fi
 # Halogen reads a checkpoint's config, safetensors and tokenizer files, so other formats a

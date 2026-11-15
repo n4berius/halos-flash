@@ -10,9 +10,15 @@ cd "$(dirname "$0")/.."
 # shellcheck source=/dev/null
 . versions.env
 repo="$HALOGEN_WEIGHTS_REPO" rev="$HALOGEN_WEIGHTS_REVISION"
-out=files/usr/share/halogen/weights.sha256
+out="${WEIGHTS_SUMS_OUT:-files/usr/share/halogen/weights.sha256}"
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
-curl -sSf -m 60 "https://huggingface.co/api/models/$repo/tree/$rev?recursive=1" > "$tmp/tree.json"
+curl -sSf -m 60 -D "$tmp/headers" "https://huggingface.co/api/models/$repo/tree/$rev?recursive=1" > "$tmp/tree.json"
+# A long listing comes in pages (a Link header names the next one): this reads one page only, so
+# it stops rather than write a file that misses some.
+if grep -qi '^link:.*rel="next"' "$tmp/headers"; then
+  echo "Hugging Face's listing of $repo at $rev comes in pages; this script reads only one. Teach it to follow the Link header." >&2
+  exit 1
+fi
 python3 - "$tmp/tree.json" > "$tmp/list" <<'PY'
 import json, sys
 want = {"qwen38-flash-next-v2.hgn", "qwen38-flash-next-ngram.hgn", "qwen38-flash-next-vision.hgn"}
@@ -20,6 +26,9 @@ for e in json.load(open(sys.argv[1])):
     p = e.get("path", "")
     if e.get("type") != "file" or not (p in want or p.startswith("tokenizer/")):
         continue
+    if p.startswith("tokenizer/") and "/" in p[len("tokenizer/"):]:
+        # fetch-models checks only flat tokenizer/<file> names (and removes anything else).
+        sys.exit(f"{p}: a tokenizer file in a subfolder, which fetch-models doesn't check")
     lfs = (e.get("lfs") or {}).get("oid", "")
     print(p, lfs or "-", e["oid"])
 PY
