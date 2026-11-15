@@ -82,6 +82,9 @@ mkdir -p "$work/audit" "$work/proc/4711" "$work/home/.config"
 # The rules halOS ships, as the selftest reads them: two paths that exist, one that doesn't.
 printf '%s\n' '-w /etc/passwd -p wa -k accounts' '-w /nonexistent/preload -p wa -k preload' \
   '-a always,exit -F path=/usr/bin/env -F perm=x -F auid!=unset -k halosctl' > "$work/halos.rules"
+# A container set up like Halogen's starts, unless FAKE_CC says it doesn't (1) or can't be checked (2).
+f container-check '[ "$PWD" = / ] || exit 9; case "${FAKE_CC:-0}" in 0) echo "container-check: starts" ;; 1) echo "Error: crun: open /run/secrets/x: No such file or directory" >&2; exit 1 ;; *) exit 2 ;; esac'
+export HALOS_CONTAINER_CHECK="$fake/container-check"
 export HALOGEN_STATE_DIR="$work/hstate" PATH="$fake:$sysbin" HALOGEN_RELEASE_FILE="$work/release.env" HALOGEN_SYSFS="$work/sys" \
   HALOGEN_DEV="$work/dev" HALOGEN_CMDLINE="$work/cmdline" HALOGEN_MEMINFO="$work/meminfo" \
   HALOGEN_MODELS_DIR="$work/models" HALOGEN_CONFIGS_DIR="$work/configs" HALOGEN_CLOCK="$fake/fabric-clock" \
@@ -119,7 +122,7 @@ refuse() { if grep -qE "$1" "$work/out"; then echo "did not expect '$1' in:" >&2
 "$selftest" > "$work/out" 2>&1 || { cat "$work/out" >&2; echo "a healthy machine failed" >&2; exit 1; }
 grep -q "runuser -u halogen -- test -f $work/hstate/fetch-stamp" "$work/runuser.log" || { echo "the stamp wasn't checked as halogen, in halogen's own folder" >&2; exit 1; }
 for id in secure-boot image-signatures signature-files ssh-unlock kernel-iommu memory selinux-denials firewall luks-tpm gpu-kfd npu-device npu-label \
-  fabric-clock server preflight api-ipv4 api-ipv6 proxy api-models dashboard dashboard-filter dashboard-nodump npu-folder folder-LFM folder-flash folder-logs; do
+  fabric-clock server preflight container-start api-ipv4 api-ipv6 proxy api-models dashboard dashboard-filter dashboard-nodump npu-folder folder-LFM folder-flash folder-logs; do
   expect "^PASS $id:"
 done
 expect '^Summary: [0-9]+ passed, 0 warnings, 0 failed'
@@ -131,6 +134,10 @@ if grep -q '203.0.113.9' "$work/out"; then echo "the selftest printed a shut-out
 FAKE_F2B=sshd "$selftest" > "$work/out" 2>&1 || true; expect '^WARN fail2ban: running, but without its jail\(s\): halos-api'
 FAKE_F2B_STATE=failed "$selftest" > "$work/out" 2>&1 || true; expect '^WARN fail2ban: turned on, but failed'
 FAKE_F2B_STATE=inactive FAKE_F2B_ENABLED=disabled "$selftest" > "$work/out" 2>&1 || true; expect '^INFO fail2ban: off'
+# A container set up like Halogen's: starts, doesn't (crun 1.31), or couldn't be checked.
+"$selftest" > "$work/out" 2>&1 || true; expect "^PASS container-start: a container set up like Halogen's starts"
+FAKE_CC=1 "$selftest" > "$work/out" 2>&1 || true; expect "^FAIL container-start: .*Halogen won't either: Error: crun: open /run/secrets/x"
+FAKE_CC=2 "$selftest" > "$work/out" 2>&1 || true; expect "^WARN container-start: couldn't check"
 "$selftest" > "$work/out" 2>&1 || true; expect '^PASS firewall-ports: only the ports firewalld opens'
 FAKE_FW_LAX=1 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN firewall-ports: ports a container with sudo publishes'
 # The prompt cache on disk: on by default, off on request, and a missing folder is a warning.

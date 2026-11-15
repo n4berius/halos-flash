@@ -13,6 +13,10 @@ promoted.
 - The selftest's checks that run as the halogen user (Halogen's scratch folders, its generated
   service) now run in a session of their own, so nothing they start can reach the terminal you
   run `sudo halogenctl selftest` from. (#138)
+- The selftest (and the install test every change goes through) now starts a tiny container set
+  up the way Halogen's is. A Fedora update to the program podman starts containers with (crun
+  1.31) broke every start of Halogen, and nothing caught it before it reached a machine; the
+  image now holds crun at 1.30.1 until a fixed version is out. (#137)
 
 - More hardening for fail2ban and the firewall: fail2ban can no longer reach the system's
   message bus (so not firewalld either) and may use fewer system calls; Halogen's reply headers

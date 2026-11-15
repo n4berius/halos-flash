@@ -483,6 +483,20 @@ if [ "${running:-0}" = 1 ]; then
   elif grep -q tmpfs <<< "$fstypes"; then say FAIL scratch "Halogen's scratch folders are in memory, not on disk: $(tr '\n' ' ' <<< "$fstypes")"
   else say PASS scratch "Halogen's /tmp, /var/tmp and /root are on disk"; fi
 fi
+# A tiny container set up like Halogen's (read-only, the key mounted into /run/secrets) starts as
+# halogen: a podman or crun update can break that setup for every start of Halogen (crun 1.31 did).
+# In a session of its own (run_alone): what halogen's podman runs can't reach the terminal root uses.
+if have podman && [ -x "${HALOS_CONTAINER_CHECK:-/usr/libexec/halogen/container-check}" ]; then
+  huid="$(id -u halogen 2> /dev/null || echo 970)"
+  ccout="$(run_alone setpriv --reuid="$huid" --regid="$huid" --clear-groups env -C / HOME=/var/lib/halogen XDG_RUNTIME_DIR="/run/user/$huid" \
+    "${HALOS_CONTAINER_CHECK:-/usr/libexec/halogen/container-check}")"; ccrc=$?
+  ccout="$(printf '%s\n' "$ccout" | tr -cd '[:print:]\n' | tail -n 2 | tr '\n' ' ')"
+  case "$ccrc" in
+    0) say PASS container-start "a container set up like Halogen's starts" ;;
+    1) say FAIL container-start "a container set up like Halogen's doesn't start, so Halogen won't either: ${ccout:-no answer}" ;;
+    *) say WARN container-start "couldn't check that Halogen's kind of container starts: ${ccout:-no answer}" ;;
+  esac
+fi
 
 # Halogen's request records (#107): the folder prepare makes, and whether recording is on.
 d="$logs/halogen"
