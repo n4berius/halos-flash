@@ -10,6 +10,10 @@ cat > "$work/bin/podman" <<'S'
 #!/bin/bash
 # Runs the requested program on the host, with /models mapped to the test's folder.
 echo "podman $*" >> "$FAKE/podman.log"
+# The pull lock (fd 9) must not reach podman: its conmon would hold it after a hard kill.
+[ ! -e /proc/self/fd/9 ] || echo "podman $*" >> "$FAKE/fd9.log"
+# Removing the container ends a "container" that ignores SIGTERM (FAKE_HANG below).
+if [ "$1" = rm ] && [ -s "$FAKE/hang.pid" ]; then kill -9 "$(cat "$FAKE/hang.pid")" 2> /dev/null; fi
 [ "$1" = run ] || exit 0
 shift; entry=""
 while [ $# -gt 0 ]; do
@@ -21,6 +25,8 @@ while [ $# -gt 0 ]; do
   esac
 done
 args=(); for a in "$@"; do args+=("${a//\/models/$FAKE/models}"); done
+# FAKE_HANG=<entrypoint>: that step's "container" ignores SIGTERM until it is removed.
+if [ "${FAKE_HANG:-}" = "$entry" ]; then trap '' TERM INT HUP; sleep 30 & echo "$!" > "$FAKE/hang.pid"; wait; exit 1; fi
 case "$entry" in
   hf) dir=""; for ((i = 0; i < ${#args[@]}; i++)); do [ "${args[i]}" != --local-dir ] || dir="${args[i+1]}"; done
       echo "Hint: update hf"; mkdir -p "$dir"; echo '{}' > "$dir/config.json"; echo w > "$dir/model.safetensors" ;;
@@ -31,7 +37,8 @@ S
 chmod +x "$work/bin/podman"
 printf 'model lfm3-1.7b repo=a\nmodel lfm3-1.7b-fast repo=a\nmodel d1-2b repo=b\n' > "$work/models.txt"
 printf 'HALOGEN_IMAGE=img@sha256:1\nHALOGEN_VARIANT=npu\n' > "$work/release.env"
-export PATH="$work/bin:$PATH" HALOGEN_RELEASE_FILE="$work/release.env" HALOGEN_MODELS_DIR="$work/models" \
+mkdir -p "$work/state"
+export HALOGEN_STATE_DIR="$work/state" PATH="$work/bin:$PATH" HALOGEN_RELEASE_FILE="$work/release.env" HALOGEN_MODELS_DIR="$work/models" \
   HALOGEN_HF_TOKEN_FILE="$work/none" HALOGEN_PROGRESS_S=0
 pull="$repo/files/usr/libexec/halogen/model-pull"
 ok() { echo "ok: $*"; }
@@ -109,5 +116,54 @@ if "$pull" LiquidAI/LFM3-9B > "$work/out" 2>&1; then echo "a pull went through a
 if [ -n "$(ls -A "$work/secret")" ]; then echo "a folder was made through the link at .pull" >&2; exit 1; fi
 rm "$work/models/.pull"
 ok "a link in place of a checkpoint's folder is refused before any container starts"
+
+# One pull of a name at a time: a second one stops before it removes or starts any container.
+exec 8>> "$work/state/pull-npu-Busy.lock"; flock -n 8
+: > "$work/podman.log"
+if "$pull" LiquidAI/Busy > "$work/out" 2>&1; then echo "two pulls of one name ran at once" >&2; exit 1; fi
+grep -q "Another pull of Busy is running" "$work/out" || { cat "$work/out" >&2; exit 1; }
+if [ -s "$work/podman.log" ]; then echo "the second pull touched a container: $(cat "$work/podman.log")" >&2; exit 1; fi
+exec 8>&-
+# The lock names the holder's process group: still one of this user's, the message says how to
+# stop it (a pull stopped with Ctrl-C goes on in the background); otherwise, just wait.
+exec 8>> "$work/state/pull-npu-Busy.lock"; flock -n 8; ps -o pgid= -p "$$" | tr -cd 0-9 > "$work/state/pull-npu-Busy.lock"
+"$pull" LiquidAI/Busy > "$work/out" 2>&1 || true
+grep -q "to stop it: sudo kill -- -$(ps -o pgid= -p "$$" | tr -cd 0-9)" "$work/out" || { cat "$work/out" >&2; echo "the busy message didn't say how to stop the pull" >&2; exit 1; }
+echo 999999999 > "$work/state/pull-npu-Busy.lock"
+"$pull" LiquidAI/Busy > "$work/out" 2>&1 || true
+if grep -q "sudo kill" "$work/out"; then echo "the busy message offered to kill a process that isn't there" >&2; exit 1; fi
+# Never 1 (kill -- -1 would signal everything), and only a real process group's leader.
+echo 1 > "$work/state/pull-npu-Busy.lock"
+"$pull" LiquidAI/Busy > "$work/out" 2>&1 || true
+if grep -q "sudo kill" "$work/out"; then echo "the busy message offered kill -- -1" >&2; exit 1; fi
+exec 8>&-
+# A pull writes its own process group in the lock, and no podman call gets the lock's descriptor.
+rm -f "$work/fd9.log"
+"$pull" LiquidAI/LFM3-1.7B > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+[ -n "$(tr -cd 0-9 < "$work/state/pull-npu-LFM3-1.7B.lock")" ] || { echo "the lock holds no process group" >&2; exit 1; }
+[ ! -s "$work/fd9.log" ] || { cat "$work/fd9.log" >&2; echo "podman got the pull lock's descriptor" >&2; exit 1; }
+ok "a second pull of the same name stops before it touches the first one's container"
+
+# A stop (TERM to the whole unit, as systemd sends it) removes the container at once, though the
+# container ignores the signal: the pull doesn't wait for it. During the download (in a pipeline)
+# and during the check for a :fast format (a plain command, where bash would hold its trap until
+# the client returned).
+for step in hf awk; do
+  : > "$work/podman.log"; rm -f "$work/hang.pid"
+  FAKE_HANG="$step" setsid "$pull" LiquidAI/Hang > "$work/out" 2>&1 &
+  p=$!
+  for _ in $(seq 100); do [ -s "$work/hang.pid" ] && break; sleep 0.1; done
+  [ -s "$work/hang.pid" ] || { cat "$work/out" >&2; echo "the fake download never started" >&2; exit 1; }
+  [ "$(ps -o pgid= -p "$p" | tr -d ' ')" = "$p" ] || { echo "the test needs the pull in a process group of its own" >&2; exit 1; }
+  kill -TERM -- "-$p"
+  for _ in $(seq 50); do kill -0 "$p" 2> /dev/null || break; sleep 0.1; done
+  if kill -0 "$p" 2> /dev/null; then kill -9 -- "-$p"; echo "the pull kept waiting on a container that ignores TERM" >&2; exit 1; fi
+  rc=0; wait "$p" || rc=$?
+  [ "$rc" = 143 ] || { cat "$work/out" >&2; echo "the stopped pull exited $rc" >&2; exit 1; }
+  if kill -0 "$(cat "$work/hang.pid")" 2> /dev/null; then echo "the container outlived the stop" >&2; exit 1; fi
+  [ "$(grep -c -x 'podman rm -f -i -t 0 halogen-pull-npu-Hang' "$work/podman.log")" -ge 2 ] || { cat "$work/podman.log" >&2; exit 1; }
+  rm -f "$work/hang.pid"; rm -rf "$work/models/.pull" "$work/models/LFM/Hang"
+done
+ok "a stop during a pull removes its container at once"
 
 

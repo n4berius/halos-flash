@@ -769,11 +769,57 @@ name, but allows saying halOS runs Halogen.
     (security audit of round 3, reproduced; the test fakes the failing `rm`, since it may run as
     root). NPU programs are checked only inside the download container and by
     Halogen's own `HALOGEN_NPU_VERIFY=1` (locked) at its start, against the image's record.
-    Left open (security audit, for the owner): `preflight` refusing links at the official names
-    and in `npu`, removing links and unlisted files in `npu/<id>` after a download, running the
-    pull's podman client in the background so the TERM trap fires at once (a stop that outlasts
-    systemd's timeout skips the EXIT trap), a `flock` per pull name (a second pull of the same
-    name replaces the first's container), and `weights-sums.sh` failing on HF pagination.
+    Round 3 (#136, the rest of #135's audit, owner agreed): `preflight` fails on a link at
+    the official names or `tokenizer`, and on any link or non-file/non-folder under `tokenizer/`
+    or `npu/` (one `find … -print -quit` each; halOS and hf make none: hf's `--local-dir`
+    metadata in `npu/<id>/.cache/huggingface` is plain files), and on a folder its owner can't
+    list or `find` failing (a folder made `0111` hid a link at a listed name: security audit).
+    Before the download the fetch removes links at all three `.hgn` names (the tower too while
+    it's off) and links or non-files in `tokenizer/` (then `tokenizer.json` too, so the same run
+    downloads the tokenizer); `official_there` needs `tokenizer/` plain and no link at the tower's
+    name (code review: a link there kept "already match" forever while preflight refused it).
+    `top`/`weights-unchecked` depend on the official files alone; the fast path also needs
+    `npu` plain and no `/var/lib/halogen/npu-unclean`, a marker set before the download and
+    removed after the NPU cleanup, so a fetch cut short in between cleans next time. After every
+    download fetch-models reads the pinned image's `/opt/halogen/npu/models.txt`
+    (`--network=none --read-only --cap-drop=all … --entrypoint cat`) into `declare -A` sets
+    (exact names: `grep -qxF` took a file name with a newline for two listed ones), opens `npu`
+    up (`chmod -R u+rwX`, which doesn't follow links: the download owns its mount root and could
+    make it `0555` so a planted `npu/<known id> -> /srv/configs` couldn't be removed, and the old
+    `"$npu_dir"/*/` glob then walked the link and deleted the keys: security audit, reproduced),
+    removes links and non-files under `npu` (any failure stops the fetch; a second `find` checks
+    nothing is left), and walks each real `npu/<id>` folder the record knows (no trailing slash,
+    links skipped), removing files it doesn't list (`.cache/huggingface` kept); folders of models
+    it doesn't know (an older release's) stay for a rollback, since Halogen loads only known
+    ones. The trade-off: a rollback re-downloads files a newer record dropped from a model both
+    know (say 135 MB for `d3-nano`). The test fakes the failing `rm` (it may run as root). model-pull's
+    `in_image` and flash-checkpoint's `online` are subshell functions that run the podman client
+    in the background and `wait`, with their own TERM/HUP/INT traps removing the named container
+    (bash holds a trap while a plain foreground command runs, and the client waits on a
+    container that may ignore the signal: model-pull's `:fast` check, a plain `if in_image awk`,
+    kept a stopped pull waiting; in a pipeline the main shell's trap did fire at once, which is
+    why the test hangs both steps, the download and that check). `<&0` keeps their stdin (a background job's default is /dev/null).
+    One `flock -n` per name (`$HALOGEN_STATE_DIR/pull-npu-<name>.lock`,
+    `pull-flash-<name>.lock` for flash pull and both convert steps), taken before any container
+    is removed or the EXIT trap may remove one; background progress loops close fd 9 (`9>&-`),
+    or their `sleep` kept the lock for up to 10 minutes after the command ended (tests found it),
+    and so does every podman call (`podman() { command podman "$@" 9>&-; }`: conmon inherited it,
+    so after a hard kill a leftover container kept the name locked for as long as it ran; checked
+    rootful with podman 4.9.3, rootless's pause process not checked). The lock file holds the
+    holder's process group; a refused pull prints `sudo kill -- -<pgid>` when the number is above
+    1, `ps -o pgid=` of it is itself (a live group leader) and `/proc/<pgid>` is still this
+    user's (a pull stopped with Ctrl-C under `systemd-run --pipe` keeps running), else just
+    "wait" (`1` would have printed `kill -- -1`, every process, run as root: re-review). flash
+    pull refuses a `tokenizer/` that is a link before removing anything in it (the pull's
+    container could leave one pointing at a folder of matching copies; the message gives the
+    `sudo rm` that removes the link), and copies the official tokenizer into a checkpoint
+    without one only when it holds no link. The tokenizer check's stray-file sweep (from #135)
+    matches names in a `declare -A` set too (`tokenizer.json<newline>evil` passed `grep -qxF`).
+    Re-review found four tests that passed without their change; each test now fails with its
+    change reverted (a folder name with a newline, the listing step hung for the stop, a link
+    in `npu` leaving the top read-only, the flash hint).
+    `weights-sums.sh` stops on a `Link: … rel="next"` header and on `tokenizer/<sub>/…` files
+    (`WEIGHTS_SUMS_OUT` for `tests/weights-sums.sh`).
   - The stamp and the checkpoint-base note are `/var/lib/halogen/fetch-stamp` and `own-bases`
     (`HALOGEN_STATE_DIR`), which no container mounts; the old `/srv/models/.fetch-stamp` and
     `.own-bases` are not migrated (a container could have forged them): an upgraded machine
