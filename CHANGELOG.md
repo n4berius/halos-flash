@@ -15,6 +15,14 @@ promoted.
   are no longer written to the access log; and the firewall no longer lets through ports that a
   container started with `sudo` publishes (such a container may now refuse to start; rootless
   containers, as Halogen is, aren't affected; INSTALL says how to allow it). (#134)
+- More hardening of the downloads: once the official files are on the disk, a model download
+  can no longer change them (only the NPU folder is writable to it); after a download that could,
+  every official file is checked against the hashes this release carries, and one that differs
+  is removed and fetched again; the note that says "models already downloaded" moved out of
+  reach of the downloads (an upgraded machine checks all its official files once, which takes
+  a minute or two, downloading nothing); and an interrupted `model pull`, `flash pull` or
+  `flash convert` download is removed when the command ends, or at the next pull of the same
+  name. (#135)
 
 - fail2ban now shuts addresses out through its own firewall table (nftables) instead of
   firewalld rules: connections a shut-out address already had open are cut too, a ban costs far

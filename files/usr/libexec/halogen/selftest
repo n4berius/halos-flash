@@ -280,7 +280,7 @@ if have systemctl; then
     *) say FAIL server "Halogen is $state; see sudo halogenctl logs" ;;
   esac
 fi
-if [ -f "$models/.fetch-stamp" ]; then say PASS models "the models for this release are downloaded and checked"
+if as_owner test -f "${HALOGEN_STATE_DIR:-/var/lib/halogen}/fetch-stamp"; then say PASS models "the models for this release are downloaded and checked"
 else say WARN models "the models are not all downloaded yet; see sudo halogenctl fetch-logs"; fi
 if have systemd-run; then
   out="$(run systemd-run --machine=halogen@.host --user --pipe --wait --quiet --setenv=HALOGEN_SERVER_RUNNING="${running:-0}" /usr/libexec/halogen/preflight)"

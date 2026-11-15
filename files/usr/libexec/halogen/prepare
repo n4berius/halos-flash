@@ -35,7 +35,7 @@ fi
 # A new install has no halogen.env yet. Only then is first-boot setup (sudo halosctl setup)
 # pending: the first download waits for it, up to 30 minutes. Upgrades never get the marker.
 if ! as_halogen test -e "$configs/halogen.env" && ! as_halogen test -L "$configs/halogen.env" &&
-   ! as_halogen test -e "$models/.fetch-stamp"; then
+   ! as_halogen test -e "$state/fetch-stamp" && ! as_halogen test -e "$models/.fetch-stamp"; then
   as_halogen touch "$state/setup-pending"
 fi
 # shellcheck disable=SC2016 # expanded by the halogen shell, from its arguments

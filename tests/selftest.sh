@@ -20,7 +20,7 @@ echo "ASUS" > "$work/sys/class/dmi/id/board_vendor"; echo "board" > "$work/sys/c
 echo "1.02" > "$work/sys/class/dmi/id/bios_version"
 echo up > "$work/sys/class/net/enp1s0/operstate"; echo 5000 > "$work/sys/class/net/enp1s0/speed"
 touch "$work/dev/kfd" "$work/dev/dri/renderD128" "$work/dev/accel/accel0" "$work/dev/tpmrm0"
-mkdir -p "$work/models/flash" "$work/models/decider" "$work/models/LFM" "$work/models/custom"; touch "$work/models/.fetch-stamp"
+mkdir -p "$work/models/flash" "$work/models/decider" "$work/models/LFM" "$work/models/custom"; mkdir -p "$work/hstate"; touch "$work/hstate/fetch-stamp"
 echo 'SECRET-KEY-MARKER' > "$work/configs/api-key"; echo 'hf_SECRET-TOKEN-MARKER' > "$work/configs/hf-token"
 printf 'MemTotal: 130000000 kB\n' > "$work/meminfo"
 echo 'BOOT_IMAGE=x amdgpu.gttsize=126976 ttm.pages_limit=32505856 iommu=pt' > "$work/cmdline"
@@ -82,7 +82,7 @@ mkdir -p "$work/audit" "$work/proc/4711" "$work/home/.config"
 # The rules halOS ships, as the selftest reads them: two paths that exist, one that doesn't.
 printf '%s\n' '-w /etc/passwd -p wa -k accounts' '-w /nonexistent/preload -p wa -k preload' \
   '-a always,exit -F path=/usr/bin/env -F perm=x -F auid!=unset -k halosctl' > "$work/halos.rules"
-export PATH="$fake:$sysbin" HALOGEN_RELEASE_FILE="$work/release.env" HALOGEN_SYSFS="$work/sys" \
+export HALOGEN_STATE_DIR="$work/hstate" PATH="$fake:$sysbin" HALOGEN_RELEASE_FILE="$work/release.env" HALOGEN_SYSFS="$work/sys" \
   HALOGEN_DEV="$work/dev" HALOGEN_CMDLINE="$work/cmdline" HALOGEN_MEMINFO="$work/meminfo" \
   HALOGEN_MODELS_DIR="$work/models" HALOGEN_CONFIGS_DIR="$work/configs" HALOGEN_CLOCK="$fake/fabric-clock" \
   HALOGEN_LOGS_DIR="$work/logs" HALOGEN_RECORDS_DROPIN="$work/20-records.conf" HALOS_LOG_DIR="$work" \
@@ -117,6 +117,7 @@ expect() { grep -qE "$1" "$work/out" || { echo "expected '$1' in:" >&2; cat "$wo
 refuse() { if grep -qE "$1" "$work/out"; then echo "did not expect '$1' in:" >&2; cat "$work/out" >&2; exit 1; fi; }
 
 "$selftest" > "$work/out" 2>&1 || { cat "$work/out" >&2; echo "a healthy machine failed" >&2; exit 1; }
+grep -q "runuser -u halogen -- test -f $work/hstate/fetch-stamp" "$work/runuser.log" || { echo "the stamp wasn't checked as halogen, in halogen's own folder" >&2; exit 1; }
 for id in secure-boot image-signatures signature-files ssh-unlock kernel-iommu memory selinux-denials firewall luks-tpm gpu-kfd npu-device npu-label \
   fabric-clock server preflight api-ipv4 api-ipv6 proxy api-models dashboard dashboard-filter dashboard-nodump npu-folder folder-LFM folder-flash folder-logs; do
   expect "^PASS $id:"
@@ -437,7 +438,7 @@ expect '^FAIL folder-flash: '
 ok "the Flash folder is checked, and the served checkpoint is named, with the way back when Halogen is down"
 
 # A new install waiting for first-boot setup says so, instead of "waiting for the download".
-mkdir -p "$work/state"; : > "$work/state/setup-pending"
+mkdir -p "$work/state"; : > "$work/state/setup-pending"; : > "$work/state/fetch-stamp"
 FAKE_STATE=inactive HALOGEN_STATE_DIR="$work/state" "$selftest" > "$work/out" 2>&1 || true
 expect '^WARN server: Halogen waits for first-boot setup: sudo halosctl setup'
 ok "a new install waiting for setup is named in the selftest"

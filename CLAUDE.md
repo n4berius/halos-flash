@@ -737,10 +737,54 @@ name, but allows saying halOS runs Halogen.
   refuse a bind source whose real path isn't its name under the real `/srv/models`. `flash pull`
   copies a shared official lookup table (`cp --reflink=auto`: no extra blocks on XFS, a full
   copy elsewhere) and removes a link or hard-linked table an older pull left, before its
-  container gets the folder. Left open (owner to decide): the top level read-only once the
-  official files are there, names for the pull containers, the stamp in `/var/lib/halogen`,
-  hashing the official table/tower/tokenizer after a download. None of this runs in the VM (no
-  download there): freyja's next fetch and pull are the first real run.
+  container gets the folder. None of this runs in the VM (no download there): freyja's next
+  fetch and pull are the first real run.
+- Download-path hardening, round 2 (#135, the rest of #131's audit, owner agreed):
+  - When the official files (`qwen38-flash-next-v2.hgn`, `-ngram.hgn`, `-vision.hgn` when
+    `HALOGEN_VISION_TOWER` is on, `tokenizer/tokenizer.json`: what `fetch-in-container` looks for)
+    are all there, the download container gets `-v /srv/models:/models:ro`, with `npu` its own
+    writable mount. hf with `--local-dir /models/npu/<id>` writes only under it (its `.cache` too;
+    checked with podman 4.9.3 and a current huggingface_hub, not the image's pinned one). A link
+    at one of those names or at `tokenizer` is removed first, so it is downloaded again.
+  - When one is missing, the top stays writable for that download, and afterwards every official
+    file (and each `tokenizer/*` file) is checked against `files/usr/share/halogen/weights.sha256`
+    (from `scripts/weights-sums.sh`: HF's LFS sha256 at `HALOGEN_WEIGHTS_REVISION`; small files
+    downloaded at that commit, checked against their git blob id, then hashed; `tests/static.sh`
+    fails when the file's revision line differs from `versions.env`). A mismatch or link is
+    removed (for `tokenizer/*`, `tokenizer.json` too, which is what the download looks for), the
+    fetch fails without a stamp, and the next start downloads it again. About 118 GB is hashed
+    then (about a minute, not measured on freyja); a fetch that downloaded only NPU programs
+    hashes nothing. The check is driven by a marker, `/var/lib/halogen/weights-unchecked`, set
+    before a download with the top writable and whenever there is no stamp (so the first fetch
+    after the upgrade to #135 hashes everything once), removed only once every file matched: a
+    fetch cut short after the files landed (an unknown NPU model is refused only after the
+    weights) is checked by the next one (code review reproduced the skip). The "already match"
+    exit also needs the official files there: the stamp lives on `/var`, the models on their own
+    volume. A kept vision tower is hashed while the tower is off (turned on later it would be
+    there, unchecked), and anything in `tokenizer/` that `weights.sha256` doesn't list is
+    removed (security audit). Before the check it opens up `/srv/models` and `tokenizer/`
+    (`chmod`, which doesn't follow links) and stops on any removal that fails: a download that
+    planted `tokenizer -> /srv/configs` and made `/models` read-only (it owns the mount root, so
+    a `--cap-drop=all` container can) had the cleanup `rm -rf` the API key through the link
+    (security audit of round 3, reproduced; the test fakes the failing `rm`, since it may run as
+    root). NPU programs are checked only inside the download container and by
+    Halogen's own `HALOGEN_NPU_VERIFY=1` (locked) at its start, against the image's record.
+    Left open (security audit, for the owner): `preflight` refusing links at the official names
+    and in `npu`, removing links and unlisted files in `npu/<id>` after a download, running the
+    pull's podman client in the background so the TERM trap fires at once (a stop that outlasts
+    systemd's timeout skips the EXIT trap), a `flock` per pull name (a second pull of the same
+    name replaces the first's container), and `weights-sums.sh` failing on HF pagination.
+  - The stamp and the checkpoint-base note are `/var/lib/halogen/fetch-stamp` and `own-bases`
+    (`HALOGEN_STATE_DIR`), which no container mounts; the old `/srv/models/.fetch-stamp` and
+    `.own-bases` are not migrated (a container could have forged them): an upgraded machine
+    fetches (checks) once more, downloading nothing, then removes them. `prepare` still treats an
+    old stamp as "not a new install", so an upgrade never waits for first-boot setup.
+  - The pull containers are named: `halogen-pull-npu-<name>` (model-pull, every container) and
+    `halogen-pull-flash-<name>` (flash pull's online ones), `halogen-convert-<name>` (convert-run's
+    downloads), with `--replace`; a leftover is removed first and the last one by an EXIT trap
+    (with INT/TERM/HUP traps that exit, so it runs). flash-checkpoint works the name out again
+    in the trap (its containers run in pipelines and `$(...)`), and only a pull or a conversion
+    (`ctr_owned`) names or removes one, so `verify`/`check` never touch a running pull's.
 
 - fail2ban hardening round 2 (#134, the audit of #132, owner agreed): fail2ban's unit adds
   `SystemCallFilter=~@privileged @resources` (default action: a refused call kills it, so it is

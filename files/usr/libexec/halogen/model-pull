@@ -34,6 +34,15 @@ name="${name:-${repo##*/}}"
 case "$name" in
   *[!A-Za-z0-9._-]*|.*|'') echo "'$name' can't be a model name: use letters, digits, '.', '_' or '-' (pick one with --as)" >&2; exit 2 ;;
 esac
+# Every container of this pull has one name: a leftover one (an interrupted pull: it sits outside
+# this command's process tree, with the network and this checkpoint's folder writable) is
+# replaced at the next pull of this name, and the last one is removed when this ends (a SIGKILL,
+# or a stop that outlasts systemd's timeout, skips that: the next pull of the name removes it).
+ctr="halogen-pull-npu-$name"
+cleanup() { [ -z "${reporter:-}" ] || kill "$reporter" 2>/dev/null; podman rm -f -i -t 0 "$ctr" > /dev/null 2>&1 || true; }
+trap cleanup EXIT
+trap 'exit 130' INT; trap 'exit 143' TERM HUP
+podman rm -f -i -t 0 "$ctr" > /dev/null 2>&1 || true
 if ! podman image exists "$HALOGEN_IMAGE"; then
   echo "The Halogen image isn't downloaded yet. Let the first boot finish: sudo halogenctl fetch-logs" >&2
   exit 1
@@ -76,7 +85,7 @@ args=()
 # download needs none either. XRT comes with Halogen's image.
 # NET=none for steps that only read local files (the probe reads an untrusted checkpoint).
 in_image() {
-  podman run --rm --pull=never --read-only --tmpfs /tmp --cap-drop=all --security-opt no-new-privileges \
+  podman run --rm --pull=never --name "$ctr" --replace --read-only --tmpfs /tmp --cap-drop=all --security-opt no-new-privileges \
     ${NET:+--network="$NET" -e HF_HUB_OFFLINE=1} \
     -e HF_HOME=/tmp/hf -e HF_HUB_OFFLINE=0 -e HF_HUB_DISABLE_TELEMETRY=1 -e HF_HUB_DISABLE_PROGRESS_BARS=1 \
     ${args[@]+"${args[@]}"} --entrypoint "$1" "$HALOGEN_IMAGE" "${@:2}"
@@ -88,7 +97,6 @@ if [ "$progress_s" -gt 0 ]; then
     echo "  $(du -sh "$dir" 2>/dev/null | cut -f1) so far"
   done &
   reporter=$!
-  trap 'kill "$reporter" 2>/dev/null' EXIT
 fi
 # Halogen reads a checkpoint's config, safetensors and tokenizer files, so other formats a
 # repository may also carry are skipped.
