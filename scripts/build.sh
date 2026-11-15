@@ -40,5 +40,6 @@ podman build --pull=newer -t "$TAG" \
   --build-arg "HALOGEN_WEIGHTS_REVISION=$HALOGEN_WEIGHTS_REVISION" \
   --build-arg "BF16_TO_HGN_COMMIT=$BF16_TO_HGN_COMMIT" \
   --build-arg "HALOGEN_DASHBOARD_COMMIT=$HALOGEN_DASHBOARD_COMMIT" \
+  --build-arg "CRUN_PIN_URL=$CRUN_PIN_URL" --build-arg "CRUN_PIN_SHA256=$CRUN_PIN_SHA256" \
   .
 echo "Built $TAG (halOS $RELEASE) with Halogen $HALOGEN_VERSION ($HALOGEN_DIGEST)"

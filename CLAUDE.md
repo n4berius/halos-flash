@@ -786,6 +786,38 @@ name, but allows saying halOS runs Halogen.
     in the trap (its containers run in pipelines and `$(...)`), and only a pull or a conversion
     (`ctr_owned`) names or removes one, so `verify`/`check` never touch a running pull's.
 
+- crun 1.31 (Fedora, Nov 2026; crun#2480, podman#30265 proposed) no longer creates a missing mount
+  point under a read-only root (commit ef668b8, "do not defer the read-only remount of bind
+  mounts"), so podman's `--read-only` with a file mounted at `/run/secrets/…` (Halogen's key; its
+  image has no `/run/secrets`) fails every start: `crun: open …/merged/run/secrets/halogen-api-key:
+  No such file or directory`, exit 127. freyja's edge image from #132's merge hit it; the rollback
+  (crun 1.30.1) works. The base image `quay.io/fedora/fedora-bootc:45` is a moving tag (#121), so a
+  base update changes podman/crun without any change here, and the VM test never starts Halogen
+  (no models). `/usr/libexec/halogen/container-check` (as halogen) imports a tiny image (Fedora's
+  static `ldconfig` and the folders Halogen's image has, not `/run/secrets`) as
+  `localhost/halos-container-check:1` and runs it with Halogen's shape (`--read-only --tmpfs /run`,
+  scratch volumes, a stand-in key at `/run/secrets/halogen-api-key`, no network or capabilities);
+  the selftest's `container-start` runs it (FAIL on 1), so the VM test does too. The image holds
+  crun at 1.30.1 (`CRUN_PIN_URL`/`CRUN_PIN_SHA256` in versions.env, Koji's RPM checked by sha256,
+  `dnf downgrade` after the main install, the build checks the version); 1.31's two CVE fixes
+  (CRIU restore keys; deferred read-only remount target resolution) are given up until then.
+  Remove the hold once Fedora ships podman#30265 or a crun fix (versions.env lists the places;
+  the build log prints the base's crun). Old code rebuilt from a tag has no hold: `refresh.yml`
+  (weekly, rebuilds the newest stable tag and moves `stable`, no VM test) and promotions of an
+  older release would ship crun 1.31 until a release containing #137 exists (code review; the
+  owner was asked to disable Refresh until then). `container-check` names its container
+  (`halos-container-check`, a leftover removed first with its volumes). Security audit of #137:
+  the pinned RPM is Fedora's signed copy (Koji `data/signed/f577861e/`, same header and payload
+  as the base's 1.30.1; the build runs `rpmkeys -K` against Fedora 45's key besides the sha256)
+  and the downgrade changes only crun; CVE-2026-115520 (CRIU) is unreachable here and no
+  practical path to 115521 was found (pinned image; every mount target a direct child of a
+  read-only or pinned folder); the build warns once Fedora ships crun beyond 1.31. The selftest
+  starts container-check with `setsid`: code run as halogen under root's selftest could
+  otherwise open root's terminal (`/dev/tty`, `tcsetpgrp`: read keystrokes, fake a prompt;
+  TIOCSTI is already off). The older halogen-run selftest lines (`podman exec`, `systemctl --user`)
+  have the same pattern: left for the owner to agree. Alternatives that keep 1.31, unverified: mount
+  a folder with the key on an empty folder the pinned image already has and point
+  `HALOGEN_API_KEY_FILE` there; or drop `ReadOnly=true`. (#137)
 - fail2ban hardening round 2 (#134, the audit of #132, owner agreed): fail2ban's unit adds
   `SystemCallFilter=~@privileged @resources` (default action: a refused call kills it, so it is
   audited and restarted; EPERM would hide it; strace of a file-backend run used none of them) and
