@@ -222,6 +222,13 @@ RUN set -eu; \
     echo 'halogen:524288:65536' >> /etc/subgid; \
     firewall-offline-cmd --add-service=halogen; \
     firewall-offline-cmd --add-service=halos-dashboard; \
+    # Only ports firewalld itself opens are reachable: by default it also lets through any port a
+    # rootful container publishes (traffic DNAT'd by others), which something with CAP_NET_ADMIN
+    # could use to open one with a NAT rule of its own. halOS publishes none that way (Halogen is
+    # rootless, on 127.0.0.1); the security audit of #132.
+    grep -qx 'StrictForwardPorts=no' /etc/firewalld/firewalld.conf; \
+    sed -i 's/^StrictForwardPorts=no$/StrictForwardPorts=yes/' /etc/firewalld/firewalld.conf; \
+    grep -qx 'StrictForwardPorts=yes' /etc/firewalld/firewalld.conf; \
     systemctl enable firewalld.service halogen-prepare.service halos-status.timer halos-platform-profile.service; \
     systemctl enable halos-dashboard.service; \
     systemctl enable halos-proxy.service; \
@@ -238,8 +245,9 @@ RUN set -eu; \
     grep -q "'set', 'logtarget', 'SYSTEMD-JOURNAL'" /tmp/f2b.conf; rm -f /tmp/f2b.conf; \
     printf '%s\n' 'host caddy[1]: {"level":"info","ts":1.5,"logger":"http.log.access.log0","msg":"handled request","request":{"remote_ip":"203.0.113.7","remote_port":"1","uri":"/v1/models"},"status":401,"resp_headers":{}}' \
       'host caddy[1]: {"level":"info","ts":1.5,"logger":"http.log.access.log0","msg":"handled request","request":{"remote_ip":"203.0.113.8","remote_port":"1","uri":"/x\"remote_ip\":\"198.51.100.1\",\"status\":401,"},"status":404,"resp_headers":{}}' \
-      '{"level":"info","ts":1.5,"logger":"http.log.access.log0","msg":"handled request","request":{"remote_ip":"203.0.113.9","remote_port":"1","uri":"/v1/models"},"status":401,"resp_headers":{}}' > /tmp/f2b.log; \
-    fail2ban-regex /tmp/f2b.log /etc/fail2ban/filter.d/halos-api.conf > /tmp/f2b.out; grep -q '^Lines: 3 lines, 0 ignored, 1 matched, 2 missed' /tmp/f2b.out; rm -f /tmp/f2b.log /tmp/f2b.out; \
+      '{"level":"info","ts":1.5,"logger":"http.log.access.log0","msg":"handled request","request":{"remote_ip":"203.0.113.9","remote_port":"1","uri":"/v1/models"},"status":401,"resp_headers":{}}' \
+      'host caddy[1]: {"level":"info","ts":1.5,"logger":"http.log.access.log0","msg":"handled request","request":{"remote_ip":"203.0.113.6","remote_port":"1","uri":"/v1/models"},"duration":0.1,"size":9,"status":401}' > /tmp/f2b.log; \
+    fail2ban-regex /tmp/f2b.log /etc/fail2ban/filter.d/halos-api.conf > /tmp/f2b.out; grep -q '^Lines: 4 lines, 0 ignored, 2 matched, 2 missed' /tmp/f2b.out; rm -f /tmp/f2b.log /tmp/f2b.out; \
     augenrules; \
     grep -q -- '-w /etc/halos -p wa -k halos-config' /etc/audit/audit.rules; \
     grep -qx -- '-a task,never -F uid=970 -F auid=970' /etc/audit/audit.rules; \

@@ -407,6 +407,16 @@ if have fail2ban-client && have systemctl; then
     say WARN fail2ban "turned on, but $f2bstate: sudo journalctl -u fail2ban"
   else say INFO fail2ban "off: nobody is shut out for failed logins (sudo halosctl fail2ban on)"; fi
 fi
+# The firewall lets through only the ports firewalld opens itself (#134): its running rules send
+# traffic someone else DNAT'd to a chain that rejects it. A firewalld.conf changed on this machine
+# keeps its own StrictForwardPorts through updates.
+if have nft && have systemctl && [ "$(run systemctl is-active firewalld.service)" = active ]; then
+  if run nft list chain inet firewalld filter_INPUT_dnat | grep -q -e reject; then
+    say PASS firewall-ports "only the ports firewalld opens are let through"
+  else
+    say WARN firewall-ports "ports a container with sudo publishes are let through too (StrictForwardPorts in /etc/firewalld/firewalld.conf isn't yes)"
+  fi
+fi
 # --- Model folders
 old="$(find "$models/npu" -mindepth 1 -maxdepth 1 -type d -regex '.*/[0-9]+\.[0-9]+\.[0-9]+' -printf '%f ' 2>/dev/null)"
 if [ "$npu" = 1 ] && as_owner test -L "$models/npu"; then say FAIL npu-folder "$models/npu is a link, not a folder (it is mounted into Halogen's container): sudo systemctl restart halogen-prepare.service removes it and makes the folder"

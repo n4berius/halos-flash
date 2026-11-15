@@ -818,6 +818,19 @@ name, but allows saying halOS runs Halogen.
   have the same pattern: left for the owner to agree. Alternatives that keep 1.31, unverified: mount
   a folder with the key on an empty folder the pinned image already has and point
   `HALOGEN_API_KEY_FILE` there; or drop `ReadOnly=true`. (#137)
+- fail2ban hardening round 2 (#134, the audit of #132, owner agreed): fail2ban's unit adds
+  `SystemCallFilter=~@privileged @resources` (default action: a refused call kills it, so it is
+  audited and restarted; EPERM would hide it; strace of a file-backend run used none of them) and
+  `InaccessiblePaths=/run/dbus` (the folder: a socket made again comes out from under a mask on
+  the file; masking `/run/systemd/private` too made the unit fail with 226/NAMESPACE "Failed to set up mount namespacing: /run/systemd/private: Permission denied" in the VM, so SELinux alone guards it: `fail2ban_t` has no `service` class rights) (with nft it
+  never needs firewalld; root fail2ban could otherwise drive firewalld over D-Bus, which the
+  policy allows `fail2ban_t`); the access log deletes `resp_headers`; the Containerfile sets
+  firewalld's `StrictForwardPorts=yes` (checks the line was `no` first), so ports DNAT'd by
+  others (rootful `podman -p`, or a NAT rule a compromised `CAP_NET_ADMIN` process adds) aren't
+  let through by firewalld's generic `ct status dnat accept`; Halogen is rootless on 127.0.0.1,
+  so nothing of halOS's is affected. The VM test also bans 2001:db8::9 on the API and
+  203.0.113.10 on SSH (`F2BV6 1 1`, `F2BSSH 1 1`, lifted by halosctl: `F2BUN2 0 0`); the selftest's `firewall-ports` reads the same chain (a locally changed firewalld.conf keeps its own value through updates); the VM test checks
+  `FWSTRICT` (firewalld's running `filter_INPUT_dnat` chain rejects) and `F2BSEC 1 1` (seccomp on, no bus socket in its mount namespace).
 
 ## Lessons already learned
 

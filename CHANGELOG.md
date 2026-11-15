@@ -15,6 +15,11 @@ promoted.
   1.31) broke every start of Halogen, and nothing caught it before it reached a machine; the
   image now holds crun at 1.30.1 until a fixed version is out. (#137)
 
+- More hardening for fail2ban and the firewall: fail2ban can no longer reach the system's
+  message bus (so not firewalld either) and may use fewer system calls; Halogen's reply headers
+  are no longer written to the access log; and the firewall no longer lets through ports that a
+  container started with `sudo` publishes (such a container may now refuse to start; rootless
+  containers, as Halogen is, aren't affected; INSTALL says how to allow it). (#134)
 - More hardening of the downloads: once the official files are on the disk, a model download
   can no longer change them (only the NPU folder is writable to it); after a download that could,
   every official file is checked against the hashes this release carries, and one that differs
