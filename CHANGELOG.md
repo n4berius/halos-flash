@@ -10,6 +10,10 @@ promoted.
 
 ## Unreleased
 
+- The selftest's checks that run as the halogen user (Halogen's scratch folders, its generated
+  service) now run in a session of their own, so nothing they start can reach the terminal you
+  run `sudo halogenctl selftest` from. (#138)
+
 - More hardening for fail2ban and the firewall: fail2ban can no longer reach the system's
   message bus (so not firewalld either) and may use fewer system calls; Halogen's reply headers
   are no longer written to the access log; and the firewall no longer lets through ports that a

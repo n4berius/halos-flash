@@ -474,7 +474,7 @@ if [ "${running:-0}" = 1 ]; then
   # halogen may not raise its own; root raises it before dropping to halogen (freyja: "crun:
   # setrlimit RLIMIT_MEMLOCK: Operation not permitted").
   fstypes="$(run prlimit --memlock=unlimited:unlimited -- setpriv --reuid="$huid" --regid="$huid" --clear-groups env -C / HOME=/var/lib/halogen XDG_RUNTIME_DIR="/run/user/$huid" \
-    podman exec halogen stat -f -c '%n %T' /tmp /var/tmp /root | tr -cd '[:print:]\n')"
+    setsid podman exec halogen stat -f -c '%n %T' /tmp /var/tmp /root | tr -cd '[:print:]\n')"
   if [ "$(grep -c -E '^/(tmp|var/tmp|root) ' <<< "$fstypes")" != 3 ]; then say WARN scratch "couldn't see where Halogen's /tmp, /var/tmp and /root are: ${fstypes:-no answer}"
   elif grep -q tmpfs <<< "$fstypes"; then say FAIL scratch "Halogen's scratch folders are in memory, not on disk: $(tr '\n' ' ' <<< "$fstypes")"
   else say PASS scratch "Halogen's /tmp, /var/tmp and /root are on disk"; fi
@@ -502,7 +502,7 @@ else
   # --machine=halogen@.host ("Cannot remotely cat units"), so that reading always came back empty
   # and the line warned about a mount that was there (freyja).
   huid="$(id -u halogen 2> /dev/null || echo 970)"
-  unit_text="$(run setpriv --reuid="$huid" --regid="$huid" --clear-groups env -C / XDG_RUNTIME_DIR="/run/user/$huid" systemctl --user cat halogen.service)"
+  unit_text="$(run setpriv --reuid="$huid" --regid="$huid" --clear-groups env -C / XDG_RUNTIME_DIR="/run/user/$huid" setsid systemctl --user cat halogen.service)"
   mounted="$(grep -c -F 'srv/logs/halogen:/records' <<< "$unit_text")"
   if [ "${mounted:-0}" = 0 ]; then say WARN records "on, but Halogen's service doesn't mount $d: sudo halogenctl records off, then on"
   elif [ -n "$rr" ]; then say PASS records "on, ${used:-?} in $d; Halogen reports $rr"
@@ -517,7 +517,7 @@ pcro=0; [ ! -e "$etc/$pcoff" ] || pcro=1
 # The mount as halogen's generated unit has it (read over halogen's own socket, as for records):
 # root's drop-in can be overridden from halogen's own Quadlet folders, so the file alone isn't proof.
 huid="$(id -u halogen 2> /dev/null || echo 970)"
-pcunit="$(run setpriv --reuid="$huid" --regid="$huid" --clear-groups env -C / XDG_RUNTIME_DIR="/run/user/$huid" systemctl --user cat halogen.service | grep -e '^ExecStart=')"
+pcunit="$(run setpriv --reuid="$huid" --regid="$huid" --clear-groups env -C / XDG_RUNTIME_DIR="/run/user/$huid" setsid systemctl --user cat halogen.service | grep -e '^ExecStart=')"
 # Counted by where it lands in the container, whatever the source or options.
 pcn="$(grep -o -E -- '[:=]/models/\.prompt-cache([:, ]|$)' <<< "$pcunit" | wc -l)"
 # A link here would hand Halogen's container whatever it points to, writable; the folder must be

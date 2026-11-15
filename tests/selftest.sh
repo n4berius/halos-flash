@@ -11,7 +11,7 @@ export FAKE="$work"
 
 # Only basic tools, so a tool missing from the image really is missing here.
 for t in bash sh cat head tail sed awk grep find df date paste wc sort uname basename readlink \
-  mktemp chmod rm stat tr cut printf python3 timeout id ls env mkdir jq cmp du findmnt; do
+  mktemp chmod rm stat tr cut printf python3 timeout id ls env mkdir jq cmp du findmnt setsid; do
   p="$(command -v "$t")" && ln -sf "$p" "$sysbin/$t"
 done
 ln -sf /usr/bin/test "$sysbin/test"   # as_owner test -e runs the program, not the shell builtin
