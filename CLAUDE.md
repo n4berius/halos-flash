@@ -857,8 +857,7 @@ name, but allows saying halOS runs Halogen.
   as the base's 1.30.1; the build runs `rpmkeys -K` against Fedora 45's key besides the sha256)
   and the downgrade changes only crun; CVE-2026-115520 (CRIU) is unreachable here and no
   practical path to 115521 was found (pinned image; every mount target a direct child of a
-  read-only or pinned folder); the build warns once Fedora ships crun beyond 1.31. The selftest
-  starts container-check with `setsid`: code run as halogen under root's selftest could
+  read-only or pinned folder); the build warns once Fedora ships crun beyond 1.31. The selftest starts container-check through `run_alone` (#138: `setsid -w` before `timeout`): code run as halogen under root's selftest could
   otherwise open root's terminal (`/dev/tty`, `tcsetpgrp`: read keystrokes, fake a prompt;
   TIOCSTI is already off). The older halogen-run selftest lines (`podman exec`, `systemctl --user`)
   have the same pattern: left for the owner to agree. Alternatives that keep 1.31, unverified: mount
@@ -877,6 +876,18 @@ name, but allows saying halOS runs Halogen.
   so nothing of halOS's is affected. The VM test also bans 2001:db8::9 on the API and
   203.0.113.10 on SSH (`F2BV6 1 1`, `F2BSSH 1 1`, lifted by halosctl: `F2BUN2 0 0`); the selftest's `firewall-ports` reads the same chain (a locally changed firewalld.conf keeps its own value through updates); the VM test checks
   `FWSTRICT` (firewalld's running `filter_INPUT_dnat` chain rejects) and `F2BSEC 1 1` (seccomp on, no bus socket in its mount namespace).
+
+- Selftest sessions (#138, the security audit of #137, owner agreed): whatever root runs as halogen
+  through `setpriv` that reaches halogen-controlled programs (podman, `systemctl --user`) runs in a
+  session of its own: halogen's own podman and systemd settings decide what those run, and a
+  process sharing root's terminal could open `/dev/tty`, take the foreground (`tcsetpgrp`) and read
+  keystrokes or fake a prompt (TIOCSTI is already off). In the selftest `run_alone` (`setsid -w
+  timeout …`): setsid goes before timeout, since GNU timeout signals its own process group and a
+  child that left it took its children out of the limit (code review: `timeout 2 setsid sh -c
+  'sleep 8 & wait'` returned after 8 s). halogenctl's `as_manager` (`daemon-reload`, not timed)
+  ends in `setsid -w systemctl`. `tests/static.sh` checks both files. `runuser -u halogen`
+  (`as_owner`) runs only plain programs (`test`, `cat`, `head`, `stat`, `sed`, `du`, `find`) whose
+  behaviour halogen can't change, so it stays as it is.
 
 ## Lessons already learned
 

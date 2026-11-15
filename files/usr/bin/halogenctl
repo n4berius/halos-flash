@@ -485,7 +485,7 @@ case "${1:-status}" in
     # halogen's own manager over its private socket, as login-status reads it: a daemon-reload
     # through --machine=halogen@.host fails with "Transport endpoint is not connected" (VM test).
     huid="$(id -u halogen 2> /dev/null || echo 970)"
-    as_manager() { setpriv --reuid="$huid" --regid="$huid" --clear-groups env -C / XDG_RUNTIME_DIR="/run/user/$huid" systemctl --user "$@"; }
+    as_manager() { setpriv --reuid="$huid" --regid="$huid" --clear-groups env -C / XDG_RUNTIME_DIR="/run/user/$huid" setsid -w systemctl --user "$@"; }
     # Read into a variable first: grep -q stops at its match, systemctl then dies of SIGPIPE, and
     # under pipefail the pipe counted as "not mounted" (the VM test's records on said so wrongly).
     mounted() { local u; u="$(as_manager cat halogen.service 2> /dev/null)" || true; grep -q -F 'srv/logs/halogen:/records' <<< "$u"; }
@@ -597,7 +597,7 @@ case "${1:-status}" in
     # taking "couldn't ask" for "stopped" would skip the restart, or delete under a running server.
     # A Halogen that is still stopping counts as running: it writes its last turn on the way out.
     huid="$(id -u halogen 2> /dev/null || echo 970)"
-    as_manager() { setpriv --reuid="$huid" --regid="$huid" --clear-groups env -C / XDG_RUNTIME_DIR="/run/user/$huid" systemctl --user "$@"; }
+    as_manager() { setpriv --reuid="$huid" --regid="$huid" --clear-groups env -C / XDG_RUNTIME_DIR="/run/user/$huid" setsid -w systemctl --user "$@"; }
     crunning() {
       local s; s="$(as_manager is-active halogen.service 2> /dev/null | head -n 1)" || true
       case "$s" in active|activating|reloading|deactivating) return 0 ;; inactive|failed) return 1 ;;

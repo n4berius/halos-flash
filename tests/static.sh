@@ -144,6 +144,17 @@ for path in glob.glob("files/usr/libexec/halogen/*"):
             assert '"${hide_cache[@]}"' in line, f"{path} mounts all of /srv/models without hiding the prompt cache: {line.strip()}"
     if "hide_cache" in body:
         assert 'hide_cache=(--tmpfs "/models/.prompt-cache:ro,size=4k,notmpcopyup")' in body, f"{path}: the tmpfs must not copy the folder's files up"
+# Whatever root runs as halogen through setpriv reaching halogen-controlled programs goes in a
+# session of its own: halogen's podman and systemd settings decide what those run, and code that
+# shares root's terminal could read keystrokes or fake a prompt (security audit of #137). In the
+# selftest through run_alone (setsid before timeout, so the time limit reaches what it starts).
+for path, ok in (("files/usr/libexec/halogen/selftest", r"\brun_alone\s+(\S+\s+)*setpriv\b"),
+                 ("files/usr/bin/halogenctl", r"\bsetpriv\b.*\benv\b.*\bsetsid\s+-w\s+(podman|systemctl)\b")):
+    text = open(path).read().replace("\\\n", " ")
+    for line in text.splitlines():
+        code = line.split(" #", 1)[0]
+        if re.search(r"\bsetpriv\b", code) and re.search(r"\b(podman|systemctl|container-check)\b", code) and not code.lstrip().startswith("#"):
+            assert re.search(ok, code), f"{path} runs something as halogen outside a session of its own: {code.strip()[:120]}"
 # A container set up like Halogen's is started by the selftest (and so by the VM test), since the
 # VM never starts Halogen: crun 1.31 broke every start of it unseen by CI.
 assert re.fullmatch(r"[0-9a-f]{64}", pins["CRUN_PIN_SHA256"]) and pins["CRUN_PIN_URL"].startswith("https://kojipkgs.fedoraproject.org/packages/crun/") and "/data/signed/" in pins["CRUN_PIN_URL"] and "rpmkeys -K /tmp/crun.rpm" in cf, "crun's hold needs an exact package and its sha256"

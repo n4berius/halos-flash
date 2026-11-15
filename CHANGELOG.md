@@ -10,6 +10,9 @@ promoted.
 
 ## Unreleased
 
+- The selftest's checks that run as the halogen user (Halogen's scratch folders, its generated
+  service) now run in a session of their own, so nothing they start can reach the terminal you
+  run `sudo halogenctl selftest` from. (#138)
 - Downloads, a last round: Halogen refuses to start when a link (or a folder it can't read)
   stands where it loads its model files from (the official files, the tokenizer, the NPU
   folder), and the next fetch removes it; after a download the NPU folder keeps only the files
