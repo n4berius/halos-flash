@@ -83,7 +83,7 @@ Moves Halogen from **$old_version** to **$want**. Opened by the Halogen update w
 | \`HALOGEN_DIGEST\` | \`$digest\` |
 | \`HALOGEN_SOURCE_COMMIT\` | [\`${commit:0:12}\`](https://github.com/$source_repo/tree/$commit) ([changes since $old_version]($compare)) |
 | Clock script, license, notices | hashes updated from that commit |
-| \`HALOGEN_WEIGHTS_REVISION\` | unchanged (\`$HALOGEN_WEIGHTS_REVISION\`): check the notes below say the Flash checkpoints are unchanged |
+| \`HALOGEN_WEIGHTS_REVISION\` | unchanged (\`$HALOGEN_WEIGHTS_REVISION\`): check the notes below say the Flash checkpoints are unchanged (if they changed, set the new revision and run \`scripts/weights-sums.sh\`) |
 
 ### Settings
 

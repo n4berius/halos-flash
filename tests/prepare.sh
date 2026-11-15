@@ -66,3 +66,16 @@ if [ -L "$work/models/custom" ] || [ ! -d "$work/models/custom" ]; then echo "a 
 grep -q "runuser -u halogen -- rm -f -- $work/models/.prompt-cache" "$work/log" || { echo "the link wasn't removed as halogen" >&2; exit 1; }
 grep -q 'removing the link' "$work/err" || { echo "removing a link wasn't said" >&2; exit 1; }
 ok "a link in place of one of halogen's folders is removed and the folder made"
+
+# First-boot setup is pending only on a new install: not when the models were fetched before,
+# whether the stamp is in halogen's own folder (now) or in /srv/models (before #135).
+rm -f "$work/configs/halogen.env" "$work/state/setup-pending"; mkdir -p "$work/state"; : > "$work/state/fetch-stamp"
+"$prepare" 2> /dev/null
+[ ! -e "$work/state/setup-pending" ] || { echo "an install with fetched models was sent to first-boot setup" >&2; exit 1; }
+rm -f "$work/configs/halogen.env" "$work/state/fetch-stamp"; : > "$work/models/.fetch-stamp"
+"$prepare" 2> /dev/null
+[ ! -e "$work/state/setup-pending" ] || { echo "an upgraded install was sent to first-boot setup" >&2; exit 1; }
+rm -f "$work/configs/halogen.env" "$work/models/.fetch-stamp"
+"$prepare" 2> /dev/null
+[ -e "$work/state/setup-pending" ] || { echo "a new install wasn't sent to first-boot setup" >&2; exit 1; }
+ok "only a new install waits for first-boot setup, wherever an earlier fetch left its stamp"

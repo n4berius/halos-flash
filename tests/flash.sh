@@ -37,7 +37,7 @@ shift; entry=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --entrypoint) entry="$2"; shift 2 ;;
-    -v|-e|--tmpfs|--security-opt|--cap-drop|--device|--group-add|--ulimit) shift 2 ;;
+    -v|-e|--tmpfs|--security-opt|--cap-drop|--device|--group-add|--ulimit|--name) shift 2 ;;
     -*) shift ;;
     *) shift; break ;;
   esac
@@ -97,6 +97,11 @@ if grep -q '^Hint' "$work/out"; then fail "hf noise reached the output"; fi
 grep 'podman run' "$work/podman.log" | grep ' verify ' | grep -q -- '--network=none --cap-drop=all' || fail "verify was not offline and without capabilities"
 grep 'podman run' "$work/podman.log" | grep -- '--entrypoint hf' > "$work/runs"
 grep -q -- '--cap-drop=all' "$work/runs" || fail "the download kept capabilities"
+# The online containers have the pull's name (a leftover one is replaced); one left by an
+# interrupted pull goes first, and the last one when the pull ends.
+grep -q -- '--name halogen-pull-flash-mine --replace ' "$work/runs" || fail "the download container wasn't named"
+grep -qx 'podman rm -f -i -t 0 halogen-pull-flash-mine' "$work/podman.log" || fail "a leftover pull container isn't removed"
+tail -n 1 "$work/podman.log" | grep -qx 'podman rm -f -i -t 0 halogen-pull-flash-mine' || fail "the pull's container isn't removed at the end"
 if grep -v -- "-v $work/models/flash/mine:/models/flash/mine " "$work/runs" | grep -q .; then fail "the download saw more than its own folder"; fi
 grep 'podman run' "$work/podman.log" | grep -- '--entrypoint python3' > "$work/runs"
 if grep -q -- ' -v ' "$work/runs"; then fail "the listing had a folder mounted"; fi
@@ -179,6 +184,9 @@ ok "the free space is checked before the first byte, and hub errors are explaine
 
 : > "$work/verify.log"
 FAKE_BAD=model.hgn "$tool" verify bad > "$work/out" 2>&1 && fail "verify of a bad file passed"
+# verify starts no named container and removes none: a pull of the same name may be running.
+: > "$work/podman.log"; "$tool" verify mine > /dev/null 2>&1 || true
+if grep -q -e 'podman rm' -e '--name' "$work/podman.log"; then fail "verify touched a pull's container"; fi
 [ "$(info bad verified)" = fail ]
 "$tool" verify mine > "$work/out" 2>&1 || fail "verify of a good file failed"
 { [ "$(info mine verified)" = pass ] && [ "$(grep -c . "$work/verify.log")" -ge 3 ]; } || fail "verify again did not check every file"
@@ -403,6 +411,8 @@ grep -q 'vision' "$work/verify.log" || fail "Halogen's verify skipped the vision
 if grep -q ngram "$work/verify.log"; then fail "the table went to Halogen's verify"; fi
 [ ! -e "$work/models/flash/.convert/conv" ] || fail "the downloaded weights stayed"
 grep -q 'flash check conv' "$work/out" || fail "no pointer to flash check"
+# The conversion's downloads have a name of their own: a pull of the same name never replaces them.
+grep 'podman run' "$work/podman.log" | grep -- '--entrypoint hf' | grep -q -- '--name halogen-convert-conv --replace ' || fail "the conversion's download wasn't named"
 ok "convert-run downloads the weights at the commit, converts and verifies without network, checks with Halogen's verify, records it and frees the weights"
 
 rm -rf "$out"; prepare someone/Flash-BF16 --as conv > /dev/null
