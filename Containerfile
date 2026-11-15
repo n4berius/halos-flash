@@ -147,6 +147,20 @@ RUN dnf -y --setopt=install_weak_deps=False install \
       grep -qx "$kv" /etc/audit/auditd.conf || { echo "auditd.conf lacks: $kv" >&2; exit 1; }; done && \
     if grep -qiE '^[a-z_]*_action *= *(HALT|SINGLE)' /etc/audit/auditd.conf; then echo "auditd.conf could stop the machine" >&2; exit 1; fi
 
+# crun held at the version that starts Halogen (versions.env says why), checked by its sha256.
+ARG CRUN_PIN_URL
+ARG CRUN_PIN_SHA256
+RUN set -eu; \
+    curl -fsSL --retry 3 -o /tmp/crun.rpm "$CRUN_PIN_URL"; \
+    echo "$CRUN_PIN_SHA256  /tmp/crun.rpm" | sha256sum -c -; \
+    rpmkeys --import /usr/share/pki/rpm-gpg/RPM-GPG-KEY-fedora-45-x86_64; \
+    rpmkeys -K /tmp/crun.rpm | grep -q 'digests signatures OK'; \
+    want="$(rpm -qp --qf '%{NAME}-%{VERSION}-%{RELEASE}' /tmp/crun.rpm)"; \
+    echo "crun in Fedora's base today: $(rpm -q crun); held at: $want"; \
+    case "$(rpm -q --qf '%{VERSION}' crun)" in 1.30*|1.31) ;; *) echo "WARNING: Fedora now ships $(rpm -q crun): check whether it fixes crun#2480, and remove the hold (versions.env)";; esac; \
+    if [ "$(rpm -q --qf '%{NAME}-%{VERSION}-%{RELEASE}' crun)" != "$want" ]; then dnf -y --setopt=install_weak_deps=False downgrade /tmp/crun.rpm || dnf -y --setopt=install_weak_deps=False install /tmp/crun.rpm; fi; \
+    [ "$(rpm -q --qf '%{NAME}-%{VERSION}-%{RELEASE}' crun)" = "$want" ]; \
+    rm -f /tmp/crun.rpm; dnf clean all; rm -rf /var/log/dnf5.log /var/lib/dnf /var/cache/libdnf5 /run/dnf
 COPY files/ /
 COPY variants/${HALOGEN_VARIANT}/ /
 COPY LICENSE THIRD-PARTY-NOTICES.md /usr/share/licenses/halos-flash/
