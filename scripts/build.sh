@@ -1,18 +1,25 @@
 #!/bin/bash
 # Build an OS image, tagged with its Halogen version.
-# Usage: [HALOGEN_VARIANT=npu|no-npu] scripts/build.sh
+# Usage: [HALOGEN_VARIANT=npu|no-npu] [KERNEL_TRACK=fedora|next] scripts/build.sh
+# KERNEL_TRACK=next puts the test kernel versions.env names in place of Fedora 45's (the
+# kernel-next images); only main's build workflow and its VM test use it.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 # shellcheck source=versions.env
 . ./versions.env
 VARIANT="${HALOGEN_VARIANT:-npu}"
+KERNEL_TRACK="${KERNEL_TRACK:-fedora}"
+case "$KERNEL_TRACK" in fedora|next) ;; *) echo "unknown KERNEL_TRACK: $KERNEL_TRACK (fedora or next)" >&2; exit 1 ;; esac
+export KERNEL_TRACK
 TAG="$(scripts/image-ref.sh)"
 SOURCE=ghcr.io/peonist-ai/halogen-flash-server
 # The halOS release this image is: HALOS_RELEASE (the release's tag, such as 0.19.0-r2), else
 # the image tag, else <version>-dev.<commit> for other builds.
 if [ -n "${HALOS_RELEASE:-}" ]; then RELEASE="${HALOS_RELEASE#v}"
-elif [ -n "${IMAGE_TAG:-}" ] && [ "$IMAGE_TAG" != edge ]; then RELEASE="$IMAGE_TAG"
+elif [ -n "${IMAGE_TAG:-}" ] && [ "$IMAGE_TAG" != edge ] && [ "$IMAGE_TAG" != kernel-next ]; then RELEASE="$IMAGE_TAG"
 else RELEASE="$HALOGEN_VERSION-dev.$(git rev-parse --short=7 HEAD 2>/dev/null || echo local)"; fi
+# A test-kernel build says so in its name, so halosctl version and the selftest show it.
+if [ "$KERNEL_TRACK" = next ]; then RELEASE="$RELEASE-kernel-next"; fi
 
 if [ -z "$HALOGEN_DIGEST" ]; then
   HALOGEN_DIGEST="$(skopeo inspect --format '{{.Digest}}' "docker://$SOURCE:$HALOGEN_VERSION")"
@@ -27,6 +34,7 @@ podman build --pull=newer -t "$TAG" \
   --label "org.opencontainers.image.source=https://github.com/n4berius/halos-flash" \
   --label "org.opencontainers.image.version=$RELEASE" \
   --label "io.github.n4berius.halos.edition=$VARIANT" \
+  --label "io.github.n4berius.halos.kernel=$KERNEL_TRACK" \
   --build-arg "FEDORA_BOOTC_IMAGE=$FEDORA_BOOTC_IMAGE" \
   --build-arg "HALOGEN_IMAGE=$SOURCE@$HALOGEN_DIGEST" \
   --build-arg "HALOGEN_VERSION=$HALOGEN_VERSION" \
@@ -41,5 +49,7 @@ podman build --pull=newer -t "$TAG" \
   --build-arg "BF16_TO_HGN_COMMIT=$BF16_TO_HGN_COMMIT" \
   --build-arg "HALOGEN_DASHBOARD_COMMIT=$HALOGEN_DASHBOARD_COMMIT" \
   --build-arg "CRUN_PIN_URL=$CRUN_PIN_URL" --build-arg "CRUN_PIN_SHA256=$CRUN_PIN_SHA256" \
+  --build-arg "KERNEL_TRACK=$KERNEL_TRACK" --build-arg "KERNEL_NEXT_NVR=$KERNEL_NEXT_NVR" \
+  --build-arg "KERNEL_NEXT_URL=$KERNEL_NEXT_URL" --build-arg "KERNEL_NEXT_SHA256=$KERNEL_NEXT_SHA256" \
   .
-echo "Built $TAG (halOS $RELEASE) with Halogen $HALOGEN_VERSION ($HALOGEN_DIGEST)"
+echo "Built $TAG (halOS $RELEASE, kernel $KERNEL_TRACK) with Halogen $HALOGEN_VERSION ($HALOGEN_DIGEST)"

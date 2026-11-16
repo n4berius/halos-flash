@@ -8,6 +8,7 @@ Git tags start a release. Each one must be on `main` and match `HALOGEN_VERSION`
 | Channel | Git tag | Image tag | Meaning | GitHub release |
 |---|---|---|---|---|
 | Edge | None, every push to `main` | `edge` | Newest build, for testing | None |
+| Kernel next | None, every push to `main` | `kernel-next` | Edge with a test kernel (now Linux 7.4-rc2 from Fedora 46) instead of Fedora 45's | None |
 | Alpha | `v0.18.23-alpha.1` | `0.18.23-alpha.1`, `alpha` | Builds and installs in a VM, not proven on hardware | Pre-release |
 | Beta | `v0.18.23-beta.1` | `0.18.23-beta.1`, `beta` | Passed the hardware checklist on one machine | Pre-release |
 | RC | `v0.18.23-rc.1` | `0.18.23-rc.1`, `rc` | Passed a soak test, no known blockers | Pre-release |
@@ -26,8 +27,13 @@ RC or stable release when it is newer than the newest beta. A channel never move
 running an old release again moves none. `scripts/channels.sh` works this out from the git
 tags, for both the release and the Monday rebuild.
 
-Machines pick a channel with `sudo halosctl switch alpha|beta|rc|release|edge`, and
+Machines pick a channel with `sudo halosctl switch alpha|beta|rc|release|edge|kernel-next`, and
 `sudo halosctl upgrade` then fetches its newest release.
+
+`kernel-next` is built and signed with `edge`, from the same commit, with the kernel
+`versions.env` pins (`KERNEL_NEXT_*`: exact Fedora packages, checked by sha256 and Fedora's
+signature) instead of Fedora 45's. Releases never use it. It is for trying a newer kernel on the
+test machine; `sudo halosctl rollback` or `switch edge` goes back.
 
 ## Cut a release
 

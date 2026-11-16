@@ -10,6 +10,12 @@ promoted.
 
 ## Unreleased
 
+- A new channel, `kernel-next`, for trying a newer kernel: the same build as `edge`, with Linux
+  7.4-rc2 (Fedora 46's build, signed for Secure Boot) instead of Fedora 45's 7.3. It brings about
+  25 fixes to the NPU driver and an IOMMU speed-up for the built-in GPU that applies to the NPU
+  edition. Follow it with `sudo halosctl switch kernel-next`; `sudo halosctl rollback` goes back.
+  Releases keep Fedora 45's kernel. (#PR)
+
 - Halogen 0.20.5: faster answers when several requests run at once, and saved conversations take
   less memory; Hindi, Thai and other Indic-script prompts are read the way the model was trained;
   your own LFM3 checkpoints read long prompts about twice as fast on the NPU (their NPU files,

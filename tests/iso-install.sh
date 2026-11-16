@@ -150,6 +150,10 @@ echo "installed system verified"
 cat "$out/selftest.txt"
 selftest_has() { grep -qE "^$1" "$out/selftest.txt" || { echo "selftest: expected '$1'" >&2; exit 1; }; }
 selftest_has 'Summary: '
+# kernel-next's run (iso.yml): the installed system runs the test kernel.
+if [ -n "${HALOS_EXPECT_KERNEL:-}" ]; then
+  grep -qxF "Kernel: $HALOS_EXPECT_KERNEL" "$out/selftest.txt" || { echo "the installed system doesn't run the test kernel $HALOS_EXPECT_KERNEL" >&2; exit 1; }
+fi
 selftest_has 'PASS secure-boot:'
 selftest_has 'PASS image-signatures:'   # the installer's %post turned bootc's signature check on (#46)
 selftest_has 'PASS kernel-amdgpu.gttsize:'

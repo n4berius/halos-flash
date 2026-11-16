@@ -42,8 +42,11 @@ HTTPS with a self-signed certificate or your own (#105).
 3. fail2ban for SSH and the Halogen API (#92): done (#129, #132).
 4. Remove the crun 1.30.1 hold (#137) once Fedora ships a fixed podman or crun (crun#2480,
    podman#30265); the build log's "crun in Fedora's base today" line shows when.
-5. Unlock the disk from a tang server on the network (#44).
-6. GGUF repositories in `flash pull` (#61).
+5. Try Linux 7.4 on the test machine through `kernel-next` (#PR): selftest and bench against
+   7.3, NPU and GPU together. Move the pin to newer 7.4 release candidates while it's useful, and
+   end the channel once Fedora 45 ships 7.4 itself.
+6. Unlock the disk from a tang server on the network (#44).
+7. GGUF repositories in `flash pull` (#61).
 
 Later: a first real `flash convert` on the test machine (time and quality), then its GPU (HIP)
 build and the Qwen4 models.
