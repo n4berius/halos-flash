@@ -174,6 +174,12 @@ assert cf.index('downgrade /tmp/crun.rpm') < cf.index('rpm -U /tmp/k/*.rpm') < c
 b = open("scripts/build.sh").read()
 assert '"KERNEL_TRACK=$KERNEL_TRACK"' in b and '"KERNEL_NEXT_SHA256=$KERNEL_NEXT_SHA256"' in b, "build.sh doesn't pass kernel-next's pins"
 assert "kernel-next" in open(".github/workflows/build.yml").read() and "HALOS_EXPECT_KERNEL" in open(".github/workflows/iso.yml").read(), "kernel-next isn't built or install-tested"
+# main's ruleset requires "build (npu)" and "build (no-npu)": the Fedora-kernel jobs must keep those names.
+ruleset = json.load(open(".github/rulesets/protect-main.json"))
+required = {c["context"] for r in ruleset["rules"] if r["type"] == "required_status_checks" for c in r["parameters"]["required_status_checks"]}
+assert {"build (npu)", "build (no-npu)"} <= required and "name: build (${{ matrix.variant }}${{ matrix.kernel == 'next' && ', kernel-next' || '' }})" in open(".github/workflows/build.yml").read(), "the build jobs no longer report the check names main requires"
+for wf in (".github/workflows/build.yml", ".github/workflows/iso.yml"):
+    assert "IMAGE_TAG: ${{ matrix.kernel == 'next' && 'kernel-next' || '' }}" in open(wf).read(), f"{wf}: the test-kernel image must be tagged kernel-next, the tag that is pushed"
 assert "container-check" in open("files/usr/libexec/halogen/selftest").read() and "'PASS container-start:'" in open("tests/iso-install.sh").read(), "the selftest or the VM test no longer starts a container set up like Halogen's"
 fc = open("files/usr/libexec/halogen/flash-checkpoint").read()
 # Download path: the shared lookup table is a reflink copy first (a hard link lets the next pull's

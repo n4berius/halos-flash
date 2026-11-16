@@ -180,7 +180,8 @@ RUN set -eu; \
     mkdir /tmp/k; \
     for pair in $KERNEL_NEXT_SHA256; do \
       n="${pair%%:*}"; f="/tmp/k/$n-$KERNEL_NEXT_NVR.x86_64.rpm"; \
-      curl -fsSL --retry 3 -o "$f" "$KERNEL_NEXT_URL/$n-$KERNEL_NEXT_NVR.x86_64.rpm"; \
+      curl -fsSL --retry 3 -o "$f" "$KERNEL_NEXT_URL/$n-$KERNEL_NEXT_NVR.x86_64.rpm" \
+        || { echo "Koji no longer serves $n-$KERNEL_NEXT_NVR: move KERNEL_NEXT_* in versions.env to a current build" >&2; exit 1; }; \
       echo "${pair#*:}  $f" | sha256sum -c -; \
     done; \
     [ "$(ls /tmp/k | wc -l)" = 4 ]; \
@@ -195,7 +196,7 @@ RUN set -eu; \
     m="/usr/lib/modules/$kver"; \
     for want in kernel/drivers/accel/amdxdna/amdxdna.ko.xz kernel/drivers/gpu/drm/amd/amdgpu/amdgpu.ko.xz vmlinuz; do \
       [ -s "$m/$want" ] || { echo "the test kernel lacks $want" >&2; exit 1; }; done; \
-    for opt in PROVE_LOCKING KASAN DEBUG_VM DEBUG_OBJECTS DEBUG_KMEMLEAK DEBUG_PAGEALLOC; do \
+    for opt in PROVE_LOCKING LOCKDEP KASAN DEBUG_VM DEBUG_OBJECTS DEBUG_KMEMLEAK DEBUG_PAGEALLOC DEBUG_ATOMIC_SLEEP; do \
       if grep -qx "CONFIG_$opt=y" "$m/config"; then echo "the test kernel is a debug build (CONFIG_$opt)" >&2; exit 1; fi; done; \
     grep -qa 'Fedora Secure Boot Signer' "$m/vmlinuz" || { echo "the test kernel isn't signed with Fedora's Secure Boot key" >&2; exit 1; }; \
     echo "kernel: test kernel $kver in place of $old"; \

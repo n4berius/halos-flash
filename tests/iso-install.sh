@@ -153,6 +153,7 @@ selftest_has 'Summary: '
 # kernel-next's run (iso.yml): the installed system runs the test kernel.
 if [ -n "${HALOS_EXPECT_KERNEL:-}" ]; then
   grep -qxF "Kernel: $HALOS_EXPECT_KERNEL" "$out/selftest.txt" || { echo "the installed system doesn't run the test kernel $HALOS_EXPECT_KERNEL" >&2; exit 1; }
+  grep -q '^Kernel track: kernel-next' "$out/selftest.txt" || { echo "the selftest doesn't say this is the test kernel" >&2; exit 1; }
 fi
 selftest_has 'PASS secure-boot:'
 selftest_has 'PASS image-signatures:'   # the installer's %post turned bootc's signature check on (#46)

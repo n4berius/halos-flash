@@ -33,7 +33,7 @@ Machines pick a channel with `sudo halosctl switch alpha|beta|rc|release|edge|ke
 `kernel-next` is built and signed with `edge`, from the same commit, with the kernel
 `versions.env` pins (`KERNEL_NEXT_*`: exact Fedora packages, checked by sha256 and Fedora's
 signature) instead of Fedora 45's. Releases never use it. It is for trying a newer kernel on the
-test machine; `sudo halosctl rollback` or `switch edge` goes back.
+test machine; `sudo halosctl switch edge` goes back (`rollback` too, before any upgrade on it).
 
 ## Cut a release
 

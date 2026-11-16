@@ -43,6 +43,9 @@ jobs:
     env:
       HALOGEN_VARIANT: ${{ matrix.variant }}
       KERNEL_TRACK: ${{ matrix.kernel }}
+      # The installer for the test kernel installs a system that follows :kernel-next, the tag
+      # build.yml pushes (a version-named tag would never exist, so upgrade would fail).
+      IMAGE_TAG: ${{ matrix.kernel == 'next' && 'kernel-next' || '' }}
       # Artifact names: the edition, plus -kernel-next for the test kernel.
       RUN_NAME: ${{ matrix.variant }}${{ matrix.kernel == 'next' && '-kernel-next' || '' }}
     steps:

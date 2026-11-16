@@ -877,7 +877,7 @@ name, but allows saying halOS runs Halogen.
   203.0.113.10 on SSH (`F2BV6 1 1`, `F2BSSH 1 1`, lifted by halosctl: `F2BUN2 0 0`); the selftest's `firewall-ports` reads the same chain (a locally changed firewalld.conf keeps its own value through updates); the VM test checks
   `FWSTRICT` (firewalld's running `filter_INPUT_dnat` chain rejects) and `F2BSEC 1 1` (seccomp on, no bus socket in its mount namespace).
 
-- kernel-next (#PR, owner asked): `KERNEL_TRACK=next` (`scripts/build.sh`, default `fedora`)
+- kernel-next (#142, owner asked): `KERNEL_TRACK=next` (`scripts/build.sh`, default `fedora`)
   swaps Fedora 45's kernel for the exact Fedora 46 build `versions.env` pins (`KERNEL_NEXT_NVR`,
   `_URL` (Koji's `data/signed/<key>/x86_64`), `_SHA256` for `kernel`, `-core`, `-modules`,
   `-modules-core`: the four the base has; the build refuses any other `kernel*` but kernel-tools).
@@ -892,6 +892,11 @@ name, but allows saying halOS runs Halogen.
   `HALOS_KERNEL`, the image label `io.github.n4berius.halos.kernel`, the release name
   `-kernel-next`, and the selftest a "Kernel track" line. `build.yml` builds both editions with
   both kernels; main pushes and signs the test-kernel ones as `kernel-next[-no-npu]` beside edge.
+  The job is named `build (<edition>)` for Fedora's kernel and `build (<edition>, kernel-next)` for
+  the test one, so main's required checks (`build (npu)`, `build (no-npu)`, ruleset) keep reporting
+  (a second matrix key alone renames them; code review). Both workflows set `IMAGE_TAG=kernel-next`
+  on the test-kernel jobs, so its installer follows `:kernel-next`, which exists (a version-named
+  tag never would).
   `iso.yml` adds an NPU-edition install test with it (`HALOS_EXPECT_KERNEL`: the installed system's
   selftest must print that kernel). `halosctl switch kernel-next` (a channel; `npu on|off` keeps
   it); releases, `release.yml` and `refresh.yml` never use it. Why 7.4 (v7.3..v7.4-rc2, torvalds
