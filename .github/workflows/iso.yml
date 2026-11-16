@@ -35,8 +35,19 @@ jobs:
       fail-fast: false
       matrix:
         variant: [npu, no-npu]
+        kernel: [fedora]
+        # The kernel-next test kernel, NPU edition: installs, unlocks with the TPM and boots.
+        include:
+          - variant: npu
+            kernel: next
     env:
       HALOGEN_VARIANT: ${{ matrix.variant }}
+      KERNEL_TRACK: ${{ matrix.kernel }}
+      # The installer for the test kernel installs a system that follows :kernel-next, the tag
+      # build.yml pushes (a version-named tag would never exist, so upgrade would fail).
+      IMAGE_TAG: ${{ matrix.kernel == 'next' && 'kernel-next' || '' }}
+      # Artifact names: the edition, plus -kernel-next for the test kernel.
+      RUN_NAME: ${{ matrix.variant }}${{ matrix.kernel == 'next' && '-kernel-next' || '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -70,7 +81,7 @@ jobs:
           head -c 60000 size-report.txt
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: size-report-${{ matrix.variant }}
+          name: size-report-${{ env.RUN_NAME }}
           path: size-report.txt
           retention-days: 30
       - name: Boot with Secure Boot on
@@ -78,11 +89,13 @@ jobs:
       - name: Install and boot with Secure Boot on
         run: |
           iso="$(sudo find output -name '*.iso' | head -1)"
+          # The test kernel's run checks the installed system booted it, not Fedora 45's.
+          if [ "$KERNEL_TRACK" = next ]; then export HALOS_EXPECT_KERNEL="$(sed -n 's/^KERNEL_NEXT_NVR=//p' versions.env).x86_64"; fi
           tests/iso-install.sh "$iso" "$(scripts/image-ref.sh)" install-test "$HALOGEN_VARIANT"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
-          name: boot-test-${{ matrix.variant }}
+          name: boot-test-${{ env.RUN_NAME }}
           path: |
             boot-test/*.png
             boot-test/serial.log
@@ -91,7 +104,7 @@ jobs:
           retention-days: 14
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: halos-flash-${{ env.HALOGEN_VERSION }}-${{ matrix.variant }}-installer
+          name: halos-flash-${{ env.HALOGEN_VERSION }}-${{ env.RUN_NAME }}-installer
           path: output/**/*.iso
           compression-level: 0
           retention-days: 30

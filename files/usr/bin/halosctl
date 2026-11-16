@@ -14,7 +14,7 @@ usage() {
   cat <<'U'
 usage: halosctl version
        halosctl upgrade [--check] [--reboot] [--yes]
-       halosctl switch alpha|rc|release|edge [--reboot] [--yes]
+       halosctl switch alpha|rc|release|edge|kernel-next [--reboot] [--yes]
        halosctl rollback [--to <version>] [--reboot] [--yes]
        halosctl npu on|off [--reboot] [--yes]
        halosctl power [low-power|balanced|performance]
@@ -31,6 +31,7 @@ usage: halosctl version
 Channels: alpha and rc are test releases; release (stable) is for production; edge is every
 change to main. Each channel also gets newer releases of the more stable ones. beta (no longer
 released) still works and gets the same releases as rc.
+kernel-next is edge with a test kernel (7.4) instead of Fedora 45's; switch edge goes back.
 npu off moves to the no-NPU edition (IOMMU off, faster prefill); npu on moves back. Both keep
 the channel or release, and /srv: the NPU models stay on disk.
 Changes apply at the next reboot, which stops Halogen. --reboot does it at once.
@@ -107,7 +108,7 @@ channel() {
   local t; t="$(field "${1:-booted}" ref)"; t="${t##*/}"
   case "$t" in *:*) t="${t##*:}" ;; *) return 0 ;; esac
   t="${t%-no-npu}"
-  case "$t" in alpha|beta|rc|stable|edge) echo "$t" ;; latest) echo stable ;; esac
+  case "$t" in alpha|beta|rc|stable|edge|kernel-next) echo "$t" ;; latest) echo stable ;; esac
 }
 
 # What boots next: the staged image if there is one, else the running one.
@@ -409,14 +410,16 @@ case "$cmd" in
     finish
     ;;
   switch)
-    [ "${#args[@]}" = 1 ] || die "which channel? alpha, rc, release or edge"
+    [ "${#args[@]}" = 1 ] || die "which channel? alpha, rc, release, edge or kernel-next"
     case "${args[0]}" in
-      alpha|beta|rc|edge) ch="${args[0]}" ;;
+      alpha|beta|rc|edge|kernel-next) ch="${args[0]}" ;;
       release|stable|latest) ch=stable ;;
-      *) die "unknown channel ${args[0]}: use alpha, rc, release or edge" ;;
+      *) die "unknown channel ${args[0]}: use alpha, rc, release, edge or kernel-next" ;;
     esac
     # Machines that followed beta keep working: RC and stable releases move the beta tag too.
     [ "$ch" != beta ] || echo "Note: beta releases are no longer made; beta gets the same releases as rc."
+    # A test kernel: say so before asking, and how to come back.
+    [ "$ch" != kernel-next ] || echo "Note: kernel-next is edge with a test kernel (Linux 7.4 release candidate) instead of Fedora 45's. To go back: sudo halosctl switch edge (or rollback, before any upgrade on kernel-next)."
     # Compared with what boots next: a staged switch to another channel can be undone this way.
     [ "$ch" != "$(channel "$(next_dep)")" ] || { echo "Already on $ch. For its newest release: sudo halosctl upgrade"; exit 0; }
     need_suffix

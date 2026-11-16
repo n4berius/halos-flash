@@ -120,6 +120,7 @@ image tags. [RELEASING.md](RELEASING.md) defines them.
 | Testing a release | `rc`, or an exact tag such as `0.19.0-rc.1` |
 | Earliest testing | `alpha` |
 | Newest `main` build | `edge` |
+| Newest `main` build with a test kernel (Linux 7.4-rc2) | `kernel-next` |
 
 Add `-no-npu` for the edition without the NPU.
 
@@ -231,7 +232,7 @@ or at once with `--reboot`, and each one asks first:
 
 ```bash
 sudo halosctl version            # release, edition, channel, Halogen version, staged update, rollback image
-sudo halosctl switch rc          # follow a channel: alpha, rc, release (stable) or edge
+sudo halosctl switch rc          # follow a channel: alpha, rc, release (stable), edge or kernel-next
 sudo halosctl upgrade            # stage the newest release on your channel (--check only looks)
 sudo halosctl rollback           # back to the previous image (--to 0.19.0-alpha.1 for an older one)
 sudo halosctl history            # every change made with halosctl

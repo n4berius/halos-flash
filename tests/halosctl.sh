@@ -30,7 +30,7 @@ f skopeo 'echo "skopeo $*" >> "$FAKE/log"; ref="${*: -1}"; ed=npu; case "$ref" i
 case "$ref" in
   *@sha256:*) [ -z "${FAKE_STAGED_FAILS:-}" ] || { echo "Error: network unreachable" >&2; exit 1; }
     case "$*" in *"{{.Digest}}"*) printf "%s %s 0.19.0-beta.1\n" "${ref#*@}" "${FAKE_STAGED_EDITION:-}" ;; *) echo "${FAKE_STAGED_EDITION:-}" ;; esac ;;
-  *:beta|*:stable-no-npu|*:0.19.0-alpha.1|*:beta-no-npu|*:0.19.0-alpha.1-no-npu|*:0.19.0-no-npu|*:0.19.0-beta.1) printf "%s %s 0.19.0-beta.1%s\n" "sha256:fefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefe" "${FAKE_EDITION-$ed}" "${FAKE_LABEL_TAIL:-}" ;;
+  *:beta|*:kernel-next|*:kernel-next-no-npu|*:stable-no-npu|*:0.19.0-alpha.1|*:beta-no-npu|*:0.19.0-alpha.1-no-npu|*:0.19.0-no-npu|*:0.19.0-beta.1) printf "%s %s 0.19.0-beta.1%s\n" "sha256:fefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefe" "${FAKE_EDITION-$ed}" "${FAKE_LABEL_TAIL:-}" ;;
   *:edge) echo "Error: reading manifest edge: 403 Forbidden" >&2; exit 1 ;;
   *) echo "Error: manifest unknown" >&2; exit 1 ;; esac'
 f systemctl 'echo "systemctl $*" >> "$FAKE/log"; case "$*" in *is-active*) echo "${FAKE_FETCH:-inactive}" ;; esac'
@@ -112,6 +112,19 @@ has 'changed in the registry' "$work/out"
 if grep -q $'\e' "$work/out" "$work/history"; then echo "an escape code from a label got through" >&2; exit 1; fi
 sed -i '$d' "$work/history"; cp "$work/base.json" "$work/status.json"
 ok "switch beta stages the beta image, records it, and waits for a reboot; a moved tag is reported"
+
+"$ctl" switch kernel-next --yes > "$work/out"
+has '^bootc switch --enforce-container-sigpolicy ghcr.io/n4berius/halos-flash:kernel-next$' "$work/log"
+has 'test kernel' "$work/out"
+"$ctl" version > "$work/out"; has '^Next boot: +ghcr.io/n4berius/halos-flash:kernel-next' "$work/out"
+host "$(dep ghcr.io/n4berius/halos-flash:kernel-next-no-npu 0.19.0 sha256:kkk)" > "$work/status.json"
+"$ctl" version > "$work/out"; has '^Channel: +kernel-next$' "$work/out"
+host "$(dep ghcr.io/n4berius/halos-flash:kernel-next 0.19.0 sha256:kkk)" > "$work/status.json"; : > "$work/log"
+"$ctl" npu off --yes > "$work/out"
+has '^bootc switch --enforce-container-sigpolicy ghcr.io/n4berius/halos-flash:kernel-next-no-npu$' "$work/log"
+sed -i '$d' "$work/history"
+sed -i '$d' "$work/history"; cp "$work/base.json" "$work/status.json"
+ok "switch kernel-next stages the test-kernel image with a note, version names the channel, and npu off keeps it"
 
 sed -i 's/=npu/=no-npu/' "$work/release.env"
 "$ctl" switch release --yes --reboot > "$work/out"

@@ -161,6 +161,25 @@ assert re.fullmatch(r"[0-9a-f]{64}", pins["CRUN_PIN_SHA256"]) and pins["CRUN_PIN
 assert 'curl -fsSL --retry 3 -o /tmp/crun.rpm "$CRUN_PIN_URL"' in cf and 'echo "$CRUN_PIN_SHA256  /tmp/crun.rpm" | sha256sum -c -' in cf and "downgrade /tmp/crun.rpm" in cf, "crun's hold is gone from the Containerfile"
 assert cf.index("RUN dnf -y --setopt=install_weak_deps=False install") < cf.index("downgrade /tmp/crun.rpm") < cf.index("COPY files/ /"), "crun's hold must come after the main dnf install (which would bring 1.31 back) and before the files"
 assert '"CRUN_PIN_SHA256=$CRUN_PIN_SHA256"' in open("scripts/build.sh").read(), "crun's hold isn't passed to the build"
+# kernel-next: exact Fedora packages, each with a sha256, from Koji's signed copies, checked in the
+# build (sha256, signature, one kernel left, not a debug build, signed for Secure Boot); only
+# builds asked for with KERNEL_TRACK=next get it, and only main pushes them, as kernel-next.
+nvr = pins["KERNEL_NEXT_NVR"]
+sums = dict(p.split(":", 1) for p in pins["KERNEL_NEXT_SHA256"].strip('"').split())
+assert sorted(sums) == ["kernel", "kernel-core", "kernel-modules", "kernel-modules-core"] and all(re.fullmatch(r"[0-9a-f]{64}", v) for v in sums.values()), "kernel-next needs the four packages, each with a sha256"
+assert pins["KERNEL_NEXT_URL"].startswith("https://kojipkgs.fedoraproject.org/packages/kernel/") and "/data/signed/" in pins["KERNEL_NEXT_URL"] and nvr.replace("-", "/", 1) in pins["KERNEL_NEXT_URL"], "kernel-next must come from Koji's signed copies of that exact build"
+for want in ('echo "${pair#*:}  $f" | sha256sum -c -', "rpmkeys -K", "Fedora Secure Boot Signer", 'grep -qx "CONFIG_$opt=y"', 'case "$KERNEL_TRACK" in fedora)'):
+    assert want in cf, f"kernel-next's checks are gone from the Containerfile: {want}"
+assert cf.index('downgrade /tmp/crun.rpm') < cf.index('rpm -U /tmp/k/*.rpm') < cf.index('dracut --no-hostonly'), "the test kernel must go in before the initramfs is built"
+b = open("scripts/build.sh").read()
+assert '"KERNEL_TRACK=$KERNEL_TRACK"' in b and '"KERNEL_NEXT_SHA256=$KERNEL_NEXT_SHA256"' in b, "build.sh doesn't pass kernel-next's pins"
+assert "kernel-next" in open(".github/workflows/build.yml").read() and "HALOS_EXPECT_KERNEL" in open(".github/workflows/iso.yml").read(), "kernel-next isn't built or install-tested"
+# main's ruleset requires "build (npu)" and "build (no-npu)": the Fedora-kernel jobs must keep those names.
+ruleset = json.load(open(".github/rulesets/protect-main.json"))
+required = {c["context"] for r in ruleset["rules"] if r["type"] == "required_status_checks" for c in r["parameters"]["required_status_checks"]}
+assert {"build (npu)", "build (no-npu)"} <= required and "name: build (${{ matrix.variant }}${{ matrix.kernel == 'next' && ', kernel-next' || '' }})" in open(".github/workflows/build.yml").read(), "the build jobs no longer report the check names main requires"
+for wf in (".github/workflows/build.yml", ".github/workflows/iso.yml"):
+    assert "IMAGE_TAG: ${{ matrix.kernel == 'next' && 'kernel-next' || '' }}" in open(wf).read(), f"{wf}: the test-kernel image must be tagged kernel-next, the tag that is pushed"
 assert "container-check" in open("files/usr/libexec/halogen/selftest").read() and "'PASS container-start:'" in open("tests/iso-install.sh").read(), "the selftest or the VM test no longer starts a container set up like Halogen's"
 fc = open("files/usr/libexec/halogen/flash-checkpoint").read()
 # Download path: the shared lookup table is a reflink copy first (a hard link lets the next pull's

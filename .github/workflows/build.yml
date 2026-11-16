@@ -42,6 +42,9 @@ jobs:
         run: git diff --exit-code -- src/caddy
 
   build:
+    # main's ruleset requires "build (npu)" and "build (no-npu)": the Fedora-kernel jobs keep
+    # those names; the test-kernel jobs are "build (<edition>, kernel-next)" and not required.
+    name: build (${{ matrix.variant }}${{ matrix.kernel == 'next' && ', kernel-next' || '' }})
     needs: check
     runs-on: ubuntu-24.04
     # The signing key lives in the "signing" environment, which only main and v* tags may use
@@ -56,8 +59,13 @@ jobs:
       fail-fast: false
       matrix:
         variant: [npu, no-npu]
+        # next: the kernel-next images, with the test kernel versions.env names (pushed beside edge).
+        kernel: [fedora, next]
     env:
       HALOGEN_VARIANT: ${{ matrix.variant }}
+      KERNEL_TRACK: ${{ matrix.kernel }}
+      # The test-kernel image is tagged kernel-next (scripts/image-ref.sh), the tag it is pushed as.
+      IMAGE_TAG: ${{ matrix.kernel == 'next' && 'kernel-next' || '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -87,7 +95,8 @@ jobs:
           echo "$GH_TOKEN" | podman login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
           # cosign first: a failed download must stop the run before anything is pushed.
           scripts/sign-image.sh --fetch
-          edge="$(scripts/image-ref.sh | sed 's/:[^:]*$//'):edge$([ "$HALOGEN_VARIANT" = npu ] || echo -no-npu)"
+          channel="$([ "$KERNEL_TRACK" = next ] && echo kernel-next || echo edge)"
+          edge="$(scripts/image-ref.sh | sed 's/:[^:]*$//'):$channel$([ "$HALOGEN_VARIANT" = npu ] || echo -no-npu)"
           podman push "$(scripts/image-ref.sh)" "$edge"
           echo "EDGE_IMAGE=$edge" >> "$GITHUB_ENV"
       - name: Sign

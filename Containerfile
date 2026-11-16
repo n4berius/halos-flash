@@ -161,6 +161,46 @@ RUN set -eu; \
     if [ "$(rpm -q --qf '%{NAME}-%{VERSION}-%{RELEASE}' crun)" != "$want" ]; then dnf -y --setopt=install_weak_deps=False downgrade /tmp/crun.rpm || dnf -y --setopt=install_weak_deps=False install /tmp/crun.rpm; fi; \
     [ "$(rpm -q --qf '%{NAME}-%{VERSION}-%{RELEASE}' crun)" = "$want" ]; \
     rm -f /tmp/crun.rpm; dnf clean all; rm -rf /var/log/dnf5.log /var/lib/dnf /var/cache/libdnf5 /run/dnf
+
+# kernel-next images only (KERNEL_TRACK=next): Fedora 46's 7.4 test kernel in place of Fedora
+# 45's, from the exact packages versions.env names, each checked by sha256 and Fedora 46's
+# signature. Fails unless the base has exactly the four kernel packages it replaces, the new one
+# is the only kernel left, is signed for Secure Boot, has its debug options off and carries the
+# GPU and NPU drivers. The initramfs step below rebuilds for it.
+ARG KERNEL_TRACK=fedora
+ARG KERNEL_NEXT_NVR
+ARG KERNEL_NEXT_URL
+ARG KERNEL_NEXT_SHA256
+RUN set -eu; \
+    case "$KERNEL_TRACK" in fedora) echo "kernel: Fedora 45's own, $(rpm -q kernel-core)"; exit 0 ;; next) ;; \
+      *) echo "unknown KERNEL_TRACK: $KERNEL_TRACK" >&2; exit 1 ;; esac; \
+    have="$(rpm -qa --qf '%{NAME}\n' 'kernel*' | grep -vxE 'kernel-tools(-libs)?' | sort | paste -sd' ')"; \
+    [ "$have" = "kernel kernel-core kernel-modules kernel-modules-core" ] \
+      || { echo "the base has other kernel packages than the four replaced: $have" >&2; exit 1; }; \
+    mkdir /tmp/k; \
+    for pair in $KERNEL_NEXT_SHA256; do \
+      n="${pair%%:*}"; f="/tmp/k/$n-$KERNEL_NEXT_NVR.x86_64.rpm"; \
+      curl -fsSL --retry 3 -o "$f" "$KERNEL_NEXT_URL/$n-$KERNEL_NEXT_NVR.x86_64.rpm" \
+        || { echo "Koji no longer serves $n-$KERNEL_NEXT_NVR: move KERNEL_NEXT_* in versions.env to a current build" >&2; exit 1; }; \
+      echo "${pair#*:}  $f" | sha256sum -c -; \
+    done; \
+    [ "$(ls /tmp/k | wc -l)" = 4 ]; \
+    rpmkeys --import /usr/share/pki/rpm-gpg/RPM-GPG-KEY-fedora-46-x86_64; \
+    for f in /tmp/k/*.rpm; do rpmkeys -K "$f" | grep -q 'digests signatures OK' || { echo "bad signature: $f" >&2; exit 1; }; done; \
+    old="$(rpm -q --qf '%{VERSION}-%{RELEASE}.%{ARCH}' kernel-core)"; \
+    rpm -U /tmp/k/*.rpm; \
+    kver="${KERNEL_NEXT_NVR#kernel-}.x86_64"; \
+    rm -rf "/usr/lib/modules/$old"; \
+    [ "$(ls /usr/lib/modules)" = "$kver" ] || { echo "more than one kernel: $(ls /usr/lib/modules)" >&2; exit 1; }; \
+    [ "$(rpm -q --qf '%{VERSION}-%{RELEASE}.%{ARCH}' kernel-core)" = "$kver" ]; \
+    m="/usr/lib/modules/$kver"; \
+    for want in kernel/drivers/accel/amdxdna/amdxdna.ko.xz kernel/drivers/gpu/drm/amd/amdgpu/amdgpu.ko.xz vmlinuz; do \
+      [ -s "$m/$want" ] || { echo "the test kernel lacks $want" >&2; exit 1; }; done; \
+    for opt in PROVE_LOCKING LOCKDEP KASAN DEBUG_VM DEBUG_OBJECTS DEBUG_KMEMLEAK DEBUG_PAGEALLOC DEBUG_ATOMIC_SLEEP; do \
+      if grep -qx "CONFIG_$opt=y" "$m/config"; then echo "the test kernel is a debug build (CONFIG_$opt)" >&2; exit 1; fi; done; \
+    grep -qa 'Fedora Secure Boot Signer' "$m/vmlinuz" || { echo "the test kernel isn't signed with Fedora's Secure Boot key" >&2; exit 1; }; \
+    echo "kernel: test kernel $kver in place of $old"; \
+    rm -rf /tmp/k; dnf clean all; rm -rf /var/log/dnf5.log /var/lib/dnf /var/cache/libdnf5 /run/dnf
 COPY files/ /
 COPY variants/${HALOGEN_VARIANT}/ /
 COPY LICENSE THIRD-PARTY-NOTICES.md /usr/share/licenses/halos-flash/
@@ -217,7 +257,8 @@ RUN set -eu; \
       echo "HALOGEN_WEIGHTS_REPO=${HALOGEN_WEIGHTS_REPO}"; \
       echo "HALOGEN_WEIGHTS_REVISION=${HALOGEN_WEIGHTS_REVISION}"; \
       echo "BF16_TO_HGN_COMMIT=${BF16_TO_HGN_COMMIT}"; \
-      echo "HALOGEN_DASHBOARD_COMMIT=${HALOGEN_DASHBOARD_COMMIT}"; } > /usr/share/halogen/release.env; \
+      echo "HALOGEN_DASHBOARD_COMMIT=${HALOGEN_DASHBOARD_COMMIT}"; \
+      echo "HALOS_KERNEL=${KERNEL_TRACK}"; } > /usr/share/halogen/release.env; \
     echo 'halogen:524288:65536' >> /etc/subuid; \
     echo 'halogen:524288:65536' >> /etc/subgid; \
     firewall-offline-cmd --add-service=halogen; \

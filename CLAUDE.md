@@ -37,7 +37,7 @@ name, but allows saying halOS runs Halogen.
 
 | Path | What it is |
 |---|---|
-| `versions.env` | Every pinned input: Fedora base, Halogen version, digest and source commit, upstream file hashes, weights repo and revision, ISO builder, bf16-to-hgn and halogen-dashboard commits |
+| `versions.env` | Every pinned input: Fedora base, kernel-next's test kernel, Halogen version, digest and source commit, upstream file hashes, weights repo and revision, ISO builder, bf16-to-hgn and halogen-dashboard commits |
 | `Containerfile` | The OS image. XRT is not in it: Halogen's image carries its own since 0.19.1 |
 | `Containerfile.installer`, `installer/` | The live installer image, Anaconda defaults (storage layout for custom partitioning), branding and boot menu. `installer/guided/`: the guided install's kickstart and `plan-install` (#42) |
 | `files/` | Copied into both editions: systemd units, `halosctl`, `halogenctl`, `halogen-enroll-tpm` (bash completion for all three in `usr/share/bash-completion/completions/`; `tests/completion.sh` fails when a tool gains a top-level command, or a `flash`/`model` subcommand, its completion doesn't offer; checkpoint folder names are written by halogen and its containers, so they are never passed to `compgen -W`, which expands `$(...)`: only plain names, matched by hand), `/usr/libexec/halogen/*` (`flash-checkpoint` and `model-pull` download your own checkpoints) |
@@ -878,6 +878,35 @@ name, but allows saying halOS runs Halogen.
   so nothing of halOS's is affected. The VM test also bans 2001:db8::9 on the API and
   203.0.113.10 on SSH (`F2BV6 1 1`, `F2BSSH 1 1`, lifted by halosctl: `F2BUN2 0 0`); the selftest's `firewall-ports` reads the same chain (a locally changed firewalld.conf keeps its own value through updates); the VM test checks
   `FWSTRICT` (firewalld's running `filter_INPUT_dnat` chain rejects) and `F2BSEC 1 1` (seccomp on, no bus socket in its mount namespace).
+
+- kernel-next (#142, owner asked): `KERNEL_TRACK=next` (`scripts/build.sh`, default `fedora`)
+  swaps Fedora 45's kernel for the exact Fedora 46 build `versions.env` pins (`KERNEL_NEXT_NVR`,
+  `_URL` (Koji's `data/signed/<key>/x86_64`), `_SHA256` for `kernel`, `-core`, `-modules`,
+  `-modules-core`: the four the base has; the build refuses any other `kernel*` but kernel-tools).
+  The Containerfile step (after crun's hold, before the initramfs) checks each sha256 and Fedora
+  46's signature (the base ships `RPM-GPG-KEY-fedora-46-x86_64`), `rpm -U`s them (rpm's own
+  dependency check passes against Fedora 45: offline `rpm -U --test`), removes the old modules
+  folder, and fails unless one kernel is left with `vmlinuz`, `amdxdna` and `amdgpu`, none of
+  `PROVE_LOCKING KASAN DEBUG_VM DEBUG_OBJECTS DEBUG_KMEMLEAK DEBUG_PAGEALLOC` (Rawhide's plain
+  rcN build is the non-debug one; its git snapshots are debug builds) and "Fedora Secure Boot
+  Signer" in `vmlinuz`. Tried on the real base in a container (podman 4.9.3, downloads stood in):
+  swap, dracut and `bootc container lint` pass; a wrong sha256 stops it. `release.env` gets
+  `HALOS_KERNEL`, the image label `io.github.n4berius.halos.kernel`, the release name
+  `-kernel-next`, and the selftest a "Kernel track" line. `build.yml` builds both editions with
+  both kernels; main pushes and signs the test-kernel ones as `kernel-next[-no-npu]` beside edge.
+  The job is named `build (<edition>)` for Fedora's kernel and `build (<edition>, kernel-next)` for
+  the test one, so main's required checks (`build (npu)`, `build (no-npu)`, ruleset) keep reporting
+  (a second matrix key alone renames them; code review). Both workflows set `IMAGE_TAG=kernel-next`
+  on the test-kernel jobs, so its installer follows `:kernel-next`, which exists (a version-named
+  tag never would).
+  `iso.yml` adds an NPU-edition install test with it (`HALOS_EXPECT_KERNEL`: the installed system's
+  selftest must print that kernel). `halosctl switch kernel-next` (a channel; `npu on|off` keeps
+  it); releases, `release.yml` and `refresh.yml` never use it. Why 7.4 (v7.3..v7.4-rc2, torvalds
+  tree): about 25 `accel/amdxdna` fixes (BO races, mailbox, use-after-free, NPU busy time in
+  fdinfo) and `iommu/amd: Enable PerfOpt automatically for integrated GPUs` (b32ecac779bb), which
+  applies in identity mode, so to the NPU edition's `iommu=pt`. No fabric-clock (fclk) change was
+  found; Halogen's NPU.md expects that fault's fix from a BIOS/SMU update
+  (ROCm/TheRock#8709), so the clock hold stays. Not measured on freyja yet.
 
 - Selftest sessions (#138, the security audit of #137, owner agreed): whatever root runs as halogen
   through `setpriv` that reaches halogen-controlled programs (podman, `systemctl --user`) runs in a
