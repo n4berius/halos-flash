@@ -695,7 +695,7 @@ fi
 list_repo "$repo" "$revision"
 
 # The checkpoint: a .hgn in the repository's top folder that isn't one of its companions.
-candidates="$(cut -f1 <<< "$files" | grep -E '^[A-Za-z0-9._-]+\.hgn$' | grep -vE 'ngram|vision|mtp|overlay' || true)"
+candidates="$(cut -f1 <<< "$files" | grep -E '^[A-Za-z0-9._-]+\.hgn$' | grep -vE 'ngram|vision|mtp|overlay|drafter' || true)"
 if [ -n "$want_file" ]; then
   grep -qxF -- "$want_file" <<< "$candidates" \
     || die "$repo has no checkpoint called $want_file. Its checkpoints: $(tr '\n' ' ' <<< "$candidates")"

@@ -72,7 +72,7 @@ expect "--yes" _halogenctl halogenctl flash check mine ''
 expect "" _halogenctl halogenctl flash pull x --revision ''
 echo "ok: halogenctl offers options and the plain names of your own checkpoints; a crafted folder name never runs"
 
-expect "alpha beta edge kernel-next rc release" _halosctl halosctl switch ''
+expect "alpha edge kernel-next rc release" _halosctl halosctl switch ''
 expect "--reboot --to --yes" _halosctl halosctl rollback ''
 expect "" _halosctl halosctl rollback --to ''
 expect "--check --reboot --yes" _halosctl halosctl upgrade ''

@@ -24,6 +24,7 @@ listing() {
 reset_repo() {
   rm -rf "$work/repo"; mkdir -p "$work/repo"
   put model.hgn checkpoint; put qwen38-flash-next-ngram.hgn table; put qwen38-flash-next-vision.hgn eyes
+  put qwen38-flash-next-drafter-r2.hgn drafter   # Peonist's layout since Halogen 0.20.6: not a checkpoint
   put tokenizer/tokenizer.json '{"custom": true}'; put tokenizer/chat_template.jinja '{{ x }}'
   put tokenizer/evil.py 'import os'; put README.md hello; put model.safetensors.bin pickle
 }

@@ -10,8 +10,8 @@ How releases are used:
 |---|---|
 | edge | every change, always on the test machine |
 | alpha | small milestones |
-| beta | major milestones, after the hardware checklist |
-| rc and stable | about quarterly, after a soak test |
+| rc | major milestones, after the hardware checklist on the test machine |
+| stable | promotes a good rc |
 
 ## Now: v0.20.0 is stable
 
@@ -22,7 +22,7 @@ guided installer. Done on the way: first-boot setup and the "API ready" line (#4
 installer (#42), a full security audit (#69), the benchmark (#15), `flash check` (#56),
 `halosctl npu on|off` (#40) and tab completion (#14).
 
-In `v0.20.1-alpha.1` and `alpha.2` (2026-11-10 and 11), for the next beta:
+In `v0.20.1-alpha.1` and `alpha.2` (2026-11-10 and 11), for the next RC:
 - machines refuse unsigned images (#46, done in #91, hardening in #96);
 - unlocking over SSH (#13, done in #93 and #94);
 - the tokenizer fix for checkpoints that ship no vocabulary (#88);

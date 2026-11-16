@@ -111,13 +111,13 @@ but it is a real security trade-off. To keep the IOMMU on, change the edition's 
 
 ## Releases
 
-Releases come in alpha, beta, RC and stable channels, published as git tags and matching
+Releases come in alpha, RC and stable channels, published as git tags and matching
 image tags. [RELEASING.md](RELEASING.md) defines them.
 
 | Use | Image tag |
 |---|---|
 | Recommended | `stable`, or a version such as `0.19.0` |
-| Testing a release | `beta`, `rc`, or an exact tag such as `0.19.0-beta.1` |
+| Testing a release | `rc`, or an exact tag such as `0.19.0-rc.1` |
 | Earliest testing | `alpha` |
 | Newest `main` build | `edge` |
 | Newest `main` build with a test kernel (Linux 7.4-rc2) | `kernel-next` |
@@ -232,7 +232,7 @@ or at once with `--reboot`, and each one asks first:
 
 ```bash
 sudo halosctl version            # release, edition, channel, Halogen version, staged update, rollback image
-sudo halosctl switch beta        # follow a channel: alpha, beta, rc, release (stable), edge or kernel-next
+sudo halosctl switch rc          # follow a channel: alpha, rc, release (stable), edge or kernel-next
 sudo halosctl upgrade            # stage the newest release on your channel (--check only looks)
 sudo halosctl rollback           # back to the previous image (--to 0.19.0-alpha.1 for an older one)
 sudo halosctl history            # every change made with halosctl
@@ -247,13 +247,14 @@ measured its own numbers at about 85 W, and reports one owner's machine at about
 `balanced` against about 127 W at `performance`. On freyja,
 `performance` read prompts about 22% faster. `balanced` or `low-power` run cooler and quieter.
 
-A channel also gets newer releases of the more stable channels, so `beta` gets an RC or stable
-release when it is newer than the newest beta. Without a channel, a machine stays on the exact
+A channel also gets newer releases of the more stable channels, so `alpha` gets an RC or stable
+release when it is newer than the newest alpha. There are no beta releases any more; a machine
+following `beta` gets the same releases as `rc`. Without a channel, a machine stays on the exact
 release it was installed from. `sudo bootc status` shows the same from bootc itself.
 
 Machines from before `halosctl` (`v0.19.0-alpha.1` and older, including those on the old image
 name `ghcr.io/n4berius/halogen-flash-bootc`) switch once by hand, then use `halosctl`:
-`sudo bootc switch ghcr.io/n4berius/halos-flash:alpha` (or `beta`, `rc`, `stable`; add
+`sudo bootc switch ghcr.io/n4berius/halos-flash:alpha` (or `rc`, `stable`; add
 `-no-npu` on that edition).
 
 What each release changed is in [CHANGELOG.md](CHANGELOG.md), and what comes next in

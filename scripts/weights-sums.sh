@@ -21,7 +21,7 @@ if grep -qi '^link:.*rel="next"' "$tmp/headers"; then
 fi
 python3 - "$tmp/tree.json" > "$tmp/list" <<'PY'
 import json, sys
-want = {"qwen38-flash-next-v2.hgn", "qwen38-flash-next-ngram.hgn", "qwen38-flash-next-vision.hgn"}
+want = {"qwen38-flash-next-v2.hgn", "qwen38-flash-next-ngram.hgn", "qwen38-flash-next-drafter-r2.hgn", "qwen38-flash-next-vision.hgn"}
 for e in json.load(open(sys.argv[1])):
     p = e.get("path", "")
     if e.get("type") != "file" or not (p in want or p.startswith("tokenizer/")):
@@ -32,7 +32,7 @@ for e in json.load(open(sys.argv[1])):
     lfs = (e.get("lfs") or {}).get("oid", "")
     print(p, lfs or "-", e["oid"])
 PY
-for f in qwen38-flash-next-v2.hgn qwen38-flash-next-ngram.hgn qwen38-flash-next-vision.hgn tokenizer/tokenizer.json; do
+for f in qwen38-flash-next-v2.hgn qwen38-flash-next-ngram.hgn qwen38-flash-next-drafter-r2.hgn qwen38-flash-next-vision.hgn tokenizer/tokenizer.json; do
   grep -q "^$f " "$tmp/list" || { echo "$repo at $rev has no $f" >&2; exit 1; }
 done
 {

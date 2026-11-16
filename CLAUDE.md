@@ -23,9 +23,11 @@ name, but allows saying halOS runs Halogen.
   or move release tags.
 - Never commit secrets. The API key and the HF token live only on the machine, under
   `/srv/configs`.
-- Releases are cut by the owner (Actions > Release > Run workflow, picking alpha, beta, rc or
-  stable; `scripts/next-tag.sh` numbers it, and beta/rc/stable promote the newest published
-  release one step below). Don't create tags or releases yourself.
+- Releases are cut by the owner (Actions > Release > Run workflow, picking alpha, rc or
+  stable; `scripts/next-tag.sh` numbers it, and rc/stable promote the newest published
+  release one step below: rc the newest alpha, stable the newest rc. No beta step since
+  November 2026 (owner's decision, #141); old beta tags stay and the `beta` channel tag moves with
+  every rc and stable, so `halosctl switch beta` still works (with a note) but isn't offered). Don't create tags or releases yourself.
 - If GitHub or a registry refuses an action (403 from the session proxy), stop and tell the
   owner. Don't work around it.
 - Run `tests/run.sh` before every push. CI also runs shellcheck, which may not be installed
@@ -53,7 +55,7 @@ name, but allows saying halOS runs Halogen.
 - Halogen runs as the rootless `halogen` user (UID 970) through a Quadlet in
   `/etc/containers/systemd/users/970/`, with linger on. `halogenctl` wraps it, so run it with
   `sudo`. `halogenctl model pull|list|remove` manages your own NPU checkpoints. `halogenctl selftest`
-  (`/usr/libexec/halogen/selftest`, root) runs the beta hardware checklist read-only; the VM
+  (`/usr/libexec/halogen/selftest`, root) runs the hardware checklist read-only; the VM
   install test runs it too and checks what a VM can pass.
 - First boot: `halogen-prepare` (root) creates `/srv/models`, `/srv/configs`, `halogen.env`
   and the API key. `halogen-fetch` (user) pulls the pinned image, downloads models with `hf`
@@ -1088,6 +1090,30 @@ and tracked on the owner's project board. [ROADMAP.md](ROADMAP.md) holds the ord
   image's `models.txt` differs from 0.20.4's only in `lfm3-1.7b` and `lfm3-1.7b-fast` (new
   revisions, about 440 MB each, fetched again only where an LFM3 checkpoint is in
   `HALOGEN_NPU_MODELS`; read from the layer, anonymously from ghcr.io).
+- **Halogen 0.20.6** (#143, the update workflow's PR, finished by hand): a draft head
+  `qwen38-flash-next-drafter-r2.hgn` (1.4 GiB) that the entrypoint uses when it lies beside the
+  checkpoint (`dirname $HALOGEN_CHECKPOINT`) and `HALOGEN_CK_OVERLAY` is unset (blocked here, a
+  path); upstream fetches it only with `HALOGEN_DOWNLOAD`, which halOS never sets, so it is an
+  official file now: `fetch-in-container`'s list, `fetch-models`' `official` and link removal,
+  `preflight`, `weights-sums.sh`. It was added to the weights repo in `bd9765d` (2026-11-16) with
+  every other file's LFS oid and the tokenizer unchanged, so `HALOGEN_WEIGHTS_REVISION` moved there
+  and `weights.sha256` gained one line. An upgraded machine finds it missing, downloads only it
+  with the top writable, and hashes all official files once. Custom Flash checkpoints (folder
+  `flash/<name>`) have no draft head beside them and keep their own (not copied: whether it suits a
+  fine-tune isn't known). New in FLAGS.md and allowed: `HALOGEN_CONC_MODE`, `HALOGEN_NPU_STALL_S`
+  (NPU). Host-setup changes only image tags. `models.txt` adds `lfm3-1.7b-qad` (441 MB) and pins
+  revisions for `halogen-spotter-0.6b` and `ovisocr3` (same files). Not supported yet: the `:qad`
+  suffix on own LFM3 checkpoints (`fetch-in-container`'s probe and `own_parts`, `fetch-models`,
+  `model-pull` and `halogenctl` know only `:fast`; the probe refuses a `:qad` entry with that
+  reason, so Halogen doesn't start until it is removed). Code review of #143: `flash pull` skips
+  the drafter as a checkpoint candidate (Peonist's layout now ships one beside the checkpoint);
+  the selftest's weights line reads the drafter's download record first (an upgraded machine
+  keeps v2's from the older pin) and says every file is hash-checked; `flash list` counts the
+  drafter in the official size. With `HALOGEN_NPU_STALL_S` (60 s default) a long NPU job makes
+  `/health` answer 503 `engine_stalled`: login-status shows "starting", the selftest's `api-ipv4`
+  FAILs and `bench` refuses while it lasts; no restart follows (the Quadlet has no Health keys and
+  the image no Healthcheck). `HALOGEN_CK_OVERLAY=none` (upstream's way back to the old head) can't
+  be set, since the name is blocked as a path; allowing only `none` is left for the owner.
 - The ISO install test also runs when `versions.env` changes (#78), so every Halogen update PR
   gets the LUKS + TPM install in a VM, about 30 minutes for both editions.
 - Known upstream: bootc 1.17.1 rewrites `/etc/fstab` at every boot on Anaconda installs

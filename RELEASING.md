@@ -10,24 +10,27 @@ Git tags start a release. Each one must be on `main` and match `HALOGEN_VERSION`
 | Edge | None, every push to `main` | `edge` | Newest build, for testing | None |
 | Kernel next | None, every push to `main` | `kernel-next` | Edge with a test kernel (now Linux 7.4-rc2 from Fedora 46) instead of Fedora 45's | None |
 | Alpha | `v0.18.23-alpha.1` | `0.18.23-alpha.1`, `alpha` | Builds and installs in a VM, not proven on hardware | Pre-release |
-| Beta | `v0.18.23-beta.1` | `0.18.23-beta.1`, `beta` | Passed the hardware checklist on one machine | Pre-release |
-| RC | `v0.18.23-rc.1` | `0.18.23-rc.1`, `rc` | Passed a soak test, no known blockers | Pre-release |
+| RC | `v0.18.23-rc.1` | `0.18.23-rc.1`, `rc` | Passed the hardware checklist on one machine, no known blockers | Pre-release |
 | Stable | `v0.18.23` | `0.18.23`, `stable`, `latest` | Recommended | Release |
 | Stable fix | `v0.18.23-r2` | `0.18.23`, `stable`, `latest` | Fix to this project on the same Halogen version | Release |
 
-Add `-no-npu` to any image tag for the other edition, such as `0.18.23-beta.1-no-npu`.
+Add `-no-npu` to any image tag for the other edition, such as `0.18.23-rc.1-no-npu`.
+
+There is no beta step any more (since November 2026): an RC promotes the newest alpha. Old beta
+releases stay as they were, and the `beta` channel tag keeps moving with every RC and stable
+release, so a machine still following `beta` gets the same releases as `rc`.
 
 `0.18.23` and the channel tags move. `0.18.23-alpha.1` and the like are never rebuilt. Each
 Monday, the newest stable release is rebuilt with Fedora updates.
 
 Each channel points to the newest release that is at least that stable. A stable release also
-moves `rc`, `beta` and `alpha`, an RC also moves `beta` and `alpha`, and a beta also moves
-`alpha`, unless that channel already has something newer. So a machine following `beta` gets an
-RC or stable release when it is newer than the newest beta. A channel never moves backwards:
+moves `rc`, `beta` and `alpha`, and an RC also moves `beta` and `alpha`, unless that channel
+already has something newer. So a machine following `alpha` gets an RC or stable release when it
+is newer than the newest alpha. A channel never moves backwards:
 running an old release again moves none. `scripts/channels.sh` works this out from the git
 tags, for both the release and the Monday rebuild.
 
-Machines pick a channel with `sudo halosctl switch alpha|beta|rc|release|edge|kernel-next`, and
+Machines pick a channel with `sudo halosctl switch alpha|rc|release|edge|kernel-next`, and
 `sudo halosctl upgrade` then fetches its newest release.
 
 `kernel-next` is built and signed with `edge`, from the same commit, with the kernel
@@ -43,11 +46,10 @@ release and choose **Run workflow**. You never type a tag: the workflow takes th
 | Pick | What it does | Example |
 |---|---|---|
 | `alpha` | Builds `main` as the next alpha | `v0.19.0-alpha.3` after alpha.2 |
-| `beta` | Promotes the newest published alpha: the same code, built again | alpha.3 becomes `v0.19.0-beta.1` |
-| `rc` | Promotes the newest published beta | `v0.19.0-rc.1` |
+| `rc` | Promotes the newest published alpha: the same code, built again | alpha.3 becomes `v0.19.0-rc.1` |
 | `stable` | Promotes the newest published RC. A second stable of the same version becomes `-r2` | `v0.19.0`, then `v0.19.0-r2` |
 
-Tick **from main** to build a beta, RC or stable from `main` instead of promoting, for example
+Tick **from main** to build an RC or stable from `main` instead of promoting, for example
 for a stable fix. Only published releases are promoted, so a tag whose run failed is skipped,
 but its number is never used again. A promotion builds the same code again, so Fedora packages
 can be newer than in the release it came from. Do not use **Draft a new release**, because the
@@ -99,13 +101,13 @@ on each machine put it in place by hand before the next upgrade:
 To check an image yourself with the key, with cosign installed:
 
 ```bash
-cosign verify --key files/etc/pki/containers/halos-flash.pub ghcr.io/n4berius/halos-flash:beta
+cosign verify --key files/etc/pki/containers/halos-flash.pub ghcr.io/n4berius/halos-flash:rc
 ```
 
 Or keyless:
 
 ```bash
-cosign verify ghcr.io/n4berius/halos-flash:beta \
+cosign verify ghcr.io/n4berius/halos-flash:rc \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   --certificate-identity-regexp '^https://github\.com/n4berius/halos-flash/\.github/workflows/(build|release|refresh)\.yml@refs/(heads/main|tags/v.+)$'
 ```

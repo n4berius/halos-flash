@@ -135,12 +135,13 @@ case "$choice" in ''|official|[!A-Za-z0-9]*) ;; *)
   fi ;;
 esac
 
-# The official files: the checkpoint, its lookup table, the vision tower when it is wanted, and
-# the tokenizer. A link in place of one is never a download: it goes, and the file is fetched.
-official=(qwen38-flash-next-v2.hgn qwen38-flash-next-ngram.hgn)
+# The official files: the checkpoint, its lookup table, its draft head (Halogen 0.20.6), the vision
+# tower when it is wanted, and the tokenizer. A link in place of one is never a download: it goes,
+# and the file is fetched.
+official=(qwen38-flash-next-v2.hgn qwen38-flash-next-ngram.hgn qwen38-flash-next-drafter-r2.hgn)
 [ -z "$vision" ] || official+=(qwen38-flash-next-vision.hgn)
-# All three .hgn names count (a vision tower kept while it is off too), and what is in tokenizer/.
-for f in qwen38-flash-next-v2.hgn qwen38-flash-next-ngram.hgn qwen38-flash-next-vision.hgn tokenizer; do
+# Every .hgn name counts (a vision tower kept while it is off too), and what is in tokenizer/.
+for f in qwen38-flash-next-v2.hgn qwen38-flash-next-ngram.hgn qwen38-flash-next-drafter-r2.hgn qwen38-flash-next-vision.hgn tokenizer; do
   if [ -L "$models/$f" ]; then
     rm -f -- "$models/$f" || exit 1; echo "halogen-fetch: removed a link at $models/$f"
   fi
