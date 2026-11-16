@@ -1044,7 +1044,7 @@ and tracked on the owner's project board. [ROADMAP.md](ROADMAP.md) holds the ord
   `HALOGEN_CACHE_REPLY`). The Flash checkpoints and weights revision are unchanged. The image's
   `models.txt` differs from 0.20.2's only in `d3-nano`'s NPU programs (new revision, about 135 MB,
   fetched again only where `d3-nano` is in `HALOGEN_NPU_MODELS`; not in the default templates).
-- **Halogen 0.20.5** (#PR): faster decoding with several requests (a new decoding-state form;
+- **Halogen 0.20.5** (#140): faster decoding with several requests (a new decoding-state form;
   `HALOGEN_DN_STATE=fp32` restores 0.20.4's, and a prompt cache saved by 0.20.4 is rebuilt),
   Indic-script prompts tokenized by the checkpoint's own pattern (`HALOGEN_TOKENIZER_NATIVE`), LFM3
   on the NPU about twice as fast on long prompts, XRT 2.27 in the image (halOS mounts none), and

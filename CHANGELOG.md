@@ -18,7 +18,7 @@ promoted.
   restart. Two new settings, `HALOGEN_DN_STATE` and `HALOGEN_TOKENIZER_NATIVE` (and
   `HALOGEN_NPU_KILL_S` on the NPU edition), are commented in `halogen.env.example`. A prompt
   cache saved by 0.20.4 is rebuilt on first use. With `HALOGEN_AGENT_GUARD=watch`, halOS no
-  longer downloads `decider-4b`, which Halogen now loads only for `hold`. (#PR)
+  longer downloads `decider-4b`, which Halogen now loads only for `hold`. (#140)
 
 - Two commands working on the same checkpoint at once no longer get in each other's way: a pull,
   check, switch or removal of a checkpoint (or model) another command is busy with says so and
