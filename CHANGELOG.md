@@ -10,6 +10,14 @@ promoted.
 
 ## Unreleased
 
+- Halogen 0.20.6: about 4% faster replies from a new draft head (a 1.4 GiB file halOS now
+  downloads and checks beside the official checkpoint, once), images read about four times faster,
+  and fixes for long shared prompts and for busy multi-agent sessions (a reply could rarely come
+  from another conversation's context). Two new settings are commented in `halogen.env.example`:
+  `HALOGEN_CONC_MODE` (for many requests at once; a single request is slower) and, on the NPU
+  edition, `HALOGEN_NPU_STALL_S`. Your own Flash checkpoints keep their own draft head for now.
+  LFM3's new `:qad` form isn't supported by halOS yet. (#143)
+
 - Halogen 0.20.5: faster answers when several requests run at once, and saved conversations take
   less memory; Hindi, Thai and other Indic-script prompts are read the way the model was trained;
   your own LFM3 checkpoints read long prompts about twice as fast on the NPU (their NPU files,

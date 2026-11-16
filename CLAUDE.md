@@ -1059,6 +1059,21 @@ and tracked on the owner's project board. [ROADMAP.md](ROADMAP.md) holds the ord
   image's `models.txt` differs from 0.20.4's only in `lfm3-1.7b` and `lfm3-1.7b-fast` (new
   revisions, about 440 MB each, fetched again only where an LFM3 checkpoint is in
   `HALOGEN_NPU_MODELS`; read from the layer, anonymously from ghcr.io).
+- **Halogen 0.20.6** (#143, the update workflow's PR, finished by hand): a draft head
+  `qwen38-flash-next-drafter-r2.hgn` (1.4 GiB) that the entrypoint uses when it lies beside the
+  checkpoint (`dirname $HALOGEN_CHECKPOINT`) and `HALOGEN_CK_OVERLAY` is unset (blocked here, a
+  path); upstream fetches it only with `HALOGEN_DOWNLOAD`, which halOS never sets, so it is an
+  official file now: `fetch-in-container`'s list, `fetch-models`' `official` and link removal,
+  `preflight`, `weights-sums.sh`. It was added to the weights repo in `bd9765d` (2026-11-16) with
+  every other file's LFS oid and the tokenizer unchanged, so `HALOGEN_WEIGHTS_REVISION` moved there
+  and `weights.sha256` gained one line. An upgraded machine finds it missing, downloads only it
+  with the top writable, and hashes all official files once. Custom Flash checkpoints (folder
+  `flash/<name>`) have no draft head beside them and keep their own (not copied: whether it suits a
+  fine-tune isn't known). New in FLAGS.md and allowed: `HALOGEN_CONC_MODE`, `HALOGEN_NPU_STALL_S`
+  (NPU). Host-setup changes only image tags. `models.txt` adds `lfm3-1.7b-qad` (441 MB) and pins
+  revisions for `halogen-spotter-0.6b` and `ovisocr3` (same files). Not supported yet: the `:qad`
+  suffix on own LFM3 checkpoints (`fetch-in-container`'s probe and `own_parts`, `fetch-models`,
+  `model-pull` and `halogenctl` know only `:fast`; a `:qad` entry fails the fetch's probe).
 - The ISO install test also runs when `versions.env` changes (#78), so every Halogen update PR
   gets the LUKS + TPM install in a VM, about 30 minutes for both editions.
 - Known upstream: bootc 1.17.1 rewrites `/etc/fstab` at every boot on Anaconda installs

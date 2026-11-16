@@ -24,6 +24,7 @@ chmod +x "$work/bin/curl"
 tree() {
   printf '[{"type":"file","path":"qwen38-flash-next-v2.hgn","oid":"a","lfs":{"oid":"%s"}},' "$lfs"
   printf '{"type":"file","path":"qwen38-flash-next-ngram.hgn","oid":"b","lfs":{"oid":"%s"}},' "$lfs"
+  printf '{"type":"file","path":"qwen38-flash-next-drafter-r2.hgn","oid":"e","lfs":{"oid":"%s"}},' "$lfs"
   printf '{"type":"file","path":"qwen38-flash-next-vision.hgn","oid":"c","lfs":{"oid":"%s"}},' "$lfs"
   printf '{"type":"file","path":"tokenizer/tokenizer.json","oid":"%s"}%s]' "$blob" "${1:-}"
 }

@@ -96,7 +96,7 @@ export XDG_RUNTIME_DIR="$work/run" HALOGEN_ALLOWED_FILE="$work/allowed" HALOGEN_
 # The stamp lives in halogen's own folder; the official files are checked against these hashes
 # (the fake hf writes "hello" into every file).
 mkdir -p "$work/state"
-{ echo "# revision main"; for f in qwen38-flash-next-v2.hgn qwen38-flash-next-ngram.hgn qwen38-flash-next-vision.hgn tokenizer/tokenizer.json; do echo "$h  $f"; done; } > "$work/sums"
+{ echo "# revision main"; for f in qwen38-flash-next-v2.hgn qwen38-flash-next-ngram.hgn qwen38-flash-next-drafter-r2.hgn qwen38-flash-next-vision.hgn tokenizer/tokenizer.json; do echo "$h  $f"; done; } > "$work/sums"
 export HALOGEN_STATE_DIR="$work/state" HALOGEN_WEIGHTS_SUMS="$work/sums"
 export HALOGEN_RELEASE_FILE="$work/release.env" HALOGEN_CONFIG_FILE="$work/config.env" HALOGEN_MODELS_DIR="$work/models" \
   HALOGEN_FETCH_HELPER="$HELPER_SRC" HALOGEN_MODELS_NEEDED_GIB=0 HALOGEN_RETRY_MAX_S=0 HALOGEN_PROGRESS_S=0 HALOGEN_HF_TOKEN_FILE="$work/hf-token"
@@ -203,6 +203,16 @@ grep -q "removed: qwen38-flash-next-ngram.hgn" "$work/out" || { cat "$work/out" 
 "$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
 [ "$(cat "$work/models/qwen38-flash-next-ngram.hgn")" = hello ] || { echo "the file wasn't fetched again" >&2; exit 1; }
 ok "files from a download that was cut short are checked by the next fetch"
+
+# An upgrade to Halogen 0.20.6: everything is there but the new draft head, and the stamp is
+# current. The fetch downloads only the draft head (the others are there), with the top writable,
+# and checks it.
+rm "$work/models/qwen38-flash-next-drafter-r2.hgn"; : > "$work/podman.log"
+"$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+grep -q 'fetch: downloading qwen38-flash-next-drafter-r2.hgn from' "$work/out" || { cat "$work/out" >&2; echo "the draft head wasn't downloaded alone" >&2; exit 1; }
+{ [ "$(cat "$work/models/qwen38-flash-next-drafter-r2.hgn")" = hello ] && grep -q "checking the official files" "$work/out"; } \
+  || { cat "$work/out" >&2; echo "the draft head wasn't fetched and checked" >&2; exit 1; }
+ok "a machine without the draft head (Halogen 0.20.6) fetches and checks it"
 
 # A vision tower kept while the tower is off is checked too, and a file in tokenizer/ that isn't
 # one of this release's goes.
