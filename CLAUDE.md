@@ -26,7 +26,7 @@ name, but allows saying halOS runs Halogen.
 - Releases are cut by the owner (Actions > Release > Run workflow, picking alpha, rc or
   stable; `scripts/next-tag.sh` numbers it, and rc/stable promote the newest published
   release one step below: rc the newest alpha, stable the newest rc. No beta step since
-  November 2026 (owner's decision, #PR); old beta tags stay and the `beta` channel tag moves with
+  November 2026 (owner's decision, #141); old beta tags stay and the `beta` channel tag moves with
   every rc and stable, so `halosctl switch beta` still works (with a note) but isn't offered). Don't create tags or releases yourself.
 - If GitHub or a registry refuses an action (403 from the session proxy), stop and tell the
   owner. Don't work around it.

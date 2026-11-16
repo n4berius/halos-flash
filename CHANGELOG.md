@@ -13,7 +13,7 @@ promoted.
 - Releases now go alpha, then RC, then stable: there are no beta releases any more, and an RC
   promotes the newest alpha. A machine following `beta` keeps working and gets every RC and
   stable release, the same as `rc`; `halosctl switch beta` still works but is no longer offered.
-  (#PR)
+  (#141)
 
 - Halogen 0.20.5: faster answers when several requests run at once, and saved conversations take
   less memory; Hindi, Thai and other Indic-script prompts are read the way the model was trained;
