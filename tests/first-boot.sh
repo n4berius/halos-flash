@@ -213,6 +213,17 @@ grep -q 'fetch: downloading qwen38-flash-next-drafter-r2.hgn from' "$work/out" |
 { [ "$(cat "$work/models/qwen38-flash-next-drafter-r2.hgn")" = hello ] && grep -q "checking the official files" "$work/out"; } \
   || { cat "$work/out" >&2; echo "the draft head wasn't fetched and checked" >&2; exit 1; }
 ok "a machine without the draft head (Halogen 0.20.6) fetches and checks it"
+echo secret > "$work/private-d"; rm "$work/models/qwen38-flash-next-drafter-r2.hgn"; ln -s "$work/private-d" "$work/models/qwen38-flash-next-drafter-r2.hgn"
+"$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; echo "a link at the draft head wasn't replaced in one run" >&2; exit 1; }
+{ [ ! -L "$work/models/qwen38-flash-next-drafter-r2.hgn" ] && [ "$(cat "$work/private-d")" = secret ]; } || { echo "the link at the draft head stayed, or its target changed" >&2; exit 1; }
+rm -f "$work/private-d"
+ok "a link at the draft head goes and the file is fetched in the same run"
+mkdir -p "$work/models/LFM/q"; echo '{}' > "$work/models/LFM/q/config.json"
+echo 'HALOGEN_NPU_MODELS=embed,/models/LFM/q:qad' > "$work/config.env"
+if "$work/fetch" > "$work/out" 2>&1; then echo "a :qad entry was accepted" >&2; exit 1; fi
+grep -q ":qad form isn't supported by halOS yet" "$work/out" || { cat "$work/out" >&2; echo "a :qad entry wasn't named as unsupported" >&2; exit 1; }
+rm -rf "$work/models/LFM/q"; echo 'HALOGEN_NPU_MODELS=embed' > "$work/config.env"
+ok "an LFM3 :qad entry is refused with the reason"
 
 # A vision tower kept while the tower is off is checked too, and a file in tokenizer/ that isn't
 # one of this release's goes.

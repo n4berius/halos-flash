@@ -26,6 +26,10 @@ hf_quiet() {
 # Which model your own checkpoint (an id that is a path, maybe ending in :fast) was tuned from.
 probe_base() {
   local p="${1%:fast}" info base
+  # Halogen 0.20.6's :qad form (Liquid's 4-bit file) isn't handled by halOS's fetch yet.
+  case "$1" in *:qad)
+    echo "fetch: $1: the :qad form isn't supported by halOS yet. Remove it from HALOGEN_NPU_MODELS (sudo halogenctl config)" >&2
+    return 1 ;; esac
   p="$root/${p#/models/}"
   if [ ! -f "$p/config.json" ]; then
     echo "fetch: $1 is not a checkpoint folder (no config.json). Pull one with: sudo halogenctl model pull <repo>" >&2

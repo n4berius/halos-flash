@@ -1073,7 +1073,16 @@ and tracked on the owner's project board. [ROADMAP.md](ROADMAP.md) holds the ord
   (NPU). Host-setup changes only image tags. `models.txt` adds `lfm3-1.7b-qad` (441 MB) and pins
   revisions for `halogen-spotter-0.6b` and `ovisocr3` (same files). Not supported yet: the `:qad`
   suffix on own LFM3 checkpoints (`fetch-in-container`'s probe and `own_parts`, `fetch-models`,
-  `model-pull` and `halogenctl` know only `:fast`; a `:qad` entry fails the fetch's probe).
+  `model-pull` and `halogenctl` know only `:fast`; the probe refuses a `:qad` entry with that
+  reason, so Halogen doesn't start until it is removed). Code review of #143: `flash pull` skips
+  the drafter as a checkpoint candidate (Peonist's layout now ships one beside the checkpoint);
+  the selftest's weights line reads the drafter's download record first (an upgraded machine
+  keeps v2's from the older pin) and says every file is hash-checked; `flash list` counts the
+  drafter in the official size. With `HALOGEN_NPU_STALL_S` (60 s default) a long NPU job makes
+  `/health` answer 503 `engine_stalled`: login-status shows "starting", the selftest's `api-ipv4`
+  FAILs and `bench` refuses while it lasts; no restart follows (the Quadlet has no Health keys and
+  the image no Healthcheck). `HALOGEN_CK_OVERLAY=none` (upstream's way back to the old head) can't
+  be set, since the name is blocked as a path; allowing only `none` is left for the owner.
 - The ISO install test also runs when `versions.env` changes (#78), so every Halogen update PR
   gets the LUKS + TPM install in a VM, about 30 minutes for both editions.
 - Known upstream: bootc 1.17.1 rewrites `/etc/fstab` at every boot on Anaconda installs

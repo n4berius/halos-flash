@@ -298,7 +298,13 @@ FAKE_HTTPS=letsencrypt FAKE_EXPIRES=soon "$selftest" > "$work/out" 2>&1 || true;
 FAKE_HTTPS=letsencrypt FAKE_EXPIRES=ended "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL https: .*renewing failed'
 ok "the selftest names the HTTPS mode, checks Caddy answers in it, and warns of a missing authority, an uncovered address or an ending certificate"
 "$selftest" > "$work/out" 2>&1 || true
-expect '^INFO weights: downloaded from weights commit 8ef7ad828f7f'
+expect '^INFO weights: last downloaded from weights commit 8ef7ad828f7f'
+# An upgraded machine (Halogen 0.20.6) has the draft head from the new pin beside v2 from the old:
+# the newest record is the one shown.
+printf 'bd9765dfc69d2ae86eea8f00a5bd93a405c2ad7a\n' > "$work/models/.cache/huggingface/download/qwen38-flash-next-drafter-r2.hgn.metadata"
+"$selftest" > "$work/out" 2>&1 || true
+expect '^INFO weights: last downloaded from weights commit bd9765dfc69d'
+rm "$work/models/.cache/huggingface/download/qwen38-flash-next-drafter-r2.hgn.metadata"
 if ! { grep -q "runuser -u halogen -- cat $work/configs/api-key" "$work/runuser.log" &&
        grep -q "runuser -u halogen -- head -n 1 $work/models/.cache" "$work/runuser.log"; }; then
   echo "the API key or weights record was read as root" >&2; exit 1
