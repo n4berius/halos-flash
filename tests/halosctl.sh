@@ -100,7 +100,7 @@ cp "$work/keep2.json" "$work/status.json"
 ok "help needs no root, bootc status is read once, extra words are refused, upgrade asks first, doesn't ask when nothing is new, names a staged update, and shows a failed check"
 ok "it needs root, a confirmation, a known channel and an image that exists, and shows registry errors"
 
-"$ctl" switch beta --yes > "$work/out"
+"$ctl" switch beta --yes > "$work/out"; has "beta releases are no longer made" "$work/out"
 has '^bootc switch --enforce-container-sigpolicy ghcr.io/n4berius/halos-flash:beta$' "$work/log"
 has 'next reboot' "$work/out"; hasnt 'systemctl reboot' "$work/log"
 has 'switch +ghcr.io/n4berius/halos-flash:0.19.0-alpha.1 \(0.19.0\) -> ghcr.io/n4berius/halos-flash:beta \(0.19.0-beta.1\) +\(by owner\)' "$work/history"

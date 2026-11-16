@@ -5,12 +5,12 @@ on:
   workflow_dispatch:
     inputs:
       release:
-        description: "alpha builds main; beta, rc and stable promote the newest release one step below. The number is worked out for you."
+        description: "alpha builds main; rc promotes the newest alpha, stable the newest rc. The number is worked out for you."
         required: true
         type: choice
-        options: [alpha, beta, rc, stable]
+        options: [alpha, rc, stable]
       from_main:
-        description: "beta, rc or stable only: build from main instead of promoting (for example a stable fix)"
+        description: "rc or stable only: build from main instead of promoting (for example a stable fix)"
         type: boolean
         default: false
 

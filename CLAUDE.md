@@ -23,9 +23,11 @@ name, but allows saying halOS runs Halogen.
   or move release tags.
 - Never commit secrets. The API key and the HF token live only on the machine, under
   `/srv/configs`.
-- Releases are cut by the owner (Actions > Release > Run workflow, picking alpha, beta, rc or
-  stable; `scripts/next-tag.sh` numbers it, and beta/rc/stable promote the newest published
-  release one step below). Don't create tags or releases yourself.
+- Releases are cut by the owner (Actions > Release > Run workflow, picking alpha, rc or
+  stable; `scripts/next-tag.sh` numbers it, and rc/stable promote the newest published
+  release one step below: rc the newest alpha, stable the newest rc. No beta step since
+  November 2026 (owner's decision, #PR); old beta tags stay and the `beta` channel tag moves with
+  every rc and stable, so `halosctl switch beta` still works (with a note) but isn't offered). Don't create tags or releases yourself.
 - If GitHub or a registry refuses an action (403 from the session proxy), stop and tell the
   owner. Don't work around it.
 - Run `tests/run.sh` before every push. CI also runs shellcheck, which may not be installed
@@ -53,7 +55,7 @@ name, but allows saying halOS runs Halogen.
 - Halogen runs as the rootless `halogen` user (UID 970) through a Quadlet in
   `/etc/containers/systemd/users/970/`, with linger on. `halogenctl` wraps it, so run it with
   `sudo`. `halogenctl model pull|list|remove` manages your own NPU checkpoints. `halogenctl selftest`
-  (`/usr/libexec/halogen/selftest`, root) runs the beta hardware checklist read-only; the VM
+  (`/usr/libexec/halogen/selftest`, root) runs the hardware checklist read-only; the VM
   install test runs it too and checks what a VM can pass.
 - First boot: `halogen-prepare` (root) creates `/srv/models`, `/srv/configs`, `halogen.env`
   and the API key. `halogen-fetch` (user) pulls the pinned image, downloads models with `hf`
