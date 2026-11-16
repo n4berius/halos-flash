@@ -10,6 +10,13 @@ promoted.
 
 ## Unreleased
 
+- Halogen 0.20.6: about 4% faster replies from a new draft head (a 1.4 GiB file halOS now
+  downloads and checks beside the official checkpoint, once), images read about four times faster,
+  and fixes for long shared prompts and for busy multi-agent sessions (a reply could rarely come
+  from another conversation's context). Two new settings are commented in `halogen.env.example`:
+  `HALOGEN_CONC_MODE` (for many requests at once; a single request is slower) and, on the NPU
+  edition, `HALOGEN_NPU_STALL_S`. Your own Flash checkpoints keep their own draft head for now.
+  LFM3's new `:qad` form isn't supported by halOS yet. (#143)
 - Releases now go alpha, then RC, then stable: there are no beta releases any more, and an RC
   promotes the newest alpha. A machine following `beta` keeps working and gets every RC and
   stable release, the same as `rc`; `halosctl switch beta` still works but is no longer offered.

@@ -462,9 +462,12 @@ else
   elif [ "${running:-1}" = 1 ]; then say INFO flash "serving your own Flash checkpoint $flash${from:+ ($from)}"
   else say WARN flash "your own Flash checkpoint $flash is chosen and Halogen is not running. If it refused it (sudo halogenctl logs), go back: sudo halogenctl flash use official"; fi
 fi
-meta="$models/.cache/huggingface/download/qwen38-flash-next-v2.hgn.metadata"
+# The newest official file's download record names the commit it came from: the draft head (Halogen
+# 0.20.6) when there, which an upgraded machine fetches at the new pin while the older files stay.
+meta="$models/.cache/huggingface/download/qwen38-flash-next-drafter-r2.hgn.metadata"
+[ -r "$meta" ] || meta="$models/.cache/huggingface/download/qwen38-flash-next-v2.hgn.metadata"
 # Read as halogen: the fetch container writes this folder, so a link there must not reach root's files.
-[ ! -r "$meta" ] || say INFO weights "downloaded from weights commit $(as_owner head -n 1 "$meta" | cut -c1-12); pinned: ${HALOGEN_WEIGHTS_REVISION:-unknown}"
+[ ! -r "$meta" ] || say INFO weights "last downloaded from weights commit $(as_owner head -n 1 "$meta" | cut -c1-12); pinned: ${HALOGEN_WEIGHTS_REVISION:-unknown} (every file is checked against this release's hashes)"
 free="$(df --output=avail --block-size=1G "$models" 2>/dev/null | tail -n 1 | tr -d ' ')"
 [ -z "$free" ] || say INFO disk "${free} GiB free for models"
 # Halogen's container is read-only; its scratch folders must be on disk, not in memory (a prompt-cache
