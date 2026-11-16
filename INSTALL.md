@@ -68,7 +68,7 @@ no-NPU edition only where nobody untrusted can touch the machine.
 
 Download your edition's ISO and its `.sha256` file from this repository's
 [Releases page](https://github.com/n4berius/halos-flash/releases). Use the `-npu` files for
-the NPU edition and the `-no-npu` files for the other. Alpha, beta and RC releases are
+the NPU edition and the `-no-npu` files for the other. Alpha and RC releases are
 pre-releases, and [RELEASING.md](RELEASING.md) explains each channel.
 
 GitHub limits release files to 2 GiB, so the ISO comes in one of three forms. Check it in the
@@ -94,7 +94,7 @@ sudo systemctl reboot
 ```
 
 From then on, `sudo halosctl upgrade` stages the newest release on that channel. Channels are
-`alpha`, `beta`, `rc`, `release` (stable) and `edge`, and each one also gets newer releases of
+`alpha`, `rc`, `release` (stable) and `edge` (`beta`, from before, now gets what `rc` gets), and each one also gets newer releases of
 the more stable ones. `halosctl` keeps your edition, so it adds `-no-npu` for you.
 `sudo halosctl version` shows what the machine runs and follows, and `sudo halosctl rollback`
 goes back.
