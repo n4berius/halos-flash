@@ -188,6 +188,12 @@ for want in '^  ovisocr3 +yes, for OvisOCR3$' '^  lfm3-1\.7b +yes, for my-lfm$' 
 done
 if grep -q "$(printf '\033')" "$work/out"; then echo "a control code from .own-bases reached the screen" >&2; exit 1; fi
 grep -q 'runuser -u halogen -- env -C / cat .*/own-bases' "$work/log" || { echo "read own-bases as root" >&2; exit 1; }
+printf 'HALOGEN_NPU_MODELS=\nHALOGEN_AGENT_GUARD=watch\n' > "$work/configs/halogen.env"
+mkdir -p "$work/models/npu/halogen-spotter-0.6b"
+HALOGEN_MODELS_DIR="$work/models" "$ctl" model list > "$work/out"
+{ grep -qE '^  halogen-spotter-0\.6b +yes, agent guard$' "$work/out" && grep -qE '^  decider-4b +no$' "$work/out"; } \
+  || { cat "$work/out" >&2; echo "watch mode: only the spotter is the agent guard's (Halogen 0.20.5)" >&2; exit 1; }
+rm -rf "$work/models/npu/halogen-spotter-0.6b"
 rm -rf "$work/models/custom/OvisOCR3" "$work/models/npu/ovisocr3" "$work/models/npu/lfm3-1.7b" "$work/models/npu/lfm3-1.7b-fast" "$work/models/npu/decider-4b" "$work/hstate/own-bases"
 printf 'HALOGEN_NPU_MODELS=/models/LFM/my-lfm\n' > "$work/configs/halogen.env"
 ok "model list marks NPU models your checkpoints run on, or the agent guard adds, as in use"
