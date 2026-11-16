@@ -41,14 +41,19 @@ flash_choice="${HALOGEN_FLASH_FILE:-/srv/configs/flash-checkpoint}"
 effective="$(HALOGEN_FLASH_FILE=/dev/null "$render")" || exit 1
 setting() { sed -n "s/^$1=//p" "$effective" | tail -n 1; }
 npu_models="$(setting HALOGEN_NPU_MODELS)"
-# The agent guard adds its two models when the server starts, so fetch them now: the server
-# itself never downloads. Same rule as Halogen's start script.
+# The agent guard adds its models when the server starts, so fetch them now: the server itself
+# never downloads. Same rule as Halogen's start script: watch adds the spotter, hold also
+# decider-4b (since 0.20.5; before, both modes loaded both).
+guards=""
 case "$(setting HALOGEN_AGENT_GUARD | tr '[:upper:]' '[:lower:]')" in
-  watch|hold)
-    for guard in halogen-spotter-0.6b decider-4b; do
-      case ",$npu_models," in *",$guard,"*) ;; ,,) npu_models="$guard" ;; *) npu_models="$npu_models,$guard" ;; esac
-    done ;;
+  watch) guards="halogen-spotter-0.6b" ;;
+  hold) guards="halogen-spotter-0.6b decider-4b" ;;
 esac
+if [ -n "$guards" ]; then
+    for guard in $guards; do
+      case ",$npu_models," in *",$guard,"*) ;; ,,) npu_models="$guard" ;; *) npu_models="$npu_models,$guard" ;; esac
+    done
+fi
 vision="$(setting HALOGEN_VISION_TOWER)"
 npu_dir="$models/npu"
 # The stamp ("these models match this release") and the note of your checkpoints' NPU models

@@ -349,6 +349,12 @@ echo 'HALOGEN_AGENT_GUARD=Hold' >> "$work/config.env"
 grep -q 'NPU_MODELS=embed,halogen-spotter-0.6b,decider-4b' "$work/podman.log" \
   || { echo "the agent guard's models were not fetched" >&2; exit 1; }
 ok "the agent guard's models are fetched when it is turned on"
+echo 'HALOGEN_NPU_MODELS=embed' > "$work/config.env"; echo 'HALOGEN_AGENT_GUARD=watch' >> "$work/config.env"
+: > "$work/podman.log"
+"$work/fetch" > "$work/out" 2>&1 || true
+{ grep -q 'NPU_MODELS=embed,halogen-spotter-0.6b' "$work/podman.log" && ! grep -q 'decider-4b' "$work/podman.log"; } \
+  || { cat "$work/podman.log" >&2; echo "watch should fetch only the spotter (Halogen 0.20.5 loads decider-4b only for hold)" >&2; exit 1; }
+ok "the agent guard's watch mode fetches only the spotter"
 
 echo 'HALOGEN_NPU_MODELS=embed' > "$work/config.env"
 rm -rf "$work/models/npu" "$work/state/fetch-stamp"

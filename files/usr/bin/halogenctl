@@ -416,7 +416,8 @@ case "${1:-status}" in
         bases="$( { as_owner cat "${HALOGEN_STATE_DIR:-/var/lib/halogen}/own-bases" 2>/dev/null || true; } | sed -E 's/:fast=([A-Za-z0-9._-]+)$/=\1-fast/' | sort -u | { grep -E '^/models/(decider|LFM|custom)/[A-Za-z0-9._-]+=[A-Za-z0-9._-]+$' || true; })"
         guard=""
         case "$(sed -n 's/^HALOGEN_AGENT_GUARD=//p' <<< "$rendered" | tail -n 1 | tr '[:upper:]' '[:lower:]')" in
-          watch|hold) guard="halogen-spotter-0.6b decider-4b" ;;
+          watch) guard="halogen-spotter-0.6b" ;;
+          hold) guard="halogen-spotter-0.6b decider-4b" ;;
         esac
         npu_used() {
           local p b by=""

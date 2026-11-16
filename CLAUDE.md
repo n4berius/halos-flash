@@ -969,8 +969,9 @@ name, but allows saying halOS runs Halogen.
   host mount must be all three libraries or none). `tests/static.sh` keeps it that way.
 - Halogen 0.18.x listened on IPv4 only, so we published `0.0.0.0:8731`. From 0.19.0 it listens
   on IPv6 too, and the port is published dual-stack.
-- `HALOGEN_AGENT_GUARD=watch|hold` makes Halogen add `halogen-spotter-0.6b` and `decider-4b`
-  at start. The server never downloads, so `fetch-models` adds them to the fetch.
+- `HALOGEN_AGENT_GUARD=watch|hold` makes Halogen add `halogen-spotter-0.6b` at start, and `hold`
+  also `decider-4b` (since 0.20.5; before, both modes added both). The server never downloads, so
+  `fetch-models` adds them to the fetch, and `halogenctl model list` marks them "agent guard".
 - `hf` is noisy and shows no progress in the journal. `fetch-in-container` filters it, and
   `fetch-models` logs the size downloaded every minute.
 - Own NPU checkpoints (`d1-2B`, `LFM3-*`) are named by path, need NPU programs fetched, and
@@ -1043,6 +1044,21 @@ and tracked on the owner's project board. [ROADMAP.md](ROADMAP.md) holds the ord
   `HALOGEN_CACHE_REPLY`). The Flash checkpoints and weights revision are unchanged. The image's
   `models.txt` differs from 0.20.2's only in `d3-nano`'s NPU programs (new revision, about 135 MB,
   fetched again only where `d3-nano` is in `HALOGEN_NPU_MODELS`; not in the default templates).
+- **Halogen 0.20.5** (#140): faster decoding with several requests (a new decoding-state form;
+  `HALOGEN_DN_STATE=fp32` restores 0.20.4's, and a prompt cache saved by 0.20.4 is rebuilt),
+  Indic-script prompts tokenized by the checkpoint's own pattern (`HALOGEN_TOKENIZER_NATIVE`), LFM3
+  on the NPU about twice as fast on long prompts, XRT 2.27 in the image (halOS mounts none), and
+  `HALOGEN_NPU_KILL_S` (NPU edition: a stuck NPU job takes the NPU engine down after 1800 s and it
+  restarts). All three are in FLAGS.md, so allowed and commented in the templates. Between source
+  commits de6e7f8 and 1548d42, host-setup changes only image tags, so the Quadlet and kernel
+  arguments stay. `deploy/entrypoint.sh` also passes `HALOGEN_TOKENIZER_NATIVE`, and
+  `HALOGEN_FORK_UNMATCHED_RELEASE` and `HALOGEN_MODEL_NAME_CHECK` as front-end-only names not in
+  FLAGS.md, so those two aren't allowed here (as `HALOGEN_CACHE_REPLY`); `watch` no longer loads
+  `decider-4b`, so `fetch-models` and `model list` follow. The Flash checkpoints and weights
+  revision are unchanged (upstream: "the Flash checkpoints and the GEMM tuning are 0.20.4's"). The
+  image's `models.txt` differs from 0.20.4's only in `lfm3-1.7b` and `lfm3-1.7b-fast` (new
+  revisions, about 440 MB each, fetched again only where an LFM3 checkpoint is in
+  `HALOGEN_NPU_MODELS`; read from the layer, anonymously from ghcr.io).
 - The ISO install test also runs when `versions.env` changes (#78), so every Halogen update PR
   gets the LUKS + TPM install in a VM, about 30 minutes for both editions.
 - Known upstream: bootc 1.17.1 rewrites `/etc/fstab` at every boot on Anaconda installs
