@@ -99,7 +99,7 @@ take_lock pull
 # podman and its conmon would inherit the lock (fd 9) and hold it after a hard kill, for as long
 # as a leftover container runs: every podman call closes it.
 podman() { command podman "$@" 9>&-; }
-# shellcheck disable=SC2329 # run by the EXIT trap below
+# shellcheck disable=SC2317,SC2329 # run by the EXIT trap below (older shellcheck says SC2317)
 cleanup() { [ -z "${reporter:-}" ] || kill "$reporter" 2>/dev/null; podman rm -f -i -t 0 "$ctr" > /dev/null 2>&1 || true; }
 trap cleanup EXIT
 trap 'exit 130' INT; trap 'exit 143' TERM HUP
