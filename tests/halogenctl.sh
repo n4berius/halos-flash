@@ -125,6 +125,19 @@ exec 7>&-
 [ -d "$work/models/LFM/new-model" ] || { echo "model remove deleted a model a pull was writing" >&2; exit 1; }
 grep -q 'Another pull of new-model is running' "$work/out" || { cat "$work/out" >&2; exit 1; }
 ok "model remove checks again under the model's lock after asking"
+# A checkpoint served only in its :qad form counts as in use: refused when asking, and when added
+# while asking (the helper's check under the lock).
+echo 'HALOGEN_NPU_MODELS=/models/LFM/new-model:qad' >> "$work/configs/halogen.env"
+{ sleep 2; echo y; } | HALOGEN_MODELS_DIR="$work/models" script -qec "$ctl model remove new-model" /dev/null > "$work/out" 2>&1 || true
+[ -d "$work/models/LFM/new-model" ] || { cat "$work/out" >&2; echo "model remove deleted a model served as :qad" >&2; exit 1; }
+{ grep -q 'is in HALOGEN_NPU_MODELS. Take it out' "$work/out" && ! grep -q 'Delete ' "$work/out"; } || { cat "$work/out" >&2; echo "model remove asked about a model served as :qad" >&2; exit 1; }
+cp "$work/env.bak" "$work/configs/halogen.env"
+{ sleep 2; echo y; } | FAKE_BEFORE="echo HALOGEN_NPU_MODELS=/models/LFM/new-model:qad >> \"\$FAKE/configs/halogen.env\"" HALOGEN_MODELS_DIR="$work/models" \
+  script -qec "$ctl model remove new-model" /dev/null > "$work/out" 2>&1 || true
+[ -d "$work/models/LFM/new-model" ] || { cat "$work/out" >&2; echo "model remove deleted a model added as :qad while it asked" >&2; exit 1; }
+grep -q 'added meanwhile' "$work/out" || { cat "$work/out" >&2; exit 1; }
+cp "$work/env.bak" "$work/configs/halogen.env"
+ok "a checkpoint served as :qad counts as in use for model remove"
 
 # options: every option this release offers, and which ones halogen.env doesn't mention yet.
 template="$repo/variants/npu/usr/share/halogen/halogen.env.default"
@@ -194,6 +207,15 @@ HALOGEN_MODELS_DIR="$work/models" "$ctl" model list > "$work/out"
 { grep -qE '^  halogen-spotter-0\.6b +yes, agent guard$' "$work/out" && grep -qE '^  decider-4b +no$' "$work/out"; } \
   || { cat "$work/out" >&2; echo "watch mode: only the spotter is the agent guard's (Halogen 0.20.5)" >&2; exit 1; }
 rm -rf "$work/models/npu/halogen-spotter-0.6b"
+# LFM3's :qad form (Halogen 0.20.6): the checkpoint served only as :qad still counts as in use, and
+# the -qad NPU model it runs on is marked for it.
+mkdir -p "$work/models/npu/lfm3-1.7b-qad"
+printf '/models/LFM/my-lfm:qad=lfm3-1.7b-qad\n' > "$work/hstate/own-bases"
+printf 'HALOGEN_NPU_MODELS=/models/LFM/my-lfm:qad\n' > "$work/configs/halogen.env"
+HALOGEN_MODELS_DIR="$work/models" "$ctl" model list > "$work/out"
+{ grep -qE '^  lfm3-1\.7b-qad +yes, for my-lfm$' "$work/out" && grep -qE '^  my-lfm +LFM +.* yes$' "$work/out"; } \
+  || { cat "$work/out" >&2; echo "a checkpoint served as :qad wasn't shown in use" >&2; exit 1; }
+rm -rf "$work/models/npu/lfm3-1.7b-qad"
 rm -rf "$work/models/custom/OvisOCR3" "$work/models/npu/ovisocr3" "$work/models/npu/lfm3-1.7b" "$work/models/npu/lfm3-1.7b-fast" "$work/models/npu/decider-4b" "$work/hstate/own-bases"
 printf 'HALOGEN_NPU_MODELS=/models/LFM/my-lfm\n' > "$work/configs/halogen.env"
 ok "model list marks NPU models your checkpoints run on, or the agent guard adds, as in use"

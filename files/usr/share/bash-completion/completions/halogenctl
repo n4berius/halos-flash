@@ -42,7 +42,7 @@ _halogenctl() {
     model)
       if [ "$cword" -eq 2 ]; then _halogenctl_offer "pull list remove"
       elif [ "${words[2]}" = remove ] && [ "$cword" -eq 3 ]; then _halogenctl_names "$models/decider" "$models/LFM" "$models/custom"
-      elif [ "${words[2]}" = pull ] && [ "$cword" -ge 4 ]; then _halogenctl_offer "--revision --as"
+      elif [ "${words[2]}" = pull ] && [ "$cword" -ge 4 ]; then _halogenctl_offer "--revision --as --qad"
       fi ;;
     flash)
       if [ "$cword" -eq 2 ]; then _halogenctl_offer "pull convert convert-logs convert-stop list use verify check remove"

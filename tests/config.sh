@@ -32,6 +32,13 @@ grep -qx "halogen-config: HALOGEN_KV_SLOTS is set more than once in $work/config
 [ "$(grep -c 'more than once' "$work/log")" = 1 ] || { echo "a duplicate warning for a setting written once" >&2; exit 1; }
 [ ! -e /tmp/halogen-config-injected ] || { echo "the config ran as shell" >&2; exit 1; }
 echo "ok: only allowed settings pass, the last value wins with a warning, and the file never runs as shell"
+# HALOGEN_CK_OVERLAY (Halogen 0.20.6): only none passes, the way back to the checkpoint's own draft head.
+printf 'HALOGEN_CK_OVERLAY=/models/qwen38-flash-next-ngram.hgn\n' > "$work/config"
+if "$render" --show 2>"$work/log" | grep -q '^HALOGEN_CK_OVERLAY='; then echo "a path reached HALOGEN_CK_OVERLAY" >&2; exit 1; fi
+grep -q 'ignored HALOGEN_CK_OVERLAY: the only value halOS accepts is none' "$work/log" || { cat "$work/log" >&2; exit 1; }
+printf 'HALOGEN_CK_OVERLAY=none\n' > "$work/config"
+"$render" --show 2>/dev/null | grep -qx 'HALOGEN_CK_OVERLAY=none' || { echo "HALOGEN_CK_OVERLAY=none was dropped" >&2; exit 1; }
+echo "ok: HALOGEN_CK_OVERLAY passes only as none"
 
 export HALOGEN_ALLOWED_FILE="$repo/variants/no-npu/usr/share/halogen/options.allowed"
 echo 'HALOGEN_NPU_MODELS=decider-0.8b' > "$work/config"

@@ -736,6 +736,15 @@ interrupted, and puts the checkpoint in the folder that fits:
 | `/srv/models/LFM` | LFM3-1.7B, LFM3-VL-2B, LFM3-Audio-2B, LFM3-Omni-2B | `/models/LFM/<name>` |
 | `/srv/models/custom` | Fine-tunes of the embedding, reranking or guard models; OvisOCR3 | `/models/custom/<name>` |
 
+**LFM3-1.7B's three forms.** Named as `/models/LFM/<name>` it runs at full quality,
+`/models/LFM/<name>:fast` is faster at a small quality cost, and since Halogen 0.20.6
+`/models/LFM/<name>:qad` runs Liquid's own 4-bit file, the fastest (about 48 tokens a second
+against 30 and 42, from Halogen's [NPU guide](https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/NPU.md#your-own-lfm3-17b)).
+Fetch that file with `sudo halogenctl model pull LiquidAI/LFM3-1.7B --qad`: it comes from
+`LiquidAI/LFM3-1.7B-GGUF` at the commit Halogen's image was built for. Its weights are Liquid's,
+so a fine-tune of your own keeps to the first two forms. You can name all three at once, and
+each is served under its own name (`LFM3-1.7B`, `LFM3-1.7B-fast`, `LFM3-1.7B-qad`).
+
 **Document parsing (OvisOCR3).** Since Halogen 0.20 the NPU reads document pages into Markdown, with
 tables as HTML and formulas as LaTeX, from your own [OvisOCR3](https://huggingface.co/ATH-MaaS/OvisOCR3)
 checkpoint (Apache 2.0, about 1.7 GB): `sudo halogenctl model pull ATH-MaaS/OvisOCR3 --revision

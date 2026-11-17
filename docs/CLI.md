@@ -115,7 +115,7 @@ Edit settings with `sudo nano /srv/configs/halogen.env`, then `sudo halogenctl r
 
 | Command | What it does |
 |---|---|
-| `halogenctl model pull <hf-repo> [--revision <rev>] [--as <name>]` | Downloads a checkpoint Halogen's NPU runs (such as `LiquidAI/LFM3-1.7B`) into the folder that fits it. |
+| `halogenctl model pull <hf-repo> [--revision <rev>] [--as <name>] [--qad]` | Downloads a checkpoint Halogen's NPU runs (such as `LiquidAI/LFM3-1.7B`) into the folder that fits it. `--qad` also fetches Liquid's own 4-bit file for an LFM3-1.7B, from the exact repository and commit Halogen's image names, so it can be served as `<path>:qad`, the fastest form (since Halogen 0.20.6; its weights are Liquid's, not a fine-tune's). |
 | `halogenctl model list` | Your NPU checkpoints, and which are in use. |
 | `halogenctl model remove <name>` | Deletes one (asks first; refused while it is in `HALOGEN_NPU_MODELS`). |
 

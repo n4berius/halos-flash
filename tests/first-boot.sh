@@ -12,6 +12,8 @@ model embed repo=org/embed revision=abc
 model rerank repo=org/rerank revision=def devices=embed
 model lfm3 repo=org/lfm3 revision=x
 model lfm3-fast repo=org/lfm3-fast revision=y
+model lfm3-qad repo=org/lfm3-qad revision=q source=LiquidAI/LFM3-1.7B-GGUF@cd0c74c575b5c416f3011b5b4c298077f26ca8c2
+file lfm3-qad devices/q.hnpm 5 $h
 file embed devices/d.hnpm 5 $h
 file embed embed.hnpw 5 $h
 file lfm3-fast devices/f.hnpm 5 $h
@@ -68,7 +70,8 @@ cat > "$work/bin/halogen-npu" <<'S'
 #!/bin/bash
 # Halogen's probe names the model a checkpoint was tuned from.
 [ -z "${NO_PROBE:-}" ] || { echo "probe ran in the download container" >> "$FAKE/probe-leak"; exit 1; }
-[ "$1" = probe ] && [ -f "$2/config.json" ] && echo "task=generate base=$(cat "$2/base" 2>/dev/null || echo lfm3)"
+# Asked for the :qad form (--form qad), it answers with the -qad model, as Halogen 0.20.6's does.
+[ "$1" = probe ] && [ -f "$2/config.json" ] && echo "task=generate base=$(cat "$2/base" 2>/dev/null || echo lfm3)$([ "${3:-}${4:-}" = --formqad ] && echo -qad)"
 S
 # rm that fails on the tokenizer folder itself when asked: what a download that made the models
 # folder read-only would cause for a user without root's rights (CI's runner; this test may run as root).
@@ -218,12 +221,20 @@ echo secret > "$work/private-d"; rm "$work/models/qwen38-flash-next-drafter-r2.h
 { [ ! -L "$work/models/qwen38-flash-next-drafter-r2.hgn" ] && [ "$(cat "$work/private-d")" = secret ]; } || { echo "the link at the draft head stayed, or its target changed" >&2; exit 1; }
 rm -f "$work/private-d"
 ok "a link at the draft head goes and the file is fetched in the same run"
+# LFM3's :qad form (Halogen 0.20.6): the probe is asked for that form, as Halogen's start does,
+# and the -qad model's NPU programs are fetched; the id is noted with its suffix.
 mkdir -p "$work/models/LFM/q"; echo '{}' > "$work/models/LFM/q/config.json"
 echo 'HALOGEN_NPU_MODELS=embed,/models/LFM/q:qad' > "$work/config.env"
-if "$work/fetch" > "$work/out" 2>&1; then echo "a :qad entry was accepted" >&2; exit 1; fi
-grep -q ":qad form isn't supported by halOS yet" "$work/out" || { cat "$work/out" >&2; echo "a :qad entry wasn't named as unsupported" >&2; exit 1; }
+"$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; echo "a :qad entry was refused" >&2; exit 1; }
+[ -f "$work/models/npu/lfm3-qad/devices/q.hnpm" ] || { cat "$work/out" >&2; echo "the :qad form's NPU programs weren't fetched" >&2; exit 1; }
+grep -qx '/models/LFM/q:qad=lfm3-qad' "$work/state/own-bases" || { cat "$work/state/own-bases" >&2; echo "the :qad id wasn't noted" >&2; exit 1; }
+# The stamp covers the folder's 4-bit file: a new or replaced one is checked again at the next start.
+"$work/fetch" > "$work/out" 2>&1; grep -q "already match" "$work/out" || { cat "$work/out" >&2; echo "a second fetch of the same :qad entry didn't match" >&2; exit 1; }
+echo q > "$work/models/LFM/q/LFM3-1.7B-QAD-Q4_0.gguf"
+"$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+if grep -q "already match" "$work/out"; then echo "a new 4-bit file in a :qad folder didn't change the stamp" >&2; exit 1; fi
 rm -rf "$work/models/LFM/q"; echo 'HALOGEN_NPU_MODELS=embed' > "$work/config.env"
-ok "an LFM3 :qad entry is refused with the reason"
+ok "an LFM3 :qad entry is probed in that form and its NPU programs are fetched"
 
 # A vision tower kept while the tower is off is checked too, and a file in tokenizer/ that isn't
 # one of this release's goes.

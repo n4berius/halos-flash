@@ -46,6 +46,12 @@ if [ -r "$config" ]; then
       ignore "$key" "the only supported value is 1"
       continue
     fi
+    # Halogen takes a file path here; halOS passes only none (0.20.6: the checkpoint's own draft head
+    # instead of the draft head file beside it), since a path would reach files the fetch doesn't check.
+    if [ "$key" = HALOGEN_CK_OVERLAY ] && [ -n "$value" ] && [ "$value" != none ]; then
+      ignore "$key" "the only value halOS accepts is none (the checkpoint's own draft head)"
+      continue
+    fi
     # The last line wins, but a setting written twice is usually a copy-paste left behind.
     if [ -n "${where[$key]:-}" ]; then
       echo "halogen-config: $key is set more than once in $config (lines ${where[$key]} and $n); line $n is used" >&2

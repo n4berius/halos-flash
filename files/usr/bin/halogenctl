@@ -371,17 +371,22 @@ case "${1:-status}" in
   model)
     # Your own NPU checkpoints under /srv/models/{decider,LFM,custom}.
     as_halogen() { halogen_run "$@"; }
-    in_use() { as_halogen /usr/libexec/halogen/render-config --show | grep '^HALOGEN_NPU_MODELS=' | tr '=,' '\n' | sed 's/:fast$//' | grep -qxF -- "$1"; }
+    in_use() { as_halogen /usr/libexec/halogen/render-config --show | grep '^HALOGEN_NPU_MODELS=' | tr '=,' '\n' | sed -E 's/:(fast|qad)$//' | grep -qxF -- "$1"; }
     case "${2:-list}" in
       pull)
         shift 2
-        out="$(as_halogen /usr/libexec/halogen/model-pull "$@" | tee /dev/stderr)" || exit 1
-        path="$(sed -n 's/^path=//p' <<< "$out")"
-        [ -n "$path" ] || exit 1
+        # A failed --qad step still leaves the checkpoint ready (path= printed): its other forms
+        # are offered, and the command ends with the failure.
+        rc=0
+        out="$(as_halogen /usr/libexec/halogen/model-pull "$@" | tee /dev/stderr)" || rc=$?
+        path="$(sed -n 's/^path=//p' <<< "$out" | tail -n 1)"
+        [[ "$path" =~ ^/models/(decider|LFM|custom)/[A-Za-z0-9._-]+$ ]] || exit 1
         entry="$path"; ! grep -qx 'fast=1' <<< "$out" || entry="$path or $path:fast (faster, small quality cost)"
+        # Liquid's own 4-bit file (model pull --qad, Halogen 0.20.6): the fastest form, its weights Liquid's.
+        ! grep -qx 'qad=1' <<< "$out" || entry="$entry, or $path:qad (fastest: Liquid's own 4-bit weights, not your checkpoint's)"
         echo
         echo "To serve it, add $entry to HALOGEN_NPU_MODELS in /srv/configs/halogen.env, for example:"
-        if in_use "$path"; then echo "  It is already there. To use the new files: sudo halogenctl restart"; exit 0; fi
+        if in_use "$path"; then echo "  It is already there. To use the new files: sudo halogenctl restart"; exit "$rc"; fi
         # Printed to root's terminal below, so only printable characters.
         line="$(as_owner grep '^HALOGEN_NPU_MODELS=' "$configs/halogen.env" | tail -n 1 | tr -cd '[:print:]' || true)"
         new="HALOGEN_NPU_MODELS=${line#HALOGEN_NPU_MODELS=}"; new="${new%,}"
@@ -403,17 +408,18 @@ case "${1:-status}" in
             echo "Restarted. The first start converts the checkpoint for the NPU (about a minute)."
           fi
         fi
+        exit "$rc"
         ;;
       list)
         # What HALOGEN_NPU_MODELS serves now (one read, not one per model), without :fast.
         # Each read may fail (no npu folder yet, the halogen user's services down): still list.
         rendered="$( { as_halogen /usr/libexec/halogen/render-config --show || true; } )"
-        active="$(sed -n 's/^HALOGEN_NPU_MODELS=//p' <<< "$rendered" | tr ',' '\n' | sed 's/:fast$//')"
+        active="$(sed -n 's/^HALOGEN_NPU_MODELS=//p' <<< "$rendered" | tr ',' '\n' | sed -E 's/:(fast|qad)$//')"
         used() { if grep -qxF -- "$1" <<< "$active"; then echo yes; else echo no; fi; }
         # Halogen's NPU models also run when one of your checkpoints is built on them (the fetch
         # notes which, in /var/lib/halogen/own-bases; a :fast id runs on <model>-fast), or when the agent guard adds them. The note is written by
         # halogen, so only plain "path=model" lines count.
-        bases="$( { as_owner cat "${HALOGEN_STATE_DIR:-/var/lib/halogen}/own-bases" 2>/dev/null || true; } | sed -E 's/:fast=([A-Za-z0-9._-]+)$/=\1-fast/' | sort -u | { grep -E '^/models/(decider|LFM|custom)/[A-Za-z0-9._-]+=[A-Za-z0-9._-]+$' || true; })"
+        bases="$( { as_owner cat "${HALOGEN_STATE_DIR:-/var/lib/halogen}/own-bases" 2>/dev/null || true; } | sed -E -e 's/:fast=([A-Za-z0-9._-]+)$/=\1-fast/' -e 's/:qad=([A-Za-z0-9._-]+)$/=\1/' | sort -u | { grep -E '^/models/(decider|LFM|custom)/[A-Za-z0-9._-]+=[A-Za-z0-9._-]+$' || true; })"
         guard=""
         case "$(sed -n 's/^HALOGEN_AGENT_GUARD=//p' <<< "$rendered" | tail -n 1 | tr '[:upper:]' '[:lower:]')" in
           watch) guard="halogen-spotter-0.6b" ;;
@@ -478,7 +484,7 @@ case "${1:-status}" in
         # HALOGEN_NPU_MODELS while you were asked (#119). Only the folder you were asked about.
         as_halogen /usr/libexec/halogen/model-pull --remove "$kind" "$name" || exit 1
         ;;
-      *) echo "usage: halogenctl model pull <hf-repo> [--revision <rev>] [--as <name>] | list | remove <name>" >&2; exit 2 ;;
+      *) echo "usage: halogenctl model pull <hf-repo> [--revision <rev>] [--as <name>] [--qad] | list | remove <name>" >&2; exit 2 ;;
     esac
     ;;
   records)

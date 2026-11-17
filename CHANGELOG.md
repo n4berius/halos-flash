@@ -10,6 +10,12 @@ promoted.
 
 ## Unreleased
 
+- LFM3-1.7B's fastest form on the NPU, `:qad` (Halogen 0.20.6): `sudo halogenctl model pull
+  LiquidAI/LFM3-1.7B --qad` also fetches Liquid's own 4-bit file, from the exact source Halogen's
+  image names, and then `/models/LFM/LFM3-1.7B:qad` can go in `HALOGEN_NPU_MODELS` (served as
+  `LFM3-1.7B-qad`, about 48 tokens a second against 30 and 42). `HALOGEN_CK_OVERLAY=none` is now
+  accepted (that value only), Halogen's way back to the checkpoint's own draft head (with an own
+  Flash checkpoint that has a quality sidecar, `none` also leaves the sidecar out). (#144)
 - `sudo halosctl setup` now offers HTTPS as its fourth question. On a new install, pressing Enter
   turns it on with halOS's own authority (self-signed), so apps that use `https://` no longer send
   prompts, replies and the API key in plain text; each app trusts the authority once (`sudo halosctl
