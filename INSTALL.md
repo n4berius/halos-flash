@@ -241,7 +241,7 @@ Log in as your admin user and run:
 sudo halosctl setup
 ```
 
-It asks three things, and you can skip each one:
+It asks four things, and you can skip each one:
 
 1. **How the disk unlocks at boot.** With the TPM, there's no passphrase to type while Secure
    Boot and the BIOS stay the same; it runs `halogen-enroll-tpm` for you. Or keep typing the
@@ -252,6 +252,11 @@ It asks three things, and you can skip each one:
    [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens).
 3. **Settings.** Open `/srv/configs/halogen.env` in an editor, or keep the defaults, which suit
    most people.
+4. **HTTPS.** On a new install Enter turns it on, with halOS's own authority (self-signed), so
+   prompts, replies and the API key no longer cross the network in plain text. Apps then use
+   `https://` and trust the authority once: `sudo halosctl https ca` prints it (see [HTTPS](#https)).
+   A machine upgraded from an earlier release stays on plain HTTP until you say yes here or run
+   `sudo halosctl https self-signed`. If HTTPS is on already, setup leaves it as it is.
 
 The first 130 GB download waits for setup, so your token and settings count from the start. If
 nobody runs setup within 30 minutes, the download starts with the defaults anyway, so a machine

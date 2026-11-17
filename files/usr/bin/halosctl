@@ -879,7 +879,7 @@ case "$cmd" in
     if [ -s "$history" ]; then cat "$history"; else echo "No changes recorded yet. Changes made with halosctl are listed here."; fi
     ;;
   setup)
-    # First-boot setup: how the disk unlocks, a Hugging Face token, settings. Each step can be
+    # First-boot setup: how the disk unlocks, a Hugging Face token, settings, HTTPS. Each step can be
     # skipped, and it can run again at any time. On a new install the first download waits for
     # it (up to 30 minutes); finishing or --skip lets the download start.
     state="${HALOGEN_STATE_DIR:-/var/lib/halogen}"; configs="${HALOGEN_CONFIGS_DIR:-/srv/configs}"
@@ -974,6 +974,26 @@ case "$cmd" in
       else echo "   No change."; fi
       rm -rf "$tmp"; trap - EXIT
     else echo "   Kept the defaults."; fi
+
+    echo; echo "4. HTTPS for the API and the dashboard"
+    # A new install is offered halOS's own authority (#102); an upgrade stays on plain HTTP until
+    # its owner says yes here or runs sudo halosctl https. Done by halosctl https itself, which
+    # restarts only the front door and puts the old setting back if Caddy doesn't come up.
+    hmode="$("$https" mode 2> /dev/null || echo unknown)"
+    case "$hmode" in
+      off)
+        echo "   Apps and browsers reach Halogen over plain HTTP now, so anyone on the network path can read"
+        echo "   the prompts, the replies and the API key. With HTTPS they use https:// and trust halOS's"
+        echo "   own authority once (sudo halosctl https ca prints it)."
+        https_yn="[y/N]"; https_default=n; [ "$pending" = 0 ] || { https_yn="[Y/n]"; https_default=y; }
+        if ask "   Turn on HTTPS now? $https_yn" "$https_default"; then
+          if "${HALOS_SELF:-$0}" https self-signed --yes | sed 's/^/   /'; then
+            echo "   Done. Apps need the authority once: sudo halosctl https ca > halos-ca.crt"
+          else echo "   That didn't work; plain HTTP still works. Try again later: sudo halosctl https self-signed"; fi
+        else echo "   Kept plain HTTP. Later: sudo halosctl https self-signed"; fi ;;
+      self-signed|custom|letsencrypt) echo "   HTTPS is on already ($hmode). Details: sudo halosctl https" ;;
+      *) echo "   The HTTPS setting couldn't be read. See: sudo halosctl https" ;;
+    esac
 
     echo
     if [ "$pending" = 1 ]; then release_fetch

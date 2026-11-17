@@ -43,7 +43,7 @@ Changes to the OS apply at the next reboot. Each update is checked against halOS
 
 | Command | What it does |
 |---|---|
-| `halosctl setup [--skip]` | The first-boot questions: TPM unlock, SSH unlock, SSH logins with keys only, your Hugging Face token and your settings. Halogen waits for it (up to 30 minutes) on a new install. `--skip` starts with the defaults. |
+| `halosctl setup [--skip]` | The first-boot questions: TPM unlock, SSH unlock, SSH logins with keys only, your Hugging Face token, your settings and HTTPS (on a new install Enter turns on `https self-signed`; an upgraded machine keeps plain HTTP unless you say yes). Halogen waits for it (up to 30 minutes) on a new install. `--skip` starts with the defaults. |
 | `halosctl power [low-power\|balanced\|performance]` | The firmware's power profile, now and at every boot. `performance` (the default) serves fastest; the others draw less power and run cooler and slower. Alone, it shows the profile. |
 
 ### SSH

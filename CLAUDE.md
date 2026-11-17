@@ -76,7 +76,14 @@ name, but allows saying halOS runs Halogen.
   the wall clock jumps at first boot), then removes it and starts with the defaults. `sudo halosctl
   setup` asks TPM unlock (`halogen-enroll-tpm`), HF token (`halogenctl hf-token`), and editing
   `halogen.env` the sudoedit way (root edits a private copy, written back as halogen; never an
-  editor as halogen on root's tty), then removes the marker; `--skip` removes it at once. The VM
+  editor as halogen on root's tty), then removes the marker; `--skip` removes it at once. Step 4 (#PR, #102's last step) offers HTTPS:
+  it reads `https mode`; when `off` it asks (Enter = yes only while `setup-pending` exists, so a
+  new install; an upgrade defaults to no), then runs `${HALOS_SELF:-$0} https self-signed --yes`
+  (the whole switch with its revert if Caddy doesn't come up; only the front door restarts), and a
+  failure doesn't stop setup; any other mode is left alone; `--skip` never touches HTTPS.
+  `tests/setup.sh` pads every answer list with two closing `n` lines: `script` never passes the
+  end of input on, so a question a test doesn't name would wait forever. The VM test still skips
+  setup and turns self-signed on with its own step. The VM
   test checks the pending line, then skips. On the serial console, `agetty --reload` can swallow
   output written while the status changes, so the VM test saves such output to a file and prints
   it later.

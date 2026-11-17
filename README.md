@@ -184,7 +184,7 @@ channels, and the names of your own checkpoints (those only when you can read `/
 since `sudo` completes as you).
 
 ```bash
-sudo halosctl setup          # first-boot questions: TPM unlock, HF token, settings (again any time)
+sudo halosctl setup          # first-boot questions: TPM unlock, HF token, settings, HTTPS (again any time)
 sudo halogenctl status       # service state
 sudo halogenctl fetch-logs   # first-boot download progress
 sudo halogenctl logs         # server and fetch logs; add a number for more lines
