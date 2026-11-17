@@ -16,10 +16,11 @@ promoted.
   signature the way the boot loader does (the signature itself, a code-signing certificate under
   Fedora's CA taken from the image's own shim, and its revocation level), not only the signer's
   name, and the Fedora signing keys used during the build no longer stay in the image. A beta tag
-  pushed by hand is refused, since there are no beta releases any more. (#146)
+  pushed by hand is refused, since there are no beta releases any more. The test kernel moves to
+  7.4-rc3, since Fedora stopped serving the signed rc2 build. (#146)
 
 - A new channel, `kernel-next`, for trying a newer kernel: the same build as `edge`, with Linux
-  7.4-rc2 (Fedora 46's build, signed for Secure Boot) instead of Fedora 45's 7.3. It brings about
+  7.4 (a release candidate: Fedora 46's build, signed for Secure Boot) instead of Fedora 45's 7.3. It brings about
   25 fixes to the NPU driver and an IOMMU speed-up for the built-in GPU that applies to the NPU
   edition. Follow it with `sudo halosctl switch kernel-next`; `sudo halosctl switch edge` goes back.
   Releases keep Fedora 45's kernel. (#142)

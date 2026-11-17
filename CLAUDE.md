@@ -914,7 +914,7 @@ name, but allows saying halOS runs Halogen.
   attributes with the signer's certificate, the chain to the CA in the base's own shim (`.vendor_cert`
   of `/usr/lib/efi/shim/*/EFI/fedora/shimx64.efi`, `fedoraca`, sha256 A3:B3:84:81:…:EF:33:2E;
   `-no_check_time`), the code-signing EKU, and `.sbat`'s `kernel.fedora` generation against the base
-  kernel's (copied before `rpm -U`). Checked against Fedora's real 7.3.3 and 7.4-rc2 kernels and on the
+  kernel's (copied before `rpm -U`). Checked against Fedora's real 7.3.3, 7.4-rc2 and rc3 kernels and on the
   base in podman; `tests/authenticode.sh` signs tiny PEs with throwaway keys
   (`tests/authenticode-fixture.py`) for each refusal. The Containerfile reaches it with `RUN
   --mount=type=bind` (nothing left in the image). The base's rpm keyring starts empty (rpm 6.1,
@@ -926,7 +926,19 @@ name, but allows saying halOS runs Halogen.
   Koji's listings and takes the newest `0.rcN.M.<dist>` or `M.<dist>` at the pin's kernel line or
   newer, same dist tag (a new dist's key may not be in the base), with all four packages in one
   signed-key folder; `tests/kernel-next-update.sh` fakes Koji. Against the real Koji on 2026-11-17 it
-  found `7.4.0-0.rc3.26.fc46`. `release.yml` refuses a hand-pushed `*-beta.*` tag.
+  found `7.4.0-0.rc3.26.fc46`, now the pin: Koji had dropped rc2.19's signed copies (`data/signed/`
+  empty, the unsigned ones kept) within about a week, so every kernel-next build failed at the
+  download (code review of #146). `release.yml` refuses a hand-pushed `*-beta.*` tag. Security
+  audit of #146: `-CAfile` adds to openssl's default trust (the system's public roots), so the
+  verify call takes `-no-CApath -no-CAstore` (the audit had a stranger CA in `SSL_CERT_DIR`
+  accepted); the code-signing check matches the exact `Code Signing` item, not a substring
+  (`msCodeInd` passed); the update script's curl calls are `--proto =https --proto-redir =https`.
+  `tests/authenticode.sh` covers both (each fails without its fix) and that a changed PE checksum
+  field still passes; it runs the fixture with `-B` (no `src/__pycache__`). The patched checker
+  passes Fedora's real rc2 kernel against the base's shim. Left for the owner: shim's own
+  revocation lists (`vendor_dbx`, `.sbatlevel`), every package's name and NVR checked after
+  `rpm -U`, the update workflow's write token only in the step that pushes, picking builds by
+  Koji tag instead of folder listing.
 
 - Selftest sessions (#138, the security audit of #137, owner agreed): whatever root runs as halogen
   through `setpriv` that reaches halogen-controlled programs (podman, `systemctl --user`) runs in a

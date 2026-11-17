@@ -24,7 +24,7 @@ old_ver="${old%%-*}"
 
 # The names in an Apache/Koji folder listing, one per line, without the trailing slash.
 listing() {
-  curl -fsSL --retry 3 "$1/" | grep -o 'href="[^"?/][^"]*"' | sed -e 's/^href="//' -e 's/"$//' -e 's#/$##'
+  curl -fsSL --proto =https --proto-redir =https --retry 3 "$1/" | grep -o 'href="[^"?/][^"]*"' | sed -e 's/^href="//' -e 's/"$//' -e 's#/$##'
 }
 # A sort key: version, then a final release above its release candidates, then rc and build.
 key() {  # key <version> <release>
@@ -71,7 +71,7 @@ url="$signed/$keydir/x86_64"
 work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
 sums=""
 for p in $packages; do
-  curl -fsSL --retry 3 -o "$work/$p.rpm" "$url/$p-$best.x86_64.rpm"
+  curl -fsSL --proto =https --proto-redir =https --retry 3 -o "$work/$p.rpm" "$url/$p-$best.x86_64.rpm"
   sums="$sums $p:$(sha256sum < "$work/$p.rpm" | cut -d' ' -f1)"
 done
 sums="${sums# }"

@@ -291,14 +291,20 @@ def main(argv):
             if c != signer:
                 cp = put(f"c{i}.der", c)
                 chain += run(["openssl", "x509", "-inform", "DER", "-in", cp], check=True).stdout.encode()
-        args = ["openssl", "verify", "-no_check_time", "-purpose", "any", "-CAfile", os.path.join(t, "ca.pem")]
+        # shim's CA alone: -CAfile adds to openssl's default trust (the system's public roots in its
+        # folder and store), which -no-CApath and -no-CAstore turn off (security audit).
+        args = ["openssl", "verify", "-no_check_time", "-purpose", "any", "-no-CApath", "-no-CAstore",
+                "-CAfile", os.path.join(t, "ca.pem")]
         if chain:
             args += ["-untrusted", put("chain.pem", chain)]
         r = run(args + [os.path.join(t, "signer.pem")])
         if r.returncode != 0:
             raise Bad("the signer doesn't chain to the CA shim trusts: " + (r.stdout + r.stderr).strip())
         r = run(["openssl", "x509", "-in", os.path.join(t, "signer.pem"), "-noout", "-ext", "extendedKeyUsage"])
-        if "Code Signing" not in r.stdout:
+        # The exact item (openssl prints 1.3.6.1.5.5.7.3.3 as "Code Signing"), not a substring:
+        # Microsoft's "Individual/Commercial Code Signing" uses aren't it.
+        lines = r.stdout.splitlines()[1:]
+        if "Code Signing" not in [u.strip() for line in lines for u in line.split(",")]:
             raise Bad("the signer's certificate isn't for code signing")
         r = run(["openssl", "x509", "-in", os.path.join(t, "ca.pem"), "-noout", "-subject"], check=True)
         print("ok: the signer chains to shim's CA (" + r.stdout.strip() + ")")

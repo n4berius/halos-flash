@@ -8,7 +8,7 @@ Git tags start a release. Each one must be on `main` and match `HALOGEN_VERSION`
 | Channel | Git tag | Image tag | Meaning | GitHub release |
 |---|---|---|---|---|
 | Edge | None, every push to `main` | `edge` | Newest build, for testing | None |
-| Kernel next | None, every push to `main` | `kernel-next` | Edge with a test kernel (now Linux 7.4-rc2 from Fedora 46) instead of Fedora 45's | None |
+| Kernel next | None, every push to `main` | `kernel-next` | Edge with a test kernel (now Linux 7.4-rc3 from Fedora 46) instead of Fedora 45's | None |
 | Alpha | `v0.18.23-alpha.1` | `0.18.23-alpha.1`, `alpha` | Builds and installs in a VM, not proven on hardware | Pre-release |
 | RC | `v0.18.23-rc.1` | `0.18.23-rc.1`, `rc` | Passed the hardware checklist on one machine, no known blockers | Pre-release |
 | Stable | `v0.18.23` | `0.18.23`, `stable`, `latest` | Recommended | Release |
