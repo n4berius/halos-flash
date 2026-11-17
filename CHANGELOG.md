@@ -14,7 +14,7 @@ promoted.
   turns it on with halOS's own authority (self-signed), so prompts, replies and the API key no
   longer cross the network in plain text; apps then trust the authority once (`sudo halosctl https
   ca`). A machine upgraded from an earlier release keeps plain HTTP unless you say yes, and an
-  HTTPS setting you already have is left alone. (#PR)
+  HTTPS setting you already have is left alone. (#145)
 
 - A new channel, `kernel-next`, for trying a newer kernel: the same build as `edge`, with Linux
   7.4-rc2 (Fedora 46's build, signed for Secure Boot) instead of Fedora 45's 7.3. It brings about

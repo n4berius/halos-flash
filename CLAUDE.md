@@ -76,7 +76,7 @@ name, but allows saying halOS runs Halogen.
   the wall clock jumps at first boot), then removes it and starts with the defaults. `sudo halosctl
   setup` asks TPM unlock (`halogen-enroll-tpm`), HF token (`halogenctl hf-token`), and editing
   `halogen.env` the sudoedit way (root edits a private copy, written back as halogen; never an
-  editor as halogen on root's tty), then removes the marker; `--skip` removes it at once. Step 4 (#PR, #102's last step) offers HTTPS:
+  editor as halogen on root's tty), then removes the marker; `--skip` removes it at once. Step 4 (#145, #102's last step) offers HTTPS:
   it reads `https mode`; when `off` it asks (Enter = yes only while `setup-pending` exists, so a
   new install; an upgrade defaults to no), then runs `${HALOS_SELF:-$0} https self-signed --yes`
   (the whole switch with its revert if Caddy doesn't come up; only the front door restarts), and a
