@@ -125,6 +125,19 @@ exec 7>&-
 [ -d "$work/models/LFM/new-model" ] || { echo "model remove deleted a model a pull was writing" >&2; exit 1; }
 grep -q 'Another pull of new-model is running' "$work/out" || { cat "$work/out" >&2; exit 1; }
 ok "model remove checks again under the model's lock after asking"
+# A checkpoint served only in its :qad form counts as in use: refused when asking, and when added
+# while asking (the helper's check under the lock).
+echo 'HALOGEN_NPU_MODELS=/models/LFM/new-model:qad' >> "$work/configs/halogen.env"
+{ sleep 2; echo y; } | HALOGEN_MODELS_DIR="$work/models" script -qec "$ctl model remove new-model" /dev/null > "$work/out" 2>&1 || true
+[ -d "$work/models/LFM/new-model" ] || { cat "$work/out" >&2; echo "model remove deleted a model served as :qad" >&2; exit 1; }
+{ grep -q 'is in HALOGEN_NPU_MODELS. Take it out' "$work/out" && ! grep -q 'Delete ' "$work/out"; } || { cat "$work/out" >&2; echo "model remove asked about a model served as :qad" >&2; exit 1; }
+cp "$work/env.bak" "$work/configs/halogen.env"
+{ sleep 2; echo y; } | FAKE_BEFORE="echo HALOGEN_NPU_MODELS=/models/LFM/new-model:qad >> \"\$FAKE/configs/halogen.env\"" HALOGEN_MODELS_DIR="$work/models" \
+  script -qec "$ctl model remove new-model" /dev/null > "$work/out" 2>&1 || true
+[ -d "$work/models/LFM/new-model" ] || { cat "$work/out" >&2; echo "model remove deleted a model added as :qad while it asked" >&2; exit 1; }
+grep -q 'added meanwhile' "$work/out" || { cat "$work/out" >&2; exit 1; }
+cp "$work/env.bak" "$work/configs/halogen.env"
+ok "a checkpoint served as :qad counts as in use for model remove"
 
 # options: every option this release offers, and which ones halogen.env doesn't mention yet.
 template="$repo/variants/npu/usr/share/halogen/halogen.env.default"

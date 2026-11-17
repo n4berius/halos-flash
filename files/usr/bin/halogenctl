@@ -375,15 +375,18 @@ case "${1:-status}" in
     case "${2:-list}" in
       pull)
         shift 2
-        out="$(as_halogen /usr/libexec/halogen/model-pull "$@" | tee /dev/stderr)" || exit 1
-        path="$(sed -n 's/^path=//p' <<< "$out")"
-        [ -n "$path" ] || exit 1
+        # A failed --qad step still leaves the checkpoint ready (path= printed): its other forms
+        # are offered, and the command ends with the failure.
+        rc=0
+        out="$(as_halogen /usr/libexec/halogen/model-pull "$@" | tee /dev/stderr)" || rc=$?
+        path="$(sed -n 's/^path=//p' <<< "$out" | tail -n 1)"
+        [[ "$path" =~ ^/models/(decider|LFM|custom)/[A-Za-z0-9._-]+$ ]] || exit 1
         entry="$path"; ! grep -qx 'fast=1' <<< "$out" || entry="$path or $path:fast (faster, small quality cost)"
         # Liquid's own 4-bit file (model pull --qad, Halogen 0.20.6): the fastest form, its weights Liquid's.
         ! grep -qx 'qad=1' <<< "$out" || entry="$entry, or $path:qad (fastest: Liquid's own 4-bit weights, not your checkpoint's)"
         echo
         echo "To serve it, add $entry to HALOGEN_NPU_MODELS in /srv/configs/halogen.env, for example:"
-        if in_use "$path"; then echo "  It is already there. To use the new files: sudo halogenctl restart"; exit 0; fi
+        if in_use "$path"; then echo "  It is already there. To use the new files: sudo halogenctl restart"; exit "$rc"; fi
         # Printed to root's terminal below, so only printable characters.
         line="$(as_owner grep '^HALOGEN_NPU_MODELS=' "$configs/halogen.env" | tail -n 1 | tr -cd '[:print:]' || true)"
         new="HALOGEN_NPU_MODELS=${line#HALOGEN_NPU_MODELS=}"; new="${new%,}"
@@ -405,6 +408,7 @@ case "${1:-status}" in
             echo "Restarted. The first start converts the checkpoint for the NPU (about a minute)."
           fi
         fi
+        exit "$rc"
         ;;
       list)
         # What HALOGEN_NPU_MODELS serves now (one read, not one per model), without :fast.

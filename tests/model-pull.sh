@@ -87,7 +87,22 @@ if FAKE_QAD_BASE=d3-lite "$pull" LiquidAI/LFM3-1.7B --qad > "$work/out" 2>&1; th
 grep -q "not lfm3-1.7b-qad" "$work/out" || { cat "$work/out" >&2; exit 1; }
 if FAKE_BASE=d1-2b "$pull" LiquidAI/d1-2B --qad > "$work/out" 2>&1; then echo "--qad without a 4-bit form succeeded" >&2; exit 1; fi
 grep -q "no 4-bit (QAD) form for a d1-2b" "$work/out" || { cat "$work/out" >&2; exit 1; }
+# The checkpoint itself is still ready (moved and named), so halogenctl can offer its other forms.
+{ grep -qx 'path=/models/decider/d1-2B' "$work/out" && [ -f "$work/models/decider/d1-2B/config.json" ]; } \
+  || { cat "$work/out" >&2; echo "a failed 4-bit step left the checkpoint unready" >&2; exit 1; }
 rm -rf "$work/models/decider"
+# A first pull with --qad fetches the 4-bit file while the folder is still under .pull (Halogen's
+# own container can write the LFM folder), and without the token (the repository is public).
+echo tok > "$work/token"; : > "$work/podman.log"
+out="$(HALOGEN_HF_TOKEN_FILE="$work/token" "$pull" LiquidAI/LFM3-1.7B --as qfirst --qad 2>&1)" || { echo "$out" >&2; exit 1; }
+{ grep -qx 'qad=1' <<< "$out" && [ -f "$work/models/LFM/qfirst/LFM3-1.7B-QAD-Q4_0.gguf" ]; } || { echo "$out" >&2; exit 1; }
+grep 'entrypoint hf' "$work/podman.log" | grep -- '--include' > "$work/qline"
+grep -q -- "-v $work/models/.pull/qfirst:/models/.pull/qfirst " "$work/qline" \
+  || { cat "$work/podman.log" >&2; echo "the 4-bit file was fetched after the folder left .pull" >&2; exit 1; }
+if grep -q -- 'hf-token' "$work/qline"; then echo "the 4-bit download got the token" >&2; exit 1; fi
+grep 'entrypoint hf' "$work/podman.log" | grep -v -- '--include' | grep -q -- 'hf-token' || { echo "the checkpoint's own download lost the token" >&2; exit 1; }
+rm -rf "$work/models/LFM/qfirst"
+ok "a first --qad pull fetches the 4-bit file under .pull, without the token"
 ok "--qad refuses a model Halogen has no 4-bit form for, and a file the probe reads as another model"
 # An option with no value at the end stops with a message (it used to loop forever).
 for opt in --revision --as; do

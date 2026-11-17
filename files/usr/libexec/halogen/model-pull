@@ -99,6 +99,7 @@ take_lock pull
 # podman and its conmon would inherit the lock (fd 9) and hold it after a hard kill, for as long
 # as a leftover container runs: every podman call closes it.
 podman() { command podman "$@" 9>&-; }
+# shellcheck disable=SC2329 # run by the EXIT trap below
 cleanup() { [ -z "${reporter:-}" ] || kill "$reporter" 2>/dev/null; podman rm -f -i -t 0 "$ctr" > /dev/null 2>&1 || true; }
 trap cleanup EXIT
 trap 'exit 130' INT; trap 'exit 143' TERM HUP
@@ -195,6 +196,44 @@ case "$base" in
   d1*|decider*) kind=decider ;;
   *) kind=custom ;;
 esac
+# Liquid's own 4-bit file (Halogen 0.20.6's :qad form): the image names the repository and commit it
+# was made for (models.txt, the <model>-qad line's source=), so exactly that file is fetched into
+# this checkpoint's folder, then Halogen's probe must accept the folder in that form. On a first
+# pull this happens while the folder is still under .pull, which Halogen's own container can't
+# reach (the LFM folder is writable to it). The repository is public, so the token isn't passed.
+args=()
+# shellcheck disable=SC2016 # awk program, not shell
+qsrc="$(NET=none in_image awk -v id="$base-qad" '$1 == "model" && $2 == id { for (i = 3; i <= NF; i++) if ($i ~ /^source=/) print substr($i, 8) }' /opt/halogen/npu/models.txt 2>/dev/null | head -n 1)"
+qad_fetch() {
+  local qrepo qrev qinfo qbase
+  if ! [[ "$qsrc" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+@[0-9a-f]{40}$ ]]; then
+    echo "This Halogen has no 4-bit (QAD) form for a ${base:-checkpoint}." >&2; return 1
+  fi
+  qrepo="${qsrc%@*}"; qrev="${qsrc#*@}"
+  plain_dir "$dir" || { echo "$dir isn't a plain folder under $models." >&2; return 1; }
+  echo "Downloading Liquid's 4-bit file from $qrepo at ${qrev:0:12} into $dir."
+  args=(-v "$dir:/models/$rel")
+  in_image hf download "$qrepo" --revision "$qrev" --include '*-QAD-Q4_0.gguf' --local-dir "/models/$rel" \
+    2>&1 | grep --line-buffered -v -e '^Hint: ' -e 'hf update' -e 'Still waiting to acquire lock' \
+      -e 'sending unauthenticated requests' -e "^/models/$rel\$"
+  [ "${PIPESTATUS[0]}" = 0 ] || { echo "The 4-bit file's download stopped. Run the same command again to resume it." >&2; return 1; }
+  args=(-v "$dir:/models/$rel:ro")
+  qinfo="$(NET=none in_image /usr/local/bin/halogen-npu probe "/models/$rel" --form qad 2>&1)" || {
+    printf '%s\n' "$qinfo" | tr -cd '[:print:]\n' >&2
+    rm -f -- "$dir"/*-QAD-Q4_0.gguf
+    echo "Halogen can't run the 4-bit file in $name (above), so it was removed." >&2; return 1
+  }
+  qbase="$(printf '%s\n' "$qinfo" | tr ' ' '\n' | sed -n 's/^base=//p' | head -n 1)"
+  [ "$qbase" = "$base-qad" ] || {
+    rm -f -- "$dir"/*-QAD-Q4_0.gguf
+    echo "Halogen read the 4-bit file in $name as '$(printf '%s' "$qbase" | tr -cd '[:alnum:]._-')', not $base-qad, so it was removed." >&2; return 1
+  }
+}
+qad_ok=0
+if [ "$qad" = 1 ]; then
+  if qad_fetch; then qad_ok=1; fi
+fi
+
 if [ "${dir#"$models"/.pull/}" != "$dir" ]; then
   mk_plain "$models/$kind" || { echo "$models/$kind is a link, not a folder: sudo systemctl restart halogen-prepare.service" >&2; exit 1; }
   mv "$dir" "$models/$kind/$name" || exit 1
@@ -209,37 +248,15 @@ args=()
 if NET=none in_image awk -v id="$base-fast" '$1 == "model" && $2 == id { found = 1 } END { exit !found }' /opt/halogen/npu/models.txt 2>/dev/null; then
   echo "fast=1"
 fi
-
-# Liquid's own 4-bit file (Halogen 0.20.6's :qad form): the image names the repository and commit it
-# was made for (models.txt, the <model>-qad line's source=), so exactly that file is fetched into
-# this checkpoint's folder, then Halogen's probe must accept the folder in that form.
-# shellcheck disable=SC2016 # awk program, not shell
-qsrc="$(NET=none in_image awk -v id="$base-qad" '$1 == "model" && $2 == id { for (i = 3; i <= NF; i++) if ($i ~ /^source=/) print substr($i, 8) }' /opt/halogen/npu/models.txt 2>/dev/null | head -n 1)"
 if [ "$qad" = 0 ]; then
-  [ -z "$qsrc" ] || echo "Halogen also runs Liquid's own 4-bit file for a $base, its fastest form. To fetch it: sudo halogenctl model pull $repo${revision:+ --revision $revision} --as $name --qad"
+  # The repository and revision are what you typed: quoted, so the line is safe to paste.
+  [ -z "$qsrc" ] || echo "Halogen also runs Liquid's own 4-bit file for a $base, its fastest form. To fetch it: sudo halogenctl model pull $(printf '%q' "$repo")${revision:+ --revision $(printf '%q' "$revision")} --as $name --qad"
   exit 0
 fi
-if ! [[ "$qsrc" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+@[0-9a-f]{40}$ ]]; then
-  echo "This Halogen has no 4-bit (QAD) form for a ${base:-checkpoint}; $name is ready without it." >&2
-  exit 1
+if [ "$qad_ok" = 1 ]; then
+  echo "Liquid's 4-bit file is ready in $models/$kind/$name. Its weights are Liquid's, not this checkpoint's: a fine-tune keeps to the other forms."
+  echo "qad=1"
+  exit 0
 fi
-qrepo="${qsrc%@*}"; qrev="${qsrc#*@}"
-rel="$kind/$name"; dir="$models/$rel"
-plain_dir "$dir" || { echo "$dir isn't a plain folder under $models." >&2; exit 1; }
-download_args[1]="$dir:/models/$rel"
-echo "Downloading Liquid's 4-bit file from $qrepo at ${qrev:0:12} into $dir."
-args=("${download_args[@]}")
-in_image hf download "$qrepo" --revision "$qrev" --include '*-QAD-Q4_0.gguf' --local-dir "/models/$rel" \
-  2>&1 | grep --line-buffered -v -e '^Hint: ' -e 'hf update' -e 'Still waiting to acquire lock' \
-    -e 'sending unauthenticated requests' -e "^/models/$rel\$"
-[ "${PIPESTATUS[0]}" = 0 ] || { echo "The download stopped. Run the same command again to resume it." >&2; exit 1; }
-args=(-v "$dir:/models/$rel:ro")
-qinfo="$(NET=none in_image /usr/local/bin/halogen-npu probe "/models/$rel" --form qad 2>&1)" || {
-  printf '%s\n' "$qinfo" | tr -cd '[:print:]\n' >&2
-  echo "Halogen can't run the 4-bit file in $name (above); its other forms are unchanged." >&2
-  exit 1
-}
-qbase="$(printf '%s\n' "$qinfo" | tr ' ' '\n' | sed -n 's/^base=//p' | head -n 1)"
-[ "$qbase" = "$base-qad" ] || { echo "Halogen read the 4-bit file in $name as '$(printf '%s' "$qbase" | tr -cd '[:alnum:]._-')', not $base-qad." >&2; exit 1; }
-echo "Liquid's 4-bit file is ready in $dir. Its weights are Liquid's, not this checkpoint's: a fine-tune keeps to the other forms."
-echo "qad=1"
+echo "$name is ready without its 4-bit form (above); its other forms are unchanged." >&2
+exit 1

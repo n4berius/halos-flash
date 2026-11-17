@@ -228,6 +228,11 @@ echo 'HALOGEN_NPU_MODELS=embed,/models/LFM/q:qad' > "$work/config.env"
 "$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; echo "a :qad entry was refused" >&2; exit 1; }
 [ -f "$work/models/npu/lfm3-qad/devices/q.hnpm" ] || { cat "$work/out" >&2; echo "the :qad form's NPU programs weren't fetched" >&2; exit 1; }
 grep -qx '/models/LFM/q:qad=lfm3-qad' "$work/state/own-bases" || { cat "$work/state/own-bases" >&2; echo "the :qad id wasn't noted" >&2; exit 1; }
+# The stamp covers the folder's 4-bit file: a new or replaced one is checked again at the next start.
+"$work/fetch" > "$work/out" 2>&1; grep -q "already match" "$work/out" || { cat "$work/out" >&2; echo "a second fetch of the same :qad entry didn't match" >&2; exit 1; }
+echo q > "$work/models/LFM/q/LFM3-1.7B-QAD-Q4_0.gguf"
+"$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+if grep -q "already match" "$work/out"; then echo "a new 4-bit file in a :qad folder didn't change the stamp" >&2; exit 1; fi
 rm -rf "$work/models/LFM/q"; echo 'HALOGEN_NPU_MODELS=embed' > "$work/config.env"
 ok "an LFM3 :qad entry is probed in that form and its NPU programs are fetched"
 
