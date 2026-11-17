@@ -138,7 +138,7 @@ case "${1:-status}" in
     duplicate_settings
     ;;
   selftest)
-    # The beta checklist in one go. It changes no setting and prints nothing private (it starts a tiny test container as halogen).
+    # The hardware checklist in one go. It changes no setting and prints nothing private (it starts a tiny test container as halogen).
     [ "$(id -u)" = 0 ] || { echo "Run it with sudo: sudo halogenctl selftest" >&2; exit 1; }
     # With an empty environment: the selftest takes its paths from HALOS_* and HALOGEN_* variables
     # for its own tests, and one set for root (in /etc/environment, say) would point its checks at

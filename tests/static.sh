@@ -161,6 +161,10 @@ assert re.fullmatch(r"[0-9a-f]{64}", pins["CRUN_PIN_SHA256"]) and pins["CRUN_PIN
 assert 'curl -fsSL --retry 3 -o /tmp/crun.rpm "$CRUN_PIN_URL"' in cf and 'echo "$CRUN_PIN_SHA256  /tmp/crun.rpm" | sha256sum -c -' in cf and "downgrade /tmp/crun.rpm" in cf, "crun's hold is gone from the Containerfile"
 assert cf.index("RUN dnf -y --setopt=install_weak_deps=False install") < cf.index("downgrade /tmp/crun.rpm") < cf.index("COPY files/ /"), "crun's hold must come after the main dnf install (which would bring 1.31 back) and before the files"
 assert '"CRUN_PIN_SHA256=$CRUN_PIN_SHA256"' in open("scripts/build.sh").read(), "crun's hold isn't passed to the build"
+assert '*-beta.*) echo "$tag: beta releases are no longer made.' in open(".github/workflows/release.yml").read(), "release.yml must refuse a beta tag pushed by hand (#141)"
+assert "rpmkeys --delete f577861e" in cf, "Fedora 45's key must leave the image's rpm keyring after crun's check"
+assert "RUN --mount=type=bind,source=src/authenticode-check.py,target=/tmp/authenticode-check.py" in cf, "the kernel-next step must check the kernel's Secure Boot signature"
+assert "HALOS_KERNEL_BUILT=" in cf, "release.env must record when the kernel was built (the selftest's kernel-next age check)"
 # kernel-next: exact Fedora packages, each with a sha256, from Koji's signed copies, checked in the
 # build (sha256, signature, one kernel left, not a debug build, signed for Secure Boot); only
 # builds asked for with KERNEL_TRACK=next get it, and only main pushes them, as kernel-next.
@@ -168,7 +172,7 @@ nvr = pins["KERNEL_NEXT_NVR"]
 sums = dict(p.split(":", 1) for p in pins["KERNEL_NEXT_SHA256"].strip('"').split())
 assert sorted(sums) == ["kernel", "kernel-core", "kernel-modules", "kernel-modules-core"] and all(re.fullmatch(r"[0-9a-f]{64}", v) for v in sums.values()), "kernel-next needs the four packages, each with a sha256"
 assert pins["KERNEL_NEXT_URL"].startswith("https://kojipkgs.fedoraproject.org/packages/kernel/") and "/data/signed/" in pins["KERNEL_NEXT_URL"] and nvr.replace("-", "/", 1) in pins["KERNEL_NEXT_URL"], "kernel-next must come from Koji's signed copies of that exact build"
-for want in ('echo "${pair#*:}  $f" | sha256sum -c -', "rpmkeys -K", "Fedora Secure Boot Signer", 'grep -qx "CONFIG_$opt=y"', 'case "$KERNEL_TRACK" in fedora)'):
+for want in ('echo "${pair#*:}  $f" | sha256sum -c -', "rpmkeys -K", 'python3 -I /tmp/authenticode-check.py "$m/vmlinuz" "$1" /tmp/k/base-vmlinuz', "rpmkeys --delete 91211fce", 'grep -qx "CONFIG_$opt=y"', 'case "$KERNEL_TRACK" in fedora)'):
     assert want in cf, f"kernel-next's checks are gone from the Containerfile: {want}"
 assert cf.index('downgrade /tmp/crun.rpm') < cf.index('rpm -U /tmp/k/*.rpm') < cf.index('dracut --no-hostonly'), "the test kernel must go in before the initramfs is built"
 b = open("scripts/build.sh").read()
