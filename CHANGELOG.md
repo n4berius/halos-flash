@@ -10,6 +10,11 @@ promoted.
 
 ## Unreleased
 
+- `sudo halosctl setup` now offers HTTPS as its fourth question. On a new install, pressing Enter
+  turns it on with halOS's own authority (self-signed), so apps that use `https://` no longer send
+  prompts, replies and the API key in plain text; each app trusts the authority once (`sudo halosctl
+  https ca`). A machine upgraded from an earlier release keeps plain HTTP unless you say yes, and an
+  HTTPS setting you already have is left alone. (#145)
 - kernel-next follow-ups: a weekly check opens a pull request when Fedora has a newer plain build of
   the test kernel (it gets no security fixes until its pin moves), and the selftest warns once the
   test kernel is more than three weeks old. The image build now checks the test kernel's Secure Boot

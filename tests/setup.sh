@@ -30,13 +30,28 @@ f ssh-unlock 'case "$1" in
   describe) echo "  (ED25519) 256 SHA256:test alice" ;;
   install) cat > "$FAKE/installed"; echo "ssh-unlock install" >> "$FAKE/log" ;;
 esac'
+# HTTPS (#102): the helper keeps its mode in a file (FAKE_HTTPS before any switch), and setup's
+# switch runs halosctl's own https self-signed against it, with Caddy always answering.
+f https 'm="$(cat "$FAKE/mode" 2>/dev/null || echo "${FAKE_HTTPS:-off}")"
+case "$1" in
+  mode) echo "$m" ;;
+  set) echo "https $*" >> "$FAKE/log"; [ -z "${FAKE_SET_FAIL:-}" ] || { echo "refused" >&2; exit 1; }; echo "$2" > "$FAKE/mode" ;;
+  ca) echo cert ;;
+  describe) printf "mode %s\nca AA:BB\nca_until 2036\nnames localhost\n" "$m" ;;
+esac'
+f systemctl 'case "$1" in is-active) echo active ;; esac'
+f curl 'echo 200'
+f hostname 'echo 192.0.2.7'
 printf 'HALOGEN_VARIANT=no-npu\n' > "$work/release.env"
 export PATH="$work/bin:$PATH" HALOS_SSH_UNLOCK="$work/bin/ssh-unlock" HALOS_HISTORY="$work/history" \
+  HALOS_HTTPS_HELPER="$work/bin/https" HALOS_HTTPS_ETC="$work/etc" \
   SUDO_USER=owner HALOS_SSHD_DROPIN="$work/sshd.d/20-halos-keys-only.conf" HALOGEN_RELEASE_FILE="$work/release.env" HALOGEN_STATE_DIR="$work/state" HALOGEN_CONFIGS_DIR="$work/configs" HALOGEN_DEV="$work/dev"
 ctl="$repo/files/usr/bin/halosctl"
 ok() { echo "ok: $*"; }
 # Answers the questions through a terminal, one line each.
-answer() { printf '%s\n' "$@" > "$work/answers"; : > "$work/log"
+# Two closing "n" lines answer the questions a test doesn't name (HTTPS, then the restart), since
+# script never passes the end of input on to setup.
+answer() { printf '%s\n' "$@" n n > "$work/answers"; : > "$work/log"; rm -f "$work/mode"
   { sleep 1; cat "$work/answers"; } | script -qec "$ctl setup" /dev/null > "$work/out" 2>&1 || true; }
 
 touch "$work/state/setup-pending" "$work/dev/tpmrm0"
@@ -104,12 +119,44 @@ grep -qx 'PasswordAuthentication no' "$work/sshd.d/20-halos-keys-only.conf" || {
 rm -f "$work/home/owner/.ssh/authorized_keys" "$work/sshd.d/20-halos-keys-only.conf"
 ok "setup offers unlocking over SSH, asks again when an account has no keys, installs the confirmed ones, defaults to the installer's choice, and offers keys-only logins to an admin with a key"
 
-# Run again later: nothing pending, so it offers a restart instead.
-answer n n n n y
-grep -qx 'halogenctl restart' "$work/log" || { cat "$work/out" >&2; echo "no restart offered" >&2; exit 1; }
+# HTTPS: a new install (root's own marker, which prepare leaves) is offered it with Enter for yes,
+# and setup runs halosctl's own https self-signed; a failure doesn't stop setup; on when it is on
+# already, never asked. The marker goes once the step is answered.
+touch "$work/state/setup-pending" "$work/new-install"
+FAKE_TOKENS='  0: systemd-tpm2' answer n n n ''
+grep -qx 'https set self-signed' "$work/log" || { cat "$work/out" >&2; echo "Enter didn't turn HTTPS on for a new install" >&2; exit 1; }
+grep -q 'sudo halosctl https ca' "$work/out" || { cat "$work/out" >&2; echo "no word on trusting the authority" >&2; exit 1; }
+grep -q 'https  *off -> self-signed' "$work/history" || { cat "$work/history" >&2; echo "the switch wasn't recorded" >&2; exit 1; }
+[ ! -e "$work/new-install" ] || { echo "the new-install marker outlived the answer" >&2; exit 1; }
+# The default follows root's marker, not halogen's setup-pending (gone after 30 minutes or --skip).
+touch "$work/new-install"
+FAKE_TOKENS='  0: systemd-tpm2' answer n n n ''
+grep -qx 'https set self-signed' "$work/log" || { cat "$work/out" >&2; echo "a new install whose setup-pending had gone lost its HTTPS default" >&2; exit 1; }
+touch "$work/state/setup-pending" "$work/new-install"
+FAKE_SET_FAIL=1 FAKE_TOKENS='  0: systemd-tpm2' answer n n n y
+{ grep -q "That didn't work, so it's still plain HTTP" "$work/out" && grep -q 'first download' "$work/out"; } \
+  || { cat "$work/out" >&2; echo "a failed HTTPS switch stopped setup, or said the wrong thing" >&2; exit 1; }
+FAKE_HTTPS=invalid FAKE_TOKENS='  0: systemd-tpm2' answer n n n y
+grep -q 'holds an unknown setting' "$work/out" || { cat "$work/out" >&2; echo "a broken https.env wasn't named" >&2; exit 1; }
 touch "$work/state/setup-pending"
+FAKE_HTTPS=custom FAKE_TOKENS='  0: systemd-tpm2' answer n n n y
+grep -q 'HTTPS is on already (custom)' "$work/out" || { cat "$work/out" >&2; exit 1; }
+if grep -q '^https set' "$work/log"; then echo "HTTPS was switched though it was on" >&2; exit 1; fi
+touch "$work/state/setup-pending"
+FAKE_TOKENS='  0: systemd-tpm2' answer n n n n
+if grep -q '^https set' "$work/log"; then echo "'n' turned HTTPS on" >&2; exit 1; fi
+grep -q 'Kept plain HTTP' "$work/out" || exit 1
+ok "setup offers HTTPS to a new install (Enter for yes), goes on when it fails, and leaves an HTTPS setting alone"
+
+# Run again later: nothing pending, so Enter keeps plain HTTP (an upgrade stays on HTTP until
+# its owner says so), and it offers a restart instead.
+answer n n n n '' y
+if grep -q '^https set' "$work/log"; then echo "Enter turned HTTPS on for a machine that isn't new" >&2; exit 1; fi
+grep -qx 'halogenctl restart' "$work/log" || { cat "$work/out" >&2; echo "no restart offered" >&2; exit 1; }
+touch "$work/state/setup-pending"; : > "$work/log"
 "$ctl" setup --skip < /dev/null > "$work/out" 2>&1
 [ ! -e "$work/state/setup-pending" ] || { echo "--skip kept the marker" >&2; exit 1; }
+if grep -q '^https set' "$work/log"; then echo "--skip touched HTTPS" >&2; exit 1; fi
 if "$ctl" setup < /dev/null > "$work/out" 2>&1; then echo "setup ran without a terminal" >&2; exit 1; fi
 grep -q -- '--skip' "$work/out" || exit 1
 ok "setup runs again any time, --skip releases the download at once, and without a terminal it says so"
@@ -119,7 +166,7 @@ f install 'a=(); while [ $# -gt 0 ]; do case "$1" in -o|-g) shift 2 ;; *) a+=("$
 f selinuxenabled 'exit 1'
 echo 'HALOGEN_FLASH_CTX=1' > "$work/default.env"
 rm -rf "$work/configs" "$work/state"; mkdir -p "$work/models"
-prep() { HALOGEN_MODELS_DIR="$work/models" HALOGEN_LOGS_DIR="$work/logs" HALOGEN_RELEASE_FILE="$work/release.env" HALOGEN_ENV_DEFAULT="$work/default.env" \
+prep() { HALOS_STATE_DIR="$work/halos" HALOGEN_MODELS_DIR="$work/models" HALOGEN_LOGS_DIR="$work/logs" HALOGEN_RELEASE_FILE="$work/release.env" HALOGEN_ENV_DEFAULT="$work/default.env" \
   "$repo/files/usr/libexec/halogen/prepare" > /dev/null 2>&1; }
 prep
 [ -e "$work/state/setup-pending" ] || { echo "a new install got no marker" >&2; exit 1; }
