@@ -43,8 +43,8 @@ HTTPS with a self-signed certificate or your own (#105).
 4. Remove the crun 1.30.1 hold (#137) once Fedora ships a fixed podman or crun (crun#2480,
    podman#30265); the build log's "crun in Fedora's base today" line shows when.
 5. Try Linux 7.4 on the test machine through `kernel-next` (#142): selftest and bench against
-   7.3, NPU and GPU together. Move the pin to newer 7.4 release candidates while it's useful, and
-   end the channel once Fedora 45 ships 7.4 itself.
+   7.3, NPU and GPU together. A weekly workflow proposes newer plain builds (#146), and the selftest
+   warns when the test kernel is three weeks old. End the channel once Fedora 45 ships 7.4 itself.
 6. Unlock the disk from a tang server on the network (#44).
 7. GGUF repositories in `flash pull` (#61).
 

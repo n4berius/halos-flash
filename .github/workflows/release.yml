@@ -48,6 +48,11 @@ jobs:
             if [ "$source" = main ]; then ref="$GITHUB_SHA"; else ref="$(git rev-list -n 1 "$source")"; fi
           else
             tag="$GITHUB_REF_NAME"; source="tag pushed by hand"; ref="$GITHUB_SHA"
+            # No beta releases since #141: an rc promotes the newest alpha. A beta tag pushed by
+            # hand would move the beta and alpha channels past what rc machines get.
+            case "$tag" in
+              *-beta.*) echo "$tag: beta releases are no longer made. Release an rc instead (Actions > Release > rc), and delete the tag." >&2; exit 1 ;;
+            esac
           fi
           echo "Release $tag from $source ($ref)"
           echo "Channels it would move now: $(scripts/channels.sh "$tag")"

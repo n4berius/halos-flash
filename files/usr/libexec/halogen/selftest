@@ -1,5 +1,5 @@
 #!/bin/bash
-# The beta hardware checklist in one command. Run as root by: halogenctl selftest
+# The hardware checklist in one command. Run as root by: halogenctl selftest
 # It only reads: it changes nothing, restarts nothing and prints no secret, serial number or
 # network address, so its output can be shared as it is.
 set -uo pipefail
@@ -54,6 +54,18 @@ fi
 echo
 
 # --- Boot and kernel
+# kernel-next's test kernel (a Fedora Rawhide release candidate) gets no security fixes until
+# halOS moves its pin to a newer build (the weekly kernel-next update PR): say when it is old.
+if [ "${HALOS_KERNEL:-fedora}" = next ]; then
+  built="${HALOS_KERNEL_BUILT:-}"
+  case "$built" in
+    ''|*[!0-9]*) say INFO kernel-next "this image doesn't record when its test kernel was built" ;;
+    *) age=$(( ($(date +%s) - built) / 86400 ))
+       if [ "$age" -gt 21 ]; then
+         say WARN kernel-next "the test kernel was built $age days ago and gets no security fixes on its own; sudo halosctl upgrade fetches a newer one when halOS has moved to it, and sudo halosctl switch edge goes back to Fedora 45's"
+       else say INFO kernel-next "the test kernel was built $age days ago"; fi ;;
+  esac
+fi
 if have mokutil; then
   out="$(run mokutil --sb-state)"
   case "$out" in

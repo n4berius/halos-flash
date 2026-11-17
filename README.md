@@ -120,7 +120,7 @@ image tags. [RELEASING.md](RELEASING.md) defines them.
 | Testing a release | `rc`, or an exact tag such as `0.19.0-rc.1` |
 | Earliest testing | `alpha` |
 | Newest `main` build | `edge` |
-| Newest `main` build with a test kernel (Linux 7.4-rc2) | `kernel-next` |
+| Newest `main` build with a test kernel (a Linux 7.4 release candidate) | `kernel-next` |
 
 Add `-no-npu` for the edition without the NPU.
 

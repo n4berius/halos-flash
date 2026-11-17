@@ -160,18 +160,24 @@ RUN set -eu; \
     case "$(rpm -q --qf '%{VERSION}' crun)" in 1.30*|1.31) ;; *) echo "WARNING: Fedora now ships $(rpm -q crun): check whether it fixes crun#2480, and remove the hold (versions.env)";; esac; \
     if [ "$(rpm -q --qf '%{NAME}-%{VERSION}-%{RELEASE}' crun)" != "$want" ]; then dnf -y --setopt=install_weak_deps=False downgrade /tmp/crun.rpm || dnf -y --setopt=install_weak_deps=False install /tmp/crun.rpm; fi; \
     [ "$(rpm -q --qf '%{NAME}-%{VERSION}-%{RELEASE}' crun)" = "$want" ]; \
+    rpmkeys --delete f577861e; \
+    if rpmkeys --list | grep -qi f577861e; then echo "Fedora 45's key is still in the rpm keyring" >&2; exit 1; fi; \
     rm -f /tmp/crun.rpm; dnf clean all; rm -rf /var/log/dnf5.log /var/lib/dnf /var/cache/libdnf5 /run/dnf
 
 # kernel-next images only (KERNEL_TRACK=next): Fedora 46's 7.4 test kernel in place of Fedora
 # 45's, from the exact packages versions.env names, each checked by sha256 and Fedora 46's
 # signature. Fails unless the base has exactly the four kernel packages it replaces, the new one
-# is the only kernel left, is signed for Secure Boot, has its debug options off and carries the
-# GPU and NPU drivers. The initramfs step below rebuilds for it.
+# is the only kernel left, has its debug options off and carries the GPU and NPU drivers, and its
+# Secure Boot signature checks out the way shim checks it (src/authenticode-check.py: the signed
+# hash, the signature, a code-signing certificate under the CA in the base's own shim, and an SBAT
+# generation no lower than Fedora 45's kernel). Fedora 46's key leaves the rpm keyring afterwards.
+# The initramfs step below rebuilds for it.
 ARG KERNEL_TRACK=fedora
 ARG KERNEL_NEXT_NVR
 ARG KERNEL_NEXT_URL
 ARG KERNEL_NEXT_SHA256
-RUN set -eu; \
+RUN --mount=type=bind,source=src/authenticode-check.py,target=/tmp/authenticode-check.py \
+    set -eu; \
     case "$KERNEL_TRACK" in fedora) echo "kernel: Fedora 45's own, $(rpm -q kernel-core)"; exit 0 ;; next) ;; \
       *) echo "unknown KERNEL_TRACK: $KERNEL_TRACK" >&2; exit 1 ;; esac; \
     have="$(rpm -qa --qf '%{NAME}\n' 'kernel*' | grep -vxE 'kernel-tools(-libs)?' | sort | paste -sd' ')"; \
@@ -188,7 +194,10 @@ RUN set -eu; \
     rpmkeys --import /usr/share/pki/rpm-gpg/RPM-GPG-KEY-fedora-46-x86_64; \
     for f in /tmp/k/*.rpm; do rpmkeys -K "$f" | grep -q 'digests signatures OK' || { echo "bad signature: $f" >&2; exit 1; }; done; \
     old="$(rpm -q --qf '%{VERSION}-%{RELEASE}.%{ARCH}' kernel-core)"; \
+    cp "/usr/lib/modules/$old/vmlinuz" /tmp/k/base-vmlinuz; \
     rpm -U /tmp/k/*.rpm; \
+    rpmkeys --delete 91211fce; \
+    if rpmkeys --list | grep -qi 91211fce; then echo "Fedora 46's key is still in the rpm keyring" >&2; exit 1; fi; \
     kver="${KERNEL_NEXT_NVR#kernel-}.x86_64"; \
     rm -rf "/usr/lib/modules/$old"; \
     [ "$(ls /usr/lib/modules)" = "$kver" ] || { echo "more than one kernel: $(ls /usr/lib/modules)" >&2; exit 1; }; \
@@ -198,7 +207,10 @@ RUN set -eu; \
       [ -s "$m/$want" ] || { echo "the test kernel lacks $want" >&2; exit 1; }; done; \
     for opt in PROVE_LOCKING LOCKDEP KASAN DEBUG_VM DEBUG_OBJECTS DEBUG_KMEMLEAK DEBUG_PAGEALLOC DEBUG_ATOMIC_SLEEP; do \
       if grep -qx "CONFIG_$opt=y" "$m/config"; then echo "the test kernel is a debug build (CONFIG_$opt)" >&2; exit 1; fi; done; \
-    grep -qa 'Fedora Secure Boot Signer' "$m/vmlinuz" || { echo "the test kernel isn't signed with Fedora's Secure Boot key" >&2; exit 1; }; \
+    set -- /usr/lib/efi/shim/*/EFI/fedora/shimx64.efi; \
+    [ "$#" = 1 ] && [ -f "$1" ] || { echo "expected one Fedora shim in the base, found: $*" >&2; exit 1; }; \
+    python3 -I /tmp/authenticode-check.py "$m/vmlinuz" "$1" /tmp/k/base-vmlinuz \
+      || { echo "the test kernel's Secure Boot signature doesn't check out against the base's shim" >&2; exit 1; }; \
     echo "kernel: test kernel $kver in place of $old"; \
     rm -rf /tmp/k; dnf clean all; rm -rf /var/log/dnf5.log /var/lib/dnf /var/cache/libdnf5 /run/dnf
 COPY files/ /
@@ -258,7 +270,8 @@ RUN set -eu; \
       echo "HALOGEN_WEIGHTS_REVISION=${HALOGEN_WEIGHTS_REVISION}"; \
       echo "BF16_TO_HGN_COMMIT=${BF16_TO_HGN_COMMIT}"; \
       echo "HALOGEN_DASHBOARD_COMMIT=${HALOGEN_DASHBOARD_COMMIT}"; \
-      echo "HALOS_KERNEL=${KERNEL_TRACK}"; } > /usr/share/halogen/release.env; \
+      echo "HALOS_KERNEL=${KERNEL_TRACK}"; \
+      echo "HALOS_KERNEL_BUILT=$(rpm -q --qf '%{BUILDTIME}' kernel-core)"; } > /usr/share/halogen/release.env; \
     echo 'halogen:524288:65536' >> /etc/subuid; \
     echo 'halogen:524288:65536' >> /etc/subgid; \
     firewall-offline-cmd --add-service=halogen; \
