@@ -194,6 +194,15 @@ HALOGEN_MODELS_DIR="$work/models" "$ctl" model list > "$work/out"
 { grep -qE '^  halogen-spotter-0\.6b +yes, agent guard$' "$work/out" && grep -qE '^  decider-4b +no$' "$work/out"; } \
   || { cat "$work/out" >&2; echo "watch mode: only the spotter is the agent guard's (Halogen 0.20.5)" >&2; exit 1; }
 rm -rf "$work/models/npu/halogen-spotter-0.6b"
+# LFM3's :qad form (Halogen 0.20.6): the checkpoint served only as :qad still counts as in use, and
+# the -qad NPU model it runs on is marked for it.
+mkdir -p "$work/models/npu/lfm3-1.7b-qad"
+printf '/models/LFM/my-lfm:qad=lfm3-1.7b-qad\n' > "$work/hstate/own-bases"
+printf 'HALOGEN_NPU_MODELS=/models/LFM/my-lfm:qad\n' > "$work/configs/halogen.env"
+HALOGEN_MODELS_DIR="$work/models" "$ctl" model list > "$work/out"
+{ grep -qE '^  lfm3-1\.7b-qad +yes, for my-lfm$' "$work/out" && grep -qE '^  my-lfm +LFM +.* yes$' "$work/out"; } \
+  || { cat "$work/out" >&2; echo "a checkpoint served as :qad wasn't shown in use" >&2; exit 1; }
+rm -rf "$work/models/npu/lfm3-1.7b-qad"
 rm -rf "$work/models/custom/OvisOCR3" "$work/models/npu/ovisocr3" "$work/models/npu/lfm3-1.7b" "$work/models/npu/lfm3-1.7b-fast" "$work/models/npu/decider-4b" "$work/hstate/own-bases"
 printf 'HALOGEN_NPU_MODELS=/models/LFM/my-lfm\n' > "$work/configs/halogen.env"
 ok "model list marks NPU models your checkpoints run on, or the agent guard adds, as in use"

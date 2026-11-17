@@ -1102,10 +1102,20 @@ and tracked on the owner's project board. [ROADMAP.md](ROADMAP.md) holds the ord
   `flash/<name>`) have no draft head beside them and keep their own (not copied: whether it suits a
   fine-tune isn't known). New in FLAGS.md and allowed: `HALOGEN_CONC_MODE`, `HALOGEN_NPU_STALL_S`
   (NPU). Host-setup changes only image tags. `models.txt` adds `lfm3-1.7b-qad` (441 MB) and pins
-  revisions for `halogen-spotter-0.6b` and `ovisocr3` (same files). Not supported yet: the `:qad`
-  suffix on own LFM3 checkpoints (`fetch-in-container`'s probe and `own_parts`, `fetch-models`,
-  `model-pull` and `halogenctl` know only `:fast`; the probe refuses a `:qad` entry with that
-  reason, so Halogen doesn't start until it is removed). Code review of #143: `flash pull` skips
+  revisions for `halogen-spotter-0.6b` and `ovisocr3` (same files). `:qad` (#PR): an own LFM3
+  path with `:qad` is probed with `halogen-npu probe <dir> --form qad`, as the entrypoint does, which
+  answers `base=lfm3-1.7b-qad`; `own_parts` then fetches that model's programs, `own-bases` keeps
+  `<path>:qad=lfm3-1.7b-qad` (`model list` maps it as is), `own_models` strips `:qad` and stats the
+  folder's `*.gguf`, and `halogenctl`/`model-pull`'s in-use checks strip `:qad` like `:fast`.
+  `model pull --qad` (after the normal pull) reads the `<base>-qad` line's `source=<repo>@<40-hex>`
+  from the image's `models.txt` (`LiquidAI/LFM3-1.7B-GGUF@cd0c74c…` for 0.20.6), downloads only
+  `*-QAD-Q4_0.gguf` at that commit into the checkpoint's folder (same named container, the folder
+  alone writable), probes it `--form qad` offline and read-only, requires `base=<base>-qad`, and
+  prints `qad=1`, after which halogenctl offers the `:qad` entry; without `--qad` it only mentions
+  the form when the image has one. Like the safetensors pull, the GGUF isn't hash-checked beyond
+  hf's own transfer (no HF sha256 compare). `HALOGEN_CK_OVERLAY` left gen-options' BLOCKED (owner:
+  yes); `render-config` passes only the value `none` (a path would reach files the fetch doesn't
+  check), and the templates say so. Code review of #143: `flash pull` skips
   the drafter as a checkpoint candidate (Peonist's layout now ships one beside the checkpoint);
   the selftest's weights line reads the drafter's download record first (an upgraded machine
   keeps v2's from the older pin) and says every file is hash-checked; `flash list` counts the

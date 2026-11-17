@@ -10,6 +10,12 @@ promoted.
 
 ## Unreleased
 
+- LFM3-1.7B's fastest form on the NPU, `:qad` (Halogen 0.20.6): `sudo halogenctl model pull
+  LiquidAI/LFM3-1.7B --qad` also fetches Liquid's own 4-bit file, from the exact source Halogen's
+  image names, and then `/models/LFM/LFM3-1.7B:qad` can go in `HALOGEN_NPU_MODELS` (served as
+  `LFM3-1.7B-qad`, about 48 tokens a second against 30 and 42). `HALOGEN_CK_OVERLAY=none` is now
+  accepted (that value only), Halogen's way back to the checkpoint's own draft head. (#PR)
+
 - A new channel, `kernel-next`, for trying a newer kernel: the same build as `edge`, with Linux
   7.4-rc2 (Fedora 46's build, signed for Secure Boot) instead of Fedora 45's 7.3. It brings about
   25 fixes to the NPU driver and an IOMMU speed-up for the built-in GPU that applies to the NPU

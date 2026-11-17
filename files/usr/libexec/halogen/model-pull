@@ -1,8 +1,9 @@
 #!/bin/bash
 # Download your own NPU checkpoint from Hugging Face into /srv/models, with hf inside the
 # pinned Halogen image. Runs as the halogen user; halogenctl model pull starts it.
-# Usage: model-pull <hf-repo> [--revision <rev>] [--as <name>]
-# Prints "path=/models/<folder>/<name>" and "fast=1" (when a :fast format exists) last.
+# Usage: model-pull <hf-repo> [--revision <rev>] [--as <name>] [--qad]
+# Prints "path=/models/<folder>/<name>", "fast=1" (when a :fast format exists) and "qad=1" (when
+# --qad fetched Liquid's 4-bit file and Halogen accepts it) last.
 set -uo pipefail
 release="${HALOGEN_RELEASE_FILE:-/usr/share/halogen/release.env}"
 models="${HALOGEN_MODELS_DIR:-/srv/models}"
@@ -56,7 +57,7 @@ if [ "${1:-}" = --remove ]; then
   fi
   # Into a variable, then grep without -q: grep -q stops reading early, and under pipefail the
   # writer's SIGPIPE would fail the pipe at random.
-  served="$(grep '^HALOGEN_NPU_MODELS=' <<< "$settings" | tr '=,' '\n' | sed 's/:fast$//' || true)"
+  served="$(grep '^HALOGEN_NPU_MODELS=' <<< "$settings" | tr '=,' '\n' | sed -E 's/:(fast|qad)$//' || true)"
   if grep -xF -- "/models/$kind/$name" <<< "$served" > /dev/null; then
     echo "$name is in HALOGEN_NPU_MODELS (added meanwhile). Take it out of /srv/configs/halogen.env first." >&2; exit 1
   fi
@@ -65,9 +66,10 @@ if [ "${1:-}" = --remove ]; then
   exit 0
 fi
 
-repo=""; revision=""; name=""
+repo=""; revision=""; name=""; qad=0
 while [ $# -gt 0 ]; do
   case "$1" in
+    --qad) qad=1; shift ;;
     --revision|--as)
       [ $# -ge 2 ] || { echo "$1 needs a value" >&2; exit 2; }
       if [ "$1" = --revision ]; then revision="$2"; else name="$2"; fi
@@ -78,7 +80,7 @@ while [ $# -gt 0 ]; do
 done
 case "$repo" in
   */*) ;;
-  *) echo "usage: halogenctl model pull <hf-repo, such as LiquidAI/LFM3-1.7B> [--revision <rev>] [--as <name>]" >&2; exit 2 ;;
+  *) echo "usage: halogenctl model pull <hf-repo, such as LiquidAI/LFM3-1.7B> [--revision <rev>] [--as <name>] [--qad]" >&2; exit 2 ;;
 esac
 if [ "${HALOGEN_VARIANT:-}" != npu ]; then
   echo "Your own NPU checkpoints need the NPU edition." >&2
@@ -207,3 +209,37 @@ args=()
 if NET=none in_image awk -v id="$base-fast" '$1 == "model" && $2 == id { found = 1 } END { exit !found }' /opt/halogen/npu/models.txt 2>/dev/null; then
   echo "fast=1"
 fi
+
+# Liquid's own 4-bit file (Halogen 0.20.6's :qad form): the image names the repository and commit it
+# was made for (models.txt, the <model>-qad line's source=), so exactly that file is fetched into
+# this checkpoint's folder, then Halogen's probe must accept the folder in that form.
+# shellcheck disable=SC2016 # awk program, not shell
+qsrc="$(NET=none in_image awk -v id="$base-qad" '$1 == "model" && $2 == id { for (i = 3; i <= NF; i++) if ($i ~ /^source=/) print substr($i, 8) }' /opt/halogen/npu/models.txt 2>/dev/null | head -n 1)"
+if [ "$qad" = 0 ]; then
+  [ -z "$qsrc" ] || echo "Halogen also runs Liquid's own 4-bit file for a $base, its fastest form. To fetch it: sudo halogenctl model pull $repo${revision:+ --revision $revision} --as $name --qad"
+  exit 0
+fi
+if ! [[ "$qsrc" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+@[0-9a-f]{40}$ ]]; then
+  echo "This Halogen has no 4-bit (QAD) form for a ${base:-checkpoint}; $name is ready without it." >&2
+  exit 1
+fi
+qrepo="${qsrc%@*}"; qrev="${qsrc#*@}"
+rel="$kind/$name"; dir="$models/$rel"
+plain_dir "$dir" || { echo "$dir isn't a plain folder under $models." >&2; exit 1; }
+download_args[1]="$dir:/models/$rel"
+echo "Downloading Liquid's 4-bit file from $qrepo at ${qrev:0:12} into $dir."
+args=("${download_args[@]}")
+in_image hf download "$qrepo" --revision "$qrev" --include '*-QAD-Q4_0.gguf' --local-dir "/models/$rel" \
+  2>&1 | grep --line-buffered -v -e '^Hint: ' -e 'hf update' -e 'Still waiting to acquire lock' \
+    -e 'sending unauthenticated requests' -e "^/models/$rel\$"
+[ "${PIPESTATUS[0]}" = 0 ] || { echo "The download stopped. Run the same command again to resume it." >&2; exit 1; }
+args=(-v "$dir:/models/$rel:ro")
+qinfo="$(NET=none in_image /usr/local/bin/halogen-npu probe "/models/$rel" --form qad 2>&1)" || {
+  printf '%s\n' "$qinfo" | tr -cd '[:print:]\n' >&2
+  echo "Halogen can't run the 4-bit file in $name (above); its other forms are unchanged." >&2
+  exit 1
+}
+qbase="$(printf '%s\n' "$qinfo" | tr ' ' '\n' | sed -n 's/^base=//p' | head -n 1)"
+[ "$qbase" = "$base-qad" ] || { echo "Halogen read the 4-bit file in $name as '$(printf '%s' "$qbase" | tr -cd '[:alnum:]._-')', not $base-qad." >&2; exit 1; }
+echo "Liquid's 4-bit file is ready in $dir. Its weights are Liquid's, not this checkpoint's: a fine-tune keeps to the other forms."
+echo "qad=1"

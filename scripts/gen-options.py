@@ -8,13 +8,16 @@ import pathlib, re, sys
 
 # Offered to nobody: they need a path, mount, port or check this OS controls.
 BLOCKED = set("""API API_KEY API_KEY_FILE API_LOG API_PORT BIND CACHE_DIR CACHE_FILE
-CHAT_TEMPLATE CHECKPOINT CK_OVERLAY DOWNLOAD ENGINE GGUF_CACHE GGUF_THREADS
+CHAT_TEMPLATE CHECKPOINT DOWNLOAD ENGINE GGUF_CACHE GGUF_THREADS
 MATMUL_TUNING_FILE MTP_HEAD NPU_VERIFY NPU_WITH_GPU PORT RECORD_DIR
 TEMPLATE_CHECK TEMPLATE_UNCHECKED TOKENIZER""".split())
 # Where halOS's default differs from Halogen's. Recording itself is turned on with
 # sudo halogenctl records on (render-config sets HALOGEN_RECORD_DIR); the owner chose counts only.
 DEFAULTS = {"RECORD_TEXT": "none on halOS (counts only; recording is off until: sudo halogenctl records on)",
-            "CACHE_PRUNE_OLD": "1 on halOS (an upgrade removes the previous version's cache files; 0 keeps them for a rollback)"}
+            "CACHE_PRUNE_OLD": "1 on halOS (an upgrade removes the previous version's cache files; 0 keeps them for a rollback)",
+            # Halogen takes a path here; halOS (render-config) accepts only none, the way back to the
+            # checkpoint's own draft head (0.20.6). A path would reach files halOS doesn't check.
+            "CK_OVERLAY": "unset (the draft head beside the checkpoint). On halOS only none is accepted: the checkpoint's own head"}
 NPU_ONLY = re.compile(r"^(NPU_|GUARD_|AGENT_GUARD$)")
 ACTIVE = {
     "npu": {

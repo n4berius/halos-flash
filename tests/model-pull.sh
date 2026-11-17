@@ -28,14 +28,21 @@ args=(); for a in "$@"; do args+=("${a//\/models/$FAKE/models}"); done
 # FAKE_HANG=<entrypoint>: that step's "container" ignores SIGTERM until it is removed.
 if [ "${FAKE_HANG:-}" = "$entry" ]; then trap '' TERM INT HUP; sleep 30 & echo "$!" > "$FAKE/hang.pid"; wait; exit 1; fi
 case "$entry" in
-  hf) dir=""; for ((i = 0; i < ${#args[@]}; i++)); do [ "${args[i]}" != --local-dir ] || dir="${args[i+1]}"; done
-      echo "Hint: update hf"; mkdir -p "$dir"; echo '{}' > "$dir/config.json"; echo w > "$dir/model.safetensors" ;;
-  /usr/local/bin/halogen-npu) echo "task=generate base=${FAKE_BASE:-lfm3-1.7b}" ;;
+  hf) dir=""; inc=""; for ((i = 0; i < ${#args[@]}; i++)); do
+        [ "${args[i]}" != --local-dir ] || dir="${args[i+1]}"; [ "${args[i]}" != --include ] || inc="${args[i+1]}"; done
+      echo "Hint: update hf"; mkdir -p "$dir"
+      # Liquid's 4-bit file only (model pull --qad); the checkpoint's own files otherwise.
+      if [ -n "$inc" ]; then echo q > "$dir/LFM3-1.7B-QAD-Q4_0.gguf"
+      else echo '{}' > "$dir/config.json"; echo w > "$dir/model.safetensors"; fi ;;
+  /usr/local/bin/halogen-npu)
+      # Asked for the :qad form, the probe answers with the -qad model (FAKE_QAD_BASE overrides).
+      case " ${args[*]} " in *" --form qad "*) echo "task=generate base=${FAKE_QAD_BASE:-${FAKE_BASE:-lfm3-1.7b}-qad}" ;;
+        *) echo "task=generate base=${FAKE_BASE:-lfm3-1.7b}" ;; esac ;;
   awk) args[${#args[@]}-1]="$FAKE/models.txt"; awk "${args[@]}" ;;
 esac
 S
 chmod +x "$work/bin/podman"
-printf 'model lfm3-1.7b repo=a\nmodel lfm3-1.7b-fast repo=a\nmodel d1-2b repo=b\n' > "$work/models.txt"
+printf 'model lfm3-1.7b repo=a\nmodel lfm3-1.7b-fast repo=a\nmodel lfm3-1.7b-qad repo=c revision=1 task=generate source=LiquidAI/LFM3-1.7B-GGUF@cd0c74c575b5c416f3011b5b4c298077f26ca8c2 license=lfm1.0\nmodel d1-2b repo=b\n' > "$work/models.txt"
 printf 'HALOGEN_IMAGE=img@sha256:1\nHALOGEN_VARIANT=npu\n' > "$work/release.env"
 mkdir -p "$work/state"
 export HALOGEN_STATE_DIR="$work/state" PATH="$work/bin:$PATH" HALOGEN_RELEASE_FILE="$work/release.env" HALOGEN_MODELS_DIR="$work/models" \
@@ -62,6 +69,26 @@ grep 'entrypoint hf' "$work/podman.log" | grep -q -- "-v $work/models/.pull/LFM3
 grep 'halogen-npu' "$work/podman.log" | grep -q -- ":/models/.pull/LFM3-1.7B:ro " \
   || { echo "the probe's folder wasn't read-only" >&2; exit 1; }
 ok "an LFM3 checkpoint lands in LFM, with its path and :fast named, and other formats skipped; only the download has network"
+grep -q 'pull LiquidAI/LFM3-1.7B --as LFM3-1.7B --qad' <<< "$out" || { echo "$out" >&2; echo "the 4-bit form wasn't mentioned" >&2; exit 1; }
+if grep -qx 'qad=1' <<< "$out" || [ -e "$work/models/LFM/LFM3-1.7B/LFM3-1.7B-QAD-Q4_0.gguf" ]; then echo "the 4-bit file came without --qad" >&2; exit 1; fi
+ok "without --qad, Liquid's 4-bit file isn't fetched, only mentioned"
+
+# --qad: the exact repository and commit the image names, only the -QAD-Q4_0 file, into the
+# checkpoint's own folder; then Halogen's probe accepts it in that form, read-only and offline.
+: > "$work/podman.log"
+out="$("$pull" LiquidAI/LFM3-1.7B --qad 2>&1)" || { echo "$out" >&2; exit 1; }
+grep -qx 'qad=1' <<< "$out" && [ -f "$work/models/LFM/LFM3-1.7B/LFM3-1.7B-QAD-Q4_0.gguf" ] || { echo "$out" >&2; echo "--qad didn't fetch the 4-bit file" >&2; exit 1; }
+grep 'entrypoint hf' "$work/podman.log" | grep -- 'LiquidAI/LFM3-1.7B-GGUF --revision cd0c74c575b5c416f3011b5b4c298077f26ca8c2 --include \*-QAD-Q4_0.gguf' \
+  | grep -q -- "-v $work/models/LFM/LFM3-1.7B:/models/LFM/LFM3-1.7B " || { cat "$work/podman.log" >&2; echo "the 4-bit file wasn't fetched from the pinned source into the folder alone" >&2; exit 1; }
+grep 'halogen-npu' "$work/podman.log" | grep -- '--form qad' | grep -- '--network=none' | grep -q -- ":/models/LFM/LFM3-1.7B:ro " \
+  || { echo "the 4-bit form wasn't probed read-only and offline" >&2; exit 1; }
+ok "--qad fetches Liquid's 4-bit file from the source the image names, and Halogen's probe accepts it"
+if FAKE_QAD_BASE=d3-lite "$pull" LiquidAI/LFM3-1.7B --qad > "$work/out" 2>&1; then echo "a 4-bit file read as another model was accepted" >&2; exit 1; fi
+grep -q "not lfm3-1.7b-qad" "$work/out" || { cat "$work/out" >&2; exit 1; }
+if FAKE_BASE=d1-2b "$pull" LiquidAI/d1-2B --qad > "$work/out" 2>&1; then echo "--qad without a 4-bit form succeeded" >&2; exit 1; fi
+grep -q "no 4-bit (QAD) form for a d1-2b" "$work/out" || { cat "$work/out" >&2; exit 1; }
+rm -rf "$work/models/decider"
+ok "--qad refuses a model Halogen has no 4-bit form for, and a file the probe reads as another model"
 # An option with no value at the end stops with a message (it used to loop forever).
 for opt in --revision --as; do
   if timeout 5 "$pull" LiquidAI/LFM3-1.7B "$opt" > "$work/out" 2>&1; then echo "$opt with no value was accepted" >&2; exit 1; fi

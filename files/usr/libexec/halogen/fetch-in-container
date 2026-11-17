@@ -23,19 +23,18 @@ hf_quiet() {
   return "${PIPESTATUS[0]}"
 }
 
-# Which model your own checkpoint (an id that is a path, maybe ending in :fast) was tuned from.
+# Which model your own checkpoint (an id that is a path, maybe ending in :fast or :qad) was tuned
+# from. :qad (Halogen 0.20.6) runs Liquid's own 4-bit file in the folder: Halogen's probe is asked
+# for that form, as its start script asks, and answers with the -qad model's programs.
 probe_base() {
-  local p="${1%:fast}" info base
-  # Halogen 0.20.6's :qad form (Liquid's 4-bit file) isn't handled by halOS's fetch yet.
-  case "$1" in *:qad)
-    echo "fetch: $1: the :qad form isn't supported by halOS yet. Remove it from HALOGEN_NPU_MODELS (sudo halogenctl config)" >&2
-    return 1 ;; esac
+  local p="${1%:fast}" form="" info base
+  case "$1" in *:qad) p="${1%:qad}"; form=qad ;; esac
   p="$root/${p#/models/}"
   if [ ! -f "$p/config.json" ]; then
     echo "fetch: $1 is not a checkpoint folder (no config.json). Pull one with: sudo halogenctl model pull <repo>" >&2
     return 1
   fi
-  info="$("$npu_bin" probe "$p" 2>&1)" || { echo "fetch: $1: $info" >&2; return 1; }
+  info="$("$npu_bin" probe "$p" ${form:+--form "$form"} 2>&1)" || { echo "fetch: $1: $info" >&2; return 1; }
   base="$(printf '%s\n' "$info" | tr ' ' '\n' | sed -n 's/^base=//p' | head -n 1)"
   [[ "$base" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "fetch: $1: Halogen could not tell which model it was tuned from" >&2; return 1; }
   echo "$base"

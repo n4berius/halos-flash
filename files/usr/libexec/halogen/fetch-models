@@ -66,8 +66,8 @@ bases_note="$state/own-bases"
 own_models() {
   local id p
   for id in ${npu_models//,/ }; do
-    case "$id" in /models/*) p="$models/${id#/models/}"; p="${p%:fast}"
-      stat -c '%n %s %Y' "$p/config.json" "$p/model.safetensors" 2>/dev/null ;; esac
+    case "$id" in /models/*) p="$models/${id#/models/}"; p="${p%:fast}"; p="${p%:qad}"
+      stat -c '%n %s %Y' "$p/config.json" "$p/model.safetensors" "$p"/*.gguf 2>/dev/null ;; esac
   done
 }
 want="$(printf '%s\n' "$HALOGEN_IMAGE" "$HALOGEN_WEIGHTS_REPO" "$HALOGEN_WEIGHTS_REVISION" "$npu_models" "$vision" "$(own_models)" | sha256sum | cut -d' ' -f1)"
