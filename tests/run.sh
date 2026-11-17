@@ -17,6 +17,8 @@ tests/halogen-update.sh
 tests/model-pull.sh
 tests/flash.sh
 tests/weights-sums.sh
+tests/authenticode.sh
+tests/kernel-next-update.sh
 tests/bench.sh
 tests/selftest.sh
 tests/login-status.sh

@@ -403,6 +403,16 @@ rm "$work/dev/accel/accel0"
 expect '^PASS kernel-iommu:.*amd_iommu=off'
 refuse 'npu-device|fabric-clock|folder-LFM'
 ok "the no-NPU edition expects amd_iommu=off and skips the NPU checks"
+refuse 'kernel-next'
+# kernel-next's test kernel: a WARN once it is more than three weeks old, INFO before.
+printf 'HALOGEN_VARIANT=no-npu\nHALOS_KERNEL=next\nHALOS_KERNEL_BUILT=%s\n' "$(( $(date +%s) - 30 * 86400 ))" > "$work/release.env"
+"$selftest" > "$work/out" 2>&1 || true; expect '^WARN kernel-next: the test kernel was built 30 days ago'
+printf 'HALOGEN_VARIANT=no-npu\nHALOS_KERNEL=next\nHALOS_KERNEL_BUILT=%s\n' "$(( $(date +%s) - 5 * 86400 ))" > "$work/release.env"
+"$selftest" > "$work/out" 2>&1 || true; expect '^INFO kernel-next: the test kernel was built 5 days ago'
+printf 'HALOGEN_VARIANT=no-npu\nHALOS_KERNEL=next\n' > "$work/release.env"
+"$selftest" > "$work/out" 2>&1 || true; expect "^INFO kernel-next: this image doesn't record"
+printf 'HALOGEN_VARIANT=no-npu\n' > "$work/release.env"
+ok "kernel-next's test kernel is reported, with a warning once it is three weeks old"
 
 f mokutil 'echo "SecureBoot ${FAKE_SB:-enabled}"'
 f amd-smi 'if [ -n "${FAKE_NOGPU:-}" ]; then echo "ERROR:root:Unable to detect any GPU devices"; exit 255; fi; echo "GPU: 0"'
