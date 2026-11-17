@@ -16,7 +16,7 @@ promoted.
   signature the way the boot loader does (the signature itself, a code-signing certificate under
   Fedora's CA taken from the image's own shim, and its revocation level), not only the signer's
   name, and the Fedora signing keys used during the build no longer stay in the image. A beta tag
-  pushed by hand is refused, since there are no beta releases any more. (#PR)
+  pushed by hand is refused, since there are no beta releases any more. (#146)
 
 - A new channel, `kernel-next`, for trying a newer kernel: the same build as `edge`, with Linux
   7.4-rc2 (Fedora 46's build, signed for Secure Boot) instead of Fedora 45's 7.3. It brings about

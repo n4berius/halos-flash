@@ -907,7 +907,7 @@ name, but allows saying halOS runs Halogen.
   applies in identity mode, so to the NPU edition's `iommu=pt`. No fabric-clock (fclk) change was
   found; Halogen's NPU.md expects that fault's fix from a BIOS/SMU update
   (ROCm/TheRock#8709), so the clock hold stays. Not measured on freyja yet.
-  Follow-ups (#PR, owner agreed, from #142's security audit): `src/authenticode-check.py` (python3
+  Follow-ups (#146, owner agreed, from #142's security audit): `src/authenticode-check.py` (python3
   and openssl only: the base has no sbverify, pesign or objcopy) replaces the signer-name grep. It
   checks the PE's Authenticode SHA-256 hash against the signed one, the messageDigest (over the
   SpcIndirectDataContent's value, without its tag and length), the RSA signature over the signed
