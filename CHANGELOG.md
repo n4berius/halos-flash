@@ -10,6 +10,14 @@ promoted.
 
 ## Unreleased
 
+- kernel-next follow-ups: a weekly check opens a pull request when Fedora has a newer plain build of
+  the test kernel (it gets no security fixes until its pin moves), and the selftest warns once the
+  test kernel is more than three weeks old. The image build now checks the test kernel's Secure Boot
+  signature the way the boot loader does (the signature itself, a code-signing certificate under
+  Fedora's CA taken from the image's own shim, and its revocation level), not only the signer's
+  name, and the Fedora signing keys used during the build no longer stay in the image. A beta tag
+  pushed by hand is refused, since there are no beta releases any more. (#PR)
+
 - A new channel, `kernel-next`, for trying a newer kernel: the same build as `edge`, with Linux
   7.4-rc2 (Fedora 46's build, signed for Secure Boot) instead of Fedora 45's 7.3. It brings about
   25 fixes to the NPU driver and an IOMMU speed-up for the built-in GPU that applies to the NPU

@@ -42,13 +42,13 @@ name, but allows saying halOS runs Halogen.
 | `Containerfile.installer`, `installer/` | The live installer image, Anaconda defaults (storage layout for custom partitioning), branding and boot menu. `installer/guided/`: the guided install's kickstart and `plan-install` (#42) |
 | `files/` | Copied into both editions: systemd units, `halosctl`, `halogenctl`, `halogen-enroll-tpm` (bash completion for all three in `usr/share/bash-completion/completions/`; `tests/completion.sh` fails when a tool gains a top-level command, or a `flash`/`model` subcommand, its completion doesn't offer; checkpoint folder names are written by halogen and its containers, so they are never passed to `compgen -W`, which expands `$(...)`: only plain names, matched by hand), `/usr/libexec/halogen/*` (`flash-checkpoint` and `model-pull` download your own checkpoints) |
 | `variants/npu`, `variants/no-npu` | Per-edition kernel arguments, Quadlet drop-ins, the allowed-options list and default `halogen.env` |
-| `scripts/` | `build.sh`, `build-iso.sh`, `package-iso.sh` (single-file release ISO), `release-info.sh`, `gen-options.py` (options from upstream `FLAGS.md`), `halogen-update.sh` (pins a new Halogen release), `size-report.sh`, `channels.sh` (which channel tags a release moves), `next-tag.sh` (the next release tag), `push-image.sh`, `sign-image.sh` (cosign signing), `go-test.sh` (the Go tests of `src/caddy` without an image build; needs network; CI's `check` job in `build.yml` runs it and `tests/run.sh` once, and both edition builds wait for it, #123) |
+| `scripts/` | `build.sh`, `build-iso.sh`, `package-iso.sh` (single-file release ISO), `release-info.sh`, `gen-options.py` (options from upstream `FLAGS.md`), `halogen-update.sh` (pins a new Halogen release), `size-report.sh`, `channels.sh` (which channel tags a release moves), `next-tag.sh` (the next release tag), `push-image.sh`, `sign-image.sh` (cosign signing), `kernel-next-update.sh` (moves kernel-next's pin to Fedora's newest plain build), `go-test.sh` (the Go tests of `src/caddy` without an image build; needs network; CI's `check` job in `build.yml` runs it and `tests/run.sh` once, and both edition builds wait for it, #123) |
 | `docs/` | `CLI.md` (every command; update it with a command or option), `CLIENTS.md` (connecting apps and coding agents, and trusting the certificate per agent, from each project's docs and source) |
 | `CHANGELOG.md`, `ROADMAP.md` | What each release changed (PRs add to Unreleased), and the order of the work ahead |
-| `src/` | halOS's own source: `dashboard-nodump.c` (built in the Containerfile's dashboard stage) and `caddy/` (`main.go`, `go.mod`, `go.sum`: Caddy with the DNS providers, built in the caddy stage; Dependabot `gomod`) |
+| `src/` | halOS's own source: `dashboard-nodump.c` (built in the Containerfile's dashboard stage), `authenticode-check.py` (kernel-next's Secure Boot check at build time) and `caddy/` (`main.go`, `go.mod`, `go.sum`: Caddy with the DNS providers, built in the caddy stage; Dependabot `gomod`) |
 | `tests/` | `run.sh` (fast checks, no GPU or network), `iso-install.sh` + `vm-login.py` (QEMU install test) |
 | `.claude/agents/` | Subagents: `code-reviewer` (QA review before merge) and `security-auditor` (audit, zero-cost hardening ideas). Both only read and report |
-| `.github/workflows/` | `build.yml` (image, edge tag; also weekly, Thursday 05:37 UTC), `iso.yml` (ISO + VM install test), `release.yml`, `refresh.yml` (weekly rebuild of stable), `halogen-update.yml` (daily: opens a PR for a new Halogen release) |
+| `.github/workflows/` | `build.yml` (image, edge tag; also weekly, Thursday 05:37 UTC), `iso.yml` (ISO + VM install test), `release.yml`, `refresh.yml` (weekly rebuild of stable), `halogen-update.yml` (daily: opens a PR for a new Halogen release), `kernel-next-update.yml` (weekly: a PR for a newer test kernel) |
 
 ## How the running system works
 
@@ -907,6 +907,26 @@ name, but allows saying halOS runs Halogen.
   applies in identity mode, so to the NPU edition's `iommu=pt`. No fabric-clock (fclk) change was
   found; Halogen's NPU.md expects that fault's fix from a BIOS/SMU update
   (ROCm/TheRock#8709), so the clock hold stays. Not measured on freyja yet.
+  Follow-ups (#PR, owner agreed, from #142's security audit): `src/authenticode-check.py` (python3
+  and openssl only: the base has no sbverify, pesign or objcopy) replaces the signer-name grep. It
+  checks the PE's Authenticode SHA-256 hash against the signed one, the messageDigest (over the
+  SpcIndirectDataContent's value, without its tag and length), the RSA signature over the signed
+  attributes with the signer's certificate, the chain to the CA in the base's own shim (`.vendor_cert`
+  of `/usr/lib/efi/shim/*/EFI/fedora/shimx64.efi`, `fedoraca`, sha256 A3:B3:84:81:…:EF:33:2E;
+  `-no_check_time`), the code-signing EKU, and `.sbat`'s `kernel.fedora` generation against the base
+  kernel's (copied before `rpm -U`). Checked against Fedora's real 7.3.3 and 7.4-rc2 kernels and on the
+  base in podman; `tests/authenticode.sh` signs tiny PEs with throwaway keys
+  (`tests/authenticode-fixture.py`) for each refusal. The Containerfile reaches it with `RUN
+  --mount=type=bind` (nothing left in the image). The base's rpm keyring starts empty (rpm 6.1,
+  `/usr/share/rpm/pubkeys`); crun's and the kernel's steps `rpmkeys --delete` Fedora 45's
+  (`f577861e`) and 46's (`91211fce`) keys after use. `release.env` gets `HALOS_KERNEL_BUILT`
+  (kernel-core's BUILDTIME, both tracks); the selftest's `kernel-next` line is INFO, or WARN past 21
+  days. `scripts/kernel-next-update.sh` (`.github/workflows/kernel-next-update.yml`, Tuesdays
+  06:23 UTC, like halogen-update.yml: a PR, then build.yml and iso.yml started on its branch) reads
+  Koji's listings and takes the newest `0.rcN.M.<dist>` or `M.<dist>` at the pin's kernel line or
+  newer, same dist tag (a new dist's key may not be in the base), with all four packages in one
+  signed-key folder; `tests/kernel-next-update.sh` fakes Koji. Against the real Koji on 2026-11-17 it
+  found `7.4.0-0.rc3.26.fc46`. `release.yml` refuses a hand-pushed `*-beta.*` tag.
 
 - Selftest sessions (#138, the security audit of #137, owner agreed): whatever root runs as halogen
   through `setpriv` that reaches halogen-controlled programs (podman, `systemctl --user`) runs in a

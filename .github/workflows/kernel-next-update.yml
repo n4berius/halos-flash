@@ -1,0 +1,60 @@
+name: kernel-next update
+# Opens a pull request when Fedora has a newer plain build of the kernel kernel-next pins (a
+# release candidate's own build or a final release, never a debug snapshot): a test kernel gets
+# no security fixes until its pin moves. Merging stays a person's decision.
+on:
+  schedule:
+    - cron: "23 6 * * 2"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+jobs:
+  update:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+      - name: Update the pin
+        id: update
+        run: |
+          scripts/kernel-next-update.sh "$RUNNER_TEMP/body.md"
+          if git diff --quiet; then
+            echo "kernel-next is on Fedora's newest plain build." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          . ./versions.env
+          echo "nvr=$KERNEL_NEXT_NVR" >> "$GITHUB_OUTPUT"
+          echo "branch=kernel-next-update/$KERNEL_NEXT_NVR" >> "$GITHUB_OUTPUT"
+      - name: Check the new pin
+        if: steps.update.outputs.nvr != ''
+        run: tests/run.sh
+      - name: Open the pull request
+        if: steps.update.outputs.nvr != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NVR: ${{ steps.update.outputs.nvr }}
+          BRANCH: ${{ steps.update.outputs.branch }}
+        run: |
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
+            echo "$BRANCH already exists, so its pull request is already open or was closed on purpose." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$BRANCH"
+          git commit -qam "kernel-next: move to kernel $NVR" -m "Fedora's newest plain kernel build, by the kernel-next update workflow."
+          git push -q origin "$BRANCH"
+          url="$(gh pr create --base main --head "$BRANCH" --title "kernel-next: move to kernel $NVR" --body-file "$RUNNER_TEMP/body.md")"
+          echo "Opened $url" >> "$GITHUB_STEP_SUMMARY"
+          # A pull request opened with this workflow's token starts no workflows by itself, so
+          # start the image build and the install test (with the kernel-next run) on its branch.
+          gh workflow run build.yml --ref "$BRANCH"
+          gh workflow run iso.yml --ref "$BRANCH"

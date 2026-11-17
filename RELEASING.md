@@ -35,8 +35,12 @@ Machines pick a channel with `sudo halosctl switch alpha|rc|release|edge|kernel-
 
 `kernel-next` is built and signed with `edge`, from the same commit, with the kernel
 `versions.env` pins (`KERNEL_NEXT_*`: exact Fedora packages, checked by sha256 and Fedora's
-signature) instead of Fedora 45's. Releases never use it. It is for trying a newer kernel on the
-test machine; `sudo halosctl switch edge` goes back (`rollback` too, before any upgrade on it).
+signature, and the kernel's Secure Boot signature against the image's own shim) instead of Fedora
+45's. Releases never use it. It is for trying a newer kernel on the test machine; `sudo halosctl
+switch edge` goes back (`rollback` too, before any upgrade on it). The kernel-next update workflow
+(every Tuesday) opens a pull request when Fedora has a newer plain build (a release candidate's own
+build or a final release, never a debug snapshot); merging it moves the channel at the next push to
+`main`.
 
 ## Cut a release
 
