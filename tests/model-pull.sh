@@ -77,7 +77,7 @@ ok "without --qad, Liquid's 4-bit file isn't fetched, only mentioned"
 # checkpoint's own folder; then Halogen's probe accepts it in that form, read-only and offline.
 : > "$work/podman.log"
 out="$("$pull" LiquidAI/LFM3-1.7B --qad 2>&1)" || { echo "$out" >&2; exit 1; }
-grep -qx 'qad=1' <<< "$out" && [ -f "$work/models/LFM/LFM3-1.7B/LFM3-1.7B-QAD-Q4_0.gguf" ] || { echo "$out" >&2; echo "--qad didn't fetch the 4-bit file" >&2; exit 1; }
+{ grep -qx 'qad=1' <<< "$out" && [ -f "$work/models/LFM/LFM3-1.7B/LFM3-1.7B-QAD-Q4_0.gguf" ]; } || { echo "$out" >&2; echo "--qad didn't fetch the 4-bit file" >&2; exit 1; }
 grep 'entrypoint hf' "$work/podman.log" | grep -- 'LiquidAI/LFM3-1.7B-GGUF --revision cd0c74c575b5c416f3011b5b4c298077f26ca8c2 --include \*-QAD-Q4_0.gguf' \
   | grep -q -- "-v $work/models/LFM/LFM3-1.7B:/models/LFM/LFM3-1.7B " || { cat "$work/podman.log" >&2; echo "the 4-bit file wasn't fetched from the pinned source into the folder alone" >&2; exit 1; }
 grep 'halogen-npu' "$work/podman.log" | grep -- '--form qad' | grep -- '--network=none' | grep -q -- ":/models/LFM/LFM3-1.7B:ro " \
