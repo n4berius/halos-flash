@@ -14,6 +14,7 @@ f runuser 'echo "runuser $*" >> "$FAKE/log"; [ "$1 $2 $3" = "-u halogen --" ] ||
 f install 'echo "${FAKE_AS:-root} install $*" >> "$FAKE/log"; a=(); while [ $# -gt 0 ]; do case "$1" in -o|-g) shift 2 ;; *) a+=("$1"); shift ;; esac; done; exec /usr/bin/install "${a[@]}"'
 f selinuxenabled 'exit 1'
 printf 'HALOGEN_VARIANT=npu\n' > "$work/release.env"; echo 'HALOGEN_FLASH_CTX=1' > "$work/default.env"
+export HALOS_STATE_DIR="$work/halos"
 export PATH="$work/bin:$PATH" HALOGEN_MODELS_DIR="$work/models" HALOGEN_CONFIGS_DIR="$work/configs" HALOGEN_LOGS_DIR="$work/logs" \
   HALOGEN_STATE_DIR="$work/state" HALOGEN_RELEASE_FILE="$work/release.env" HALOGEN_ENV_DEFAULT="$work/default.env"
 prepare="$repo/files/usr/libexec/halogen/prepare"
@@ -69,13 +70,17 @@ ok "a link in place of one of halogen's folders is removed and the folder made"
 
 # First-boot setup is pending only on a new install: not when the models were fetched before,
 # whether the stamp is in halogen's own folder (now) or in /srv/models (before #135).
-rm -f "$work/configs/halogen.env" "$work/state/setup-pending"; mkdir -p "$work/state"; : > "$work/state/fetch-stamp"
+rm -f "$work/configs/halogen.env" "$work/state/setup-pending" "$work/halos/new-install"; mkdir -p "$work/state"; : > "$work/state/fetch-stamp"
 "$prepare" 2> /dev/null
 [ ! -e "$work/state/setup-pending" ] || { echo "an install with fetched models was sent to first-boot setup" >&2; exit 1; }
 rm -f "$work/configs/halogen.env" "$work/state/fetch-stamp"; : > "$work/models/.fetch-stamp"
 "$prepare" 2> /dev/null
 [ ! -e "$work/state/setup-pending" ] || { echo "an upgraded install was sent to first-boot setup" >&2; exit 1; }
+[ ! -e "$work/halos/new-install" ] || { echo "an upgrade was marked as a new install" >&2; exit 1; }
 rm -f "$work/configs/halogen.env" "$work/models/.fetch-stamp"
 "$prepare" 2> /dev/null
 [ -e "$work/state/setup-pending" ] || { echo "a new install wasn't sent to first-boot setup" >&2; exit 1; }
+# Root's own new-install note, for setup's HTTPS default (#102): made by root, never as halogen.
+{ [ -f "$work/halos/new-install" ] && [ -O "$work/halos/new-install" ]; } || { echo "a new install got no new-install note" >&2; exit 1; }
+if grep -q "runuser.*new-install" "$work/log"; then echo "the new-install note was made as halogen" >&2; exit 1; fi
 ok "only a new install waits for first-boot setup, wherever an earlier fetch left its stamp"

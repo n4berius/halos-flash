@@ -76,7 +76,21 @@ name, but allows saying halOS runs Halogen.
   the wall clock jumps at first boot), then removes it and starts with the defaults. `sudo halosctl
   setup` asks TPM unlock (`halogen-enroll-tpm`), HF token (`halogenctl hf-token`), and editing
   `halogen.env` the sudoedit way (root edits a private copy, written back as halogen; never an
-  editor as halogen on root's tty), then removes the marker; `--skip` removes it at once. The VM
+  editor as halogen on root's tty), then removes the marker; `--skip` removes it at once. Step 4 (#145, #102's last step) offers HTTPS:
+  it reads `https mode`; when `off` it asks, Enter = yes only while root's own
+  `/var/lib/halos/new-install` is there (a regular file owned by the running user, `-O`; prepare
+  writes it as root beside `setup-pending`, `ReadWritePaths` gained `/var/lib/halos`; halogen's
+  `setup-pending` was the first version's signal, but it goes after 30 minutes or `--skip` and
+  halogen can make or remove it: code review and security audit), removed once step 4 has run, so an
+  upgrade or a later run defaults to no. Then it runs `"$0" https self-signed --yes` (no test hook:
+  `tests/setup.sh` drives the real switch through fake `https`, `systemctl`, `curl`; the whole
+  switch with its revert if Caddy doesn't come up; only the front door restarts), and a failure
+  doesn't stop setup: it reads the mode again and says off, on-but-something-failed, or other;
+  `invalid` gets its own line; any other mode is left alone; `--skip` never touches HTTPS. `show`
+  now says to trust the authority per app, not in the system store (INSTALL's advice).
+  `tests/setup.sh` pads every answer list with two closing `n` lines: `script` never passes the
+  end of input on, so a question a test doesn't name would wait forever. The VM test still skips
+  setup and turns self-signed on with its own step. The VM
   test checks the pending line, then skips. On the serial console, `agetty --reload` can swallow
   output written while the status changes, so the VM test saves such output to a file and prints
   it later.
