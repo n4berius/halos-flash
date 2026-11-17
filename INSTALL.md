@@ -253,9 +253,11 @@ It asks four things, and you can skip each one:
 3. **Settings.** Open `/srv/configs/halogen.env` in an editor, or keep the defaults, which suit
    most people.
 4. **HTTPS.** On a new install Enter turns it on, with halOS's own authority (self-signed), so
-   prompts, replies and the API key no longer cross the network in plain text. Apps then use
-   `https://` and trust the authority once: `sudo halosctl https ca` prints it (see [HTTPS](#https)).
-   A machine upgraded from an earlier release stays on plain HTTP until you say yes here or run
+   apps that use `https://` no longer send prompts, replies and the API key across the network in
+   plain text (one still set to `http://` sends its key before it is redirected). Each app trusts
+   the authority once: `sudo halosctl https ca` prints it (see [HTTPS](#https)). This holds until
+   the question has been answered once, even if you run setup days later. A machine upgraded from
+   an earlier release stays on plain HTTP until you say yes here or run
    `sudo halosctl https self-signed`. If HTTPS is on already, setup leaves it as it is.
 
 The first 130 GB download waits for setup, so your token and settings count from the start. If
@@ -286,7 +288,7 @@ halOS 0.19.1-beta.1 (npu edition) - downloading models 45%
 ```
 
 It then reads `checking models`, then `starting`, and finally
-`ready: http://<this machine's address>:8731/v1`. If something stops it, the line says
+`ready: https://<this machine's address>:8731/v1` (`http://` while HTTPS is off). If something stops it, the line says
 `download failed` or `stopped`, with the command to run next. Logging in over SSH shows the same
 line, plus the release, the channel, any staged update and the free space for models. The first
 time Halogen answers after a boot, anyone logged in gets a one-line notice.
@@ -333,12 +335,14 @@ The individual commands, if you want them:
 sudo halogenctl doctor
 sudo halogenctl status
 sudo halogenctl config
-curl -H "Authorization: Bearer $(sudo halogenctl api-key)" http://127.0.0.1:8731/v1/models
+sudo halosctl https ca > halos-ca.crt
+curl --cacert halos-ca.crt -H "Authorization: Bearer $(sudo halogenctl api-key)" https://127.0.0.1:8731/v1/models
 ```
 
-The API should list the Flash model, plus the NPU models on that edition. Clients connect to
-`http://<host>:8731/v1` with the same key (`https://` once you turn [HTTPS](#https) on; then add
-`--cacert halos-ca.crt` to the curl above and use `https://`). [Connecting apps](docs/CLIENTS.md)
+With HTTPS off, the last line is `curl -H "Authorization: Bearer $(sudo halogenctl api-key)"
+http://127.0.0.1:8731/v1/models` (and the `https ca` line isn't needed). The API should list the
+Flash model, plus the NPU models on that edition. Clients connect to `https://<host>:8731/v1`
+(`http://` with HTTPS off) with the same key. [Connecting apps](docs/CLIENTS.md)
 has the settings for Claude Code, Codex, Pi, oh-my-pi, opencode, Cline, aider and others, and
 the [command reference](docs/CLI.md) lists every halOS command.
 
@@ -387,7 +391,7 @@ own again. Without the TPM unlock, nothing changes at boot.
 
 ### The dashboard
 
-Open `http://<this machine's address>:8732` (next to the API on 8731) in a browser on your network for a live view of
+Open `https://<this machine's address>:8732` (`http://` with [HTTPS](#https) off; next to the API on 8731) in a browser on your network for a live view of
 Halogen: whether it is up, generation and prefill speed, busy slots, queued requests, the KV pool,
 the prompt cache, the NPU, and charts from the last five minutes to the last 30 days.
 `sudo halosctl dashboard` shows its state and address.

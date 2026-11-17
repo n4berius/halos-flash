@@ -11,7 +11,7 @@ ExecStart=/usr/libexec/halogen/prepare
 # A root job that works in halogen's folders: let it write only there, with no network.
 # Costs nothing; it runs for well under a second at boot.
 ProtectSystem=strict
-ReadWritePaths=/var/srv/models /var/srv/configs /var/srv/logs /var/lib/halogen
+ReadWritePaths=/var/srv/models /var/srv/configs /var/srv/logs /var/lib/halogen /var/lib/halos
 ProtectHome=yes
 PrivateTmp=yes
 PrivateNetwork=yes

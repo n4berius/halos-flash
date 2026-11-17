@@ -10,9 +10,11 @@ models="${HALOGEN_MODELS_DIR:-/var/srv/models}"
 configs="${HALOGEN_CONFIGS_DIR:-/var/srv/configs}"
 logs="${HALOGEN_LOGS_DIR:-/var/srv/logs}"
 state="${HALOGEN_STATE_DIR:-/var/lib/halogen}"
+halos_state="${HALOS_STATE_DIR:-/var/lib/halos}"
 as_halogen() { runuser -u halogen -- "$@"; }
 
 install -d -o halogen -g halogen -m 0750 "$models" "$configs" "$logs" "$state"
+install -d -m 0750 "$halos_state"
 # A link where one of halogen's folders belongs (the download container can write the top of
 # /srv/models) is removed, as halogen, before the folder is made: install -d would follow it and
 # change another folder's mode, and a dangling one would fail this unit at every boot.
@@ -37,6 +39,9 @@ fi
 if ! as_halogen test -e "$configs/halogen.env" && ! as_halogen test -L "$configs/halogen.env" &&
    ! as_halogen test -e "$state/fetch-stamp" && ! as_halogen test -e "$models/.fetch-stamp"; then
   as_halogen touch "$state/setup-pending"
+  # Root's own note that this is a new install, which halogen can't make or remove: setup's HTTPS
+  # step defaults to yes until it has been answered once (#102).
+  [ -e "$halos_state/new-install" ] || install -m 0600 /dev/null "$halos_state/new-install"
 fi
 # shellcheck disable=SC2016 # expanded by the halogen shell, from its arguments
 as_halogen sh -c '[ -e "$1" ] || [ -L "$1" ] || install -m 0640 "$2" "$1"' \

@@ -676,7 +676,8 @@ case "$cmd" in
           else
             echo "  Authority's fingerprint (SHA-256): $(fact ca)"
             echo "  Valid until $(fact ca_until). Apps and browsers must trust it once:"
-            echo "  sudo halosctl https ca > halos-ca.crt, then add halos-ca.crt to the app or the system."
+            echo "  sudo halosctl https ca > halos-ca.crt, then add halos-ca.crt to each app (not to your"
+            echo "  computer's own trust store: INSTALL.md, HTTPS)."
           fi
           echo "  Names and addresses covered: $(fact names)"
           echo "  Other names (they replace the earlier ones; alone it keeps them): sudo halosctl https self-signed <name>..."
@@ -976,24 +977,38 @@ case "$cmd" in
     else echo "   Kept the defaults."; fi
 
     echo; echo "4. HTTPS for the API and the dashboard"
-    # A new install is offered halOS's own authority (#102); an upgrade stays on plain HTTP until
-    # its owner says yes here or runs sudo halosctl https. Done by halosctl https itself, which
-    # restarts only the front door and puts the old setting back if Caddy doesn't come up.
+    # A new install is offered halOS's own authority (#102) with Enter for yes, until this step has
+    # been answered once; an upgrade stays on plain HTTP until its owner says yes here or runs sudo
+    # halosctl https. "New" is root's own marker, which prepare leaves beside the first-boot one
+    # (halogen's setup-pending goes after 30 minutes or with --skip, and halogen could make or
+    # remove it). Done by this command's https self-signed (it restarts only the front door and
+    # puts the old setting back if Caddy doesn't come up), run again from its own file.
+    newinst="$(dirname "$history")/new-install"
+    https_default=n; https_yn="[y/N]"
+    if [ -f "$newinst" ] && [ ! -L "$newinst" ] && [ -O "$newinst" ]; then https_default=y; https_yn="[Y/n]"; fi
     hmode="$("$https" mode 2> /dev/null || echo unknown)"
     case "$hmode" in
       off)
         echo "   Apps and browsers reach Halogen over plain HTTP now, so anyone on the network path can read"
-        echo "   the prompts, the replies and the API key. With HTTPS they use https:// and trust halOS's"
-        echo "   own authority once (sudo halosctl https ca prints it)."
-        https_yn="[y/N]"; https_default=n; [ "$pending" = 0 ] || { https_yn="[Y/n]"; https_default=y; }
+        echo "   the prompts, the replies and the API key. With HTTPS, apps that use https:// keep them"
+        echo "   private; each app trusts halOS's own authority once (sudo halosctl https ca prints it)."
         if ask "   Turn on HTTPS now? $https_yn" "$https_default"; then
-          if "${HALOS_SELF:-$0}" https self-signed --yes | sed 's/^/   /'; then
-            echo "   Done. Apps need the authority once: sudo halosctl https ca > halos-ca.crt"
-          else echo "   That didn't work; plain HTTP still works. Try again later: sudo halosctl https self-signed"; fi
+          if "$0" https self-signed --yes | sed 's/^/   /'; then echo "   Done."
+          else
+            case "$("$https" mode 2> /dev/null || echo unknown)" in
+              off) echo "   That didn't work, so it's still plain HTTP. Try again later: sudo halosctl https self-signed" ;;
+              self-signed) echo "   HTTPS is on, but something after the switch failed (above). Check: sudo halosctl https" ;;
+              *) echo "   That didn't work (above). Check: sudo halosctl https" ;;
+            esac
+          fi
         else echo "   Kept plain HTTP. Later: sudo halosctl https self-signed"; fi ;;
       self-signed|custom|letsencrypt) echo "   HTTPS is on already ($hmode). Details: sudo halosctl https" ;;
+      invalid) echo "   The file /etc/halos/https.env holds an unknown setting, so the front door doesn't start."
+               echo "   Fix it with: sudo halosctl https off, or sudo halosctl https self-signed" ;;
       *) echo "   The HTTPS setting couldn't be read. See: sudo halosctl https" ;;
     esac
+    # Answered (or not needed): later runs default to no, like an upgrade.
+    rm -f "$newinst"
 
     echo
     if [ "$pending" = 1 ]; then release_fetch

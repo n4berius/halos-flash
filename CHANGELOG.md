@@ -11,9 +11,9 @@ promoted.
 ## Unreleased
 
 - `sudo halosctl setup` now offers HTTPS as its fourth question. On a new install, pressing Enter
-  turns it on with halOS's own authority (self-signed), so prompts, replies and the API key no
-  longer cross the network in plain text; apps then trust the authority once (`sudo halosctl https
-  ca`). A machine upgraded from an earlier release keeps plain HTTP unless you say yes, and an
+  turns it on with halOS's own authority (self-signed), so apps that use `https://` no longer send
+  prompts, replies and the API key in plain text; each app trusts the authority once (`sudo halosctl
+  https ca`). A machine upgraded from an earlier release keeps plain HTTP unless you say yes, and an
   HTTPS setting you already have is left alone. (#145)
 
 - A new channel, `kernel-next`, for trying a newer kernel: the same build as `edge`, with Linux
