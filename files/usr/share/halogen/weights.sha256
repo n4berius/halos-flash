@@ -1,6 +1,7 @@
 # sha256 of the official files fetch-models downloads, from peonist-ai/halogen-qwen3.8-flash-next
-# revision bd9765dfc69d2ae86eea8f00a5bd93a405c2ad7a
+# revision 05ec74b75cd68c4d6486d15825f2fc73b2ffe304
 # Written by scripts/weights-sums.sh; don't edit by hand.
+f9aa330800cc921fe20f4cf997d660f519c67b0052af0c8078b6b648972b07e6  qwen38-flash-next-drafter-r2-ht4.hgn
 07a7b5b358cb02737ecf85043db0d30b4938aed06ae6311772ea4e40b939696b  qwen38-flash-next-drafter-r2.hgn
 3450acada94e19aabad88bd49b45eb70304820949c2240fc178067b20ae5dffe  qwen38-flash-next-ngram.hgn
 71246c6ab3fc1de2cf06326f18e275fe9c2a18366d646ed3357d194c884fc687  qwen38-flash-next-v2.hgn

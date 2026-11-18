@@ -24,6 +24,7 @@ chmod +x "$work/bin/curl"
 tree() {
   printf '[{"type":"file","path":"qwen38-flash-next-v2.hgn","oid":"a","lfs":{"oid":"%s"}},' "$lfs"
   printf '{"type":"file","path":"qwen38-flash-next-ngram.hgn","oid":"b","lfs":{"oid":"%s"}},' "$lfs"
+  printf '{"type":"file","path":"qwen38-flash-next-drafter-r2-ht4.hgn","oid":"f","lfs":{"oid":"%s"}},' "$lfs"
   printf '{"type":"file","path":"qwen38-flash-next-drafter-r2.hgn","oid":"e","lfs":{"oid":"%s"}},' "$lfs"
   printf '{"type":"file","path":"qwen38-flash-next-vision.hgn","oid":"c","lfs":{"oid":"%s"}},' "$lfs"
   printf '{"type":"file","path":"tokenizer/tokenizer.json","oid":"%s"}%s]' "$blob" "${1:-}"
@@ -31,7 +32,7 @@ tree() {
 tree > "$work/tree.json"
 "$repo/scripts/weights-sums.sh" > /dev/null
 grep -qx "$(printf hello | sha256sum | cut -d' ' -f1)  tokenizer/tokenizer.json" "$work/sums" && grep -qx "$lfs  qwen38-flash-next-v2.hgn" "$work/sums" \
-  && grep -qx "$lfs  qwen38-flash-next-drafter-r2.hgn" "$work/sums"
+  && grep -qx "$lfs  qwen38-flash-next-drafter-r2.hgn" "$work/sums" && grep -qx "$lfs  qwen38-flash-next-drafter-r2-ht4.hgn" "$work/sums"
 echo "ok: weights-sums writes the LFS hashes and hashes the small files it checked"
 rm "$work/sums"
 if FAKE_LINK=$'link: <https://huggingface.co/api/models/x/tree/y?cursor=z>; rel="next"\r\n' "$repo/scripts/weights-sums.sh" > /dev/null 2>&1 || [ -e "$work/sums" ]; then
