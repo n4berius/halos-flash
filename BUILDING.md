@@ -1,22 +1,21 @@
 # Building halOS yourself
 
-You don't need to build anything to use halOS. The ISOs on the
-[Releases page](https://github.com/n4berius/halos-flash/releases) and the images on GHCR
-come from the same scripts described here, run by GitHub Actions. Build it yourself if you
-want to check those builds, change the image, or keep your own copy.
+You don't need to build anything to use halOS. GitHub Actions makes the ISOs on the
+[Releases page](https://github.com/n4berius/halos-flash/releases) and the images on GHCR with the
+same scripts that this file describes. Build halOS yourself if you want to check those builds,
+change the image, or keep your own copy.
 
 ## What you need
 
 - A Linux machine. It doesn't need to be the Strix Halo, and it doesn't need a GPU.
-  Fedora is easiest. Ubuntu 24.04 works too, as CI uses it.
+  Fedora is easiest. Ubuntu 24.04 also works, because CI uses it.
 - Podman 4.9 or newer, Skopeo, Git and xz. On Fedora:
   ```bash
   sudo dnf install podman skopeo git xz
   ```
-- Root access through `sudo`. Building an installer needs root Podman.
-- About 40 GB of free disk space, and internet access to quay.io and ghcr.io.
-- Some patience: the first build downloads several GB of base images. Later builds reuse
-  them.
+- Root access through `sudo`. To build an installer, you need root Podman.
+- Approximately 40 GB of free disk space, and internet access to quay.io and ghcr.io.
+- Time: the first build downloads several GB of base images. Later builds use them again.
 
 ## 1. Get the source
 
@@ -34,37 +33,39 @@ To build a published release exactly, check out its tag first, for example
 tests/run.sh
 ```
 
-These checks need no GPU or network. They end with `all checks passed`.
+These checks need no GPU and no network. At the end, they show `all checks passed`.
 
 ## 3. Build the OS image
 
-The image is what gets installed on the server. Build the edition you want:
+The server gets the image when you install it. Build the edition that you want:
 
 ```bash
 sudo scripts/build.sh                          # with NPU
 sudo HALOGEN_VARIANT=no-npu scripts/build.sh   # without NPU
 ```
 
-It ends with `Built ghcr.io/n4berius/halos-flash:0.19.0 ...`. The image now sits in
-root's Podman storage. `versions.env` pins Halogen by digest, so your build contains the same Halogen
-container as the official one. The Fedora base is a tag (`fedora-bootc:45`) and its packages come
-from Fedora's current repositories, so each build, the weekly rebuild included, picks up Fedora's
-latest fixes: two builds of the same commit can differ in those (#121).
+At the end, the build shows `Built ghcr.io/n4berius/halos-flash:0.19.0 ...`. The image is now in
+root's Podman storage.
+
+`versions.env` pins Halogen by digest, so your build has the same Halogen container as the
+official build. The Fedora base is a tag (`fedora-bootc:45`). Its packages come from Fedora's
+current repositories. Thus each build, also the weekly rebuild, gets Fedora's latest fixes. Two
+builds of the same commit can be different in these packages (#121).
 
 ## 4. Build the USB installer
 
-The ISO build needs the OS image from step 3 already in root's storage:
+The ISO build needs the OS image from step 3 in root's storage:
 
 ```bash
 sudo scripts/build-iso.sh                          # with NPU
 sudo HALOGEN_VARIANT=no-npu scripts/build-iso.sh   # without NPU
 ```
 
-The ISO lands under `output/`. Write it to a USB drive as
-[INSTALL.md](INSTALL.md#4-write-the-usb-drive) describes. It installs the image you built,
-offline, from the ISO itself.
+The build puts the ISO in `output/`. Write it to a USB drive as
+[INSTALL.md](INSTALL.md#4-write-the-usb-drive) describes. The ISO installs the image that you
+built. It needs no network, because the image is in the ISO.
 
-To package it the way releases are, as one file under GitHub's 2 GiB limit:
+To package the ISO as the releases do, as one file below GitHub's 2 GiB limit, run:
 
 ```bash
 sudo chown -R "$USER" output
@@ -73,13 +74,14 @@ scripts/package-iso.sh "$(find output -name '*.iso' | head -1)" release halos-fl
 
 ## Where updates come from
 
-The installer records which image the machine came from, and `bootc upgrade` looks there for
-updates. By default that's the official `ghcr.io/n4berius/halos-flash`. So:
+The installer records the image that it installed. `bootc upgrade` looks for updates there. By
+default, that is the official `ghcr.io/n4berius/halos-flash`. Thus:
 
-- **An unchanged build** behaves exactly like an official install and upgrades from the
-  official images.
-- **A build you changed** would be replaced by the official image on its next upgrade. To keep
-  your changes, give the image your own name and push it to a registry you control:
+- **An unchanged build** works the same as an official install. It upgrades from the official
+  images.
+- **A build that you changed** gets the official image at its next upgrade, and your changes go
+  away. To keep your changes, give the image your own name. Then push it to a registry that you
+  control:
 
   ```bash
   export IMAGE_NAME=ghcr.io/<you>/halos-flash
@@ -89,21 +91,24 @@ updates. By default that's the official `ghcr.io/n4berius/halos-flash`. So:
   sudo -E podman push "$(scripts/image-ref.sh)"
   ```
 
-  Machines installed from that ISO then upgrade from your registry. If the package is private,
-  each machine needs a token in `/etc/ostree/auth.json`.
+  Machines that you install from that ISO then upgrade from your registry. If the package is
+  private, each machine needs a token in `/etc/ostree/auth.json`.
 
-You can also move a machine that's already installed to your image without reinstalling:
+You can also move an installed machine to your image without a new installation:
 
 ```bash
 sudo bootc switch ghcr.io/<you>/halos-flash:0.19.0
 sudo systemctl reboot
 ```
 
-halOS's signature policy covers only `ghcr.io/n4berius/halos-flash`, so your image is taken
-without a signature check, and the selftest's `image-signatures` line warns about it. To have
-machines check your own key, add a `sigstoreSigned` entry for your image to
-`files/etc/containers/policy.json` and a `use-sigstore-attachments` entry to
-`files/etc/containers/registries.d/` (as halOS's), and sign with `scripts/sign-image.sh`.
+halOS's signature policy covers only `ghcr.io/n4berius/halos-flash`. Thus the machine accepts your
+image without a signature check, and the selftest's `image-signatures` line shows a warning. To
+make machines check your own key, do these steps:
+
+1. Add a `sigstoreSigned` entry for your image to `files/etc/containers/policy.json`.
+2. Add a `use-sigstore-attachments` entry to `files/etc/containers/registries.d/`, as halOS's
+   entry does.
+3. Sign with `scripts/sign-image.sh`.
 
 ## Where to make changes
 
@@ -112,21 +117,21 @@ machines check your own key, add a `sigstoreSigned` entry for your image to
 | Kernel arguments | `variants/<edition>/usr/lib/bootc/kargs.d/10-halogen.toml` |
 | Services, scripts, `halogenctl` | `files/` |
 | Packages in the image | `Containerfile` |
-| Installer defaults, such as partitioning | `installer/` |
+| Installer defaults, for example partitions | `installer/` |
 | The Halogen version | `versions.env`, as [RELEASING.md](RELEASING.md) describes |
 
-Settings that Halogen reads at run time belong in `/srv/configs/halogen.env` on the machine,
+Put the settings that Halogen reads at run time in `/srv/configs/halogen.env` on the machine,
 not in the image. See [Configure](README.md#configure).
 
 ## Testing an ISO in a VM
 
-`tests/iso-install.sh` is what CI runs. It installs an ISO into a QEMU VM with Secure Boot and
-an emulated TPM, then logs in and checks the result. It needs `qemu-system-x86`, `ovmf`,
-`swtpm`, `tesseract-ocr` and `genisoimage`, plus KVM:
+CI runs `tests/iso-install.sh`. It installs an ISO into a QEMU VM with Secure Boot and an emulated
+TPM. Then it logs in and checks the result. It needs `qemu-system-x86`, `ovmf`, `swtpm`,
+`tesseract-ocr`, `genisoimage` and KVM:
 
 ```bash
 tests/iso-install.sh "$(find output -name '*.iso' | head -1)" "$(scripts/image-ref.sh)" install-test npu
 ```
 
-The VM has no GPU or NPU, so Halogen itself doesn't start there. Only real hardware can test
-that.
+The VM has no GPU and no NPU, so Halogen itself doesn't start there. Only a test on real hardware
+can check that.

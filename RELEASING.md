@@ -2,70 +2,76 @@
 
 ## Channels
 
-Git tags start a release. Each one must be on `main` and match `HALOGEN_VERSION` in
+A Git tag starts a release. The tag must be on `main`. It must also match `HALOGEN_VERSION` in
 `versions.env`.
 
 | Channel | Git tag | Image tag | Meaning | GitHub release |
 |---|---|---|---|---|
-| Edge | None, every push to `main` | `edge` | Newest build, for testing | None |
-| Kernel next | None, every push to `main` | `kernel-next` | Edge with a test kernel (now Linux 7.4-rc3 from Fedora 46) instead of Fedora 45's | None |
-| Alpha | `v0.18.23-alpha.1` | `0.18.23-alpha.1`, `alpha` | Builds and installs in a VM, not proven on hardware | Pre-release |
-| RC | `v0.18.23-rc.1` | `0.18.23-rc.1`, `rc` | Passed the hardware checklist on one machine, no known blockers | Pre-release |
+| Edge | None, every push to `main` | `edge` | Newest build, for tests | None |
+| Kernel next | None, every push to `main` | `kernel-next` | Edge with a test kernel (now Linux 7.4-rc3 from Fedora 46) in place of the Fedora 45 kernel | None |
+| Alpha | `v0.18.23-alpha.1` | `0.18.23-alpha.1`, `alpha` | Builds and installs in a VM. Not proven on hardware | Pre-release |
+| RC | `v0.18.23-rc.1` | `0.18.23-rc.1`, `rc` | Passed the hardware checklist on one machine. No known blockers | Pre-release |
 | Stable | `v0.18.23` | `0.18.23`, `stable`, `latest` | Recommended | Release |
-| Stable fix | `v0.18.23-r2` | `0.18.23`, `stable`, `latest` | Fix to this project on the same Halogen version | Release |
+| Stable fix | `v0.18.23-r2` | `0.18.23`, `stable`, `latest` | A fix to this project on the same Halogen version | Release |
 
-Add `-no-npu` to any image tag for the other edition, such as `0.18.23-rc.1-no-npu`.
+For the other edition, add `-no-npu` to an image tag, for example `0.18.23-rc.1-no-npu`.
 
-There is no beta step any more (since November 2026): an RC promotes the newest alpha. Old beta
-releases stay as they were, and the `beta` channel tag keeps moving with every RC and stable
-release, so a machine still following `beta` gets the same releases as `rc`.
+There is no beta step since November 2026: an RC promotes the newest alpha. Old beta releases
+stay as they were. The `beta` channel tag moves with every RC and stable release. Thus a machine
+that still follows `beta` gets the same releases as `rc`.
 
-`0.18.23` and the channel tags move. `0.18.23-alpha.1` and the like are never rebuilt. Each
-Monday, the newest *published* stable release is rebuilt with Fedora updates (a stable tag whose
-release run failed has no release, so it is never rebuilt).
+`0.18.23` and the channel tags move. The workflows never rebuild `0.18.23-alpha.1` and other
+exact tags. Each Monday, a workflow rebuilds the newest *published* stable release with Fedora
+updates. A stable tag whose release run failed has no release, so the workflow never rebuilds it.
 
 Each channel points to the newest release that is at least that stable. A stable release also
-moves `rc`, `beta` and `alpha`, and an RC also moves `beta` and `alpha`, unless that channel
-already has something newer. So a machine following `alpha` gets an RC or stable release when it
-is newer than the newest alpha. A channel never moves backwards:
-running an old release again moves none. `scripts/channels.sh` works this out from the git
-tags, for both the release and the Monday rebuild.
+moves `rc`, `beta` and `alpha`. An RC also moves `beta` and `alpha`. A channel does not move when
+it already has a newer release. Thus a machine on `alpha` gets an RC or stable release when that
+release is newer than the newest alpha. A channel never moves backwards: if you run an old release
+again, it moves no channel. `scripts/channels.sh` calculates this from the git tags, for the
+release and for the Monday rebuild.
 
-Machines pick a channel with `sudo halosctl switch alpha|rc|release|edge|kernel-next`, and
-`sudo halosctl upgrade` then fetches its newest release.
+To pick a channel on a machine, run `sudo halosctl switch alpha|rc|release|edge|kernel-next`.
+Then `sudo halosctl upgrade` gets the newest release of that channel.
 
-`kernel-next` is built and signed with `edge`, from the same commit, with the kernel
-`versions.env` pins (`KERNEL_NEXT_*`: exact Fedora packages, checked by sha256 and Fedora's
-signature, and the kernel's Secure Boot signature against the image's own shim) instead of Fedora
-45's. Releases never use it. It is for trying a newer kernel on the test machine; `sudo halosctl
-switch edge` goes back (`rollback` too, before any upgrade on it). The kernel-next update workflow
-(every Tuesday) opens a pull request when Fedora has a newer plain build (a release candidate's own
-build or a final release, never a debug snapshot); merging it moves the channel at the next push to
-`main`.
+The workflows build and sign `kernel-next` together with `edge`, from the same commit. It uses the
+kernel that `versions.env` pins (`KERNEL_NEXT_*`) in place of the Fedora 45 kernel. These are
+exact Fedora packages. The build checks their sha256 and Fedora's signature. It also checks the
+kernel's Secure Boot signature against the image's own shim. Releases never use `kernel-next`. It
+is for tests of a newer kernel on the test machine. To go back, run `sudo halosctl
+switch edge`. `rollback` also goes back, before any upgrade on `kernel-next`.
+
+The kernel-next update workflow runs every Tuesday. When Fedora has a newer plain build, the
+workflow opens a pull request. A plain build is the build of a release candidate or a final
+release, never a debug snapshot. When you merge the pull request, the channel moves at the next
+push to `main`.
 
 ## Cut a release
 
-On GitHub, open **Actions > Release > Run workflow**, keep the branch as `main`, pick what to
-release and choose **Run workflow**. You never type a tag: the workflow takes the next number.
+On GitHub, open **Actions > Release > Run workflow**. Keep the branch as `main`. Pick what to
+release. Then choose **Run workflow**. You never type a tag: the workflow takes the next number.
 
 | Pick | What it does | Example |
 |---|---|---|
 | `alpha` | Builds `main` as the next alpha | `v0.19.0-alpha.3` after alpha.2 |
-| `rc` | Promotes the newest published alpha: the same code, built again | alpha.3 becomes `v0.19.0-rc.1` |
+| `rc` | Promotes the newest published alpha: it builds the same code again | alpha.3 becomes `v0.19.0-rc.1` |
 | `stable` | Promotes the newest published RC. A second stable of the same version becomes `-r2` | `v0.19.0`, then `v0.19.0-r2` |
 
-Tick **from main** to build an RC or stable from `main` instead of promoting, for example
-for a stable fix.
+To build an RC or stable from `main` in place of a promotion, tick **from main**. Use this for
+example for a stable fix.
 
-Once a version has a stable release, an alpha or RC of that same version would be older than it
-for every channel, so it would reach no machine. The workflow stops at once in that case and says
-so. A halOS-only fix after a stable release goes out as **stable** with **from main** (it becomes
-`-r2`). Otherwise, the next alpha comes with the next Halogen version. Only published releases are promoted, so a tag whose run failed is skipped,
-but its number is never used again. A promotion builds the same code again, so Fedora packages
-can be newer than in the release it came from. Do not use **Draft a new release**, because the
-workflow creates the release itself.
+After a version has a stable release, an alpha or RC of that version is older than the stable
+release for every channel. Thus it gets to no machine. In that case, the workflow stops at once
+and tells you why. To release a halOS-only fix after a stable release, pick **stable** and tick
+**from main**. The release becomes `-r2`. Otherwise, the next alpha comes with the next Halogen
+version.
 
-You can still push a tag by hand from your own computer:
+The workflow promotes only published releases. Thus it skips a tag whose run failed, but it never
+uses that number again. A promotion builds the same code again, so its Fedora packages can be
+newer than in the release it came from. Do not use **Draft a new release**, because the workflow
+makes the release itself.
+
+You can also push a tag manually from your own computer:
 
 ```bash
 git checkout main && git pull
@@ -73,46 +79,56 @@ git tag v0.19.0-alpha.3
 git push origin v0.19.0-alpha.3
 ```
 
-Either way, the workflow runs checks, builds both images, runs a full VM install of each ISO, and
-then creates the GitHub release. The exact image tags (such as `0.19.0-alpha.3`) are pushed before
-the ISO tests run, since the tests install them; the channel tags (`alpha`, `rc`, `stable`,
-`latest`) move only once both installs pass, so no machine upgrades to a release that failed
-them, and the GitHub release is created last. One exception: a stable release's exact tag is
-the plain version (`0.19.0`), which a machine pinned to a stable release may follow, so it is
-pushed before the tests too. If a run fails, fix it on `main` and run it again: it takes the
-next number. A promotion builds its old code again, so a fix on `main` doesn't reach it: cut a
-new alpha and promote that, or tick **from main**.
+In the two cases, the workflow does these steps:
 
-A promotion takes the newest *published* release one step down. Check on the Releases page that
-it is the one you mean before promoting, for example that the alpha you tested is there.
+- It runs checks and builds the two images.
+- It pushes the exact image tags (for example `0.19.0-alpha.3`) before the ISO tests, because the
+  tests install them.
+- It runs a full VM install of each ISO.
+- It moves the channel tags (`alpha`, `rc`, `stable`, `latest`) only after the two installs pass.
+  Thus no machine upgrades to a release that failed them.
+- It makes the GitHub release last.
+
+One exception: the exact tag of a stable release is the plain version (`0.19.0`). A machine
+pinned to a stable release can follow that tag, so the workflow also pushes it before the tests.
+
+If a run fails, fix the problem on `main` and run the workflow again. It takes the next number. A
+promotion builds its old code again, so a fix on `main` does not get to it. Cut a new alpha and
+promote it, or tick **from main**.
+
+A promotion takes the newest *published* release one step down. Before you promote, look on the
+Releases page. Make sure that it is the release you want, for example the alpha that you tested.
 
 ## Signatures
 
-Every image the workflows push (edge, releases and the Monday rebuild) is signed twice with
-[cosign](https://docs.sigstore.dev/cosign/) (`scripts/sign-image.sh`), and the job checks both
-right away and fails if either is missing:
+The workflows push edge, the releases and the Monday rebuild. They sign every image twice with
+[cosign](https://docs.sigstore.dev/cosign/) (`scripts/sign-image.sh`). The job then checks the two
+signatures. If a signature is missing, the job fails.
 
-- **Keyless:** GitHub vouches that this repository's `build.yml`, `release.yml` or `refresh.yml`
-  made it. Sigstore's public transparency log records it: the repository, the workflow and the
-  image digest, nothing else.
-- **With halOS's own key**, which is what machines will check. Fedora's image checks can't recognise
-  GitHub's keyless identity, so a key pair does that job. The private key lives only in the
-  secrets `COSIGN_PRIVATE_KEY` and `COSIGN_PASSWORD` of the `signing` environment, which only
-  `main` and `v*` tags may use (and in the owner's password manager); the public key is [`files/etc/pki/containers/halos-flash.pub`](files/etc/pki/containers/halos-flash.pub),
-  in every image at `/etc/pki/containers/halos-flash.pub`.
+- **Keyless:** GitHub confirms that this repository's `build.yml`, `release.yml` or `refresh.yml`
+  made the image. Sigstore's public transparency log records the repository, the workflow and the
+  image digest, and nothing else.
+- **With halOS's own key:** machines check this signature. Fedora's image checks can't identify
+  GitHub's keyless identity, so a key pair does that job. The private key is only in the secrets
+  `COSIGN_PRIVATE_KEY` and `COSIGN_PASSWORD` of the `signing` environment, and in the owner's
+  password manager. Only `main` and `v*` tags can use that environment. The public key is
+  [`files/etc/pki/containers/halos-flash.pub`](files/etc/pki/containers/halos-flash.pub). Every
+  image has it at `/etc/pki/containers/halos-flash.pub`.
 
-Keep the private key and its password backed up. Machines enforce signatures (#46): they accept
-only images signed with the key they already have, so changing the key needs a bridge release
-signed with **both** the old and the new key and carrying both public keys. Machines upgrade to it
-with the old key and trust the new one from then on. If the old key is lost, no such bridge can be
-made, and each machine needs its policy changed by hand (or a reinstall) to move to a new key.
+**Warning:** Keep a backup of the private key and its password. Machines enforce signatures (#46):
+they accept only images signed with the key that they already have.
 
-If the key **leaked**, don't bridge: a release signed with it is exactly what an attacker could
-forge. Make a new pair and replace both secrets at once, ship the new public key in the image, and
-on each machine put it in place by hand before the next upgrade:
-`sudo cp halos-flash.pub /etc/pki/containers/halos-flash.pub`, then `sudo halosctl upgrade`.
+To change the key, you need a bridge release. Sign it with **both** the old and the new key, and
+put the two public keys in it. Machines upgrade to it with the old key. After that, they trust the
+new key. If you lose the old key, you cannot make a bridge release. Then you must change the
+policy on each machine manually, or reinstall it, to move to a new key.
 
-To check an image yourself with the key, with cosign installed:
+If the key **leaked**, do not make a bridge release: an attacker can forge a release signed with
+that key. Make a new key pair. Replace the two secrets at the same time. Put the new public key
+in the image. Before the next upgrade, put the new public key in place on each machine manually:
+`sudo cp halos-flash.pub /etc/pki/containers/halos-flash.pub`. Then run `sudo halosctl upgrade`.
+
+To check an image yourself with the key, install cosign, then run:
 
 ```bash
 cosign verify --key files/etc/pki/containers/halos-flash.pub ghcr.io/n4berius/halos-flash:rc
@@ -126,52 +142,53 @@ cosign verify ghcr.io/n4berius/halos-flash:rc \
   --certificate-identity-regexp '^https://github\.com/n4berius/halos-flash/\.github/workflows/(build|release|refresh)\.yml@refs/(heads/main|tags/v.+)$'
 ```
 
-Machines check the key's signature on every update; INSTALL.md, "Signed images", explains it for
+Machines check the key's signature at every update. INSTALL.md, "Signed images", explains this for
 owners.
 
 ## Move to a new Halogen version
 
 Every morning, the **Halogen update** workflow looks for a newer
 [halogen-flash-server](https://github.com/peonist-ai/halogen-flash-server/releases) release.
-When it finds one, it opens a pull request named "Move to Halogen x.y.z" that:
+When it finds one, it opens a pull request with the name "Move to Halogen x.y.z". The pull
+request does these things:
 
-- updates `HALOGEN_VERSION`, `HALOGEN_DIGEST`, `HALOGEN_SOURCE_COMMIT` and the three hashes
-  in `versions.env`,
-- regenerates the option lists from the new `docs/FLAGS.md` and names any added or removed
-  settings,
-- copies in upstream's release notes, and
-- starts the image build and the VM install test on its branch.
+- It updates `HALOGEN_VERSION`, `HALOGEN_DIGEST`, `HALOGEN_SOURCE_COMMIT` and the three hashes
+  in `versions.env`.
+- It makes the option lists again from the new `docs/FLAGS.md`, and names each added or removed
+  setting.
+- It copies in upstream's release notes.
+- It starts the image build and the VM install test on its branch.
 
-It leaves `HALOGEN_WEIGHTS_REVISION` alone. Change it by hand if the notes say the Flash
-checkpoints changed. To ask for a version now, open **Actions > Halogen update > Run
-workflow**, optionally with a version such as `0.19.0`. If you close its pull request without
-merging, delete its `halogen-update/x.y.z` branch to let the workflow open it again.
+It does not change `HALOGEN_WEIGHTS_REVISION`. If the notes say that the Flash checkpoints
+changed, change it manually. To ask for a version now, open **Actions > Halogen update > Run
+workflow**. You can give a version, for example `0.19.0`. If you close its pull request without a
+merge, delete its `halogen-update/x.y.z` branch. Then the workflow can open the pull request again.
 
 Then:
 
-1. Read the notes for host, NPU and setting changes that need work here, and push any of
-   that to the same branch.
-2. Merge once the builds and install tests pass, and start again at alpha.
+1. Read the notes for host, NPU and setting changes that need work here. Push that work to the
+   same branch.
+2. When the builds and install tests pass, merge the pull request. Then start again at alpha.
 
-The workflow needs **Settings > Actions > General > Workflow permissions > Allow GitHub
-Actions to create and approve pull requests** turned on. It never approves or merges
-anything.
+The workflow needs the setting **Settings > Actions > General > Workflow permissions > Allow
+GitHub Actions to create and approve pull requests**. Turn it on. The workflow never approves or
+merges anything.
 
-To do it by hand instead, clone halogen-flash-server and run
+To do this manually, clone halogen-flash-server. Then run
 `scripts/halogen-update.sh path/to/clone pr-body.md [version]`.
 
 ## Branch protection
 
-The rules live in `.github/rulesets/`. To apply them, go to **Settings > Rules > Rulesets**,
-choose **New ruleset > Import a ruleset**, pick a file, then choose **Create**. Do this once
-for each file.
+The rules are in `.github/rulesets/`. To apply them, go to **Settings > Rules > Rulesets**.
+Choose **New ruleset > Import a ruleset**. Pick a file. Then choose **Create**. Do this once for
+each file.
 
 | File | What it does |
 |---|---|
-| `protect-main.json` | Changes go through a pull request with passing builds of both editions. No force-pushes or deleting `main` |
-| `protect-release-tags.json` | Release tags cannot be moved or deleted, except by an admin |
+| `protect-main.json` | Changes go through a pull request with passing builds of the two editions. No force-pushes, and nobody can delete `main` |
+| `protect-release-tags.json` | Only an admin can move or delete release tags |
 
-The repository owner can still bypass both rules in an emergency. No approval is required,
-because GitHub does not let you approve your own pull request. The ISO install test is not
-a required check, because it only runs when certain files change, but check it before
-merging anything that touches the image or installer.
+In an emergency, the repository owner can still bypass the two rules. The rules require no
+approval, because GitHub does not let you approve your own pull request. The ISO install test is
+not a required check, because it runs only when some files change. Before you merge a change to
+the image or the installer, look at the result of that test.

@@ -1,8 +1,8 @@
 # Connecting apps and coding agents
 
-How to point an app at halOS, and, with HTTPS on, how to make it trust halOS's certificate. The
-commands are in the [command reference](CLI.md); HTTPS itself is in
-[INSTALL.md](../INSTALL.md#https).
+This page tells you how to connect an app to halOS. With HTTPS on, it also tells you how to make
+the app trust halOS's certificate. The [command reference](CLI.md) has the commands.
+[INSTALL.md](../INSTALL.md#https) explains HTTPS itself.
 
 ## What every app needs
 
@@ -11,14 +11,15 @@ commands are in the [command reference](CLI.md); HTTPS itself is in
 | Address (OpenAI-style APIs) | `http://<machine>:8731/v1`, or `https://…` with HTTPS on |
 | Address (Anthropic Messages API, Claude Code) | `http://<machine>:8731`, or `https://…`, without `/v1` |
 | API key | `sudo halogenctl api-key` on the machine |
-| Model name | `halogen-qwen3.8-flash-next`. Any name other than the NPU models' reaches it; `GET /v1/models` lists them all |
+| Model name | `halogen-qwen3.8-flash-next`. Each name that is not the name of an NPU model goes to this model. `GET /v1/models` lists all the models |
 
-Halogen speaks the OpenAI Chat Completions, Completions and Responses APIs and the Anthropic
+Halogen supports the OpenAI Chat Completions, Completions and Responses APIs and the Anthropic
 Messages API ([Halogen's API reference](https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/api.md)).
-Apps send the key as `Authorization: Bearer <key>` or `x-api-key: <key>`, whichever they use.
+Apps send the key as `Authorization: Bearer <key>` or `x-api-key: <key>`. Each app uses one of the
+two.
 
-Halogen's own guides cover each agent's settings beyond the address and key (reasoning effort,
-output limits, tool calls):
+Halogen's own guides give the other settings of each agent, for example reasoning effort, output
+limits and tool calls:
 [Claude Code](https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/claude-code.md),
 [Codex](https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/codex.md), and
 [Pi, oh-my-pi, opencode, Cline, Roo Code, aider and others](https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/agent-harness.md).
@@ -28,43 +29,44 @@ output limits, tool calls):
 | HTTPS mode (`sudo halosctl https`) | What apps need |
 |---|---|
 | off | Nothing: `http://` |
-| letsencrypt | Nothing: every app already trusts Let's Encrypt. Use the public name, such as `https://halos.example.com:8731/v1`; the machine's own addresses keep halOS's authority, as below |
+| letsencrypt | Nothing: all apps already trust Let's Encrypt. Use the public name, for example `https://halos.example.com:8731/v1`. The machine's own addresses keep halOS's authority, as below |
 | custom, from a public authority | Nothing. Use the name on the certificate |
 | custom, from your own authority | Trust your authority, as below |
-| self-signed | Trust halOS's authority once, as below |
+| self-signed | Trust halOS's authority one time, as below |
 
 ## Getting halOS's authority
 
-On the machine:
+On the machine, run:
 
 ```bash
 sudo halosctl https ca > halos-ca.crt
 ```
 
-Then copy it to your own computer (with `admin` being your user on the machine):
+Then copy the file to your own computer. In this example, `admin` is your user on the machine:
 
 ```bash
 scp admin@<machine>:halos-ca.crt ~/
 ```
 
-Compare its fingerprint with the one `sudo halosctl https` shows on the machine:
+Compare its fingerprint with the fingerprint that `sudo halosctl https` shows on the machine:
 
 ```bash
 openssl x509 -in ~/halos-ca.crt -noout -fingerprint -sha256
 ```
 
-Use an address the certificate covers: `sudo halosctl https` lists them (localhost, the host
-name, the `.local` name and every address of the machine, Tailscale's included). A name it
-doesn't list is refused. To add names, list all of them, since they replace the ones given
-before: `sudo halosctl https self-signed <name1> <name2>`.
+Use an address that the certificate covers. `sudo halosctl https` lists these addresses: localhost,
+the host name, the `.local` name and all addresses of the machine, also Tailscale's. The machine
+refuses a name that is not on the list. To add names, give all the names: the new list replaces
+the names that you gave before. Run `sudo halosctl https self-signed <name1> <name2>`.
 
 ## Trust it per app, or on the whole computer
 
-**Per app** (recommended): each app below trusts halOS's authority and nothing else changes. An
-authority trusted by the whole computer could vouch for any website, so anyone who stole it from
-the machine could pass for any site on that computer.
+**Per app** (recommended): each app below trusts halOS's authority, and nothing else changes. An
+authority that the whole computer trusts can confirm any website. Thus a person who steals it
+from the machine can act as any site on that computer.
 
-**The whole computer**, when an app has no setting of its own (VS Code extensions, browsers):
+**The whole computer**: use this when an app has no setting of its own (VS Code extensions,
+browsers):
 
 | System | Commands |
 |---|---|
@@ -73,20 +75,21 @@ the machine could pass for any site on that computer.
 | macOS | `sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain halos-ca.crt` |
 | Windows | `certutil -addstore -f Root halos-ca.crt` (as administrator) |
 
-Restart the app afterwards. To undo: remove the file and run the same update command (macOS:
-Keychain Access; Windows: `certmgr.msc`). For a browser and the dashboard alone, accepting the
-browser's warning once is enough.
+Then restart the app. To undo the change, remove the file and run the same update command. On
+macOS, use Keychain Access. On Windows, use `certmgr.msc`. For a browser and the dashboard only,
+it is sufficient to accept the browser's warning one time.
 
 ## Per agent
 
-Each setting below is read when the app starts, so set it in the shell (or service) that starts
-the app, then restart it. In the examples, `192.168.1.20` is the machine and `HALOS_API_KEY` holds
-the key from `sudo halogenctl api-key`. These come from each project's own documentation and
-source (November 2026); none was tried against halOS yet, so tell us what works.
+Each app reads the setting below when it starts. Thus put the setting in the shell (or service)
+that starts the app. Then restart the app. In the examples, `192.168.1.20` is the machine.
+`HALOS_API_KEY` holds the key from `sudo halogenctl api-key`. These settings come from the
+documentation and source of each project (November 2026). We did not try them against halOS yet,
+so tell us what works.
 
-"Adds" means the app trusts halOS on top of every website it already trusts; "replaces" means it
-then trusts only the file you give it (see the bundle below). The second column is what the app
-is written in, which decides the setting it reads.
+"Adds" means that the app trusts halOS together with all the websites that it already trusts.
+"Replaces" means that the app then trusts only the file that you give it (see the bundle below).
+The second column gives the language of the app. The language sets which setting the app reads.
 
 | Agent | Written in | Trust halOS's authority with | Adds to, or replaces, the usual authorities |
 |---|---|---|---|
@@ -101,15 +104,15 @@ is written in, which decides the setting it reads.
 | [hermes-agent](#hermes-agent) | Python | `ssl_ca_cert:` in the provider's settings | **Replaces**, for that provider |
 | [OpenAI SDKs, curl](#scripts-openai-sdks-and-curl) | | See below | |
 
-"Replaces" means the app then trusts only that file. Its other services (such as downloading
-model lists from the internet) stop working unless the file also holds the usual authorities, so
-make a bundle:
+"Replaces" means that the app then trusts only that file. Thus its other services stop, for
+example the download of model lists from the internet. They work only if the file also holds the
+usual authorities. Thus make a bundle:
 
 ```bash
 cat "$(python3 -m certifi)" halos-ca.crt > halos-bundle.pem
 ```
 
-(`python3 -m pip install certifi` first if it says there is no such module.)
+If it says that there is no such module, run `python3 -m pip install certifi` first.
 
 ### Pi and oh-my-pi
 
@@ -134,7 +137,7 @@ Pi's `~/.pi/agent/models.json` ([Pi's models guide](https://github.com/earendil-
 }
 ```
 
-oh-my-pi's `~/.omp/agent/models.yml`, where `apiKey` is the name of the variable, without `$`:
+oh-my-pi's `~/.omp/agent/models.yml`. Here `apiKey` is the name of the variable, without `$`:
 
 ```yaml
 providers:
@@ -146,11 +149,10 @@ providers:
       - id: halogen-qwen3.8-flash-next
 ```
 
-Pi's per-provider environment settings in `auth.json`
-can't carry the authority: Node reads it only when it starts. oh-my-pi also reads
-`NODE_EXTRA_CA_CERTS` from `~/.omp/agent/.env`. Pi's prebuilt single-file binaries run on Bun
-rather than Node; if one of them still reports a certificate error, trust the authority on the
-whole computer instead.
+Pi's per-provider environment settings in `auth.json` can't hold the authority, because Node
+reads it only when it starts. oh-my-pi also reads `NODE_EXTRA_CA_CERTS` from `~/.omp/agent/.env`.
+Pi's prebuilt single-file binaries run on Bun, not on Node. If one of them still shows a
+certificate error, trust the authority on the whole computer.
 
 ### opencode
 
@@ -159,11 +161,11 @@ export NODE_EXTRA_CA_CERTS=~/halos-ca.crt
 opencode
 ```
 
-If opencode runs as a background service, give the service the setting too: `opencode service
-set env NODE_EXTRA_CA_CERTS ~/halos-ca.crt`, then restart the service. opencode also trusts the
-computer's store. halOS goes in `opencode.json` as an OpenAI-compatible provider with its
+If opencode runs as a background service, also give the setting to the service: `opencode service
+set env NODE_EXTRA_CA_CERTS ~/halos-ca.crt`. Then restart the service. opencode also trusts the
+computer's store. In `opencode.json`, add halOS as an OpenAI-compatible provider. Give its
 `baseURL`, the key and the model `halogen-qwen3.8-flash-next` under `"models"`
-([opencode's providers guide](https://opencode.ai/docs/providers/)). With a proxy set
+([opencode's providers guide](https://opencode.ai/docs/providers/)). If you use a proxy
 (`HTTPS_PROXY`), add `NO_PROXY=localhost,127.0.0.1,::1,192.168.1.20`.
 
 ### Codex
@@ -187,9 +189,9 @@ env_key = "HALOS_API_KEY"
 requires_openai_auth = false
 ```
 
-Use `CODEX_CA_CERTIFICATE`, not `SSL_CERT_FILE`: Codex treats `SSL_CERT_FILE` as the only
-authorities to trust, and then can't reach OpenAI's own servers. `codex doctor` checks the file
-can be read. More in [Halogen's Codex guide](https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/codex.md).
+Use `CODEX_CA_CERTIFICATE`, not `SSL_CERT_FILE`. Codex trusts only the authorities in
+`SSL_CERT_FILE`, and then it can't connect to OpenAI's own servers. `codex doctor` checks that
+Codex can read the file. For more, see [Halogen's Codex guide](https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/codex.md).
 
 ### Claude Code
 
@@ -201,19 +203,19 @@ export CLAUDE_CODE_MAX_OUTPUT_TOKENS=32000
 claude
 ```
 
-`NODE_EXTRA_CA_CERTS` can also go in the `env` section of `~/.claude/settings.json`. Claude Code
-also trusts the computer's store. The address has no `/v1`. More, including why the output limit,
-in [Halogen's Claude Code guide](https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/claude-code.md).
+You can also put `NODE_EXTRA_CA_CERTS` in the `env` section of `~/.claude/settings.json`. Claude
+Code also trusts the computer's store. The address has no `/v1`. For more, also the reason for
+the output limit, see [Halogen's Claude Code guide](https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/claude-code.md).
 
 ### Cline and Roo Code
 
-The VS Code extensions have no certificate setting of their own: VS Code gives them the
-computer's trusted authorities (its `http.systemCertificates` setting, on by default). Add
-halOS's authority to the computer's store (above), then run "Developer: Reload Window". In the
-extension, pick the "OpenAI Compatible" provider, with Base URL `https://192.168.1.20:8731/v1` and
-the key.
+The VS Code extensions have no certificate setting of their own. VS Code gives them the
+authorities that the computer trusts (its `http.systemCertificates` setting, on by default). Add
+halOS's authority to the computer's store (above). Then run "Developer: Reload Window". In the
+extension, pick the "OpenAI Compatible" provider. Give the Base URL `https://192.168.1.20:8731/v1`
+and the key.
 
-The Cline command-line tool reads `NODE_EXTRA_CA_CERTS` (it adds the computer's store too).
+The Cline command-line tool reads `NODE_EXTRA_CA_CERTS`. It also adds the computer's store.
 
 ### aider
 
@@ -225,13 +227,13 @@ export OPENAI_API_KEY=<the key>
 aider --model openai/halogen
 ```
 
-`SSL_CERT_FILE` replaces the usual authorities, hence the bundle. Don't use `--no-verify-ssl`:
-it turns the check off for every site.
+`SSL_CERT_FILE` replaces the usual authorities, so you need the bundle. Do not use
+`--no-verify-ssl`: it stops the check for all sites.
 
 ### hermes-agent
 
-In `~/.hermes/config.yaml`, give halOS's provider the authority; it is used for that provider
-only:
+In `~/.hermes/config.yaml`, give the authority to halOS's provider. hermes-agent uses it only for
+that provider:
 
 ```yaml
 providers:
@@ -242,8 +244,8 @@ providers:
     ssl_ca_cert: /home/you/halos-ca.crt
 ```
 
-Setting `SSL_CERT_FILE` doesn't help here: hermes-agent then uses only the computer's store for
-providers. Adding the authority to the computer's store works too.
+`SSL_CERT_FILE` does not help here: with it, hermes-agent uses only the computer's store for
+providers. You can also add the authority to the computer's store.
 
 ### Scripts: OpenAI SDKs and curl
 
@@ -251,7 +253,7 @@ providers. Adding the authority to the computer's store works too.
 curl --cacert halos-ca.crt -H "Authorization: Bearer $HALOS_API_KEY" https://192.168.1.20:8731/v1/models
 ```
 
-Python (`openai`): set `SSL_CERT_FILE` to a bundle as for aider, or pass an SSL context:
+Python (`openai`): set `SSL_CERT_FILE` to a bundle, as for aider. Or give an SSL context:
 
 ```python
 import os, ssl, openai
@@ -260,21 +262,24 @@ client = openai.OpenAI(base_url="https://192.168.1.20:8731/v1", api_key=os.envir
                        http_client=openai.DefaultHttpxClient(verify=ctx))
 ```
 
-(Version 3 of the `openai` package also offers `DefaultHttpx2Client`; `DefaultHttpxClient` still
-works.)
+Version 3 of the `openai` package also has `DefaultHttpx2Client`. `DefaultHttpxClient` still
+works.
 
 Node (`openai`): start Node with `NODE_EXTRA_CA_CERTS=halos-ca.crt`.
 
 ## When it doesn't connect
 
 - **"self-signed certificate in certificate chain", "unable to get local issuer certificate",
-  `CERTIFICATE_VERIFY_FAILED`**: the app doesn't trust the authority yet. Check the setting is in
-  the environment of the process that runs the app (restart it), and that the file is the one
-  `sudo halosctl https ca` prints.
-- **"Hostname/IP does not match", "certificate is not valid for …"**: the address isn't covered.
-  `sudo halosctl https` lists the covered ones; to add names, give all of them (they replace the
-  earlier ones): `sudo halosctl https self-signed <name1> <name2>`. A new address of the machine is covered within a minute.
-- **Nothing answers, or a proxy error**: with a proxy set (`HTTPS_PROXY`), add the machine's
-  address to `NO_PROXY` (the exact address; not every app understands ranges).
-- **Connection reset**: the machine's firewall and port. `sudo halogenctl selftest` checks both,
-  and `curl -k https://<machine>:8731/health` from your computer shows whether Caddy answers.
+  `CERTIFICATE_VERIFY_FAILED`**: the app doesn't trust the authority yet. Make sure that the
+  setting is in the environment of the process that runs the app, and restart the app. Make sure
+  that the file is the one that `sudo halosctl https ca` shows.
+- **"Hostname/IP does not match", "certificate is not valid for …"**: the certificate does not
+  cover the address. `sudo halosctl https` lists the covered addresses. To add names, give all
+  the names, because the new list replaces the earlier names:
+  `sudo halosctl https self-signed <name1> <name2>`. The certificate covers a new address of the
+  machine in a minute or less.
+- **Nothing answers, or a proxy error**: if you use a proxy (`HTTPS_PROXY`), add the machine's
+  address to `NO_PROXY`. Give the exact address, because not all apps understand ranges.
+- **Connection reset**: look at the machine's firewall and port. `sudo halogenctl selftest`
+  checks the two. From your computer, `curl -k https://<machine>:8731/health` shows whether Caddy
+  answers.

@@ -109,7 +109,8 @@ Caddy, fail2ban, `halogenctl`, `halosctl`, and every other product, command and 
    python3 .claude/skills/ste100/check.py --base origin/main FILE.md
    ```
 
-   It compares every code block, inline code span, link target and number with the base
+   It compares every code block, inline code span, link target and number (step numbers of a
+   numbered list don't count) with the base
    version, and checks that every `#anchor` link in the repository still resolves. Fix every
    problem it reports. A number that you removed on purpose (a repeated one) is the only
    acceptable difference: say so in your report.

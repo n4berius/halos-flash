@@ -53,6 +53,7 @@ def parts(text):
     links = LINK.findall(plain)
     plain = LINK.sub("]( )", plain)
     plain = re.sub(r"<[^>]+>", " ", plain)  # HTML tags and autolinks
+    plain = re.sub(r"(?m)^(\s*)\d+[.)]\s", r"\1", plain)  # numbered-list markers are layout, not facts
     numbers = NUMBER.findall(plain)
     return blocks, inline, links, numbers
 
