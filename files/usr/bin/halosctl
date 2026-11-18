@@ -465,6 +465,9 @@ case "$cmd" in
       # keeps its own release), not necessarily the one running.
       case "$tag" in *@*) tag="$(field "$next" version)" ;; *:*) tag="${tag##*:}"; tag="${tag%-no-npu}" ;; *) tag="" ;; esac
       [ -n "$tag" ] || tag="${HALOS_RELEASE:-}"
+      # A stable rebuild (0.20.6-r2) is published under its plain version (scripts/release-info.sh),
+      # which the other edition has too.
+      [[ ! "$tag" =~ ^[0-9]+\.[0-9]+\.[0-9]+-r[0-9]+$ ]] || tag="${tag%-r*}"
       [[ "$tag" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$ ]] \
         || die "this machine follows no channel and its release ($tag) has no tag for the other edition. Follow a channel first: sudo halosctl switch <channel>"
       target="$(repo):$tag$new"; pin=pin

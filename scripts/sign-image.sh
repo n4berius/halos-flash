@@ -59,9 +59,12 @@ if [ "$verify_only" = 1 ]; then
   exit 0
 fi
 
-# Refs are repo:tag (what the workflows push), with no registry port.
-repo="${1%:*}"
-digest="$(skopeo inspect --format '{{.Digest}}' "docker://$1")"
+# Refs are repo:tag or repo@sha256:<digest> (what the workflows push), with no registry port. A
+# digest is signed as given: the release signs exactly what it pushed, even if the tag moved since.
+case "$1" in
+  *@sha256:*) repo="${1%@*}"; digest="${1#*@}" ;;
+  *) repo="${1%:*}"; digest="$(skopeo inspect --format '{{.Digest}}' "docker://$1")" ;;
+esac
 case "$digest" in sha256:[0-9a-f]*) ;; *) echo "no digest for $1: $digest" >&2; exit 1 ;; esac
 echo "Signing $repo@$digest"
 cosign sign --yes "$repo@$digest"

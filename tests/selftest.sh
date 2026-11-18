@@ -52,7 +52,7 @@ case "${FAKE_AUDIT:-halos}" in
   fedora) echo "-a never,task" ;;
   few) printf "%s\n" "$ex" "$w" ;; esac'
 f firewall-cmd 'case "$1" in --state) echo "${FAKE_FIREWALL:-running}" ;; --get-default-zone) echo FedoraServer ;; *) cat "$FAKE/services" ;; esac'
-f lsblk 'echo "/dev/nvme0n1p3 crypto_LUKS"'
+f lsblk 'echo "${FAKE_LSBLK-/dev/nvme0n1p3 crypto_LUKS}"'
 f cryptsetup 'printf "Tokens:\n  0: systemd-tpm2\n"'
 f amd-smi 'if [ -n "${FAKE_NOGPU:-}" ]; then echo "ERROR:root:Unable to detect any GPU devices"; exit 255; fi; printf "GPU: 0\n    BDF: 0000:c3:00.0\n"'
 f systemd-run 'case "$*" in *render-config*) printf "%s\n" "${FAKE_RENDER:-HALOGEN_CHECKPOINT=/models/qwen38-flash-next-v2.hgn}" ;; *) echo "preflight: ok" ;; esac'
@@ -340,6 +340,11 @@ FAKE_SSHU='ssh-unlock: no EFI system partition found' "$selftest" > "$work/out" 
 expect '^WARN ssh-unlock:.*no EFI system partition'
 FAKE_VERIFY=1 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN ssh-unlock:.*differ from the record'
 FAKE_VERIFY=2 "$selftest" > "$work/out" 2>&1 || true; expect '^INFO ssh-unlock:.*ssh-unlock record'
+# Without encryption: no ssh-unlock line, unless keys were left on the EFI partition.
+FAKE_LSBLK='/dev/nvme0n1p2 xfs' FAKE_SSHU=off "$selftest" > "$work/out" 2>&1 || true
+expect '^INFO luks: no encrypted volume'; refuse '^[A-Z]+ ssh-unlock:'
+FAKE_LSBLK='/dev/nvme0n1p2 xfs' FAKE_SSHU='on 1' "$selftest" > "$work/out" 2>&1 || true
+expect "^WARN ssh-unlock: the disk isn't encrypted, yet SSH unlock keys"
 ok "unlocking over SSH is shown when set up, offered when not, and a warning when unreadable"
 
 rm "$fake/mokutil" "$fake/amd-smi"
