@@ -53,7 +53,7 @@ done
 # it points to. halOS never makes a link there (hf writes plain files, also in its .cache), so any
 # link, or anything but files and folders, stops the start. One find each, stopping at the first.
 m="${HALOGEN_MODELS_DIR:-/srv/models}"
-for f in qwen38-flash-next-v2.hgn qwen38-flash-next-ngram.hgn qwen38-flash-next-drafter-r2.hgn qwen38-flash-next-vision.hgn tokenizer; do
+for f in qwen38-flash-next-v2.hgn qwen38-flash-next-ngram.hgn qwen38-flash-next-drafter-r2-ht4.hgn qwen38-flash-next-drafter-r2.hgn qwen38-flash-next-vision.hgn tokenizer; do
   if [ -L "$m/$f" ]; then
     fail "$m/$f is a link. Restart Halogen (sudo halogenctl restart): the fetch removes it and downloads the file again"
   fi

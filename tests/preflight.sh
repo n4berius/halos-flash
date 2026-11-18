@@ -34,6 +34,7 @@ rm "$work/models/npu"
 mkdir -p "$work/models/npu/embed" "$work/models/tokenizer"; : > "$work/models/npu/embed/a.hnpw"; : > "$work/models/tokenizer/tokenizer.json"; run > /dev/null
 ln -s "$work/elsewhere" "$work/models/qwen38-flash-next-ngram.hgn"; expect_fail "a link at an official file"; rm "$work/models/qwen38-flash-next-ngram.hgn"
 ln -s "$work/elsewhere" "$work/models/qwen38-flash-next-drafter-r2.hgn"; expect_fail "a link at the draft head"; rm "$work/models/qwen38-flash-next-drafter-r2.hgn"
+ln -s "$work/elsewhere" "$work/models/qwen38-flash-next-drafter-r2-ht4.hgn"; expect_fail "a link at the -ht4 draft head"; rm "$work/models/qwen38-flash-next-drafter-r2-ht4.hgn"
 ln -s "$work/elsewhere" "$work/models/npu/embed/b.hnpw"; expect_fail "a link inside the NPU folder"; rm "$work/models/npu/embed/b.hnpw"
 mkfifo "$work/models/npu/embed/fifo"; expect_fail "a FIFO inside the NPU folder"; rm "$work/models/npu/embed/fifo"
 ln -s "$work/elsewhere" "$work/models/tokenizer/merges.txt"; expect_fail "a link inside the tokenizer folder"; rm "$work/models/tokenizer/merges.txt"
