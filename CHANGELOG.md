@@ -15,12 +15,12 @@ promoted.
   moved first). The weekly stable rebuild takes the newest *published* stable release, not just
   the newest tag. An alpha or RC that no machine would get (because a newer stable of the same
   version exists) now stops at once with an explanation, instead of building for 40 minutes and
-  reaching nobody. (#PRNUM)
+  reaching nobody. (#150)
 - On a machine without disk encryption: `halogen-enroll-tpm` says the disk isn't encrypted
   instead of a confusing error, and the selftest warns when SSH unlock keys were left on the EFI
   partition (every boot would start an SSH server for nothing; `sudo halosctl ssh-unlock off`
   removes them). `sudo halosctl npu on|off` now works on a machine pinned to a stable rebuild
-  such as `0.20.6-r2`. (#PRNUM)
+  such as `0.20.6-r2`. (#150)
 - LFM3-1.7B's fastest form on the NPU, `:qad` (Halogen 0.20.6): `sudo halogenctl model pull
   LiquidAI/LFM3-1.7B --qad` also fetches Liquid's own 4-bit file, from the exact source Halogen's
   image names, and then `/models/LFM/LFM3-1.7B:qad` can go in `HALOGEN_NPU_MODELS` (served as

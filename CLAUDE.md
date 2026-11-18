@@ -999,7 +999,7 @@ name, but allows saying halOS runs Halogen.
   `tests/halogenctl.sh` runs the real helpers through the fake `systemd-run` with `FAKE_BEFORE`
   standing in for another terminal during the question.
 
-- Release path (#PRNUM, code review): `release.yml`'s `image` job pushes and signs only the exact
+- Release path (#150, code review): `release.yml`'s `image` job pushes and signs only the exact
   tag; the `channels` job (`needs: [info, iso]`, holds the `channel-tags-<edition>` concurrency
   group shared with `refresh.yml`) works the channels out then with main's `channels.sh`, and
   copies the tested digest to each channel tag with `skopeo copy --all --preserve-digests`,
