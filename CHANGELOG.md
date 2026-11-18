@@ -21,6 +21,13 @@ promoted.
   partition (every boot would start an SSH server for nothing; `sudo halosctl ssh-unlock off`
   removes them). `sudo halosctl npu on|off` now works on a machine pinned to a stable rebuild
   such as `0.20.6-r2`. (#150)
+- Halogen 0.20.7: the concurrency mode is now Halogen's default, and one request alone is at least
+  as fast in it (upstream: 3 to 29% more total throughput with several requests, about 4 to 6%
+  faster single replies). `HALOGEN_CONC_MODE=0` in `halogen.env` goes back to the previous mode.
+  Halogen also has a faster draft head (`qwen38-flash-next-drafter-r2-ht4.hgn`, 1.39 GiB): the
+  first start after the upgrade downloads only that file and checks every official file once.
+  0.20.6's draft head stays on disk for a rollback and is checked too when kept; a new install
+  doesn't download it. The Flash checkpoints and the NPU models are unchanged. (#148, #149)
 - LFM3-1.7B's fastest form on the NPU, `:qad` (Halogen 0.20.6): `sudo halogenctl model pull
   LiquidAI/LFM3-1.7B --qad` also fetches Liquid's own 4-bit file, from the exact source Halogen's
   image names, and then `/models/LFM/LFM3-1.7B:qad` can go in `HALOGEN_NPU_MODELS` (served as

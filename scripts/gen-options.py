@@ -17,6 +17,7 @@ DEFAULTS = {"RECORD_TEXT": "none on halOS (counts only; recording is off until: 
             "CACHE_PRUNE_OLD": "1 on halOS (an upgrade removes the previous version's cache files; 0 keeps them for a rollback)",
             # Halogen takes a path here; halOS (render-config) accepts only none, the way back to the
             # checkpoint's own draft head (0.20.6). A path would reach files halOS doesn't check.
+            "CONC_MODE": "unset (the concurrency mode wherever it can run); 0 starts the previous default mode",
             "CK_OVERLAY": "unset (the draft head beside the checkpoint). On halOS only none is accepted: the checkpoint's own head; with a checkpoint that uses a quality sidecar (.overlay.hgn), none also runs it without the sidecar (lower quality)"}
 NPU_ONLY = re.compile(r"^(NPU_|GUARD_|AGENT_GUARD$)")
 ACTIVE = {

@@ -300,11 +300,14 @@ ok "the selftest names the HTTPS mode, checks Caddy answers in it, and warns of 
 "$selftest" > "$work/out" 2>&1 || true
 expect '^INFO weights: last downloaded from weights commit 8ef7ad828f7f'
 # An upgraded machine (Halogen 0.20.6) has the draft head from the new pin beside v2 from the old:
-# the newest record is the one shown.
+# the newest record is the one shown; after 0.20.7 the -ht4 draft head's.
 printf 'bd9765dfc69d2ae86eea8f00a5bd93a405c2ad7a\n' > "$work/models/.cache/huggingface/download/qwen38-flash-next-drafter-r2.hgn.metadata"
 "$selftest" > "$work/out" 2>&1 || true
 expect '^INFO weights: last downloaded from weights commit bd9765dfc69d'
-rm "$work/models/.cache/huggingface/download/qwen38-flash-next-drafter-r2.hgn.metadata"
+printf '05ec74b75cd68c4d6486d15825f2fc73b2ffe304\n' > "$work/models/.cache/huggingface/download/qwen38-flash-next-drafter-r2-ht4.hgn.metadata"
+"$selftest" > "$work/out" 2>&1 || true
+expect '^INFO weights: last downloaded from weights commit 05ec74b75cd6'
+rm "$work/models/.cache/huggingface/download/qwen38-flash-next-drafter-r2.hgn.metadata" "$work/models/.cache/huggingface/download/qwen38-flash-next-drafter-r2-ht4.hgn.metadata"
 if ! { grep -q "runuser -u halogen -- cat $work/configs/api-key" "$work/runuser.log" &&
        grep -q "runuser -u halogen -- head -n 1 $work/models/.cache" "$work/runuser.log"; }; then
   echo "the API key or weights record was read as root" >&2; exit 1

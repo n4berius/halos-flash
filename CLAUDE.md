@@ -1193,6 +1193,18 @@ and tracked on the owner's project board. [ROADMAP.md](ROADMAP.md) holds the ord
   `/health` answer 503 `engine_stalled`: login-status shows "starting", the selftest's `api-ipv4`
   FAILs and `bench` refuses while it lasts; no restart follows (the Quadlet has no Health keys and
   the image no Healthcheck).
+- **Halogen 0.20.7** (#148, the update workflow's PR, finished by hand in #149): the
+  concurrency mode is the default (`HALOGEN_CONC_MODE` unset = on wherever it can run, `0` = the old
+  mode; the entrypoint falls back with one startup line beside a GGUF, w4b or `HALOGEN_MTP=0`), and a
+  new draft head `qwen38-flash-next-drafter-r2-ht4.hgn` (1.39 GiB, weights commit `5c72aef`; the pin
+  moved to `05ec74b`, a README upload after it, with every other file's hash unchanged). The
+  entrypoint reads `-ht4` beside the checkpoint, else 0.20.6's `drafter-r2` (`DRAFTER_PREV`). The
+  `-ht4` file replaced `drafter-r2` in the official list (`fetch-in-container`, `fetch-models`,
+  `weights-sums.sh`, the tests); `drafter-r2` is no longer fetched, but one kept on disk stays for a
+  rollback, is hashed like a kept vision tower (`weights.sha256` still lists it) and a link at its
+  name is removed and refused (`preflight`) as before. FLAGS.md changed only `HALOGEN_CONC_MODE`'s and
+  `HALOGEN_CK_OVERLAY`'s text and a vision timing; host-setup only image tags; `models.txt` is
+  byte-identical to 0.20.6's (read from the layer), so no NPU program downloads again.
 - The ISO install test also runs when `versions.env` changes (#78), so every Halogen update PR
   gets the LUKS + TPM install in a VM, about 30 minutes for both editions.
 - Known upstream: bootc 1.17.1 rewrites `/etc/fstab` at every boot on Anaconda installs

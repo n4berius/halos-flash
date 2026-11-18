@@ -50,9 +50,9 @@ if [ "${FETCH_MODE:-}" = probe ]; then
   exit 0
 fi
 
-# The draft head (since Halogen 0.20.6) is read beside the official checkpoint; the server never
+# The draft head (since Halogen 0.20.6; its -ht4 form since 0.20.7) is read beside the official checkpoint; the server never
 # downloads it here, so the fetch does.
-flash_files="qwen38-flash-next-v2.hgn qwen38-flash-next-ngram.hgn qwen38-flash-next-drafter-r2.hgn"
+flash_files="qwen38-flash-next-v2.hgn qwen38-flash-next-ngram.hgn qwen38-flash-next-drafter-r2-ht4.hgn"
 [ -z "$VISION" ] || flash_files="$flash_files qwen38-flash-next-vision.hgn"
 missing=""
 for f in $flash_files; do [ -f "$root/$f" ] || missing="$missing $f"; done
