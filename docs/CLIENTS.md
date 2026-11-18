@@ -62,7 +62,7 @@ the names that you gave before. Run `sudo halosctl https self-signed <name1> <na
 ## Trust it per app, or on the whole computer
 
 **Per app** (recommended): each app below trusts halOS's authority, and nothing else changes. An
-authority that the whole computer trusts can confirm any website. Thus a person who steals it
+authority that the whole computer trusts can confirm any website. So a person who steals it
 from the machine can act as any site on that computer.
 
 **The whole computer**: use this when an app has no setting of its own (VS Code extensions,
@@ -81,7 +81,7 @@ it is sufficient to accept the browser's warning one time.
 
 ## Per agent
 
-Each app reads the setting below when it starts. Thus put the setting in the shell (or service)
+Each app reads the setting below when it starts. So put the setting in the shell (or service)
 that starts the app. Then restart the app. In the examples, `192.168.1.20` is the machine.
 `HALOS_API_KEY` holds the key from `sudo halogenctl api-key`. These settings come from the
 documentation and source of each project (November 2026). We did not try them against halOS yet,
@@ -104,9 +104,9 @@ The second column gives the language of the app. The language sets which setting
 | [hermes-agent](#hermes-agent) | Python | `ssl_ca_cert:` in the provider's settings | **Replaces**, for that provider |
 | [OpenAI SDKs, curl](#scripts-openai-sdks-and-curl) | | See below | |
 
-"Replaces" means that the app then trusts only that file. Thus its other services stop, for
-example the download of model lists from the internet. They work only if the file also holds the
-usual authorities. Thus make a bundle:
+"Replaces" means that the app then trusts only that file. Its other services (for example, the
+download of model lists from the internet) stop unless the file also holds the usual
+authorities. So make a bundle:
 
 ```bash
 cat "$(python3 -m certifi)" halos-ca.crt > halos-bundle.pem
@@ -189,8 +189,8 @@ env_key = "HALOS_API_KEY"
 requires_openai_auth = false
 ```
 
-Use `CODEX_CA_CERTIFICATE`, not `SSL_CERT_FILE`. Codex trusts only the authorities in
-`SSL_CERT_FILE`, and then it can't connect to OpenAI's own servers. `codex doctor` checks that
+Use `CODEX_CA_CERTIFICATE`, not `SSL_CERT_FILE`. If you set `SSL_CERT_FILE`, Codex trusts only the
+authorities in it, and then it can't connect to OpenAI's own servers. `codex doctor` checks that
 Codex can read the file. For more, see [Halogen's Codex guide](https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/codex.md).
 
 ### Claude Code
@@ -204,7 +204,7 @@ claude
 ```
 
 You can also put `NODE_EXTRA_CA_CERTS` in the `env` section of `~/.claude/settings.json`. Claude
-Code also trusts the computer's store. The address has no `/v1`. For more, also the reason for
+Code also trusts the computer's store. The address has no `/v1`. For more information, including the reason for
 the output limit, see [Halogen's Claude Code guide](https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/claude-code.md).
 
 ### Cline and Roo Code

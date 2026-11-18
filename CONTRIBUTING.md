@@ -4,7 +4,7 @@
 2. Run `tests/run.sh`. If you changed `src/caddy`, also run `scripts/go-test.sh` (it needs Go
    and the network).
 3. Do not change Halogen. This project configures and deploys it.
-4. In the pull request, say if you tested on real Strix Halo hardware.
+4. In the pull request, say whether or not you tested on real Strix Halo hardware.
 
 Pull requests that change only docs skip the image build. Changes to `Containerfile*`, `files/`,
 `variants/`, `installer/` or `scripts/` also run the full ISO install test in CI. This test takes

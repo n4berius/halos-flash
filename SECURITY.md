@@ -15,8 +15,8 @@ through the normal signed chain, and the halOS installer USB is one of them. Als
 edit the boot menu if it has no password. If someone can take the machine, type the passphrase
 at each boot.
 
-These steps make the TPM's key harder to get, but not impossible: a BIOS setup password, start
-only from the internal disk (no USB or network boot), and a boot menu password. The boot files
+These steps make the TPM's key harder to get, but not impossible: a BIOS setup password, a rule to
+start only from the internal disk (no USB or network boot), and a boot menu password. The boot files
 aren't encrypted, so a person who can open the case can still change them. INSTALL.md, section
 8, has the steps.
 
@@ -38,11 +38,11 @@ can reach:
   other formats that Halogen doesn't read.
 - **Checks before use.** Each Flash file must match the hash that Hugging Face lists for it. The
   `.hgn` files must also pass Halogen's `verify`, which runs offline with no capabilities.
-  `flash use` refuses all other files. A pull marks the folder as unchecked until it passes. A
+  `flash use` refuses a checkpoint that does not pass these checks. A pull marks the folder as unchecked until it passes. A
   pull never replaces the checkpoint that Halogen serves. If the chosen checkpoint is missing,
   unchecked or holds links, the server uses the official checkpoint.
 - **Serving.** Halogen serves with read-only models and no capabilities, and it never downloads
-  files. Its container can still reach the network. Thus, if a checkpoint can take control of
+  files. Its container can still reach the network. So if a checkpoint can take control of
   Halogen, it can also send data out.
 
 `verify` checks that a `.hgn` file has a correct structure. It doesn't read the tokenizer or its

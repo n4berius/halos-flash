@@ -17,7 +17,7 @@ A Git tag starts a release. The tag must be on `main`. It must also match `HALOG
 For the other edition, add `-no-npu` to an image tag, for example `0.18.23-rc.1-no-npu`.
 
 There is no beta step since November 2026: an RC promotes the newest alpha. Old beta releases
-stay as they were. The `beta` channel tag moves with every RC and stable release. Thus a machine
+stay as they were. The `beta` channel tag moves with every RC and stable release. So a machine
 that still follows `beta` gets the same releases as `rc`.
 
 `0.18.23` and the channel tags move. The workflows never rebuild `0.18.23-alpha.1` and other
@@ -26,7 +26,7 @@ updates. A stable tag whose release run failed has no release, so the workflow n
 
 Each channel points to the newest release that is at least that stable. A stable release also
 moves `rc`, `beta` and `alpha`. An RC also moves `beta` and `alpha`. A channel does not move when
-it already has a newer release. Thus a machine on `alpha` gets an RC or stable release when that
+it already has a newer release. So a machine on `alpha` gets an RC or stable release when that
 release is newer than the newest alpha. A channel never moves backwards: if you run an old release
 again, it moves no channel. `scripts/channels.sh` calculates this from the git tags, for the
 release and for the Monday rebuild.
@@ -61,12 +61,12 @@ To build an RC or stable from `main` in place of a promotion, tick **from main**
 example for a stable fix.
 
 After a version has a stable release, an alpha or RC of that version is older than the stable
-release for every channel. Thus it gets to no machine. In that case, the workflow stops at once
+release for every channel. So it gets to no machine. In that case, the workflow stops at once
 and tells you why. To release a halOS-only fix after a stable release, pick **stable** and tick
 **from main**. The release becomes `-r2`. Otherwise, the next alpha comes with the next Halogen
 version.
 
-The workflow promotes only published releases. Thus it skips a tag whose run failed, but it never
+The workflow promotes only published releases. So it skips a tag whose run failed, but it never
 uses that number again. A promotion builds the same code again, so its Fedora packages can be
 newer than in the release it came from. Do not use **Draft a new release**, because the workflow
 makes the release itself.
@@ -86,7 +86,7 @@ In the two cases, the workflow does these steps:
   tests install them.
 - It runs a full VM install of each ISO.
 - It moves the channel tags (`alpha`, `rc`, `stable`, `latest`) only after the two installs pass.
-  Thus no machine upgrades to a release that failed them.
+  So no machine upgrades to a release that failed them.
 - It makes the GitHub release last.
 
 One exception: the exact tag of a stable release is the plain version (`0.19.0`). A machine

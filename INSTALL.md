@@ -5,7 +5,7 @@ For information about how Halogen itself works, see its
 [official documentation](https://github.com/peonist-ai/halogen-flash-server/tree/main/docs).
 
 > **Note:** halOS is in alpha. The NPU edition runs on the hardware below. Other hardware is not
-> tested. Thus on your first install, do the [checks](#7-check-the-install) and
+> tested. So on your first install, do the [checks](#7-check-the-install) and
 > [report the result](https://github.com/n4berius/halos-flash/issues/new?template=hardware-report.yml).
 
 ## Tested hardware
@@ -57,7 +57,7 @@ You can change the edition later, without a new install:
 The change keeps the same channel or release, and applies at the next reboot. `/srv` does not
 change. The NPU models and your own checkpoints stay on disk, so a return to the NPU edition
 downloads nothing. While the NPU is off, the `HALOGEN_NPU_*` settings have no effect. For each
-one, the log shows "ignored HALOGEN_NPU_…: not an option this system allows". This is correct.
+one, the log shows "ignored HALOGEN_NPU_…: not an option this system allows". This is normal.
 
 **Note:** Use the no-NPU edition only where no untrusted person can touch the machine. With the
 IOMMU off, a device in a USB4/Thunderbolt port or a PCIe slot can read all the memory of the
@@ -78,9 +78,9 @@ machine. While the machine runs, this memory includes the disk encryption key.
 Download the ISO of your edition and its `.sha256` file from the
 [Releases page](https://github.com/n4berius/halos-flash/releases) of this repository. Use the
 `-npu` files for the NPU edition and the `-no-npu` files for the other edition. Alpha and RC
-releases are pre-releases. [RELEASING.md](RELEASING.md) tells about each channel.
+releases are pre-releases. [RELEASING.md](RELEASING.md) gives information about each channel.
 
-GitHub limits release files to 2 GiB. Thus the ISO comes in one of three forms. Check the file in
+GitHub limits release files to 2 GiB. So the ISO comes in one of three forms. Check the file in
 the folder that you downloaded it to. The check must show `OK`:
 
 | You downloaded | Do this |
@@ -93,7 +93,7 @@ From `v0.18.23-alpha.3`, each release has one file if compression makes it small
 
 ### Moving between releases later
 
-A machine that you install from a release stays on that exact build. Thus an upgrade finds nothing
+A machine that you install from a release stays on that exact build. So an upgrade finds nothing
 new. To get new releases, select a channel one time and reboot:
 
 ```bash
@@ -127,16 +127,16 @@ newer build. To get the newest build of the current name, use `sudo bootc upgrad
 ### Signed images
 
 halOS signs every halOS image with its key. A machine accepts an update only when that signature
-is correct. Thus nobody can give you a different image as a halOS image. `sudo halogenctl
+is correct. So nobody can give you a different image as a halOS image. `sudo halogenctl
 selftest` shows this check as `image-signatures`. Machines that you install from this release or
 later do the check from the start.
 
 Older installs turn the check on at their next `sudo halosctl upgrade`, after a reboot into this
 release. `halosctl` tells you about the check and asks. Then it stages the newest image of the
-name that the machine follows, with the check on. Thus the first upgrade to this release installs
+name that the machine follows, with the check on. So the first upgrade to this release installs
 without the check, and the next upgrade turns it on. Each upgrade needs a reboot.
 
-- Releases before `0.19.1-alpha.3` don't have the key signature. Thus `halosctl rollback --to`
+- Releases before `0.19.1-alpha.3` don't have the key signature. So `halosctl rollback --to`
   can't go back to them. `halosctl rollback` to the previous image on the disk still works.
 - The rules are in `/etc/containers/policy.json`. halOS images need the halOS signature. The
   machine accepts images from other registries (Halogen's own, or containers that you run with
@@ -224,8 +224,8 @@ answer all the questions and say yes at the end.
 
 The install copies the OS from the USB drive, so it needs no network. It takes a few minutes. Then
 the machine restarts. When it restarts, remove the USB drive. If you forget, and the machine boots
-the USB drive again, nothing occurs without you. The disk now has halOS on it, so the installer
-asks you to type its name before it erases anything.
+the USB drive again, the installer does nothing until you answer. The disk now has halOS on it,
+so the installer asks you to type its name before it erases anything.
 
 The guided install sets the clock to UTC and gets the network address from DHCP. The time zone
 has no effect on Halogen. To change the time zone later, use `sudo timedatectl set-timezone <zone>`.
@@ -286,13 +286,13 @@ It asks four questions. You can skip each one:
    apps that use `https://` don't send prompts, replies and the API key across the network as
    plain text. (An app that still uses `http://` sends its key one time before the redirect.)
    Each app must trust the authority one time: `sudo halosctl https ca` prints it (see
-   [HTTPS](#https)). Enter means yes until you answer this question one time, also if you run
+   [HTTPS](#https)). Enter means yes until you answer this question one time, even if you run
    setup days later. A machine that you upgrade from an earlier release stays on plain HTTP until
    you say yes here or run `sudo halosctl https self-signed`. If HTTPS is already on, setup
    doesn't change it.
 
 The first 130 GB download waits for setup, so your token and settings apply from the start. If
-nobody runs setup in 30 minutes, the download starts with the defaults. Thus a machine that nobody
+nobody runs setup in 30 minutes, the download starts with the defaults. So a machine that nobody
 logs in to still starts its work automatically. `sudo halosctl setup --skip` starts the download
 immediately. Machines that you upgrade from an earlier release never wait.
 
@@ -355,7 +355,7 @@ Later boots skip the download, unless the model list or the Halogen version chan
 ## 7. Check the install
 
 Run the self-check. It does the full hardware checklist in one step and changes nothing. It shows
-nothing private (no keys, serial numbers or network addresses). Thus you can share its output when
+nothing private (no keys, serial numbers or network addresses). So you can share its output when
 you ask for help:
 
 ```bash
@@ -421,8 +421,7 @@ starts again.
 
 fwupd can also update the Secure Boot revocation list (dbx). This is the list of start-up programs
 that the firmware must refuse. The TPM unlock of the disk is tied to the Secure Boot settings.
-
-Thus after a dbx update, the next boot asks for the disk passphrase (at the screen, or over SSH if
+So after a dbx update, the next boot asks for the disk passphrase (at the screen, or over SSH if
 you set that up). Have the passphrase ready. When the machine is up, run
 `sudo halogen-enroll-tpm`, so that the machine unlocks automatically again. Without TPM unlock,
 nothing changes at boot.
@@ -470,7 +469,7 @@ as its own user, with no access to Halogen's files, models or tokens.
      and with it the API, until you correct it.
 
   The dashboard itself accepts connections only from this machine.
-- **The API key stays out of crash reports.** The dashboard blocks memory dumps. Thus if it
+- **The API key stays out of crash reports.** The dashboard blocks memory dumps. So if it
   crashes, nothing that it holds (including the key) goes to the disk or into the system log. It
   also listens only on its own local port, and accepts connections only from this machine
   (Caddy). `sudo halogenctl selftest` checks the crash-report protection, and that this address
@@ -479,7 +478,7 @@ as its own user, with no access to Halogen's files, models or tokens.
   30-day view needs about 100 MB. A special request that reads much more makes it restart after
   30 seconds. This has no effect on Halogen.
 - **Only one reader of `/metrics`.** Each time something reads `/metrics`, Halogen resets two of
-  its speed values. Thus the dashboard must be the only reader. Don't point Prometheus or a script
+  its speed values. So the dashboard must be the only reader. Don't point Prometheus or a script
   at the `/metrics` of Halogen. The dashboard serves its own copy at
   `http://<address>:8732/metrics`.
 - If you change the API key in `/srv/configs/api-key`, restart the dashboard:
@@ -489,7 +488,7 @@ as its own user, with no access to Halogen's files, models or tokens.
 
 [Caddy](https://caddyserver.com) (`halos-proxy.service`) answers the network on both ports:
 **8731** for the API of Halogen and **8732** for the dashboard. Halogen and the dashboard listen
-only on this machine (`127.0.0.1:18731` and `127.0.0.1:18732`). Thus every connection from another
+only on this machine (`127.0.0.1:18731` and `127.0.0.1:18732`). So every connection from another
 computer goes through Caddy, over plain HTTP or [HTTPS](#https).
 
 - Caddy sends replies on as Halogen sends them. It adds no buffer.
@@ -497,12 +496,12 @@ computer goes through Caddy, over plain HTTP or [HTTPS](#https).
   Halogen's own errors are). It doesn't refuse the connection.
 - Caddy writes one line for each API request to the journal (`sudo journalctl -u halos-proxy`):
   the time, the address of the client, the path and the status. It writes no request headers and
-  no query string. Thus the API key never goes into the journal, however an app sends it.
+  no query string. So the API key never goes into the journal, however an app sends it.
 - Caddy runs as its own user, with no access to your files and with no admin interface.
   `sudo halogenctl selftest` checks that Caddy answers (`proxy`). Its other API checks and `halogenctl
   bench` talk to Halogen directly, so their numbers are Halogen's own.
 - Halogen's own [docs](https://github.com/peonist-ai/halogen-flash-server/tree/main/docs) show no
-  setting that depends on the address of the client. Thus Halogen works the same behind Caddy.
+  setting that depends on the address of the client. So Halogen works the same behind Caddy.
 
 ### HTTPS
 
@@ -521,7 +520,7 @@ sudo halosctl https off                    # back to plain HTTP
 With HTTPS on, both ports use it. Apps use `https://<address>:8731/v1`, and the dashboard is at
 `https://<address>:8732`. On each port, Caddy redirects a plain `http://` request to `https://`.
 Apps that send the key over `http://` still send it one time before they follow the redirect.
-Thus change their address to `https://`.
+So change their address to `https://`.
 
 **Self-signed** makes the halOS certificate authority (Caddy's, which the machine keeps). It also
 makes a certificate for each name and address of this machine: `localhost`, its host name, the
@@ -534,9 +533,9 @@ sudo halosctl https ca > halos-ca.crt
 
 Then give `halos-ca.crt` to each app that connects to the machine. Most apps have a setting for a
 CA file. [Connecting apps](docs/CLIENTS.md) shows that setting for each coding agent (Pi,
-oh-my-pi, opencode, Codex, Claude Code, Cline, aider and others). This is better than to add the
+oh-my-pi, opencode, Codex, Claude Code, Cline, aider and others). Do this, not add the
 file to the trusted certificates of your computer. An authority that the full system trusts can
-vouch for any website. Thus anyone who stole it from this machine could act as any site on that
+vouch for any website. So anyone who stole it from this machine could act as any site on that
 computer.
 
 For a browser and the dashboard, it is sufficient to accept the warning one time for
@@ -558,8 +557,9 @@ the certificate. To renew, run `https custom` again with the new files.
 **Let's Encrypt** gives certificates that every app and browser already trusts, and renews them
 automatically. It needs a public DNS name that you own (for example `halos.example.com`). Caddy
 opens nothing to the internet: it proves that the name is yours with a temporary TXT record. It
-writes this record through the API of your DNS provider (the DNS-01 challenge). The name must only
-point to this machine, and a private address such as `192.168.1.20` is fine.
+writes this record through the API of your DNS provider (the DNS-01 challenge). The only
+requirement is that the name points to this machine. A private address such as `192.168.1.20` is
+fine.
 
 Some home routers block public names that point to private addresses ("DNS rebinding
 protection"). If the name doesn't resolve on your network, allow the name in the router.
@@ -577,7 +577,7 @@ protection"). If the name doesn't resolve on your network, allow the name in the
    | `namecheap` | `api_key`, `user`, `client_ip` | Profile > Tools > Business & Dev Tools > API Access. Add the public IPv4 address of this network to its allowed list. Give the same address as `client_ip` |
 
    **Warning:** For Namecheap, write down your records first, or use a domain (or a DuckDNS name)
-   only for this. The Namecheap API can only replace the full list of records of a domain. Thus
+   only for this. The Namecheap API can only replace the full list of records of a domain. So
    each certificate writes the list again.
 
 2. First, try it against the test service of Let's Encrypt. Its limits are generous. (Apps don't
@@ -601,10 +601,10 @@ protection"). If the name doesn't resolve on your network, allow the name in the
 
 Apps then use `https://halos.example.com:8731/v1`, and the dashboard is at
 `https://halos.example.com:8732`. The names and addresses of this machine keep the halOS authority
-(as with self-signed). Thus apps that connect by address continue to work after they trust it.
+(as with self-signed). So apps that connect by address continue to work after they trust it.
 Certificates are public: every name that you certify shows in the
 [Certificate Transparency](https://certificate.transparency.dev/) logs, which anyone can search.
-Thus don't use a name that you want to keep private.
+So don't use a name that you want to keep private.
 
 halOS keeps the credential in `/etc/halos/https/dns/`, and only root can read it. Caddy gets it
 from systemd each time it starts, read-only and in memory. Caddy loses it when it stops
@@ -635,7 +635,7 @@ them, Caddy doesn't start until you run `sudo halosctl https off` or `self-signe
 goes back to plain HTTP automatically.)
 
 The halOS tools (`halogenctl bench`, the API checks of the selftest, the check of the login line)
-connect to Halogen directly on the machine. Thus they work the same in each mode.
+connect to Halogen directly on the machine. So they work the same in each mode.
 
 ### Measuring speed
 
@@ -656,12 +656,12 @@ needs no restart, but other requests are slower while it runs. It shows:
 Each report also shows the items that the numbers depend on: the halOS and Halogen versions, the
 kernel, the BIOS, the GTT size, the IOMMU, the fabric clock, the platform power profile, the Flash
 checkpoint that Halogen serves and your settings. halOS saves the report as text and JSON in
-`/srv/configs/bench/`, with the date in the name. Thus you can compare a run after an upgrade, a
+`/srv/configs/bench/`, with the date in the name. So you can compare a run after an upgrade, a
 BIOS change or `flash use` with an earlier run.
 
 Halogen's [measurements](https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/performance.md)
 used about 85 W of sustained power. A machine with a lower power limit shows lower numbers. The
-run uses the prompt cache as your server does. Thus compare `pp` with Halogen's "cache on (a cold
+run uses the prompt cache as your server does. So compare `pp` with Halogen's "cache on (a cold
 request)" rows, not with the cache-off headline figures. The prompts of the run also go into the
 cache. They can push out long conversations from the cache, which then read their history again
 one time.
@@ -669,7 +669,7 @@ one time.
 ### Prompt cache on disk
 
 Halogen keeps the state of each conversation, so the next turn doesn't read the full conversation
-again. halOS also keeps that state on disk, in `/srv/models/.prompt-cache`. Thus a conversation
+again. halOS also keeps that state on disk, in `/srv/models/.prompt-cache`. So a conversation
 continues after a restart of Halogen: its next turn starts in seconds, and doesn't read everything
 again (Halogen's [prompt cache on disk](https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/configuration.md#prompt-cache-on-disk-resume-a-conversation-after-a-restart)).
 Halogen writes the cache in the background, so answers don't wait for the disk.
@@ -685,7 +685,7 @@ sudo halogenctl cache clear    # delete everything saved
   change the limit, set `HALOGEN_CACHE_DISK_GIB` in `halogen.env`.
 - A different Halogen version, checkpoint or setting never reads the files of another. halOS tells
   Halogen to delete those files at start (`HALOGEN_CACHE_PRUNE_OLD=1`), so nothing stays behind.
-  Thus the cache starts empty after an upgrade to a new Halogen version, and after
+  So the cache starts empty after an upgrade to a new Halogen version, and after
   `halogenctl flash use` switches checkpoint. It also starts empty after a change to a setting
   that changes what Halogen saves (for example, the context size). To keep the other files, set it
   to `0` in `halogen.env`. Then a rollback or a switch back finds its cache, but these files count
@@ -778,12 +778,12 @@ halOS keeps three types of log. Each type has its own size limit, so no log can 
   ```
 
   The rules are locked while the system runs. Nobody, including root, can turn auditing off or
-  change a rule without a reboot, and the audit log records each attempt. Thus a change to the
+  change a rule without a reboot, and the audit log records each attempt. So a change to the
   rules in `/etc/audit/rules.d` applies at the next boot.
 
   halOS excludes Halogen's own processes from this tracking, so auditing adds no work to the
   engine. It excludes only Halogen's own login session. The audit log records root or an admin
-  who acts as the `halogen` user (`sudo -u`, `runuser`), as it records all other users. Thus it
+  who acts as the `halogen` user (`sudo -u`, `runuser`), as it records all other users. So it
   doesn't record files that Halogen's own services write in `/srv/configs` (benchmark reports, for
   example), but it records your changes there. The cost on the rest of the system (including the
   front door, Caddy) is probably small. Nobody has measured it yet.
@@ -861,7 +861,7 @@ server then converts it again at every start.
 
 Both editions can serve a different build of the Flash model in place of the official one. This
 can be a community conversion, or your own fine-tune or quantization in Halogen's `.hgn` format.
-The official checkpoint always stays on disk. Thus one command goes back to it, and downloads
+The official checkpoint always stays on disk. So one command goes back to it, and downloads
 nothing.
 
 ```bash
@@ -907,7 +907,7 @@ What `flash pull` does:
   new commit of the repository. It also removes files that the new commit doesn't have. It doesn't
   replace the checkpoint that Halogen serves: first switch to the official one.
 - **Resumes.** If a download stops, run the same command again to continue it. A pull can take
-  hours. Thus over SSH, run it in `tmux`, which keeps it alive if the connection stops.
+  hours. So over SSH, run it in `tmux`, which keeps it alive if the connection stops.
 - **Your token.** It uses your Hugging Face token if you saved one. Gated and private repositories
   need it.
 
@@ -933,7 +933,7 @@ sudo halogenctl flash check mine         # then judge it, before serving it
   tower. (The converter uses the repository's own and puts nothing official in their place.) Then
   it checks that there is space for the weights (about 360 GB) and the result (about 119 GB).
 - **Runs on its own.** After you confirm, the download, the conversion and the checks run as a
-  service. Thus if you close the terminal, they don't stop. A stopped download continues. A
+  service. So if you close the terminal, they don't stop. A stopped download continues. A
   stopped conversion starts again from the beginning.
 - **Takes long.** The conversion runs on the CPU with low priority, and takes many hours, probably
   a day or more. Parts of it use several cores (`--threads`: by default half the cores, 16 at
@@ -947,7 +947,7 @@ sudo halogenctl flash check mine         # then judge it, before serving it
   in `/srv/models/flash/.convert/<name>/source`.
 - **Judge it before serving it.** Nobody has measured the quality of a conversion yet. Before
   `flash use`, run `flash check` and compare its numbers with those of the official checkpoint.
-  Halogen has also not served a converted checkpoint yet. Thus switch to it when you can monitor
+  Halogen has also not served a converted checkpoint yet. So switch to it when you can monitor
   it. If it doesn't start, go back with `sudo halogenctl flash use official`.
 
 Things to know:
@@ -964,7 +964,7 @@ Things to know:
     some places. This is expected of a fine-tune, and a warning sign for a plain conversion.
 
   The check needs the GPU, so Halogen stops while it runs. On the test machine, this takes about
-  15 minutes, and about 25 the first time on a Halogen version. Then Halogen starts again, also if
+  15 minutes, and about 25 the first time on a Halogen version. Then Halogen starts again, even if
   the check fails or stops, or if your SSH connection stops. If you stopped Halogen yourself, it
   stays stopped. The check downloads the text (1.3 MB) one time, before Halogen stops, and checks
   it against its known hash.
@@ -1005,8 +1005,8 @@ sudo halosctl fail2ban off                   # turn it off (on again: fail2ban o
 
 - **This machine and private networks are never shut out**: home and office address ranges, and
   Tailscale's. Without this rule, an app on your network with an old API key would lock out its
-  full computer. The server would then look down. Thus fail2ban protects against the internet,
-  when the internet can get to the machine. fail2ban doesn't stop a device on your own network
+  full computer. It would then look as if the server is down. So fail2ban protects against the
+  internet, when the internet can get to the machine. fail2ban doesn't stop a device on your own network
   that guesses keys.
 - To change that list or the numbers, put your own lines in
   `/etc/fail2ban/jail.d/90-local.local`. Don't put them in the halOS file `50-halos.conf`, because
@@ -1026,7 +1026,7 @@ sudo halosctl fail2ban off                   # turn it off (on again: fail2ban o
   `sudo nft list table inet f2b-table` shows this table. `sudo firewall-cmd --reload` doesn't
   change the bans.
 - The halOS firewall lets through only the ports that firewalld opens itself. It blocks ports that
-  a container started with `sudo podman run -p …` publishes. Thus such a container may refuse to
+  a container started with `sudo podman run -p …` publishes. So such a container may refuse to
   start ("Port forwarding not possible as firewalld StrictForwardPorts enabled"). Run your own
   containers without `sudo` (rootless, as Halogen runs). If you need a rootful container, set
   `StrictForwardPorts=no` in `/etc/firewalld/firewalld.conf` and run
@@ -1040,13 +1040,13 @@ What it can't do:
 - **Several people behind one address are shut out together.** Maybe you connect to the server
   from an office, a mobile network or a VPN. Then other people use the same public address. Any
   of them can get that address shut out for 10 minutes with a few wrong keys. SSH stays open when
-  the API is shut (and the reverse). Thus `sudo halosctl fail2ban unban <address>` is always
+  the API is shut (and the reverse). So `sudo halosctl fail2ban unban <address>` is always
   available.
 - **A proxy or tunnel in front hides the real addresses.** With a reverse proxy on another
   machine, every client has the address of the proxy. Then one bad client shuts out all of them.
   With a tunnel that ends on this machine (cloudflared and similar tools), every client is this
   machine. This machine is never shut out, so fail2ban does nothing for the API.
-- **fail2ban counts IPv6 per address,** and one network has many addresses. Thus fail2ban doesn't
+- **fail2ban counts IPv6 per address,** and one network has many addresses. So fail2ban doesn't
   slow a determined sender.
 
 The API key has 64 random characters, so nobody can guess it, with or without fail2ban. For the
@@ -1112,7 +1112,7 @@ If somebody could take or tamper with the machine itself, make those two ways in
    password, remove the password with `sudo rm /boot/grub2/user.cfg`.
 
 These steps make it more difficult to take the key of the disk, but not impossible. The boot files
-on the disk have no encryption. Thus a person who can open the case can change them and put the
+on the disk have no encryption. So a person who can open the case can change them and put the
 disk back. Only a passphrase at each boot keeps a stolen machine locked. Even that doesn't protect
 a machine that someone changed before you typed the passphrase.
 
@@ -1158,19 +1158,19 @@ ssh freyja-unlock
 ```
 
 Type the passphrase, and the boot continues. If the passphrase is wrong, it asks again. If you
-connect while the TPM still tries, the prompt shows when the TPM stops. Only `root` can get in,
+connect while the TPM still tries, the prompt shows when the TPM stops trying. Only `root` can get in,
 only with these keys, and only to the passphrase prompt. The network is wired, with DHCP. The boot
 stops this network before the system starts, so the network settings of the system apply.
 
 The TPM still unlocks the disk automatically when it can. SSH is the way in when the TPM can't.
 
-**Warning:** If ssh ever says that this host key changed, don't type the passphrase. Someone else
-could ask for it.
+**Warning:** If ssh ever says that this host key changed, don't type the passphrase. A different
+machine can be the one that asks for it.
 
 `halosctl ssh-unlock` (and `setup`) also keeps the fingerprints of these keys and of the early-boot
 host key on the encrypted disk. If the copies on the EFI partition change without your knowledge,
 the `ssh-unlock` line of the selftest and `sudo halosctl ssh-unlock` warn you. Then the person who
-changed them had the disk, and could have copied the host key. Thus set it up again: run
+changed them had the disk, and could have copied the host key. So set it up again: run
 `sudo halosctl ssh-unlock off`, then `on`. This makes a new early-boot host key. Replace its
 `known_hosts` line on your computer.
 
@@ -1212,7 +1212,7 @@ with no as the default.
 | Halogen does not start after a change to the config | Run `sudo halogenctl status`, then check the NPU model names |
 | "start of the service was attempted too often" | Halogen crashed 3 times in 15 minutes. This is its guard against a crash loop. To see why, run `sudo halogenctl logs`. If the GPU is stuck, reboot. If not, `sudo halogenctl restart` tries again. On releases before this fix, first run `sudo systemctl --user -M halogen@ reset-failed halogen.service`, then `sudo halogenctl restart` |
 | Halogen does not start after `flash use` | `sudo halogenctl logs` tells why. `sudo halogenctl flash use official` goes back |
-| The start stops, or GTT stays in use after a crash | Reboot, as Halogen's troubleshooting guide tells |
+| Halogen's start does not finish, or GTT stays in use after a crash | Reboot, as Halogen's troubleshooting guide tells |
 
 For all other problems, see Halogen's
 [troubleshooting guide](https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/troubleshooting.md).

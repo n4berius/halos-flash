@@ -148,7 +148,7 @@ sudo scripts/build.sh        # the OS image
 sudo scripts/build-iso.sh    # the USB installer, under output/
 ```
 
-`versions.env` pins Halogen by digest. Thus every build runs the same container until someone
+`versions.env` pins Halogen by digest. So every build runs the same container until someone
 changes the pin on purpose.
 
 ## Configure
@@ -163,7 +163,7 @@ sudo halogenctl config    # what is in effect, and the locked settings
 ```
 
 Only the listed options get to Halogen. halOS ignores typing errors and locked settings, and
-writes them to the log. Thus they cannot change the server or stop it. halOS reads the file as
+writes them to the log. So they cannot change the server or stop it. halOS reads the file as
 plain settings and never runs it as a script. The locked values are in
 `/usr/share/halogen/locked.env`, on the read-only OS. Upgrades keep your file exactly as it is.
 To see what a newer Halogen added:
@@ -296,7 +296,7 @@ all its NPU models again, about 15 GB.
   the NPU driver and firmware come from the OS.
 - **The NPU edition keeps the IOMMU on,** because the NPU needs it. The cost is the prefill gain
   that the no-NPU edition gets.
-- **Root never logs in over SSH,** with a password or a key, also if the installer allowed it.
+- **Root never logs in over SSH,** with a password or a key, even if the installer allowed it.
   Log in as your admin user and use `sudo`.
 - **The build downloads Halogen's script and terms** and checks them by hash, so this
   repository redistributes none of them. Halogen's image and weights keep their own licenses.

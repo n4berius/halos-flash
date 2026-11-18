@@ -35,7 +35,7 @@ Common options:
 |---|---|
 | `halosctl version` | Shows the release that runs, its edition, the channel that it follows, what starts at the next boot, the rollback image, and if updates must have halOS's key signature. This is the default when you give no command. |
 | `halosctl upgrade [--check] [--reboot] [--yes]` | Downloads the newest release on your channel and stages it for the next boot. `--check` only tells if there is a newer release. |
-| `halosctl switch alpha\|rc\|release\|edge\|kernel-next [--reboot] [--yes]` | Follows a different channel. `release` is the stable channel. `alpha` and `rc` are test releases. `beta` still works and gets the same releases as `rc`, because there are no more beta releases. `edge` is every change to `main`. `kernel-next` is `edge` with a test kernel (Linux 7.4-rc2) in place of the Fedora 45 kernel. Each channel also gets the newer releases of the more stable channels. |
+| `halosctl switch alpha\|rc\|release\|edge\|kernel-next [--reboot] [--yes]` | Follows a different channel. `release` is the stable channel. `alpha` and `rc` are test releases. `beta` still works and gets the same releases as `rc`. There are no more beta releases. `edge` is every change to `main`. `kernel-next` is `edge` with a test kernel (Linux 7.4-rc2) in place of the Fedora 45 kernel. Each channel also gets the newer releases of the more stable channels. |
 | `halosctl rollback [--to <version>] [--reboot] [--yes]` | Starts the previous image at the next boot. With `--to`, it starts an exact release, for example `0.20.0`. |
 | `halosctl npu on\|off [--reboot] [--yes]` | Moves to the NPU edition (`on`) or to the no-NPU edition (`off`: the IOMMU is off for faster prefill). It keeps the channel and `/srv`. |
 | `halosctl history` | Shows each change that halosctl made: when, what, from what to what, and who. |
@@ -72,11 +72,11 @@ The `Signatures:` line of `version` shows this.
 | `halosctl https self-signed [<name>...] [--yes]` | Turns on HTTPS on the two ports with halOS's own certificate authority. The certificates are for the names and addresses of this machine, and for other names that you give. Apps must trust the authority one time. |
 | `halosctl https custom <certificate> <key> [--yes]` | Turns on HTTPS with your own certificate and key (PEM files, the key without a passphrase). It shows whose certificate it is, and asks before it changes something. |
 | `halosctl https letsencrypt <cloudflare\|duckdns\|porkbun\|namecheap> <name>... [--email <address>] [--staging] [--yes]` | Turns on HTTPS with Let's Encrypt certificates for public names that you own, through the API of your DNS provider. It opens no port to the internet. It asks for the provider's credential, and does not show it while you type. With `--yes`, it reads the credential as `field=value` lines on standard input. Then it waits for the certificate. If no certificate comes in five minutes, it puts back the previous setting. `--staging` uses the Let's Encrypt test service first. The addresses of this machine keep halOS's authority. |
-| `halosctl https forget-dns [--yes]` | Deletes the saved credential of the DNS provider, when you no longer use Let's Encrypt. It restarts the front door for a short time, so that Caddy also removes its copy. Also cancel the credential at the provider. |
+| `halosctl https forget-dns [--yes]` | Deletes the saved credential of the DNS provider, when you no longer use Let's Encrypt. It restarts the front door for a short time, so that Caddy also removes its copy. Also revoke the credential at the provider. |
 | `halosctl https ca` | Prints halOS's authority (PEM) for your apps: `sudo halosctl https ca > halos-ca.crt`. See [trusting it](CLIENTS.md#trust-it-per-app-or-on-the-whole-computer). |
 | `halosctl https off [--yes]` | Goes back to plain HTTP. |
 
-When HTTPS is on, each port sends `http://` requests to `https://`. If Caddy doesn't answer
+When HTTPS is on, each port redirects `http://` requests to `https://`. If Caddy doesn't answer
 after a change, halOS puts back the previous setting automatically.
 
 ## halogenctl: Halogen and its models
@@ -137,7 +137,7 @@ To edit the settings, run `sudo nano /srv/configs/halogen.env`. Then run `sudo h
 | `halogenctl flash remove <name> [--yes]` | Deletes one of your checkpoints (not the one in use). |
 
 Only one command at a time can work on a checkpoint. While one of `pull`, `convert`, `verify`,
-`check`, `use` and `remove` works on a name, the others on the same name refuse with "Another
+`check`, `use` and `remove` works on a name, a second command on the same name refuses with "Another
 … is running". The same applies to `model pull`/`model remove` of the same model. After you
 answer, `use` and `remove` check again that nothing changed in the meantime.
 

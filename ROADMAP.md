@@ -18,8 +18,8 @@ How halOS uses each release channel:
 
 `v0.20.0` (2026-11-09) is the first stable release on Halogen 0.20.0. It is a promotion of
 `v0.20.0-rc.2`. On the test machine it passed the selftest, the benchmark, `flash check`,
-`npu off`/`on`, tab completion, restarts and a `model pull` of OvisOCR3. Then the test machine
-was installed again with the guided installer. Work done before this release: first-boot setup
+`npu off`/`on`, tab completion, restarts and a `model pull` of OvisOCR3. The test machine was
+also installed again with the guided installer. Work done before this release: first-boot setup
 and the "API ready" line (#43), the guided installer (#42), a full security audit (#69), the
 benchmark (#15), `flash check` (#56), `halosctl npu on|off` (#40) and tab completion (#14).
 

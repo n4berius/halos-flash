@@ -49,7 +49,7 @@ root's Podman storage.
 
 `versions.env` pins Halogen by digest, so your build has the same Halogen container as the
 official build. The Fedora base is a tag (`fedora-bootc:45`). Its packages come from Fedora's
-current repositories. Thus each build, also the weekly rebuild, gets Fedora's latest fixes. Two
+current repositories. So each build, also the weekly rebuild, gets Fedora's latest fixes. Two
 builds of the same commit can be different in these packages (#121).
 
 ## 4. Build the USB installer
@@ -75,7 +75,7 @@ scripts/package-iso.sh "$(find output -name '*.iso' | head -1)" release halos-fl
 ## Where updates come from
 
 The installer records the image that it installed. `bootc upgrade` looks for updates there. By
-default, that is the official `ghcr.io/n4berius/halos-flash`. Thus:
+default, that is the official `ghcr.io/n4berius/halos-flash`. So:
 
 - **An unchanged build** works the same as an official install. It upgrades from the official
   images.
@@ -101,7 +101,7 @@ sudo bootc switch ghcr.io/<you>/halos-flash:0.19.0
 sudo systemctl reboot
 ```
 
-halOS's signature policy covers only `ghcr.io/n4berius/halos-flash`. Thus the machine accepts your
+halOS's signature policy covers only `ghcr.io/n4berius/halos-flash`. So the machine accepts your
 image without a signature check, and the selftest's `image-signatures` line shows a warning. To
 make machines check your own key, do these steps:
 

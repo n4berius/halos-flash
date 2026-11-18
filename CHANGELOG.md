@@ -14,7 +14,7 @@ it promotes.
   instruction per step and plain words. Only the wording changed: every command, setting, link
   and number is the same. (#152)
 - Releases: the `alpha`, `rc`, `stable` and `latest` tags now move only after the install tests of
-  both editions pass. Thus a machine never upgrades to a release that failed them (before, the tags
+  both editions pass. So a machine never upgrades to a release that failed them (before, the tags
   moved first). The weekly stable rebuild now uses the newest *published* stable release, not only
   the newest tag. Some alphas or RCs reach no machine, because a newer stable of the same version
   exists. Such a release now stops at once with an explanation. Before, it built for 40 minutes and
@@ -85,12 +85,12 @@ it promotes.
   - If another command is busy with a checkpoint (or model), a pull, check, switch or removal of
     it says so and stops.
   - After you answer, `flash use` and `flash remove` (and `model remove`) check again that nothing
-    changed. Thus a removal can't remove the checkpoint that you just chose.
+    changed. So a removal can't remove the checkpoint that you just chose.
   - While a `flash check` runs, a second check, a `flash use`, a `restart` or `model pull`'s
     restart refuses and says so. It doesn't put a second job on the GPU.
 
 - The selftest's checks that run as the halogen user (Halogen's scratch folders, its generated
-  service) now run in a session of their own. Thus nothing that they start can reach the terminal
+  service) now run in a session of their own. So nothing that they start can reach the terminal
   where you run `sudo halogenctl selftest`. (#138)
 - Downloads, a last round (#136):
   - Halogen refuses to start when a link (or a folder that it can't read) stands where it loads
@@ -126,9 +126,9 @@ it promotes.
     removes it when the command ends, or at the next pull of the same name.
 
 - fail2ban now shuts out addresses through its own firewall table (nftables), not through firewalld
-  rules. Thus it also cuts the connections that a shut-out address already had open, a ban costs
+  rules. So it also cuts the connections that a shut-out address already had open, a ban costs
   much less under a flood, and `firewall-cmd --reload` no longer drops the bans. The front door
-  refuses requests with more than 32 KB of headers. Thus a wrong key can't hide from the count in a
+  refuses requests with more than 32 KB of headers. So a wrong key can't hide from the count in a
   log line that is too long. fail2ban's own sandbox is tighter. In the HTTPS modes, a request for a
   name or address that the certificate doesn't cover no longer leaves its headers in the journal,
   API key included. (#132)
@@ -170,7 +170,7 @@ it promotes.
   changed, remove its `.prompt-cache` line. The mount now has its own file, and with two mounts
   Halogen can't start. (#127)
 
-- Halogen now also keeps its prompt cache on disk (`/srv/models/.prompt-cache`). Thus a
+- Halogen now also keeps its prompt cache on disk (`/srv/models/.prompt-cache`). So a
   conversation survives a restart of Halogen, and Halogen doesn't read it again in full. The cache
   is on by default, at most 64 GiB (`HALOGEN_CACHE_DISK_GIB`). A new Halogen version or a switch of
   checkpoint starts with an empty cache. `sudo halogenctl cache` shows it. An upgrade turns this on.
@@ -249,7 +249,7 @@ it promotes.
   own certificate authority. Copy the authority to your apps once with `sudo halosctl https ca`.
   To use your own certificate and key, run `sudo
   halosctl https custom <certificate> <key>`. Then plain `http://` redirects. HTTPS stays off until
-  you turn it on, also after an upgrade. (#105)
+  you turn it on, even after an upgrade. (#105)
 
 ## v0.20.1-alpha.2 (2026-11-11)
 
@@ -262,7 +262,7 @@ it promotes.
   slots, queue, KV pool, prompt cache and NPU, with charts up to 30 days. It is
   [halogen-dashboard](https://github.com/Quat3rnion/halogen-dashboard) by Quaternion, built in
   unchanged. It uses about 12 MB of memory, and 430 MB of disk when it holds 30 days. It is on by
-  default, also after an upgrade, with no login: anyone on your network can see it, but nobody can
+  default, even after an upgrade, with no login: anyone on your network can see it, but nobody can
   change anything. `sudo halosctl dashboard off` stops it, and `on` starts it again. (#98)
 - The dashboard has more limits: it answers only this machine and private networks (home, office,
   Tailscale), uses at most one CPU core and writes no core files. The build doesn't run the
@@ -293,8 +293,9 @@ it promotes.
   stops it. (#97)
 - The guided installer asks how an encrypted disk unlocks: TPM and SSH (recommended), TPM only,
   SSH only, or the passphrase at the keyboard. For SSH, it takes your public keys from GitHub,
-  GitLab or Codeberg, or a key that you paste. The admin user can also log in with the same keys.
-  First-boot setup then uses that choice as its default. (#13, #94)
+  GitLab or Codeberg, or a key that you paste. The installer can also let the same keys log the
+  admin user in (it asks; the default is no). First-boot setup then uses that choice as its
+  default. (#13, #94)
 - Unlock the disk over SSH at boot (#13): when the TPM can't unlock the disk, type the passphrase
   from another computer with `ssh root@<machine>`. To turn it on, run `sudo halosctl ssh-unlock on
   --github <user>` (or `--gitlab`, `--codeberg`, `--key`), or use `sudo halosctl setup`. The
@@ -423,7 +424,7 @@ No change for users: the project notes and roadmap are now up to date (#79).
     can reach the network.
   - When your own checkpoints are counted in, the download log no longer claims more downloaded
     data than the estimate.
-  - The build and release workflows use GitHub's actions pinned to exact commits. Thus a moved
+  - The build and release workflows use GitHub's actions pinned to exact commits. So a moved
     version tag can't change what runs beside the signing key. (#69)
 - The installer, `halosctl setup` and the docs now say clearly what TPM unlock protects: a disk
   taken out of the machine, not the whole machine taken away. INSTALL.md section 8 tells how to

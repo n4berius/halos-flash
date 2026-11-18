@@ -76,7 +76,8 @@ Caddy, fail2ban, `halogenctl`, `halosctl`, and every other product, command and 
     space: "Check that the service runs", not "Check service runs".
 15. Put a condition before the instruction: "If the selftest shows FAIL, read the line",
     not "Read the line if the selftest shows FAIL".
-16. Use a colon or a vertical list for a series of more than three items.
+16. House choice: use a colon and a vertical list for a long series of items, not one long
+    sentence.
 
 ### Paragraphs
 
@@ -93,8 +94,16 @@ Caddy, fail2ban, `halogenctl`, `halosctl`, and every other product, command and 
 
 22. Start a warning or caution with a clear command ("Do not remove the USB drive until…"),
     then give the reason in a short sentence. Put it before the step it applies to.
-23. Use **Warning:** for a risk of data loss or a system that will not start, and **Note:**
-    for other important information. Do not use other labels.
+23. House choice: halOS docs use only two labels. **Warning:** is for a risk of data loss or
+    of a system that will not start, and **Note:** is for other important information. STE's
+    own definitions differ (a warning is for danger to people, a caution for damage to
+    equipment); halOS has no danger to people to describe, so it keeps one label for each.
+
+### Words that read stiffly
+
+24. Prefer "so" to "thus" and "therefore", and "even if" to "also if". Do not start a
+    paragraph with a word that points back to the previous one ("Thus", "This"): join the
+    two paragraphs, or name the thing again.
 
 ## How to rewrite a file
 
@@ -109,12 +118,19 @@ Caddy, fail2ban, `halogenctl`, `halosctl`, and every other product, command and 
    python3 .claude/skills/ste100/check.py --base origin/main FILE.md
    ```
 
-   It compares every code block, inline code span, link target and number (step numbers of a
-   numbered list don't count) with the base
-   version, and checks that every `#anchor` link in the repository still resolves. Fix every
-   problem it reports. A number that you removed on purpose (a repeated one) is the only
-   acceptable difference: say so in your report.
-5. Read your text once more as a new user would. If a sentence can be read two ways, rewrite it.
+   It compares every code block (exactly, in order), and counts every inline code span, link
+   target and word with a digit in it (numbers, sizes, versions, `#123`), so a removed one
+   fails even when the same value appears elsewhere. It also checks that every `#anchor` link
+   in the repository finds its file and heading. Fix every problem it reports. It lists what
+   you added as notes: confirm each one is right (a "5" that was "five" is fine; a new
+   command is not, unless the original text named it).
+   The check cannot see meaning. It misses two numbers that change places in a sentence, a
+   dropped "not", a lost condition ("if you set X, Y happens" becoming "Y happens"), and a new
+   sentence between a step and its command. So the next step is not optional.
+5. Compare each changed paragraph with the old one (`git diff --word-diff`). Check that every
+   condition, every "only", "not", "must" and "can", every actor and the order of events
+   are the same. Then read your text once more as a new user would. If a sentence can be
+   read two ways, rewrite it.
 
 ## Examples
 

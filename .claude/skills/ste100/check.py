@@ -5,15 +5,17 @@ Usage: python3 .claude/skills/ste100/check.py [--base REF] FILE.md [FILE.md ...]
 
 For each file, compares the working copy with the file at REF (default origin/main):
   - fenced code blocks must be identical, in the same order;
-  - the set of inline code spans must be the same;
-  - the set of link targets must be the same;
-  - every number in the prose must still be there (and no new ones appear).
-Then checks every Markdown file in the repository: each `#anchor` link (in the same file or
-in another file) must point to a heading that exists.
-Exits 1 when anything differs, 0 otherwise.
+  - inline code spans, link targets (autolinks too) and every word that contains a digit
+    (numbers, sizes, versions, #PR numbers) are counted: one that is gone, or appears fewer
+    times, is a problem; a new one is listed for a person to confirm.
+Then checks every Markdown file in the repository: each `#anchor` link must point to a file and
+a heading that exist.
+Exits 1 on a problem, 0 otherwise. It cannot see meaning: a swap of two numbers in a sentence,
+a dropped "not", or a new sentence between a step and its command. Read the diff for those.
 """
 import argparse
 import collections
+import os
 import re
 import subprocess
 import sys
@@ -22,7 +24,8 @@ from pathlib import Path
 FENCE = re.compile(r"^(\s*)(`{3,}|~{3,})", re.M)
 INLINE = re.compile(r"(`+)(.+?)\1", re.S)
 LINK = re.compile(r"\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
-NUMBER = re.compile(r"(?<![\w.#-])\d+(?:[.,]\d+)*(?![\w])")
+TOKEN = re.compile(r"[#\w.:/%+-]*\d[\w.:/%+-]*")
+AUTOLINK = re.compile(r"<((?:https?|mailto):[^>\s]+)>")
 
 
 def split_fences(text):
@@ -48,14 +51,15 @@ def split_fences(text):
 
 def parts(text):
     prose, blocks = split_fences(text)
-    inline = [m.group(2).strip() for m in INLINE.finditer(prose)]
+    # A span that wraps onto the next line is the same span: compare it with its spaces folded.
+    inline = [" ".join(m.group(2).split()) for m in INLINE.finditer(prose)]
     plain = INLINE.sub(" ", prose)
-    links = LINK.findall(plain)
+    links = LINK.findall(plain) + AUTOLINK.findall(plain)
     plain = LINK.sub("]( )", plain)
-    plain = re.sub(r"<[^>]+>", " ", plain)  # HTML tags and autolinks
+    plain = re.sub(r"<[^>]+>", " ", plain)  # HTML tags and autolinks (compared above)
     plain = re.sub(r"(?m)^(\s*)\d+[.)]\s", r"\1", plain)  # numbered-list markers are layout, not facts
-    numbers = NUMBER.findall(plain)
-    return blocks, inline, links, numbers
+    numbers = [t.strip(".,:;/-") for t in TOKEN.findall(plain)]
+    return blocks, inline, links, [t for t in numbers if any(c.isdigit() for c in t)]
 
 
 def slug(heading):
@@ -85,7 +89,7 @@ def show(ref, path):
     return r.stdout if r.returncode == 0 else None
 
 
-def compare(path, base_ref):
+def compare(path, base_ref, notes):
     problems = []
     new = Path(path).read_text()
     old = show(base_ref, path)
@@ -100,18 +104,14 @@ def compare(path, base_ref):
                 break
         if len(ob) != len(nb):
             problems.append(f"{path}: {len(ob)} code blocks before, {len(nb)} after")
-    for name, a, b in (("inline code", oi, ni), ("link target", ol, nl)):
-        gone, added = sorted(set(a) - set(b)), sorted(set(b) - set(a))
+    for name, a, b in (("inline code", oi, ni), ("link target", ol, nl), ("number or version", on, nn)):
+        ca, cb = collections.Counter(a), collections.Counter(b)
+        gone = sorted((ca - cb).elements())
+        added = sorted(set((cb - ca).elements()))
         if gone:
-            problems.append(f"{path}: {name} removed: " + ", ".join(repr(x) for x in gone))
+            problems.append(f"{path}: {name} removed (or fewer times than before): " + ", ".join(repr(x) for x in gone))
         if added:
-            problems.append(f"{path}: {name} added: " + ", ".join(repr(x) for x in added))
-    gone = sorted(set(on) - set(nn))
-    added = sorted(set(nn) - set(on))
-    if gone:
-        problems.append(f"{path}: numbers no longer in the prose: {', '.join(gone)}")
-    if added:
-        problems.append(f"{path}: new numbers in the prose: {', '.join(added)}")
+            notes.append(f"{path}: {name} added, confirm it is right: " + ", ".join(repr(x) for x in added))
     return problems
 
 
@@ -127,8 +127,19 @@ def check_anchors():
             if "://" in target or "#" not in target or target.startswith("mailto:"):
                 continue
             file_part, anchor = target.split("#", 1)
-            dest = f if not file_part else str((Path(f).parent / file_part).resolve().relative_to(Path.cwd().resolve()))
-            if dest in known and anchor not in known[dest]:
+            if not file_part:
+                dest = f
+            else:
+                try:
+                    dest = str((Path(f).parent / file_part).resolve().relative_to(Path.cwd().resolve()))
+                except ValueError:
+                    problems.append(f"{f}: link to {target} points outside the repository")
+                    continue
+            if not dest.endswith(".md"):
+                continue
+            if dest not in known:
+                problems.append(f"{f}: link to {target} finds no file {dest}")
+            elif anchor not in known[dest]:
                 problems.append(f"{f}: link to {target} finds no such heading in {dest}")
     return problems
 
@@ -138,13 +149,23 @@ def main():
     ap.add_argument("--base", default="origin/main")
     ap.add_argument("files", nargs="*")
     args = ap.parse_args()
-    problems = []
-    for f in args.files:
-        problems += compare(f, args.base)
+    # Paths are taken from where the command runs; the anchor check needs the repository root.
+    top = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True).stdout.strip()
+    files = [os.path.relpath(os.path.abspath(f), top) for f in args.files]
+    os.chdir(top)
+    problems, notes = [], []
+    for f in files:
+        problems += compare(f, args.base, notes)
     problems += check_anchors()
+    for n in notes:
+        print("note:", n)
     for p in problems:
         print(p)
-    print(f"{len(problems)} problem(s)" if problems else "ok: only the prose changed, and every anchor link resolves")
+    if problems:
+        print(f"{len(problems)} problem(s)")
+    else:
+        print("ok: nothing was removed, and every anchor link resolves"
+              + (f"; {len(notes)} addition note(s) above to confirm" if notes else ""))
     return 1 if problems else 0
 
 
