@@ -27,6 +27,7 @@ tests/dashboard.sh
 tests/https.sh
 tests/ssh-unlock.sh
 tests/completion.sh
+tests/enroll-tpm.sh
 tests/setup.sh
 tests/guided.sh
 echo "all checks passed"

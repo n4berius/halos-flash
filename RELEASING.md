@@ -21,7 +21,8 @@ releases stay as they were, and the `beta` channel tag keeps moving with every R
 release, so a machine still following `beta` gets the same releases as `rc`.
 
 `0.18.23` and the channel tags move. `0.18.23-alpha.1` and the like are never rebuilt. Each
-Monday, the newest stable release is rebuilt with Fedora updates.
+Monday, the newest *published* stable release is rebuilt with Fedora updates (a stable tag whose
+release run failed has no release, so it is never rebuilt).
 
 Each channel points to the newest release that is at least that stable. A stable release also
 moves `rc`, `beta` and `alpha`, and an RC also moves `beta` and `alpha`, unless that channel
@@ -54,7 +55,12 @@ release and choose **Run workflow**. You never type a tag: the workflow takes th
 | `stable` | Promotes the newest published RC. A second stable of the same version becomes `-r2` | `v0.19.0`, then `v0.19.0-r2` |
 
 Tick **from main** to build an RC or stable from `main` instead of promoting, for example
-for a stable fix. Only published releases are promoted, so a tag whose run failed is skipped,
+for a stable fix.
+
+Once a version has a stable release, an alpha or RC of that same version would be older than it
+for every channel, so it would reach no machine. The workflow stops at once in that case and says
+so. A halOS-only fix after a stable release goes out as **stable** with **from main** (it becomes
+`-r2`). Otherwise, the next alpha comes with the next Halogen version. Only published releases are promoted, so a tag whose run failed is skipped,
 but its number is never used again. A promotion builds the same code again, so Fedora packages
 can be newer than in the release it came from. Do not use **Draft a new release**, because the
 workflow creates the release itself.
@@ -68,8 +74,10 @@ git push origin v0.19.0-alpha.3
 ```
 
 Either way, the workflow runs checks, builds both images, runs a full VM install of each ISO, and
-then creates the GitHub release. Nothing is published as a release unless both installs pass, but the images are
-pushed before the ISO tests run. If a run fails, fix it on `main` and run it again: it takes the
+then creates the GitHub release. The exact image tags (such as `0.19.0-alpha.3`) are pushed before
+the ISO tests run, since the tests install them; the channel tags (`alpha`, `rc`, `stable`,
+`latest`) move only once both installs pass, so no machine upgrades to a release that failed
+them, and the GitHub release is created last. If a run fails, fix it on `main` and run it again: it takes the
 next number. A promotion builds its old code again, so a fix on `main` doesn't reach it: cut a
 new alpha and promote that, or tick **from main**.
 

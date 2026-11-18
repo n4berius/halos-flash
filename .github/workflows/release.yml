@@ -55,7 +55,15 @@ jobs:
             esac
           fi
           echo "Release $tag from $source ($ref)"
-          echo "Channels it would move now: $(scripts/channels.sh "$tag")"
+          # A release no channel would take reaches no machine: an alpha or rc of a version that
+          # already has a stable release, say. Stop before the builds and install tests.
+          git tag -l 'v*' > "$RUNNER_TEMP/tags"
+          channels="$(scripts/channels.sh "$tag" "$RUNNER_TEMP/tags")"
+          if [ -z "$channels" ]; then
+            echo "::error::$tag would move no channel (alpha, rc, stable): a newer release of the same or a later stage already exists, so no machine would get it. For a halOS-only fix after a stable release, release stable with \"from main\" (it becomes the next -rN); otherwise wait for the next Halogen version." >&2
+            exit 1
+          fi
+          echo "Channels it would move now: $channels"
           { echo "tag=$tag"; echo "ref=$ref"; } >> "$GITHUB_OUTPUT"
       - name: Check the code is on main
         env:
@@ -93,11 +101,7 @@ jobs:
       contents: read
       packages: write
       id-token: write
-    # One release or weekly rebuild moves an edition's channel tags at a time, so a slower
-    # build that finishes later can't move a channel back. Shared with refresh.yml.
-    concurrency:
-      group: channel-tags-${{ matrix.variant }}
-      cancel-in-progress: false
+    # The channels move only in the channels job, after the install tests.
     strategy:
       fail-fast: false
       matrix:
@@ -122,23 +126,15 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "$GH_TOKEN" | podman login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-          # Which channels to move is worked out now, with every tag pushed so far, so a release
-          # made during this build counts. main's channel script is used, because a promoted
-          # release's code may predate it. None for an old release run again.
-          git fetch -q --force --tags origin
-          git show origin/main:scripts/channels.sh > "$RUNNER_TEMP/channels.sh"
-          git tag -l 'v*' > "$RUNNER_TEMP/tags"
-          channels="$(bash "$RUNNER_TEMP/channels.sh" "$TAG" "$RUNNER_TEMP/tags")"
-          echo "Moving the channels: ${channels:-none, a newer release exists}"
-          # Push the exact tag and sign it first (main's script, #46), so a channel never points
-          # to an unsigned image; the signature is per digest, so it covers the channel tags too.
-          image="$(scripts/image-ref.sh)"; base="${image%:*}"
-          suffix=""; [ "$HALOGEN_VARIANT" = npu ] || suffix="-no-npu"
+          # Push the exact tag and sign it (main's script, #46). Only the exact tag: the install
+          # tests run on it, and the channels job moves the channel tags once they pass.
+          image="$(scripts/image-ref.sh)"
+          git fetch -q origin main
           git show origin/main:scripts/sign-image.sh > "$RUNNER_TEMP/sign-image.sh"
           # cosign first: a failed download must stop the run before anything is pushed.
           bash "$RUNNER_TEMP/sign-image.sh" --fetch
           podman push "$image"
-          { echo "IMAGE=$image"; echo "CHANNELS=$channels"; } >> "$GITHUB_ENV"
+          echo "IMAGE=$image" >> "$GITHUB_ENV"
       - name: Sign
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -146,20 +142,6 @@ jobs:
           COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
           COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
         run: GITHUB_TOKEN="$GH_TOKEN" bash "$RUNNER_TEMP/sign-image.sh" "$IMAGE"
-      - name: Move the channels
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          base="${IMAGE%:*}"; suffix=""; [ "$HALOGEN_VARIANT" = npu ] || suffix="-no-npu"
-          channels="$CHANNELS"
-          # One channel per call, which the push script of older code also accepts.
-          refs=()
-          for channel in $channels; do
-            scripts/push-image.sh "$channel"
-            refs+=("$base:$channel$suffix")
-            [ "$channel" != stable ] || refs+=("$base:latest$suffix")
-          done
-          [ "${#refs[@]}" = 0 ] || bash "$RUNNER_TEMP/sign-image.sh" --verify "${refs[@]}"
 
   iso:
     needs: [info, image]
@@ -213,8 +195,70 @@ jobs:
           compression-level: 0
           retention-days: 1
 
-  publish:
+  channels:
+    # Only once both editions' install tests passed: a release that fails them moves no channel,
+    # so no machine upgrades to it (code review, Nov 2026: they used to move first).
     needs: [info, iso]
+    runs-on: ubuntu-24.04
+    # packages: write to move the channel tags.
+    permissions:
+      contents: read
+      packages: write
+    # One release or weekly rebuild moves an edition's channel tags at a time, so one that
+    # finishes later can't move a channel back. Shared with refresh.yml.
+    concurrency:
+      group: channel-tags-${{ matrix.variant }}
+      cancel-in-progress: false
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [npu, no-npu]
+    env:
+      HALOGEN_VARIANT: ${{ matrix.variant }}
+      IMAGE_TAG: ${{ needs.info.outputs.image_tag }}
+      TAG: ${{ needs.info.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.info.outputs.tag }}
+          fetch-depth: 0
+      - name: Move the channels
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Worked out now, with every tag so far, so a release made meanwhile counts and no
+          # channel moves back. main's scripts: a promoted release's code may predate them.
+          git fetch -q --force --tags origin
+          git fetch -q origin main
+          git show origin/main:scripts/channels.sh > "$RUNNER_TEMP/channels.sh"
+          git show origin/main:scripts/sign-image.sh > "$RUNNER_TEMP/sign-image.sh"
+          git tag -l 'v*' > "$RUNNER_TEMP/tags"
+          channels="$(bash "$RUNNER_TEMP/channels.sh" "$TAG" "$RUNNER_TEMP/tags")"
+          echo "Moving the channels: ${channels:-none, a newer release exists}"
+          [ -n "$channels" ] || exit 0
+          image="$(scripts/image-ref.sh)"; base="${image%:*}"
+          suffix=""; [ "$HALOGEN_VARIANT" = npu ] || suffix="-no-npu"
+          echo "$GH_TOKEN" | skopeo login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          # The image the install tests ran, by digest, copied unchanged (the signature is per
+          # digest, so it covers every channel tag that points to it).
+          digest="$(skopeo inspect --format '{{.Digest}}' "docker://$image")"
+          case "$digest" in sha256:[0-9a-f]*) ;; *) echo "no digest for $image: $digest" >&2; exit 1 ;; esac
+          bash "$RUNNER_TEMP/sign-image.sh" --fetch
+          bash "$RUNNER_TEMP/sign-image.sh" --verify "$base@$digest"
+          refs=()
+          for channel in $channels; do
+            targets=("$base:$channel$suffix"); [ "$channel" != stable ] || targets+=("$base:latest$suffix")
+            for t in "${targets[@]}"; do
+              skopeo copy --all --preserve-digests "docker://$base@$digest" "docker://$t"
+              got="$(skopeo inspect --format '{{.Digest}}' "docker://$t")"
+              [ "$got" = "$digest" ] || { echo "$t points to $got, not $digest" >&2; exit 1; }
+              refs+=("$t")
+            done
+          done
+          bash "$RUNNER_TEMP/sign-image.sh" --verify "${refs[@]}"
+
+  publish:
+    needs: [info, iso, channels]
     runs-on: ubuntu-24.04
     # contents: write to create the GitHub release.
     permissions:

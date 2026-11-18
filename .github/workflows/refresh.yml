@@ -34,8 +34,13 @@ jobs:
           fetch-depth: 0
       - name: Find the newest stable release
         id: stable
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          tag="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-r[0-9]+)?$' | head -1 || true)"
+          # The newest published stable release, not the newest tag: a release whose install
+          # test failed has a tag but no release, and must never reach the stable channel.
+          gh release list --exclude-drafts --exclude-pre-releases --limit 1000 --json tagName -q '.[].tagName' > "$RUNNER_TEMP/released"
+          tag="$(grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-r[0-9]+)?$' "$RUNNER_TEMP/released" | sort -V | tail -n 1 || true)"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           # main's channel script, kept aside: the release checked out next may predate it.
           cp scripts/channels.sh "$RUNNER_TEMP/channels.sh"

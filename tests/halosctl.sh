@@ -303,6 +303,11 @@ sed -i 's/^HALOS_RELEASE=.*/HALOS_RELEASE=0.19.1-dev.abc1234/' "$work/release.en
 host "$(dep ghcr.io/n4berius/halos-flash@sha256:aaa 0.19.1-dev.abc1234 sha256:aaa)" > "$work/status.json"
 if "$ctl" npu off --yes > "$work/out" 2>&1; then echo "guessed a tag for an untagged build" >&2; exit 1; fi
 has 'Follow a channel first' "$work/out"
+# A stable rebuild (0.19.0-r2) pinned by digest: its images carry the plain version's tag.
+sed -i 's/^HALOS_RELEASE=.*/HALOS_RELEASE=0.19.0-r2/' "$work/release.env"
+host "$(dep ghcr.io/n4berius/halos-flash@sha256:aaa 0.19.0-r2 sha256:aaa)" > "$work/status.json"; : > "$work/log"
+"$ctl" npu off --yes > "$work/out" 2>&1 || { cat "$work/out" >&2; echo "a pinned -r2 stable had no tag for the other edition" >&2; exit 1; }
+has '^bootc switch --enforce-container-sigpolicy ghcr.io/n4berius/halos-flash:0.19.0-no-npu$' "$work/log"
 sed -i 's/^HALOS_RELEASE=.*/HALOS_RELEASE=0.19.0-alpha.1/' "$work/release.env"
 # npu on from the no-NPU edition warns on a machine with no NPU, not on one with it.
 sed -i 's/=npu/=no-npu/' "$work/release.env"
