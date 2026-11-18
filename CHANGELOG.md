@@ -13,7 +13,7 @@ promoted.
 - The guided installer now gives the boot partitions fixed sizes, a 1 GiB EFI partition and a
   2 GiB `/boot`, instead of leaving them to Anaconda, whose defaults change between Fedora releases.
   `/boot` holds a kernel for the running system, its rollback and a staged upgrade, and halOS's are
-  larger than Fedora's. New installs only. (#PRNUM)
+  larger than Fedora's. New installs only. (#151)
 - LFM3-1.7B's fastest form on the NPU, `:qad` (Halogen 0.20.6): `sudo halogenctl model pull
   LiquidAI/LFM3-1.7B --qad` also fetches Liquid's own 4-bit file, from the exact source Halogen's
   image names, and then `/models/LFM/LFM3-1.7B:qad` can go in `HALOGEN_NPU_MODELS` (served as
