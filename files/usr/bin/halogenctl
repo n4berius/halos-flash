@@ -232,7 +232,7 @@ case "${1:-status}" in
         c="$(chosen_flash)"; s="$(served_flash)"; served="$(head -n 1 <<< "$s")"
         mark() { if [ "$1" = "$served" ]; then echo yes; else echo no; fi; }
         printf '  %-24s %-8s %-7s %-22s %s\n' NAME SIZE ACTIVE VERIFIED SOURCE
-        size="$( { as_owner du -ch "$models/$official" "$models/qwen38-flash-next-ngram.hgn" "$models/qwen38-flash-next-drafter-r2.hgn" 2>/dev/null || true; } | tail -n 1 | cut -f1)"
+        size="$( { as_owner du -ch "$models/$official" "$models/qwen38-flash-next-ngram.hgn" "$models/qwen38-flash-next-drafter-r2-ht4.hgn" "$models/qwen38-flash-next-drafter-r2.hgn" 2>/dev/null || true; } | tail -n 1 | cut -f1)"
         printf '  %-24s %-8s %-7s %-22s %s\n' official "${size:-?}" "$(mark official)" "at every start" \
           "$(sed -n 's/^HALOGEN_WEIGHTS_REPO=//p' "${HALOGEN_RELEASE_FILE:-/usr/share/halogen/release.env}" 2>/dev/null)"
         for dir in "$models"/flash/*/; do

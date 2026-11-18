@@ -135,13 +135,15 @@ case "$choice" in ''|official|[!A-Za-z0-9]*) ;; *)
   fi ;;
 esac
 
-# The official files: the checkpoint, its lookup table, its draft head (Halogen 0.20.6), the vision
-# tower when it is wanted, and the tokenizer. A link in place of one is never a download: it goes,
-# and the file is fetched.
-official=(qwen38-flash-next-v2.hgn qwen38-flash-next-ngram.hgn qwen38-flash-next-drafter-r2.hgn)
+# The official files: the checkpoint, its lookup table, its draft head (the -ht4 form since Halogen
+# 0.20.7), the vision tower when it is wanted, and the tokenizer. A link in place of one is never a
+# download: it goes, and the file is fetched. 0.20.6's draft head (drafter-r2) is no longer fetched;
+# one an upgraded machine kept stays for a rollback (Halogen 0.20.7 reads it only while the -ht4
+# file is missing) and is checked like a kept vision tower.
+official=(qwen38-flash-next-v2.hgn qwen38-flash-next-ngram.hgn qwen38-flash-next-drafter-r2-ht4.hgn)
 [ -z "$vision" ] || official+=(qwen38-flash-next-vision.hgn)
 # Every .hgn name counts (a vision tower kept while it is off too), and what is in tokenizer/.
-for f in qwen38-flash-next-v2.hgn qwen38-flash-next-ngram.hgn qwen38-flash-next-drafter-r2.hgn qwen38-flash-next-vision.hgn tokenizer; do
+for f in qwen38-flash-next-v2.hgn qwen38-flash-next-ngram.hgn qwen38-flash-next-drafter-r2-ht4.hgn qwen38-flash-next-drafter-r2.hgn qwen38-flash-next-vision.hgn tokenizer; do
   if [ -L "$models/$f" ]; then
     rm -f -- "$models/$f" || exit 1; echo "halogen-fetch: removed a link at $models/$f"
   fi
@@ -353,9 +355,13 @@ if [ -e "$unchecked" ]; then
   if [ -d "$models/tokenizer" ]; then chmod -R u+rwX -- "$models/tokenizer" || exit 1; fi
   # The vision tower too when it is kept but not wanted now: turned on later, it would be there
   # and never checked.
+  # So is 0.20.6's draft head when kept: a rollback to 0.20.6 reads it.
   check=("${official[@]}")
   if [ -z "$vision" ] && { [ -e "$models/qwen38-flash-next-vision.hgn" ] || [ -L "$models/qwen38-flash-next-vision.hgn" ]; }; then
     check+=(qwen38-flash-next-vision.hgn)
+  fi
+  if [ -e "$models/qwen38-flash-next-drafter-r2.hgn" ] || [ -L "$models/qwen38-flash-next-drafter-r2.hgn" ]; then
+    check+=(qwen38-flash-next-drafter-r2.hgn)
   fi
   for f in "${check[@]}" $(sed -n 's#^[0-9a-f]\{64\}  \(tokenizer/[A-Za-z0-9._-]*\)$#\1#p' "$sums"); do
     want_sum="$(awk -v f="$f" '$2 == f { print $1; exit }' "$sums")"

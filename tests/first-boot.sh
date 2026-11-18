@@ -99,7 +99,7 @@ export XDG_RUNTIME_DIR="$work/run" HALOGEN_ALLOWED_FILE="$work/allowed" HALOGEN_
 # The stamp lives in halogen's own folder; the official files are checked against these hashes
 # (the fake hf writes "hello" into every file).
 mkdir -p "$work/state"
-{ echo "# revision main"; for f in qwen38-flash-next-v2.hgn qwen38-flash-next-ngram.hgn qwen38-flash-next-drafter-r2.hgn qwen38-flash-next-vision.hgn tokenizer/tokenizer.json; do echo "$h  $f"; done; } > "$work/sums"
+{ echo "# revision main"; for f in qwen38-flash-next-v2.hgn qwen38-flash-next-ngram.hgn qwen38-flash-next-drafter-r2-ht4.hgn qwen38-flash-next-drafter-r2.hgn qwen38-flash-next-vision.hgn tokenizer/tokenizer.json; do echo "$h  $f"; done; } > "$work/sums"
 export HALOGEN_STATE_DIR="$work/state" HALOGEN_WEIGHTS_SUMS="$work/sums"
 export HALOGEN_RELEASE_FILE="$work/release.env" HALOGEN_CONFIG_FILE="$work/config.env" HALOGEN_MODELS_DIR="$work/models" \
   HALOGEN_FETCH_HELPER="$HELPER_SRC" HALOGEN_MODELS_NEEDED_GIB=0 HALOGEN_RETRY_MAX_S=0 HALOGEN_PROGRESS_S=0 HALOGEN_HF_TOKEN_FILE="$work/hf-token"
@@ -207,20 +207,31 @@ grep -q "removed: qwen38-flash-next-ngram.hgn" "$work/out" || { cat "$work/out" 
 [ "$(cat "$work/models/qwen38-flash-next-ngram.hgn")" = hello ] || { echo "the file wasn't fetched again" >&2; exit 1; }
 ok "files from a download that was cut short are checked by the next fetch"
 
-# An upgrade to Halogen 0.20.6: everything is there but the new draft head, and the stamp is
-# current. The fetch downloads only the draft head (the others are there), with the top writable,
-# and checks it.
-rm "$work/models/qwen38-flash-next-drafter-r2.hgn"; : > "$work/podman.log"
+# An upgrade to Halogen 0.20.7: everything is there but the new draft head (0.20.6's is kept), and
+# the stamp is current. The fetch downloads only the new draft head (the others are there), with
+# the top writable, and checks it.
+rm -f "$work/models/qwen38-flash-next-drafter-r2-ht4.hgn"; printf hello > "$work/models/qwen38-flash-next-drafter-r2.hgn"; : > "$work/podman.log"
 "$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
-grep -q 'fetch: downloading qwen38-flash-next-drafter-r2.hgn from' "$work/out" || { cat "$work/out" >&2; echo "the draft head wasn't downloaded alone" >&2; exit 1; }
-{ [ "$(cat "$work/models/qwen38-flash-next-drafter-r2.hgn")" = hello ] && grep -q "checking the official files" "$work/out"; } \
+grep -q 'fetch: downloading qwen38-flash-next-drafter-r2-ht4.hgn from' "$work/out" || { cat "$work/out" >&2; echo "the draft head wasn't downloaded alone" >&2; exit 1; }
+{ [ "$(cat "$work/models/qwen38-flash-next-drafter-r2-ht4.hgn")" = hello ] && grep -q "checking the official files" "$work/out"; } \
   || { cat "$work/out" >&2; echo "the draft head wasn't fetched and checked" >&2; exit 1; }
-ok "a machine without the draft head (Halogen 0.20.6) fetches and checks it"
-echo secret > "$work/private-d"; rm "$work/models/qwen38-flash-next-drafter-r2.hgn"; ln -s "$work/private-d" "$work/models/qwen38-flash-next-drafter-r2.hgn"
-"$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; echo "a link at the draft head wasn't replaced in one run" >&2; exit 1; }
-{ [ ! -L "$work/models/qwen38-flash-next-drafter-r2.hgn" ] && [ "$(cat "$work/private-d")" = secret ]; } || { echo "the link at the draft head stayed, or its target changed" >&2; exit 1; }
-rm -f "$work/private-d"
-ok "a link at the draft head goes and the file is fetched in the same run"
+[ "$(cat "$work/models/qwen38-flash-next-drafter-r2.hgn")" = hello ] || { echo "0.20.6's draft head, kept for a rollback, was changed" >&2; exit 1; }
+ok "a machine without the -ht4 draft head (Halogen 0.20.7) fetches and checks it, keeping 0.20.6's"
+# 0.20.6's draft head, when kept, is checked too: a rollback to 0.20.6 would read it.
+rm "$work/models/qwen38-flash-next-drafter-r2-ht4.hgn"; printf evil > "$work/models/qwen38-flash-next-drafter-r2.hgn"
+"$work/fetch" > "$work/out" 2>&1 && { echo "a kept 0.20.6 draft head that differs passed" >&2; exit 1; }
+{ grep -q "removed:.*qwen38-flash-next-drafter-r2.hgn" "$work/out" && [ ! -e "$work/models/qwen38-flash-next-drafter-r2.hgn" ]; } || { cat "$work/out" >&2; echo "the kept 0.20.6 draft head wasn't checked" >&2; exit 1; }
+"$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+[ ! -e "$work/models/qwen38-flash-next-drafter-r2.hgn" ] || { echo "0.20.6's draft head was downloaded again" >&2; exit 1; }
+ok "a kept 0.20.6 draft head is checked, and removed when it differs; it is never downloaded"
+for f in qwen38-flash-next-drafter-r2-ht4.hgn qwen38-flash-next-drafter-r2.hgn; do
+  echo secret > "$work/private-d"; rm -f "$work/models/$f"; ln -s "$work/private-d" "$work/models/$f"
+  "$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; echo "a link at $f wasn't handled in one run" >&2; exit 1; }
+  { [ ! -L "$work/models/$f" ] && [ "$(cat "$work/private-d")" = secret ]; } || { echo "the link at $f stayed, or its target changed" >&2; exit 1; }
+  rm -f "$work/private-d"
+done
+[ -f "$work/models/qwen38-flash-next-drafter-r2-ht4.hgn" ] || { echo "the draft head wasn't fetched after its link went" >&2; exit 1; }
+ok "a link at either draft head's name goes, and the current one is fetched in the same run"
 # LFM3's :qad form (Halogen 0.20.6): the probe is asked for that form, as Halogen's start does,
 # and the -qad model's NPU programs are fetched; the id is noted with its suffix.
 mkdir -p "$work/models/LFM/q"; echo '{}' > "$work/models/LFM/q/config.json"
