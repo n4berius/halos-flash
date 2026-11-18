@@ -1173,7 +1173,7 @@ and tracked on the owner's project board. [ROADMAP.md](ROADMAP.md) holds the ord
   `/health` answer 503 `engine_stalled`: login-status shows "starting", the selftest's `api-ipv4`
   FAILs and `bench` refuses while it lasts; no restart follows (the Quadlet has no Health keys and
   the image no Healthcheck).
-- **Halogen 0.20.7** (#148, the update workflow's PR, finished by hand in the next PR): the
+- **Halogen 0.20.7** (#148, the update workflow's PR, finished by hand in #149): the
   concurrency mode is the default (`HALOGEN_CONC_MODE` unset = on wherever it can run, `0` = the old
   mode; the entrypoint falls back with one startup line beside a GGUF, w4b or `HALOGEN_MTP=0`), and a
   new draft head `qwen38-flash-next-drafter-r2-ht4.hgn` (1.39 GiB, weights commit `5c72aef`; the pin
