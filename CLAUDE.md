@@ -1039,7 +1039,7 @@ name, but allows saying halOS runs Halogen.
 - Guided install (#42): the default boot entry has `inst.ks=file:/halos-guided.ks`, a path inside
   the initramfs (`dracut --include` in `Containerfile.installer`). Its `%pre` runs `plan-install`
   on tty8 (`chvt`; ttys 2 to 6 get Anaconda's root shell from logind), which writes `/tmp/halos-plan.ks` (mode 600) for `%include`: storage
-  (`ignoredisk`, `reqpart --add-boot`, VG `halos`, fixed LV names), users, hostname, reboot.
+  (`ignoredisk`, a 1 GiB EFI partition and a 2 GiB `/boot` with fixed sizes instead of `reqpart --add-boot`'s Anaconda defaults (#151; the VM test's `BOOTSZ` checks them and prints how full `/boot` is), VG `halos`, fixed LV names), users, hostname, reboot.
   Kickstart values are single-quoted for pykickstart's shlex; `tests/guided.sh` parses them with
   pykickstart when installed. The VM test answers from a volume labelled `HALOS_ANSWERS` (file
   `answers`, read as data, never sourced), used only from the third boot entry

@@ -343,7 +343,12 @@ umask 077
   echo "ignoredisk --only-use=$disk"
   echo "zerombr"
   echo "clearpart --all --initlabel --disklabel=gpt --drives=$disk"
-  echo "reqpart --add-boot"
+  # Fixed sizes rather than Anaconda's defaults, which change between Fedora releases. bootc keeps
+  # a kernel and initramfs in /boot for each deployment (running, rollback and a staged upgrade),
+  # and halOS's initramfs is larger than Fedora's (no-hostonly, LUKS, LVM, network, SSH unlock).
+  # The EFI partition also holds fwupd's firmware capsules and the SSH unlock keys.
+  echo "part /boot/efi --fstype=efi --ondisk=$disk --size=1024"
+  echo "part /boot     --fstype=xfs --ondisk=$disk --size=2048"
   if [ -n "$luks" ]; then
     echo "part pv.halos --fstype=lvmpv --ondisk=$disk --size=1 --grow --encrypted --luks-version=luks2 --passphrase=$(q "$luks")"
   else

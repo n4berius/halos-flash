@@ -13,6 +13,10 @@ it promotes.
 - The documentation now follows ASD-STE100 Simplified Technical English: shorter sentences, one
   instruction per step and plain words. Only the wording changed: every command, setting, link
   and number is the same. (#152)
+- The guided installer now gives the boot partitions fixed sizes: a 1 GiB EFI partition and a
+  2 GiB `/boot`. Before, Anaconda chose the sizes, and its defaults change between Fedora releases.
+  `/boot` holds a kernel for the running system, its rollback and a staged upgrade, and the boot
+  files of halOS are larger than Fedora's. This applies to new installs only. (#151)
 - Releases: the `alpha`, `rc`, `stable` and `latest` tags now move only after the install tests of
   both editions pass. So a machine never upgrades to a release that failed them (before, the tags
   moved first). The weekly stable rebuild now uses the newest *published* stable release, not only

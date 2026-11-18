@@ -112,6 +112,9 @@ expect "$ks" 'ignoredisk --only-use=nvme0n1'
 expect "$ks" 'clearpart --all --initlabel --disklabel=gpt --drives=nvme0n1'
 expect "$ks" 'rootpw --lock'
 expect "$ks" 'volgroup halos pv.halos'
+expect "$ks" 'part /boot/efi --fstype=efi --ondisk=nvme0n1 --size=1024'
+expect "$ks" 'part /boot     --fstype=xfs --ondisk=nvme0n1 --size=2048'
+if grep -q reqpart "$ks"; then echo "the boot partitions are left to Anaconda" >&2; exit 1; fi
 expect "$ks" 'reboot'
 expect "$ks" '--size=4096 --fsoptions=nodev,nosuid,noexec'
 [ "$(stat -c %a "$ks")" = 600 ] || { echo "the kickstart lines are readable by others" >&2; exit 1; }
