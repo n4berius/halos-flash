@@ -203,8 +203,10 @@ name before it would erase anything.
 The guided install sets the clock to UTC and takes the network address from DHCP. Halogen doesn't
 care about the time zone; `sudo timedatectl set-timezone <zone>` changes it later.
 
-The disk is laid out the same way on every machine, with LVM and XFS. The volume group is
-always `halos`, whatever the machine's name:
+The disk is laid out the same way on every machine. Two plain partitions come first: a 1 GiB EFI
+partition (`/boot/efi`) and a 2 GiB `/boot`, room for the kernels of the running system, its
+rollback and a staged upgrade. The rest is one LVM volume (encrypted, if you chose a passphrase)
+with XFS volumes. The volume group is always `halos`, whatever the machine's name:
 
 | Mount | Volume | Size |
 |---|---|---|
