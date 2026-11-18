@@ -2,8 +2,16 @@
 # Bind the LUKS volume to this machine's TPM. Usage: sudo halogen-enroll-tpm [device]
 # The kernel already carries rd.luks.options=tpm2-device=auto, so enrolling is the only step.
 set -euo pipefail
-device="${1:-$(awk 'NR == 1 && $2 ~ /^UUID=/ { print "/dev/disk/by-uuid/" substr($2, 6) }' /etc/crypttab)}"
-[ -n "$device" ] || { echo "no LUKS device found in /etc/crypttab; name it as an argument" >&2; exit 1; }
+crypttab="${HALOS_CRYPTTAB:-/etc/crypttab}"
+# Unreadable is not the same as empty: without sudo it would otherwise say "not encrypted".
+[ ! -e "$crypttab" ] || [ -r "$crypttab" ] || { echo "can't read $crypttab: run it with sudo" >&2; exit 1; }
+if [ -z "${1:-}" ] && ! grep -qE '^[[:space:]]*[^#[:space:]]' "$crypttab" 2> /dev/null; then
+  echo "This disk isn't encrypted ($crypttab names no encrypted volume), so there is nothing to bind to the TPM." >&2
+  exit 1
+fi
+# The first volume crypttab names (comments and blank lines skipped).
+device="${1:-$(awk '/^[[:space:]]*(#|$)/ { next } { if ($2 ~ /^UUID=/) print "/dev/disk/by-uuid/" substr($2, 6); exit }' "$crypttab")}"
+[ -n "$device" ] || { echo "the first volume in $crypttab isn't named by UUID; name the LUKS device as an argument" >&2; exit 1; }
 # Running this again, after a BIOS or Secure Boot change, replaces the old TPM binding:
 # cryptenroll enrolls the new one first, then wipes the others, so a failure leaves the
 # old binding in place. The passphrase slot is never touched.

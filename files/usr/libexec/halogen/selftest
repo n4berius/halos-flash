@@ -203,6 +203,12 @@ fi
 crypt="$(lsblk -rno PATH,FSTYPE 2>/dev/null | awk '$2 == "crypto_LUKS" { print $1 }')"
 if [ -z "$crypt" ]; then
   say INFO luks "no encrypted volume (fine if you chose not to encrypt)"
+  # SSH unlock keys left on the EFI partition (an earlier encrypted install, say) make every boot
+  # start the network and an SSH server before the system, with nothing to unlock.
+  st="$(run "${HALOS_SSH_UNLOCK:-/usr/libexec/halogen/ssh-unlock}" status --short | head -n 1)"
+  case "$st" in
+    "on "*) say WARN ssh-unlock "the disk isn't encrypted, yet SSH unlock keys are on the EFI partition, so every boot starts an SSH server for nothing. Remove them: sudo halosctl ssh-unlock off" ;;
+  esac
 else
   say PASS luks "encrypted: $(printf '%s' "$crypt" | paste -sd' ' -)"
   for d in $crypt; do

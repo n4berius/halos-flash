@@ -864,10 +864,9 @@ name, but allows saying halOS runs Halogen.
   `dnf downgrade` after the main install, the build checks the version); 1.31's two CVE fixes
   (CRIU restore keys; deferred read-only remount target resolution) are given up until then.
   Remove the hold once Fedora ships podman#30265 or a crun fix (versions.env lists the places;
-  the build log prints the base's crun). Old code rebuilt from a tag has no hold: `refresh.yml`
-  (weekly, rebuilds the newest stable tag and moves `stable`, no VM test) and promotions of an
-  older release would ship crun 1.31 until a release containing #137 exists (code review; the
-  owner was asked to disable Refresh until then). `container-check` names its container
+  the build log prints the base's crun). Old code rebuilt from a tag has no hold: a promotion of
+  a release from before #137 would ship crun 1.31. `refresh.yml` was disabled until then; v0.20.5
+  and v0.20.6 carry the hold, so it is safe again. `container-check` names its container
   (`halos-container-check`, a leftover removed first with its volumes). Security audit of #137:
   the pinned RPM is Fedora's signed copy (Koji `data/signed/f577861e/`, same header and payload
   as the base's 1.30.1; the build runs `rpmkeys -K` against Fedora 45's key besides the sha256)
@@ -999,6 +998,27 @@ name, but allows saying halOS runs Halogen.
   the choice file (`head -c 256`); more tests; name and remove the ppl check's container. Tests:
   `tests/halogenctl.sh` runs the real helpers through the fake `systemd-run` with `FAKE_BEFORE`
   standing in for another terminal during the question.
+
+- Release path (#150, code review): `release.yml`'s `image` job pushes only the exact tag
+  (`podman push --digestfile`) and signs that digest (`sign-image.sh` takes `repo@sha256:…` as
+  given), and hands it on as the artifact `digest-<edition>`: a stable release's tag (`0.20.6`) is
+  also what `refresh.yml` pushes, so nothing after the push reads the tag (security audit). The
+  `iso` job pulls that digest and tags it locally for `build-iso.sh`; the `channels` job
+  (`needs: [info, iso]`, holds the `channel-tags-<edition>` concurrency group shared with
+  `refresh.yml`, no credentials in its checkout) works the channels out then with main's
+  `channels.sh` and copies the digest to the release's own tag and each channel tag with `skopeo
+  copy --all --preserve-digests`, checking each digest and the signatures after; `publish` needs it
+  and uploads only `iso-*` artifacts. A run whose `publish` fails after `channels` has moved them
+  leaves a tag with no release (and `next-tag.sh` won't promote it). So a release whose install
+  test fails moves no channel. The `info` job stops a release `channels.sh` gives no channel for
+  (an alpha or rc of a version with a stable release: `next-tag.sh alpha` gives one until the next
+  Halogen pin). `refresh.yml` rebuilds the newest *published* stable release (`gh release list
+  --exclude-pre-releases`, `sort -V`), not the newest tag; it still has no VM test. Also from that
+  review: `halogen-enroll-tpm` says the disk isn't encrypted when crypttab names no volume
+  (`HALOS_CRYPTTAB` test hook; sudo resets the environment), the selftest WARNs about SSH unlock
+  keys on the ESP of an unencrypted machine, and `halosctl npu` maps a pinned `X.Y.Z-rN` to the
+  plain `X.Y.Z` tag (`release-info.sh` publishes -rN builds under it), which it then follows like a
+  plain stable pin (later `-rN` and weekly rebuilds), not that exact build.
 
 ## Lessons already learned
 

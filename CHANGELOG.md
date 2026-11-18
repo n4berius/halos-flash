@@ -10,6 +10,17 @@ promoted.
 
 ## Unreleased
 
+- Releases: the `alpha`, `rc`, `stable` and `latest` tags now move only after both editions'
+  install tests pass, so a machine never upgrades to a release that failed them (before, they
+  moved first). The weekly stable rebuild takes the newest *published* stable release, not just
+  the newest tag. An alpha or RC that no machine would get (because a newer stable of the same
+  version exists) now stops at once with an explanation, instead of building for 40 minutes and
+  reaching nobody. (#150)
+- On a machine without disk encryption: `halogen-enroll-tpm` says the disk isn't encrypted
+  instead of a confusing error, and the selftest warns when SSH unlock keys were left on the EFI
+  partition (every boot would start an SSH server for nothing; `sudo halosctl ssh-unlock off`
+  removes them). `sudo halosctl npu on|off` now works on a machine pinned to a stable rebuild
+  such as `0.20.6-r2`. (#150)
 - Halogen 0.20.7: the concurrency mode is now Halogen's default, and one request alone is at least
   as fast in it (upstream: 3 to 29% more total throughput with several requests, about 4 to 6%
   faster single replies). `HALOGEN_CONC_MODE=0` in `halogen.env` goes back to the previous mode.

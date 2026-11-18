@@ -22,7 +22,7 @@ jobs:
       contents: read
       packages: write
       id-token: write
-    # Shared with release.yml's image job: one push moves an edition's channel tags at a time.
+    # Shared with release.yml's channels job: one push moves an edition's channel tags at a time.
     concurrency:
       group: channel-tags-${{ matrix.variant }}
       cancel-in-progress: false
@@ -34,8 +34,13 @@ jobs:
           fetch-depth: 0
       - name: Find the newest stable release
         id: stable
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          tag="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-r[0-9]+)?$' | head -1 || true)"
+          # The newest published stable release, not the newest tag: a release whose install
+          # test failed has a tag but no release, and must never reach the stable channel.
+          gh release list --exclude-drafts --exclude-pre-releases --limit 1000 --json tagName -q '.[].tagName' > "$RUNNER_TEMP/released"
+          tag="$(grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-r[0-9]+)?$' "$RUNNER_TEMP/released" | sort -V | tail -n 1 || true)"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           # main's channel script, kept aside: the release checked out next may predate it.
           cp scripts/channels.sh "$RUNNER_TEMP/channels.sh"
@@ -69,7 +74,12 @@ jobs:
           git tag -l 'v*' > "$RUNNER_TEMP/tags"
           channels="$("$RUNNER_TEMP/channels.sh" "$TAG" "$RUNNER_TEMP/tags")"
           # The newest stable release always leads at least the stable channel.
-          [ -n "$channels" ] || { echo "no channels for $TAG; nothing was pushed" >&2; exit 1; }
+          # None when a newer stable tag exists whose release run failed: release stable again
+          # (from main) to resume the weekly rebuilds.
+          # Every tag counts, published or not: a release between its channel move and its
+          # publish step is newer, and its channels must not move back.
+          newest="$(grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-r[0-9]+)?$' "$RUNNER_TEMP/tags" | sort -V | tail -n 1 || true)"
+          [ -n "$channels" ] || { echo "::error::$TAG leads no channel: the newer stable tag $newest has no published release yet (still running, or it failed). Nothing was pushed. If it failed, release stable from main to resume the weekly rebuilds." >&2; exit 1; }
           echo "Moving the channels: $channels"
           # Push the exact tag and sign it first (main's script, #46), so a channel never points
           # to an unsigned image; the signature is per digest, so it covers the channel tags too.
