@@ -10,6 +10,10 @@ promoted.
 
 ## Unreleased
 
+- The guided installer now gives the boot partitions fixed sizes, a 1 GiB EFI partition and a
+  2 GiB `/boot`, instead of leaving them to Anaconda, whose defaults change between Fedora releases.
+  `/boot` holds a kernel for the running system, its rollback and a staged upgrade, and halOS's are
+  larger than Fedora's. New installs only. (#151)
 - Releases: the `alpha`, `rc`, `stable` and `latest` tags now move only after both editions'
   install tests pass, so a machine never upgrades to a release that failed them (before, they
   moved first). The weekly stable rebuild takes the newest *published* stable release, not just
