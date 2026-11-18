@@ -219,11 +219,11 @@ grep -q 'fetch: downloading qwen38-flash-next-drafter-r2-ht4.hgn from' "$work/ou
 ok "a machine without the -ht4 draft head (Halogen 0.20.7) fetches and checks it, keeping 0.20.6's"
 # 0.20.6's draft head, when kept, is checked too: a rollback to 0.20.6 would read it.
 rm "$work/models/qwen38-flash-next-drafter-r2-ht4.hgn"; printf evil > "$work/models/qwen38-flash-next-drafter-r2.hgn"
-"$work/fetch" > "$work/out" 2>&1 && { echo "a kept 0.20.6 draft head that differs passed" >&2; exit 1; }
-{ grep -q "removed:.*qwen38-flash-next-drafter-r2.hgn" "$work/out" && [ ! -e "$work/models/qwen38-flash-next-drafter-r2.hgn" ]; } || { cat "$work/out" >&2; echo "the kept 0.20.6 draft head wasn't checked" >&2; exit 1; }
+"$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; echo "a kept 0.20.6 draft head that differs failed the start" >&2; exit 1; }
+{ grep -q "removed 0.20.6's draft head" "$work/out" && [ ! -e "$work/models/qwen38-flash-next-drafter-r2.hgn" ]; } || { cat "$work/out" >&2; echo "the kept 0.20.6 draft head wasn't checked" >&2; exit 1; }
 "$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
 [ ! -e "$work/models/qwen38-flash-next-drafter-r2.hgn" ] || { echo "0.20.6's draft head was downloaded again" >&2; exit 1; }
-ok "a kept 0.20.6 draft head is checked, and removed when it differs; it is never downloaded"
+ok "a kept 0.20.6 draft head is checked, and removed without failing the start when it differs; it is never downloaded"
 for f in qwen38-flash-next-drafter-r2-ht4.hgn qwen38-flash-next-drafter-r2.hgn; do
   echo secret > "$work/private-d"; rm -f "$work/models/$f"; ln -s "$work/private-d" "$work/models/$f"
   "$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; echo "a link at $f wasn't handled in one run" >&2; exit 1; }

@@ -367,8 +367,14 @@ if [ -e "$unchecked" ]; then
     want_sum="$(awk -v f="$f" '$2 == f { print $1; exit }' "$sums")"
     if [ -z "$want_sum" ]; then echo "halogen-fetch: $sums has no hash for $f" >&2; exit 1; fi
     if [ -L "$models/$f" ] || [ ! -f "$models/$f" ] || [ "$(sha256sum < "$models/$f" | cut -d' ' -f1)" != "$want_sum" ]; then
-      rm -f -- "$models/$f" || exit 1; bad="$bad $f"
-      case "$f" in tokenizer/*) rm -f -- "$models/tokenizer/tokenizer.json" || exit 1 ;; esac
+      rm -f -- "$models/$f" || exit 1
+      case "$f" in
+        tokenizer/*) rm -f -- "$models/tokenizer/tokenizer.json" || exit 1; bad="$bad $f" ;;
+        # 0.20.6's draft head is only kept for a rollback: this release doesn't read it, so it
+        # goes without failing the start (a rollback to 0.20.6 downloads it again).
+        qwen38-flash-next-drafter-r2.hgn) echo "halogen-fetch: removed 0.20.6's draft head ($f), which didn't match; a rollback to 0.20.6 downloads it again" ;;
+        *) bad="$bad $f" ;;
+      esac
     fi
   done
   # Anything else in tokenizer/ isn't this release's (Halogen reads the folder whole): it goes.
