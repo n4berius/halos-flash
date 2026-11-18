@@ -1017,7 +1017,8 @@ name, but allows saying halOS runs Halogen.
   review: `halogen-enroll-tpm` says the disk isn't encrypted when crypttab names no volume
   (`HALOS_CRYPTTAB` test hook; sudo resets the environment), the selftest WARNs about SSH unlock
   keys on the ESP of an unencrypted machine, and `halosctl npu` maps a pinned `X.Y.Z-rN` to the
-  plain `X.Y.Z` tag (`release-info.sh` publishes -rN builds under it).
+  plain `X.Y.Z` tag (`release-info.sh` publishes -rN builds under it), which it then follows like a
+  plain stable pin (later `-rN` and weekly rebuilds), not that exact build.
 
 ## Lessons already learned
 

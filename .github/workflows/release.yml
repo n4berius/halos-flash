@@ -60,7 +60,7 @@ jobs:
           git tag -l 'v*' > "$RUNNER_TEMP/tags"
           channels="$(scripts/channels.sh "$tag" "$RUNNER_TEMP/tags")"
           if [ -z "$channels" ]; then
-            echo "::error::$tag would move no channel (alpha, rc, stable): a newer release of the same or a later stage already exists, so no machine would get it. For a halOS-only fix after a stable release, release stable with \"from main\" (it becomes the next -rN); otherwise wait for the next Halogen version." >&2
+            echo "::error::$tag would move no channel (alpha, rc, stable): a newer tag of the same or a later stage already exists (published or not), so no machine would get it. For a halOS-only fix after a stable release, release stable with \"from main\" (it becomes the next -rN); otherwise wait for the next Halogen version." >&2
             exit 1
           fi
           echo "Channels it would move now: $channels"
@@ -268,7 +268,7 @@ jobs:
           digest="$(cat "$RUNNER_TEMP/digest/digest")"
           [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "bad digest: $digest" >&2; exit 1; }
           bash "$RUNNER_TEMP/sign-image.sh" --fetch
-          bash "$RUNNER_TEMP/sign-image.sh" --verify "$base@$digest"
+          GITHUB_TOKEN="$GH_TOKEN" bash "$RUNNER_TEMP/sign-image.sh" --verify "$base@$digest"
           # The release's own tag too: a stable one (0.20.6) may have been pushed by the weekly
           # refresh since; this release owns it now.
           refs=()
@@ -282,7 +282,7 @@ jobs:
               refs+=("$t")
             done
           done
-          bash "$RUNNER_TEMP/sign-image.sh" --verify "${refs[@]}"
+          GITHUB_TOKEN="$GH_TOKEN" bash "$RUNNER_TEMP/sign-image.sh" --verify "${refs[@]}"
 
   publish:
     needs: [info, iso, channels]

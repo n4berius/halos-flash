@@ -20,3 +20,10 @@ grep -q 'cryptenroll .*/dev/disk/by-uuid/1234-abcd$' "$work/log" || { cat "$work
 : > "$work/crypttab"; run /dev/sdz2 || { cat "$work/out" >&2; exit 1; }
 grep -q 'cryptenroll .*/dev/sdz2$' "$work/log" || { echo "the device given wasn't used" >&2; exit 1; }
 echo "ok: halogen-enroll-tpm binds crypttab's first volume, or the device given"
+if [ "$(id -u)" != 0 ]; then
+  printf 'luks-abc UUID=1234-abcd none\n' > "$work/crypttab"; chmod 000 "$work/crypttab"
+  if run; then echo "enrolled from an unreadable crypttab" >&2; exit 1; fi
+  grep -q "run it with sudo" "$work/out" || { cat "$work/out" >&2; echo "an unreadable crypttab passed for an unencrypted disk" >&2; exit 1; }
+  chmod 600 "$work/crypttab"
+  echo "ok: an unreadable crypttab asks for sudo rather than saying the disk isn't encrypted"
+fi

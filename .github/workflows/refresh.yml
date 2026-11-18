@@ -22,7 +22,7 @@ jobs:
       contents: read
       packages: write
       id-token: write
-    # Shared with release.yml's image job: one push moves an edition's channel tags at a time.
+    # Shared with release.yml's channels job: one push moves an edition's channel tags at a time.
     concurrency:
       group: channel-tags-${{ matrix.variant }}
       cancel-in-progress: false
@@ -76,7 +76,10 @@ jobs:
           # The newest stable release always leads at least the stable channel.
           # None when a newer stable tag exists whose release run failed: release stable again
           # (from main) to resume the weekly rebuilds.
-          [ -n "$channels" ] || { echo "::error::no channels for $TAG (a newer stable tag exists without a published release); nothing was pushed. Release stable from main to resume the weekly rebuilds." >&2; exit 1; }
+          # Every tag counts, published or not: a release between its channel move and its
+          # publish step is newer, and its channels must not move back.
+          newest="$(grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-r[0-9]+)?$' "$RUNNER_TEMP/tags" | sort -V | tail -n 1 || true)"
+          [ -n "$channels" ] || { echo "::error::$TAG leads no channel: the newer stable tag $newest has no published release yet (still running, or it failed). Nothing was pushed. If it failed, release stable from main to resume the weekly rebuilds." >&2; exit 1; }
           echo "Moving the channels: $channels"
           # Push the exact tag and sign it first (main's script, #46), so a channel never points
           # to an unsigned image; the signature is per digest, so it covers the channel tags too.

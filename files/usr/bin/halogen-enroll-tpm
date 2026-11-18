@@ -3,6 +3,8 @@
 # The kernel already carries rd.luks.options=tpm2-device=auto, so enrolling is the only step.
 set -euo pipefail
 crypttab="${HALOS_CRYPTTAB:-/etc/crypttab}"
+# Unreadable is not the same as empty: without sudo it would otherwise say "not encrypted".
+[ ! -e "$crypttab" ] || [ -r "$crypttab" ] || { echo "can't read $crypttab: run it with sudo" >&2; exit 1; }
 if [ -z "${1:-}" ] && ! grep -qE '^[[:space:]]*[^#[:space:]]' "$crypttab" 2> /dev/null; then
   echo "This disk isn't encrypted ($crypttab names no encrypted volume), so there is nothing to bind to the TPM." >&2
   exit 1

@@ -77,7 +77,9 @@ Either way, the workflow runs checks, builds both images, runs a full VM install
 then creates the GitHub release. The exact image tags (such as `0.19.0-alpha.3`) are pushed before
 the ISO tests run, since the tests install them; the channel tags (`alpha`, `rc`, `stable`,
 `latest`) move only once both installs pass, so no machine upgrades to a release that failed
-them, and the GitHub release is created last. If a run fails, fix it on `main` and run it again: it takes the
+them, and the GitHub release is created last. One exception: a stable release's exact tag is
+the plain version (`0.19.0`), which a machine pinned to a stable release may follow, so it is
+pushed before the tests too. If a run fails, fix it on `main` and run it again: it takes the
 next number. A promotion builds its old code again, so a fix on `main` doesn't reach it: cut a
 new alpha and promote that, or tick **from main**.
 
