@@ -133,8 +133,13 @@ jobs:
           git show origin/main:scripts/sign-image.sh > "$RUNNER_TEMP/sign-image.sh"
           # cosign first: a failed download must stop the run before anything is pushed.
           bash "$RUNNER_TEMP/sign-image.sh" --fetch
-          podman push "$image"
-          echo "IMAGE=$image" >> "$GITHUB_ENV"
+          # From here on the release follows the digest it pushed, not the tag: a stable release's
+          # tag (0.20.6) is also what the weekly refresh pushes, and could change under it.
+          podman push --digestfile "$RUNNER_TEMP/digest" "$image"
+          digest="$(cat "$RUNNER_TEMP/digest")"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "no digest for $image: $digest" >&2; exit 1; }
+          mkdir -p "$RUNNER_TEMP/out"; echo "$digest" > "$RUNNER_TEMP/out/digest"
+          echo "IMAGE=${image%:*}@$digest" >> "$GITHUB_ENV"
       - name: Sign
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -142,6 +147,12 @@ jobs:
           COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
           COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
         run: GITHUB_TOKEN="$GH_TOKEN" bash "$RUNNER_TEMP/sign-image.sh" "$IMAGE"
+      # The digest this edition's install test and channel move use.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: digest-${{ matrix.variant }}
+          path: ${{ runner.temp }}/out/digest
+          retention-days: 1
 
   iso:
     needs: [info, image]
@@ -173,12 +184,20 @@ jobs:
           # Ubuntu's AppArmor profile for swtpm only allows libvirt's paths.
           if [ -e /etc/apparmor.d/usr.bin.swtpm ]; then sudo apparmor_parser -R /etc/apparmor.d/usr.bin.swtpm || true; fi
           sudo chmod 666 /dev/kvm
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: digest-${{ matrix.variant }}
+          path: ${{ runner.temp }}/digest
       - name: Pull the published image
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "$GH_TOKEN" | sudo podman login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-          sudo podman pull "$(scripts/image-ref.sh)"
+          # The digest the image job pushed and signed, named as the tag the ISO build expects.
+          image="$(scripts/image-ref.sh)"; digest="$(cat "$RUNNER_TEMP/digest/digest")"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "bad digest: $digest" >&2; exit 1; }
+          sudo podman pull "${image%:*}@$digest"
+          sudo podman tag "${image%:*}@$digest" "$image"
       - name: Build ISO
         run: sudo -E scripts/build-iso.sh
       - name: Install and boot with Secure Boot on
@@ -220,8 +239,13 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           ref: ${{ needs.info.outputs.tag }}
           fetch-depth: 0
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: digest-${{ matrix.variant }}
+          path: ${{ runner.temp }}/digest
       - name: Move the channels
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -239,15 +263,18 @@ jobs:
           image="$(scripts/image-ref.sh)"; base="${image%:*}"
           suffix=""; [ "$HALOGEN_VARIANT" = npu ] || suffix="-no-npu"
           echo "$GH_TOKEN" | skopeo login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-          # The image the install tests ran, by digest, copied unchanged (the signature is per
-          # digest, so it covers every channel tag that points to it).
-          digest="$(skopeo inspect --format '{{.Digest}}' "docker://$image")"
-          case "$digest" in sha256:[0-9a-f]*) ;; *) echo "no digest for $image: $digest" >&2; exit 1 ;; esac
+          # The digest the image job pushed and the install tests ran, copied unchanged (the
+          # signature is per digest, so it covers every tag that points to it).
+          digest="$(cat "$RUNNER_TEMP/digest/digest")"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "bad digest: $digest" >&2; exit 1; }
           bash "$RUNNER_TEMP/sign-image.sh" --fetch
           bash "$RUNNER_TEMP/sign-image.sh" --verify "$base@$digest"
+          # The release's own tag too: a stable one (0.20.6) may have been pushed by the weekly
+          # refresh since; this release owns it now.
           refs=()
-          for channel in $channels; do
-            targets=("$base:$channel$suffix"); [ "$channel" != stable ] || targets+=("$base:latest$suffix")
+          for channel in "" $channels; do
+            if [ -z "$channel" ]; then targets=("$image")
+            else targets=("$base:$channel$suffix"); [ "$channel" != stable ] || targets+=("$base:latest$suffix"); fi
             for t in "${targets[@]}"; do
               skopeo copy --all --preserve-digests "docker://$base@$digest" "docker://$t"
               got="$(skopeo inspect --format '{{.Digest}}' "docker://$t")"
@@ -271,6 +298,7 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: assets
+          pattern: iso-*
           merge-multiple: true
       - name: Create the GitHub release
         env:

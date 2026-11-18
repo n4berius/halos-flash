@@ -74,7 +74,9 @@ jobs:
           git tag -l 'v*' > "$RUNNER_TEMP/tags"
           channels="$("$RUNNER_TEMP/channels.sh" "$TAG" "$RUNNER_TEMP/tags")"
           # The newest stable release always leads at least the stable channel.
-          [ -n "$channels" ] || { echo "no channels for $TAG; nothing was pushed" >&2; exit 1; }
+          # None when a newer stable tag exists whose release run failed: release stable again
+          # (from main) to resume the weekly rebuilds.
+          [ -n "$channels" ] || { echo "::error::no channels for $TAG (a newer stable tag exists without a published release); nothing was pushed. Release stable from main to resume the weekly rebuilds." >&2; exit 1; }
           echo "Moving the channels: $channels"
           # Push the exact tag and sign it first (main's script, #46), so a channel never points
           # to an unsigned image; the signature is per digest, so it covers the channel tags too.

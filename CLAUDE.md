@@ -999,11 +999,17 @@ name, but allows saying halOS runs Halogen.
   `tests/halogenctl.sh` runs the real helpers through the fake `systemd-run` with `FAKE_BEFORE`
   standing in for another terminal during the question.
 
-- Release path (#150, code review): `release.yml`'s `image` job pushes and signs only the exact
-  tag; the `channels` job (`needs: [info, iso]`, holds the `channel-tags-<edition>` concurrency
-  group shared with `refresh.yml`) works the channels out then with main's `channels.sh`, and
-  copies the tested digest to each channel tag with `skopeo copy --all --preserve-digests`,
-  checking the digest and the signatures after; `publish` needs it. So a release whose install
+- Release path (#150, code review): `release.yml`'s `image` job pushes only the exact tag
+  (`podman push --digestfile`) and signs that digest (`sign-image.sh` takes `repo@sha256:…` as
+  given), and hands it on as the artifact `digest-<edition>`: a stable release's tag (`0.20.6`) is
+  also what `refresh.yml` pushes, so nothing after the push reads the tag (security audit). The
+  `iso` job pulls that digest and tags it locally for `build-iso.sh`; the `channels` job
+  (`needs: [info, iso]`, holds the `channel-tags-<edition>` concurrency group shared with
+  `refresh.yml`, no credentials in its checkout) works the channels out then with main's
+  `channels.sh` and copies the digest to the release's own tag and each channel tag with `skopeo
+  copy --all --preserve-digests`, checking each digest and the signatures after; `publish` needs it
+  and uploads only `iso-*` artifacts. A run whose `publish` fails after `channels` has moved them
+  leaves a tag with no release (and `next-tag.sh` won't promote it). So a release whose install
   test fails moves no channel. The `info` job stops a release `channels.sh` gives no channel for
   (an alpha or rc of a version with a stable release: `next-tag.sh alpha` gives one until the next
   Halogen pin). `refresh.yml` rebuilds the newest *published* stable release (`gh release list
