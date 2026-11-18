@@ -47,6 +47,7 @@ name, but allows saying halOS runs Halogen.
 | `CHANGELOG.md`, `ROADMAP.md` | What each release changed (PRs add to Unreleased), and the order of the work ahead |
 | `src/` | halOS's own source: `dashboard-nodump.c` (built in the Containerfile's dashboard stage), `authenticode-check.py` (kernel-next's Secure Boot check at build time) and `caddy/` (`main.go`, `go.mod`, `go.sum`: Caddy with the DNS providers, built in the caddy stage; Dependabot `gomod`) |
 | `tests/` | `run.sh` (fast checks, no GPU or network), `iso-install.sh` + `vm-login.py` (QEMU install test) |
+| `.claude/skills/ste100/` | Write or rewrite user documentation in ASD-STE100 Simplified Technical English (#152): the rules, what never changes, and `check.py` (code, inline code, links and numbers as on main; every `#anchor` link resolves). Not for CLAUDE.md or `.claude/agents` |
 | `.claude/agents/` | Subagents: `code-reviewer` (QA review before merge) and `security-auditor` (audit, zero-cost hardening ideas). Both only read and report |
 | `.github/workflows/` | `build.yml` (image, edge tag; also weekly, Thursday 05:37 UTC), `iso.yml` (ISO + VM install test), `release.yml`, `refresh.yml` (weekly rebuild of stable), `halogen-update.yml` (daily: opens a PR for a new Halogen release), `kernel-next-update.yml` (weekly: a PR for a newer test kernel) |
 

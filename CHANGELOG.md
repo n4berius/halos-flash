@@ -10,6 +10,9 @@ it promotes.
 
 ## Unreleased
 
+- The documentation now follows ASD-STE100 Simplified Technical English: shorter sentences, one
+  instruction per step and plain words. Only the wording changed: every command, setting, link
+  and number is the same. (#152)
 - Releases: the `alpha`, `rc`, `stable` and `latest` tags now move only after the install tests of
   both editions pass. Thus a machine never upgrades to a release that failed them (before, the tags
   moved first). The weekly stable rebuild now uses the newest *published* stable release, not only
