@@ -1,11 +1,11 @@
 # halOS: Third-Party Notices
 
 The MIT license in [`LICENSE`](LICENSE) covers only the files written for this repository.
-It does not cover the components below, which keep their own licenses. Where a component's
-license conflicts with this project's, that component's license governs it.
+It does not cover the components below, which keep their own licenses. If a component's
+license conflicts with this project's license, that component's license governs it.
 
-Versions below are for this repository's current pins in [`versions.env`](versions.env).
-Fedora packages change with each rebuild. For the exact list in a built image, run
+The versions below are for the current pins of this repository in [`versions.env`](versions.env).
+Fedora packages change with each rebuild. To see the exact list in a built image, run
 `rpm -qa --qf '%{NAME} %{VERSION} %{LICENSE}\n'`.
 
 ## Halogen
@@ -23,15 +23,15 @@ LLC. "halogen" and "Peonist" are trademarks of Peonist, LLC. See their
 
 ## Model weights
 
-No weights are included in this repository, the OS image or the ISO. Each machine downloads
-them from Hugging Face on first boot, and they are licensed separately by their authors.
+This repository, the OS image and the ISO include no weights. Each machine downloads them from
+Hugging Face at first boot. Their authors license them separately.
 
 | Models | Source | License |
 |---|---|---|
 | Qwen3.8-Flash-Next in Halogen's format | [peonist-ai/halogen-qwen3.8-flash-next](https://huggingface.co/peonist-ai/halogen-qwen3.8-flash-next) | Marked Apache-2.0, and its card says the original model's license governs. Check the base model's terms |
 | NPU models | [Listed in Halogen's docs](https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/NPU.md#where-the-files-are) | Differs by model. See each model's card, and `devices/NOTICE.md` where present |
 
-Check these terms yourself before commercial use, especially for models you add.
+Before commercial use, check these terms yourself, especially for models that you add.
 
 ## In the OS image
 
@@ -42,8 +42,8 @@ Check these terms yourself before commercial use, especially for models you add.
 
 ## In the installer ISO
 
-The ISO's live environment adds these Fedora packages to the base above. They run only from
-the USB drive and are not installed on the machine.
+The live environment of the ISO adds these Fedora packages to the base above. They run only
+from the USB drive. The installer does not install them on the machine.
 
 | Component | License |
 |---|---|
@@ -51,8 +51,8 @@ the USB drive and are not installed on the machine.
 | GRUB 2 and shim | Per package |
 | Dracut, Plymouth and other live environment packages | Per package |
 
-Both the OS image and the ISO are aggregates of separately licensed programs. Source for
-Fedora packages is available from [Fedora](https://src.fedoraproject.org/).
+Both the OS image and the ISO are aggregates of separately licensed programs. You can get the
+source for Fedora packages from [Fedora](https://src.fedoraproject.org/).
 
 ## Converter in the OS image
 
@@ -62,23 +62,24 @@ Fedora packages is available from [Fedora](https://src.fedoraproject.org/).
 
 ## Dashboard in the OS image
 
-halOS's dashboard (`halos-dashboard.service`, port 8732) is
-[halogen-dashboard](https://github.com/Quat3rnion/halogen-dashboard) by Quaternion, built unmodified
-from the commit in `versions.env`. Thank you to its author. Its web page is built into the program,
-so the program also carries the parts below.
+The halOS dashboard (`halos-dashboard.service`, port 8732) is
+[halogen-dashboard](https://github.com/Quat3rnion/halogen-dashboard) by Quaternion. halOS builds it
+unmodified from the commit in `versions.env`. Thank you to its author. The program contains its web
+page, so the program also contains the parts below.
 
 | Component | License |
 |---|---|
 | [halogen-dashboard](https://github.com/Quat3rnion/halogen-dashboard) (`/usr/libexec/halogen/halogen-dashboard`) | MIT or Apache-2.0. Texts in `/usr/share/licenses/halogen-dashboard/` |
-| [IBM Plex Sans](https://github.com/IBM/plex) (variable font, via [Fontsource](https://fontsource.org/)), in the web page | SIL Open Font License 1.1. Text in `/usr/share/licenses/halogen-dashboard/web/` |
+| [IBM Plex Sans](https://github.com/IBM/plex) (variable font, through [Fontsource](https://fontsource.org/)), in the web page | SIL Open Font License 1.1. Text in `/usr/share/licenses/halogen-dashboard/web/` |
 | [uPlot](https://github.com/leeoniya/uPlot) (charts) and [Svelte](https://svelte.dev/) with the two small parts its runtime uses ([clsx](https://github.com/lukeed/clsx), [esm-env](https://github.com/benmccann/esm-env)), in the web page | MIT. Texts in `/usr/share/licenses/halogen-dashboard/web/` |
 | The Rust crates it is built from (axum, tokio, rusqlite with SQLite, reqwest, rustls and others) | Each crate's own license, mostly MIT or Apache-2.0 (SQLite is public domain). The list with versions and licenses is `/usr/share/licenses/halogen-dashboard/crates.txt` |
 
 ## Web server in the OS image
 
-halOS's front door (`halos-proxy.service`, ports 8731 and 8732) is [Caddy](https://caddyserver.com),
-built unmodified with its standard modules and four DNS providers, from the versions pinned in
-`src/caddy/go.mod` and `src/caddy/go.sum`. Thank you to its authors.
+The halOS front door (`halos-proxy.service`, ports 8731 and 8732) is
+[Caddy](https://caddyserver.com). halOS builds it unmodified, with its standard modules and four
+DNS providers, from the versions that `src/caddy/go.mod` and `src/caddy/go.sum` pin. Thank you to
+its authors.
 
 | Component | License |
 |---|---|
@@ -89,7 +90,7 @@ built unmodified with its standard modules and four DNS providers, from the vers
 
 ## Build tools
 
-These build the images and are not included in them.
+These tools build the images. The images do not include them.
 
 | Tool | License |
 |---|---|

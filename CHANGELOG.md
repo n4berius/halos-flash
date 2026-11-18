@@ -1,309 +1,337 @@
 # Changelog
 
-What changed in each halOS release, newest version first, in plain language. Dates are UTC. The numbers link to the
-pull requests with the details. Halogen's own changes are in its
+This file tells what changed in each halOS release, newest version first, in plain language. Dates
+are UTC. The numbers link to the pull requests with the details. Halogen's own changes are in its
 [changelog](https://github.com/peonist-ai/halogen-flash-server/blob/main/CHANGELOG.md).
 
-Each pull request adds its lines under **Unreleased**. After a release, they move under its
-version. A beta, RC or stable release that promotes an earlier one lists only what was
-promoted.
+Each pull request adds its lines under **Unreleased**. After a release, the lines move under the
+release's version. A beta, RC or stable release that promotes an earlier release lists only what
+it promotes.
 
 ## Unreleased
 
-- The guided installer now gives the boot partitions fixed sizes, a 1 GiB EFI partition and a
-  2 GiB `/boot`, instead of leaving them to Anaconda, whose defaults change between Fedora releases.
-  `/boot` holds a kernel for the running system, its rollback and a staged upgrade, and halOS's are
-  larger than Fedora's. New installs only. (#151)
-- Releases: the `alpha`, `rc`, `stable` and `latest` tags now move only after both editions'
-  install tests pass, so a machine never upgrades to a release that failed them (before, they
-  moved first). The weekly stable rebuild takes the newest *published* stable release, not just
-  the newest tag. An alpha or RC that no machine would get (because a newer stable of the same
-  version exists) now stops at once with an explanation, instead of building for 40 minutes and
-  reaching nobody. (#150)
-- On a machine without disk encryption: `halogen-enroll-tpm` says the disk isn't encrypted
-  instead of a confusing error, and the selftest warns when SSH unlock keys were left on the EFI
-  partition (every boot would start an SSH server for nothing; `sudo halosctl ssh-unlock off`
+- The documentation now follows ASD-STE100 Simplified Technical English: shorter sentences, one
+  instruction per step and plain words. Only the wording changed: every command, setting, link
+  and number is the same. (#152)
+- The guided installer now gives the boot partitions fixed sizes: a 1 GiB EFI partition and a
+  2 GiB `/boot`. Before, Anaconda chose the sizes, and its defaults change between Fedora releases.
+  `/boot` holds a kernel for the running system, its rollback and a staged upgrade, and the boot
+  files of halOS are larger than Fedora's. This applies to new installs only. (#151)
+- Releases: the `alpha`, `rc`, `stable` and `latest` tags now move only after the install tests of
+  both editions pass. So a machine never upgrades to a release that failed them (before, the tags
+  moved first). The weekly stable rebuild now uses the newest *published* stable release, not only
+  the newest tag. Some alphas or RCs reach no machine, because a newer stable of the same version
+  exists. Such a release now stops at once with an explanation. Before, it built for 40 minutes and
+  reached nobody. (#150)
+- On a machine without disk encryption, `halogen-enroll-tpm` now says that the disk isn't
+  encrypted, not a confusing error. The selftest warns when SSH unlock keys stay on the EFI
+  partition: every boot would start an SSH server for nothing (`sudo halosctl ssh-unlock off`
   removes them). `sudo halosctl npu on|off` now works on a machine pinned to a stable rebuild
   such as `0.20.6-r2`. (#150)
-- Halogen 0.20.7: the concurrency mode is now Halogen's default, and one request alone is at least
-  as fast in it (upstream: 3 to 29% more total throughput with several requests, about 4 to 6%
-  faster single replies). `HALOGEN_CONC_MODE=0` in `halogen.env` goes back to the previous mode.
-  Halogen also has a faster draft head (`qwen38-flash-next-drafter-r2-ht4.hgn`, 1.39 GiB): the
+- Halogen 0.20.7: the concurrency mode is now Halogen's default. One request alone is at least as
+  fast in it (upstream: 3 to 29% more total throughput with several requests, about 4 to 6% faster
+  single replies). To go back to the previous mode, set `HALOGEN_CONC_MODE=0` in `halogen.env`.
+  Halogen also has a faster draft head (`qwen38-flash-next-drafter-r2-ht4.hgn`, 1.39 GiB). The
   first start after the upgrade downloads only that file and checks every official file once.
-  0.20.6's draft head stays on disk for a rollback and is checked too when kept; a new install
-  doesn't download it. The Flash checkpoints and the NPU models are unchanged. (#148, #149)
-- LFM3-1.7B's fastest form on the NPU, `:qad` (Halogen 0.20.6): `sudo halogenctl model pull
-  LiquidAI/LFM3-1.7B --qad` also fetches Liquid's own 4-bit file, from the exact source Halogen's
-  image names, and then `/models/LFM/LFM3-1.7B:qad` can go in `HALOGEN_NPU_MODELS` (served as
-  `LFM3-1.7B-qad`, about 48 tokens a second against 30 and 42). `HALOGEN_CK_OVERLAY=none` is now
-  accepted (that value only), Halogen's way back to the checkpoint's own draft head (with an own
-  Flash checkpoint that has a quality sidecar, `none` also leaves the sidecar out). (#144)
-- `sudo halosctl setup` now offers HTTPS as its fourth question. On a new install, pressing Enter
-  turns it on with halOS's own authority (self-signed), so apps that use `https://` no longer send
-  prompts, replies and the API key in plain text; each app trusts the authority once (`sudo halosctl
-  https ca`). A machine upgraded from an earlier release keeps plain HTTP unless you say yes, and an
-  HTTPS setting you already have is left alone. (#145)
-- kernel-next follow-ups: a weekly check opens a pull request when Fedora has a newer plain build of
-  the test kernel (it gets no security fixes until its pin moves), and the selftest warns once the
-  test kernel is more than three weeks old. The image build now checks the test kernel's Secure Boot
-  signature the way the boot loader does (the signature itself, a code-signing certificate under
-  Fedora's CA taken from the image's own shim, and its revocation level), not only the signer's
-  name, and the Fedora signing keys used during the build no longer stay in the image. A beta tag
-  pushed by hand is refused, since there are no beta releases any more. The test kernel moves to
-  7.4-rc3, since Fedora stopped serving the signed rc2 build. (#146)
+  0.20.6's draft head stays on disk for a rollback, and halOS checks it too while it stays. A new
+  install doesn't download it. The Flash checkpoints and the NPU models are unchanged. (#148, #149)
+- `:qad`, LFM3-1.7B's fastest form on the NPU (Halogen 0.20.6): `sudo halogenctl model pull
+  LiquidAI/LFM3-1.7B --qad` also fetches Liquid's own 4-bit file, from the exact source that
+  Halogen's image names. Then `/models/LFM/LFM3-1.7B:qad` can go in `HALOGEN_NPU_MODELS`. Halogen
+  serves it as `LFM3-1.7B-qad`, at about 48 tokens a second against 30 and 42. halOS now accepts
+  `HALOGEN_CK_OVERLAY=none` (that value only), Halogen's way back to the checkpoint's own draft
+  head. With an own Flash checkpoint that has a quality sidecar, `none` also leaves out the
+  sidecar. (#144)
+- `sudo halosctl setup` now offers HTTPS as its fourth question. On a new install, when you press
+  Enter, setup turns HTTPS on with halOS's own authority (self-signed). Then apps that use
+  `https://` no longer send prompts, replies and the API key in plain text. Each app trusts the
+  authority once (`sudo halosctl
+  https ca`). A machine upgraded from an earlier release keeps plain HTTP unless you say yes. An
+  HTTPS setting that you already have stays as it is. (#145)
+- kernel-next follow-ups: when Fedora has a newer plain build of the test kernel, a weekly check
+  opens a pull request. The test kernel gets no security fixes until its pin moves. The selftest
+  warns when the test kernel is more than three weeks old. The image build now checks the test
+  kernel's Secure Boot signature as the boot loader does, not only the signer's name. It checks
+  the signature itself, a code-signing certificate under Fedora's CA from the image's own shim, and
+  its revocation level. The Fedora signing keys that the build uses no longer stay in the image.
+  The release workflow refuses a beta tag pushed by hand, because there are no beta releases now.
+  The test kernel moves to 7.4-rc3, because Fedora stopped serving the signed rc2 build. (#146)
 
-- A new channel, `kernel-next`, for trying a newer kernel: the same build as `edge`, with Linux
-  7.4 (a release candidate: Fedora 46's build, signed for Secure Boot) instead of Fedora 45's 7.3. It brings about
-  25 fixes to the NPU driver and an IOMMU speed-up for the built-in GPU that applies to the NPU
-  edition. Follow it with `sudo halosctl switch kernel-next`; `sudo halosctl switch edge` goes back.
-  Releases keep Fedora 45's kernel. (#142)
-- Halogen 0.20.6: about 4% faster replies from a new draft head (a 1.4 GiB file halOS now
-  downloads and checks beside the official checkpoint, once), images read about four times faster,
-  and fixes for long shared prompts and for busy multi-agent sessions (a reply could rarely come
-  from another conversation's context). Two new settings are commented in `halogen.env.example`:
-  `HALOGEN_CONC_MODE` (for many requests at once; a single request is slower) and, on the NPU
-  edition, `HALOGEN_NPU_STALL_S`. Your own Flash checkpoints keep their own draft head for now.
-  LFM3's new `:qad` form isn't supported by halOS yet. (#143)
-- Releases now go alpha, then RC, then stable: there are no beta releases any more, and an RC
-  promotes the newest alpha. A machine following `beta` keeps working and gets every RC and
-  stable release, the same as `rc`; `halosctl switch beta` still works but is no longer offered.
+- A new channel, `kernel-next`, to try a newer kernel. It is the same build as `edge`, but with
+  Linux 7.4 (a release candidate: Fedora 46's build, signed for Secure Boot) instead of Fedora 45's
+  7.3. It brings about 25 fixes to the NPU driver and an IOMMU speed-up for the built-in GPU, which
+  applies to the NPU edition. To follow it, run `sudo halosctl switch kernel-next`. To go back, run
+  `sudo halosctl switch edge`. Releases keep Fedora 45's kernel. (#142)
+- Halogen 0.20.6: replies are about 4% faster with a new draft head. This is a 1.4 GiB file that
+  halOS now downloads once and checks beside the official checkpoint. Images read about four times
+  faster. It also fixes problems with long shared prompts and with busy multi-agent sessions
+  (rarely, a reply could come from the context of another conversation). `halogen.env.example`
+  has two new settings, commented: `HALOGEN_CONC_MODE` (for many requests at once; a single
+  request is slower) and, on the NPU edition, `HALOGEN_NPU_STALL_S`. Your own Flash checkpoints
+  keep their own draft head for now. halOS doesn't support LFM3's new `:qad` form yet. (#143)
+- Releases now go alpha, then RC, then stable. There are no beta releases now, and an RC promotes
+  the newest alpha. A machine that follows `beta` keeps working and gets every RC and stable
+  release, the same as `rc`. `halosctl switch beta` still works, but halOS no longer offers it.
   (#141)
 
-- Halogen 0.20.5: faster answers when several requests run at once, and saved conversations take
-  less memory; Hindi, Thai and other Indic-script prompts are read the way the model was trained;
-  your own LFM3 checkpoints read long prompts about twice as fast on the NPU (their NPU files,
-  about 440 MB each, download again once); fixes for structured output, the answer guard, Claude
-  Code adding tools mid-session and unknown model names; a stuck NPU job no longer needs a
-  restart. Two new settings, `HALOGEN_DN_STATE` and `HALOGEN_TOKENIZER_NATIVE` (and
-  `HALOGEN_NPU_KILL_S` on the NPU edition), are commented in `halogen.env.example`. A prompt
-  cache saved by 0.20.4 is rebuilt on first use. With `HALOGEN_AGENT_GUARD=watch`, halOS no
-  longer downloads `decider-4b`, which Halogen now loads only for `hold`. (#140)
+- Halogen 0.20.5: answers are faster when several requests run at once, and saved conversations
+  use less memory. Halogen reads Hindi, Thai and other Indic-script prompts the way the model was
+  trained. Your own LFM3 checkpoints read long prompts about twice as fast on the NPU (their NPU
+  files, about 440 MB each, download again once). It fixes structured output, the answer guard,
+  unknown model names, and problems when Claude Code adds tools during a session. A stuck NPU job
+  no longer needs a restart. `halogen.env.example` has two new settings, commented:
+  `HALOGEN_DN_STATE` and `HALOGEN_TOKENIZER_NATIVE` (and `HALOGEN_NPU_KILL_S` on the NPU edition).
+  Halogen rebuilds a prompt cache saved by 0.20.4 when it first uses it. With
+  `HALOGEN_AGENT_GUARD=watch`, halOS no longer downloads `decider-4b`, because Halogen now loads it
+  only for `hold`. (#140)
 
-- Two commands working on the same checkpoint at once no longer get in each other's way: a pull,
-  check, switch or removal of a checkpoint (or model) another command is busy with says so and
-  stops, `flash use` and `flash remove` (and `model remove`) check again after you answered that
-  nothing changed meanwhile (so a removal can't delete the checkpoint just chosen), and while a
-  `flash check` runs, a second check, a `flash use`, a `restart` or `model pull`'s restart refuses
-  and says so, instead of putting a second job on the GPU. (#139)
+- Two commands no longer get in each other's way on the same checkpoint (#139):
+  - If another command is busy with a checkpoint (or model), a pull, check, switch or removal of
+    it says so and stops.
+  - After you answer, `flash use` and `flash remove` (and `model remove`) check again that nothing
+    changed. So a removal can't remove the checkpoint that you just chose.
+  - While a `flash check` runs, a second check, a `flash use`, a `restart` or `model pull`'s
+    restart refuses and says so. It doesn't put a second job on the GPU.
 
 - The selftest's checks that run as the halogen user (Halogen's scratch folders, its generated
-  service) now run in a session of their own, so nothing they start can reach the terminal you
-  run `sudo halogenctl selftest` from. (#138)
-- Downloads, a last round: Halogen refuses to start when a link (or a folder it can't read)
-  stands where it loads its model files from (the official files, the tokenizer, the NPU
-  folder), and the next fetch removes it; after a download the NPU folder keeps only the files
-  Halogen's own record lists for the models it knows (a rollback may download a few files
-  again); the clean-up never follows a link out of the models folder; a `model pull`,
-  `flash pull` or `flash convert` that is stopped removes its download at once; and two pulls of
-  the same name can no longer run at once and break each other (the second says so, and how to
-  stop the first). (#136)
-- The selftest (and the install test every change goes through) now starts a tiny container set
-  up the way Halogen's is. A Fedora update to the program podman starts containers with (crun
-  1.31) broke every start of Halogen, and nothing caught it before it reached a machine; the
-  image now holds crun at 1.30.1 until a fixed version is out. (#137)
+  service) now run in a session of their own. So nothing that they start can reach the terminal
+  where you run `sudo halogenctl selftest`. (#138)
+- Downloads, a last round (#136):
+  - Halogen refuses to start when a link (or a folder that it can't read) stands where it loads
+    its model files from: the official files, the tokenizer, the NPU folder. The next fetch
+    removes it.
+  - After a download, the NPU folder keeps only the files that Halogen's own record lists for the
+    models it knows. A rollback may download a few files again.
+  - The clean-up never follows a link out of the models folder.
+  - When you stop a `model pull`, `flash pull` or `flash convert`, it removes its download at once.
+  - Two pulls of the same name can no longer run at once and break each other. The second pull
+    says so, and tells you how to stop the first.
+- The selftest (and the install test of every change) now starts a tiny container that has the
+  same setup as Halogen's. A Fedora update to crun 1.31, the program that podman starts containers
+  with, broke every start of Halogen. Nothing found the problem before it reached a machine. The
+  image now holds crun at 1.30.1 until a fixed version is available. (#137)
 
-- More hardening for fail2ban and the firewall: fail2ban can no longer reach the system's
-  message bus (so not firewalld either) and may use fewer system calls; Halogen's reply headers
-  are no longer written to the access log; and the firewall no longer lets through ports that a
-  container started with `sudo` publishes (such a container may now refuse to start; rootless
-  containers, as Halogen is, aren't affected; INSTALL says how to allow it). (#134)
-- More hardening of the downloads: once the official files are on the disk, a model download
-  can no longer change them (only the NPU folder is writable to it); after a download that could,
-  every official file is checked against the hashes this release carries, and one that differs
-  is removed and fetched again; the note that says "models already downloaded" moved out of
-  reach of the downloads (an upgraded machine checks all its official files once, which takes
-  a minute or two, downloading nothing); and an interrupted `model pull`, `flash pull` or
-  `flash convert` download is removed when the command ends, or at the next pull of the same
-  name. (#135)
+- More hardening for fail2ban and the firewall (#134):
+  - fail2ban can no longer reach the system's message bus (so it can't reach firewalld either),
+    and it may use fewer system calls.
+  - The access log no longer records Halogen's reply headers.
+  - The firewall no longer lets through ports that a container started with `sudo` publishes.
+    Such a container may now refuse to start. Rootless containers, such as Halogen, aren't
+    affected. INSTALL tells how to allow it.
+- More hardening of the downloads (#135):
+  - When the official files are on the disk, a model download can no longer change them. It can
+    write only to the NPU folder.
+  - After a download that could change them, halOS checks every official file against the hashes
+    in this release. If a file differs, halOS removes it and fetches it again.
+  - The note that says "models already downloaded" is now out of reach of the downloads. An
+    upgraded machine checks all its official files once. This takes a minute or two and downloads
+    nothing.
+  - If a `model pull`, `flash pull` or `flash convert` download stops before the end, halOS
+    removes it when the command ends, or at the next pull of the same name.
 
-- fail2ban now shuts addresses out through its own firewall table (nftables) instead of
-  firewalld rules: connections a shut-out address already had open are cut too, a ban costs far
-  less under a flood, and `firewall-cmd --reload` no longer drops the bans. The front door
-  refuses requests with more than 32 KB of headers, so a wrong key can't hide from the count in
-  an overlong log line, and fail2ban's own sandbox is tighter. In the HTTPS modes, a request
-  for a name or address the certificate doesn't cover no longer leaves its headers, API key
-  included, in the journal. (#132)
-- Hardening of the downloads: the model download can no longer swap one of Halogen's folders
-  for a link while it runs, and one left by an interrupted fetch is removed at the next; the
-  fetch and the `flash` commands no longer write, move or copy through a link a download left
-  behind (one such link could have replaced the API key); `model pull`, `flash pull`, `flash check`
-  and `flash convert` refuse a folder that is reached through a link; and a custom Flash
-  checkpoint that shares the official lookup table gets its own copy (free on the disks the
-  installers make) instead of a hard link to the official file. (#131)
+- fail2ban now shuts out addresses through its own firewall table (nftables), not through firewalld
+  rules. So it also cuts the connections that a shut-out address already had open, a ban costs
+  much less under a flood, and `firewall-cmd --reload` no longer drops the bans. The front door
+  refuses requests with more than 32 KB of headers. So a wrong key can't hide from the count in a
+  log line that is too long. fail2ban's own sandbox is tighter. In the HTTPS modes, a request for a
+  name or address that the certificate doesn't cover no longer leaves its headers in the journal,
+  API key included. (#132)
+- Hardening of the downloads (#131):
+  - While the model download runs, it can no longer replace one of Halogen's folders with a link.
+    If an interrupted fetch left such a link, the next fetch removes it.
+  - The fetch and the `flash` commands no longer write, move or copy through a link that a
+    download left. One such link could have replaced the API key.
+  - `model pull`, `flash pull`, `flash check` and `flash convert` refuse a folder that they reach
+    through a link.
+  - A custom Flash checkpoint that shares the official lookup table gets its own copy, not a hard
+    link to the official file. The copy is free on the disks that the installers make.
 
-- Hardening: SSH logins as the `halogen` service user are refused; on the NPU edition the model
-  and own-checkpoint folders are mounted into Halogen's container with no programs allowed; the
-  weight converter runs without devices, shared memory or the system logs in reach; and the
-  selftest looks in more of the `halogen` user's settings folders. (#130)
+- Hardening: SSH refuses logins as the `halogen` service user. On the NPU edition, Halogen's
+  container gets the model and own-checkpoint folders with no programs allowed. The weight
+  converter runs with no devices, shared memory or system logs in reach. The selftest looks in more
+  of the `halogen` user's settings folders. (#130)
 
-- fail2ban: an address that keeps failing SSH logins (5 in 10 minutes) or sending a wrong API key
-  (10 in 10 minutes) is shut out by the firewall for 10 minutes. On by default; this machine and
-  private networks are never shut out. `sudo halosctl fail2ban` shows the state, `unban <address>`
-  lets someone back in, `off` turns it off. (#129)
-- Hardening: Halogen refuses to start if one of the folders mounted into its container (`npu`,
-  `decider`, `LFM`, `custom`) has been replaced by a link, as it already did for the prompt cache;
-  the boot-time setup removes such a link and makes the folder again; the weight converter can no
-  longer read the request records; and the selftest also looks at the `halogen` user's own
-  container settings folders. A link you made yourself at one of halogen's folders
-  (`/srv/models/npu`, `decider`, `LFM`, `custom`, `flash`, `.prompt-cache`, or `/srv/logs/halogen`)
-  is removed at the next boot and an empty folder made; what the link pointed to is left alone.
-  To keep such a folder on another disk, mount the disk there, then give it to halogen:
+- fail2ban: if an address fails too many SSH logins (5 in 10 minutes) or sends a wrong API key too
+  often (10 in 10 minutes), the firewall shuts it out for 10 minutes. fail2ban is on by default. It
+  never shuts out this machine or private networks. `sudo halosctl fail2ban` shows the state,
+  `unban <address>` lets someone back in, and `off` turns fail2ban off. (#129)
+- Hardening: if a link replaces one of the folders mounted into Halogen's container (`npu`,
+  `decider`, `LFM`, `custom`), Halogen refuses to start, as it already did for the prompt cache.
+  The boot-time setup removes such a link and makes the folder again. The weight converter can no
+  longer read the request records. The selftest also looks at the `halogen` user's own container
+  settings folders. If you made a link yourself at one of halogen's folders (`/srv/models/npu`,
+  `decider`, `LFM`, `custom`, `flash`, `.prompt-cache`, or `/srv/logs/halogen`), the next boot
+  removes it and makes an empty folder. The boot doesn't change what the link pointed to. To keep
+  such a folder on another disk, mount the disk there. Then give the folder to halogen:
   `sudo chown halogen:halogen <folder>` and `sudo chcon -t container_file_t <folder>`. (#128)
 
-- Prompt cache hardening: the download and checking containers no longer see the cache folder,
-  Halogen refuses to start if the folder has been swapped for a link or belongs to someone else,
-  and `halogenctl cache off` now also makes the folder read-only for Halogen. `records on` no
-  longer reports a missing mount that is there. If you turned the cache off before this version,
-  run `sudo halogenctl cache off` once more to make the folder read-only (the selftest says so).
-  If the selftest's `config-files` line says `halogen.container` was changed, delete its
-  `.prompt-cache` line: the mount now has its own file, and two would stop Halogen starting. (#127)
+- Prompt cache hardening: the containers that download and check models no longer see the cache
+  folder. Halogen refuses to start if a link replaces the folder or if the folder belongs to
+  someone else. `halogenctl cache off` now also makes the folder read-only for Halogen.
+  `records on` no longer reports a missing mount that is there. If you turned the cache off before
+  this version, run `sudo halogenctl cache off` once more to make the folder read-only (the
+  selftest tells you). If the selftest's `config-files` line says that `halogen.container`
+  changed, remove its `.prompt-cache` line. The mount now has its own file, and with two mounts
+  Halogen can't start. (#127)
 
-- Halogen's prompt cache is now also kept on disk (`/srv/models/.prompt-cache`), so a conversation
-  survives a restart of Halogen instead of being read again in full. On by default, at most 64 GiB
-  (`HALOGEN_CACHE_DISK_GIB`); a new Halogen version or a switch of checkpoint starts with an empty cache. `sudo halogenctl cache`
-  shows it. An upgrade turns this on: to keep nothing on disk, run `sudo halogenctl cache off`
-  and then `sudo halogenctl cache clear`. (#124)
-- Audit: `/etc/environment`, `/etc/fstab`, `/etc/nsswitch.conf` and authselect's folder,
-  `/etc/sysctl.conf` and the library search settings are watched too, and `halogenctl selftest` now runs with a clean
-  environment, so a variable set for root can't point its checks at other files. (#126)
+- Halogen now also keeps its prompt cache on disk (`/srv/models/.prompt-cache`). So a
+  conversation survives a restart of Halogen, and Halogen doesn't read it again in full. The cache
+  is on by default, at most 64 GiB (`HALOGEN_CACHE_DISK_GIB`). A new Halogen version or a switch of
+  checkpoint starts with an empty cache. `sudo halogenctl cache` shows it. An upgrade turns this on.
+  To keep nothing on disk, run `sudo halogenctl cache off` and then `sudo halogenctl cache clear`.
+  (#124)
+- Audit: halOS now also watches `/etc/environment`, `/etc/fstab`, `/etc/nsswitch.conf`,
+  authselect's folder, `/etc/sysctl.conf` and the library search settings. `halogenctl selftest`
+  now runs with a clean environment, so a variable set for root can't point its checks at other
+  files. (#126)
 
-- Audit hardening: the audit rules are locked until reboot (root can't quietly switch auditing
-  off), only Halogen's own login session is left out of auditing (root acting as the `halogen`
-  user is recorded), and more is watched: how Halogen's container is started, the audit rules
-  themselves, system services, PAM, kernel modules, the firewall and `crypttab`. The selftest
-  gains `config-files` and `halogen-autostart`, and its `audit` line reports dropped records.
-  (#125)
-- Logs: an audit trail (auditd) records logins, `sudo`, changes an admin or root makes to halOS's
-  settings, update signatures, SSH and sudo settings, and runs of the disk-encryption and update tools.
-  Read it with `sudo ausearch -i -k halos-config` and the other keys in the install guide. It keeps
-  1 GB and pauses rather than stop the machine if its disk fills. The system journal now keeps at
-  most 4 GB for 90 days. The selftest reports both. Halogen's own processes aren't audited, to keep
-  the cost off inference (to be measured on real hardware). (#118)
-- Hardening: Halogen's container now runs read-only, apart from its scratch folders (`/tmp`,
-  `/var/tmp`), which stay on disk as before, so memory use is unchanged. The request records
+- Audit hardening: the audit rules are locked until reboot, so root can't quietly turn auditing
+  off. Auditing now leaves out only Halogen's own login session: it records root when root acts as
+  the `halogen` user. halOS watches more: how Halogen's container starts, the audit rules
+  themselves, system services, PAM, kernel modules, the firewall and `crypttab`. The selftest gets
+  `config-files` and `halogen-autostart`, and its `audit` line reports dropped records. (#125)
+- Logs: an audit trail (auditd) records logins and `sudo`. It also records changes that an admin
+  or root makes to these: halOS's settings, update signatures, SSH settings and sudo settings. It
+  also records runs of the disk-encryption and update tools. Read it with
+  `sudo ausearch -i -k halos-config` and the other keys in the install guide. It keeps 1 GB. If its
+  disk fills, it pauses and doesn't stop the machine. The system journal now keeps at most 4 GB for
+  90 days. The selftest reports both. halOS doesn't audit Halogen's own processes, to keep the cost
+  off inference (the cost is still to be measured on real hardware). (#118)
+- Hardening: Halogen's container now runs read-only, except its scratch folders (`/tmp`,
+  `/var/tmp`). These stay on disk as before, so memory use is unchanged. The request records
   folder, and on new installs the whole `/srv/logs` volume, can't hold or run programs. (#115)
-- Request records: `sudo halogenctl records on` makes Halogen keep a line per request it answers
-  (which app sent it, its size, how it finished, timings), counts only unless you choose to keep
-  text, in `/srv/logs/halogen`. `records stats` sums them up and `records prune` deletes them. New
-  installs give `/srv/logs` a 4 GiB volume of its own. (#113)
-- Let's Encrypt: your DNS provider's credential now reaches Caddy through systemd's credentials
-  (read-only, in memory, removed when Caddy stops) instead of a copy in Caddy's own folder, and the
-  build stops if the Cloudflare plugin ever changes which token shapes it accepts, since it prints a
-  token it refuses. `sudo halosctl https forget-dns` now restarts the front door for a moment, so
-  Caddy drops its copy at once. (#112)
-- Halogen 0.20.4: in a cached conversation a short follow-up message is read 15 to 50% faster;
-  10 to 20% more throughput when Halogen is set to serve more than 8 requests at once
-  (`HALOGEN_KV_SLOTS` above 8; the default is 4); `d3-nano` 7 to 9% faster on the NPU (0.20.3), whose
-  NPU programs (about 135 MB) download again where it is used; and in a conversation that already
-  used tools, a tool call no longer arrives as raw text when the app asked for none
-  (`tool_choice: "none"`). The Flash checkpoints and your settings are unchanged. (#111)
-- Only root may use the disk service udisks2, kept for firmware updates: an admin uses `sudo`,
-  and the `halogen` user that runs Halogen can't call it at all. Firmware updates with
+- Request records: `sudo halogenctl records on` makes Halogen keep a line for each request that it
+  answers, in `/srv/logs/halogen`: which app sent it, its size, how it finished, and timings. It
+  keeps counts only, unless you choose to keep text. `records stats` adds them up and
+  `records prune` removes them. New installs give `/srv/logs` a 4 GiB volume of its own. (#113)
+- Let's Encrypt: your DNS provider's credential now gets to Caddy through systemd's credentials
+  (read-only, in memory, removed when Caddy stops), not as a copy in Caddy's own folder. The build
+  stops if the Cloudflare plugin changes which token shapes it accepts, because the plugin prints a
+  token that it refuses. `sudo halosctl https forget-dns` now restarts the front door for a moment,
+  so Caddy removes its copy at once. (#112)
+- Halogen 0.20.4 (#111):
+  - In a cached conversation, Halogen reads a short follow-up message 15 to 50% faster.
+  - 10 to 20% more throughput when Halogen serves more than 8 requests at once
+    (`HALOGEN_KV_SLOTS` above 8; the default is 4).
+  - `d3-nano` is 7 to 9% faster on the NPU (0.20.3). Its NPU programs (about 135 MB) download
+    again where it is in use.
+  - In a conversation that already used tools, a tool call no longer arrives as raw text when the
+    app asked for none (`tool_choice: "none"`).
+  - The Flash checkpoints and your settings are unchanged.
+- Only root may use the disk service udisks2, which halOS keeps for firmware updates. An admin uses
+  `sudo`, and the `halogen` user that runs Halogen can't call it at all. Firmware updates with
   `sudo fwupdmgr` work as before. (#110)
-- Halogen 0.20.2: slightly faster with several requests at once (up to about 1%), a sooner first
-  token on long conversations (up to about 4%), NPU decisions on long prompts start a little
-  sooner, and `d3-lite` answers 14 to 18% faster on the NPU. The Flash checkpoints and your settings are unchanged. (#100)
-- New guides: [the command reference](docs/CLI.md) lists every halOS command, and [Connecting
-  apps](docs/CLIENTS.md) shows how to point Claude Code, Codex, Pi, oh-my-pi, opencode, Cline,
-  aider and others at the machine, and how each one trusts halOS's certificate. (#109)
+- Halogen 0.20.2: a little faster with several requests at once (up to about 1%). The first token
+  on long conversations comes sooner (up to about 4%). NPU decisions on long prompts start a little
+  sooner, and `d3-lite` answers 14 to 18% faster on the NPU. The Flash checkpoints and your
+  settings are unchanged. (#100)
+- New guides: [the command reference](docs/CLI.md) lists every halOS command. [Connecting
+  apps](docs/CLIENTS.md) shows how to connect Claude Code, Codex, Pi, oh-my-pi, opencode, Cline,
+  aider and others to the machine, and how each one trusts halOS's certificate. (#109)
 - Firmware updates: `sudo fwupdmgr update` can now also update the Secure Boot revocation list
-  (dbx), instead of saying "UEFI ESP partition not detected". On a machine that unlocks its disk
-  with the TPM, such an update asks for the disk passphrase at the next boot; then run
-  `sudo halogen-enroll-tpm` once. (#106)
+  (dbx). Before, it said "UEFI ESP partition not detected". If the TPM unlocks the disk, such an
+  update makes the next boot ask for the disk passphrase. Then run `sudo halogen-enroll-tpm` once.
+  (#106)
 - HTTPS with Let's Encrypt: `sudo halosctl https letsencrypt <provider> <name>` gets certificates
-  every app already trusts, and renews them, for a public name you own, through Cloudflare's,
-  DuckDNS's, Porkbun's or Namecheap's API. No port is opened to the internet. `--staging` tries
-  Let's Encrypt's test service first. The machine's own addresses keep halOS's authority. (#108)
-- The SSH login message and the "Halogen is ready" notice show an address other machines can use:
-  the Let's Encrypt name, the machine's full name (such as `freyja.home.example`), or its IPv4
-  address, instead of a bare host name like `freyja`. (#108)
+  that every app already trusts, for a public name that you own, and renews them. It uses the API
+  of Cloudflare, DuckDNS, Porkbun or Namecheap. halOS opens no port to the internet. `--staging`
+  tries Let's Encrypt's test service first. The machine's own addresses keep halOS's authority.
+  (#108)
+- The SSH login message and the "Halogen is ready" notice show an address that other machines can
+  use: the Let's Encrypt name, the machine's full name (such as `freyja.home.example`), or its IPv4
+  address. Before, they showed a bare host name, such as `freyja`. (#108)
 - The dashboard moved from port 8790 to **8732**, next to the API on 8731: `http://<machine>:8732`.
-  The firewall follows by itself on upgrade; only a bookmark changes. (#103)
-- [Caddy](https://caddyserver.com) now answers on ports 8731 (API) and 8732 (dashboard) and passes
-  requests on to Halogen and the dashboard, which listen on the machine only: the first step to
-  HTTPS (#102). Nothing changes for apps: same address, same key, replies still stream. While
-  Halogen starts, the API answers with a short note instead of refusing the connection. If you let
-  other networks see the dashboard with `systemctl edit halos-dashboard` (`IPAddressAllow=`), put
-  those ranges in `/etc/halos/proxy.env` as `HALOS_DASHBOARD_ALLOW=` instead: the old setting no
-  longer lets them in. (#104)
+  On upgrade, the firewall changes by itself. You only change a bookmark. (#103)
+- [Caddy](https://caddyserver.com) now answers on ports 8731 (API) and 8732 (dashboard). It sends
+  the requests on to Halogen and the dashboard, which listen on the machine only. This is the first
+  step to HTTPS (#102). Nothing changes for apps: the address and key stay the same, and replies
+  still stream. While Halogen starts, the API answers with a short note and doesn't refuse the
+  connection. If you used `systemctl edit halos-dashboard` (`IPAddressAllow=`) to let other
+  networks see the dashboard, put those ranges in `/etc/halos/proxy.env` as
+  `HALOS_DASHBOARD_ALLOW=`. The old setting no longer lets them in. (#104)
 - HTTPS for the API and the dashboard: `sudo halosctl https self-signed` turns it on with halOS's
-  own certificate authority (copy it to your apps once with `sudo halosctl https ca`), or `sudo
-  halosctl https custom <certificate> <key>` with yours. Plain `http://` then redirects. It is off
-  until you turn it on, also after upgrading. (#105)
+  own certificate authority. Copy the authority to your apps once with `sudo halosctl https ca`.
+  To use your own certificate and key, run `sudo
+  halosctl https custom <certificate> <key>`. Then plain `http://` redirects. HTTPS stays off until
+  you turn it on, even after an upgrade. (#105)
 
 ## v0.20.1-alpha.2 (2026-11-11)
 
-- The dashboard can no longer leak the API key in a crash report, may listen only on its own port,
-  and the selftest checks that its private-networks rule is really on. (#101)
+- The dashboard can no longer leak the API key in a crash report, and it may listen only on its
+  own port. The selftest checks that its private-networks rule is really on. (#101)
 
 ## v0.20.1-alpha.1 (2026-11-10)
 
-- A live dashboard of Halogen at `http://<machine>:8790`: whether it is up, speed, busy slots,
-  queue, KV pool, prompt cache and NPU, with charts up to 30 days. It is
+- A live dashboard of Halogen at `http://<machine>:8790`. It shows if Halogen is up, speed, busy
+  slots, queue, KV pool, prompt cache and NPU, with charts up to 30 days. It is
   [halogen-dashboard](https://github.com/Quat3rnion/halogen-dashboard) by Quaternion, built in
-  unchanged; about 12 MB of memory and 430 MB of disk once it holds 30 days. It is on by default,
-  also after upgrading, with no login: anyone on your network can view it, nobody can change
-  anything. `sudo halosctl dashboard off` stops it, `on` brings it back. (#98)
-- The dashboard is locked down further: it answers only this machine and private networks (home,
-  office, Tailscale), uses at most one CPU core, writes no core files, and its web page is built
-  without running packages' install scripts. (#99)
-- Halogen 0.20.1: follow-up turns start faster (the end of each reply is cached, on by default,
-  about 0.4 GiB more RAM at 4 slots), a turn that ended inside its reasoning now gets its answer,
-  and a routine `kv pool` line no longer shows red in the logs. The Flash checkpoints and
-  the NPU model files are unchanged, so nothing new downloads. The setting
-  `HALOGEN_FORK_AUTO_KEEPS` is gone (Halogen no longer reads it) and `HALOGEN_FORK_MAP=auto` is
-  ignored with one line at start; a `halogen.env` that still has either keeps working. (#95)
+  unchanged. It uses about 12 MB of memory, and 430 MB of disk when it holds 30 days. It is on by
+  default, even after an upgrade, with no login: anyone on your network can see it, but nobody can
+  change anything. `sudo halosctl dashboard off` stops it, and `on` starts it again. (#98)
+- The dashboard has more limits: it answers only this machine and private networks (home, office,
+  Tailscale), uses at most one CPU core and writes no core files. The build doesn't run the
+  install scripts of packages when it makes the dashboard's web page. (#99)
+- Halogen 0.20.1: follow-up turns start faster. Halogen caches the end of each reply, on by default
+  (about 0.4 GiB more RAM at 4 slots). A turn that ended inside its reasoning now gets its answer. A
+  routine `kv pool` line no longer shows red in the logs. The Flash checkpoints and the NPU model
+  files are unchanged, so nothing new downloads. Halogen no longer reads the setting
+  `HALOGEN_FORK_AUTO_KEEPS`, and it ignores `HALOGEN_FORK_MAP=auto` with one line at start. A
+  `halogen.env` that still has one of them keeps working. (#95)
 - Hardening from the security reviews of #91, #93 and #94 (#96):
-  - `halosctl version` says whether updates are signature-checked, and the SSH login message warns
-    when they aren't; the selftest's new `signature-files` line warns if the policy, registry
-    setting or halOS's key differ from the image's copies, or root has a policy of its own.
-  - `halosctl upgrade` doesn't reboot by itself when the name it follows points to an older build,
-    and switching refuses a changed halOS public key file.
-  - SSH unlock keeps the keys' and early-boot host key's fingerprints on the encrypted disk; the
-    selftest and `halosctl ssh-unlock` warn when the EFI partition's copies change, and setting
-    them up again then makes a new host key.
-  - `sudo halosctl ssh-passwords off` allows SSH logins with keys only, once your account has a
-    key; setup offers it.
-- `sudo halogenctl flash convert <repo>` converts full-precision (BF16 safetensors) Qwen3.8 Flash
-  Next weights into your own Flash checkpoint on the machine, with bf16-to-hgn (built into the
-  image, CPU only). It checks the model before the 360 GB download, runs as its own service (many
-  hours, likely a day or more), checks the result twice and deletes the downloaded weights
-  (`--keep-source` keeps them). `convert-logs` follows it, `convert-stop` stops it. (#97)
+  - `halosctl version` says if halOS checks the signatures of updates. When it doesn't, the SSH
+    login message warns. The selftest's new `signature-files` line warns if the policy, the
+    registry setting or halOS's key differs from the image's copies, or if root has a policy of
+    its own.
+  - `halosctl upgrade` doesn't reboot by itself when the name it follows points to an older build.
+    A switch refuses a changed halOS public key file.
+  - SSH unlock keeps the fingerprints of the keys and of the early-boot host key on the encrypted
+    disk. When the EFI partition's copies change, the selftest and `halosctl ssh-unlock` warn. If
+    you then set up the keys again, halOS makes a new host key.
+  - `sudo halosctl ssh-passwords off` allows SSH logins with keys only, when your account has a
+    key. Setup offers it.
+- `sudo halogenctl flash convert <repo>` converts full-precision Qwen3.8 Flash Next weights (BF16
+  safetensors) into your own Flash checkpoint on the machine. It uses bf16-to-hgn, which is built
+  into the image and uses only the CPU. It checks the model before the 360 GB download, and runs as
+  its own service (many hours, probably a day or more). It checks the result twice and removes the
+  downloaded weights (`--keep-source` keeps them). `convert-logs` follows it, and `convert-stop`
+  stops it. (#97)
 - The guided installer asks how an encrypted disk unlocks: TPM and SSH (recommended), TPM only,
-  SSH only, or the passphrase at the keyboard. For SSH it takes your public keys from GitHub,
-  GitLab or Codeberg, or a pasted key, and can let the same keys log the admin user in. First-boot
-  setup then defaults to that choice. (#13, #94)
-- Unlock the disk over SSH at boot (#13): when the TPM can't unlock it, type the passphrase from
-  another computer with `ssh root@<machine>`. Turn it on with `sudo halosctl ssh-unlock on
-  --github <user>` (or `--gitlab`, `--codeberg`, `--key`), or in `sudo halosctl setup`. The
+  SSH only, or the passphrase at the keyboard. For SSH, it takes your public keys from GitHub,
+  GitLab or Codeberg, or a key that you paste. The installer can also let the same keys log the
+  admin user in (it asks; the default is no). First-boot setup then uses that choice as its
+  default. (#13, #94)
+- Unlock the disk over SSH at boot (#13): when the TPM can't unlock the disk, type the passphrase
+  from another computer with `ssh root@<machine>`. To turn it on, run `sudo halosctl ssh-unlock on
+  --github <user>` (or `--gitlab`, `--codeberg`, `--key`), or use `sudo halosctl setup`. The
   selftest shows it as `ssh-unlock`. (#93)
-- Machines take only images signed with halOS's key (#46). New installs check from the start;
-  older ones turn the check on with their next `sudo halosctl upgrade` after this release, which
-  says so and asks. Releases before `0.19.1-alpha.3` aren't signed, so `rollback --to` can't reach
-  them. Images from other registries (Halogen's own, your own podman containers) are taken as
-  before. The selftest reports it as `image-signatures`. (#91)
-- Building images: the signing tool is downloaded before anything is pushed, and its download
-  retries for up to five minutes. A GitHub outage during the weekly stable refresh had left the
-  `0.20.0` tag pointing to an unsigned rebuild. (#90)
+- Machines accept only images signed with halOS's key (#46). New installs check from the start.
+  Older installs turn the check on with their next `sudo halosctl upgrade` after this release,
+  which says so and asks. Releases before `0.19.1-alpha.3` aren't signed, so `rollback --to` can't
+  reach them. halOS accepts images from other registries (Halogen's own, your own podman
+  containers) as before. The selftest reports it as `image-signatures`. (#91)
+- Image builds: the build downloads the signing tool before it pushes anything, and tries the
+  download again for up to five minutes. A GitHub outage during the weekly stable refresh had left
+  the `0.20.0` tag on an unsigned rebuild. (#90)
 - `flash pull` and `flash verify` add the official tokenizer's vocabulary to a checkpoint whose
-  `tokenizer/` folder has no `tokenizer.json` (Signal-3.8-Flash-Next-HGN-v2 ships only its chat
-  template and settings), keeping its own chat template. Halogen couldn't start on such a checkpoint
-  and restarted every 30 seconds; a checkpoint still without one, or with a vocabulary of its own,
-  now fails verify, so `flash use` refuses it. For one pulled before: `sudo halogenctl flash verify
+  `tokenizer/` folder has no `tokenizer.json`, and keep the checkpoint's own chat template.
+  (Signal-3.8-Flash-Next-HGN-v2 ships only its chat template and settings.) Halogen couldn't start
+  on such a checkpoint and restarted every 30 seconds. A checkpoint that still has no vocabulary,
+  or has one of its own, now fails verify, so `flash use` refuses it. For a checkpoint pulled
+  before this change, run `sudo halogenctl flash verify
   <name>`, then `sudo halogenctl restart` if Halogen serves it. (#88)
 
 ## v0.20.0 (2026-11-09)
 
-The first stable release on Halogen 0.20.0, promoted from `v0.20.0-rc.2`: everything since
-`v0.19.0-beta.1`, listed under the releases below. freyja was also reinstalled with
-the guided installer, and passed restarts, tab completion and a `model pull` of OvisOCR3.
+The first stable release on Halogen 0.20.0, promoted from `v0.20.0-rc.2`. It has everything since
+`v0.19.0-beta.1`, listed under the releases below. freyja was also reinstalled with the guided
+installer, and it passed restarts, tab completion and a `model pull` of OvisOCR3.
 
 ## v0.20.0-rc.2 (2026-11-08)
 
-Built from main, so it carries one change beside the beta's notes (#86):
+Built from main, so it has one change in addition to the beta's notes (#86):
 
 - `halogenctl model list` shows an NPU model as in use when one of your own checkpoints runs on it
-  ("yes, for OvisOCR3") or the agent guard adds it, where it used to say "no". (#87)
+  ("yes, for OvisOCR3") or the agent guard adds it. Before, it said "no". (#87)
 
 ## v0.20.0-rc.1 (2026-11-08)
 
@@ -312,176 +340,185 @@ Promoted from `v0.20.0-beta.1`, with no change.
 ## v0.20.0-beta.1 (2026-11-08)
 
 Promoted from `v0.20.0-alpha.3`: the first beta on Halogen 0.20.0, with everything since
-`v0.19.0-beta.1`. On freyja it passed the selftest, the power profile at `performance` and the
-fabric clock held in `bench`, and earlier `bench`, `flash check` and `halosctl npu off`/`on`.
+`v0.19.0-beta.1`. On freyja it passed the selftest. In `bench`, the power profile was at
+`performance` and the fabric clock held. Earlier, it passed `bench`, `flash check` and
+`halosctl npu off`/`on`.
 
 ## v0.20.0-alpha.3 (2026-11-08)
 
-No change to what users get: the release notes for alpha.1 (#85). The same code as alpha.2.
+No change for users: the only change is the release notes for alpha.1 (#85). It has the same code
+as alpha.2.
 
 ## v0.20.0-alpha.2 (2026-11-08)
 
-- The power profile's boot service can now write only the one file it sets, with no special
-  rights, as the security review of #83 suggested. Nothing changes in use. (#84)
+- The power profile's boot service can now write only the one file that it sets, and it has no
+  special rights, as the security review of #83 suggested. Nothing changes in use. (#84)
 
 ## v0.20.0-alpha.1 (2026-11-08)
 
-- `halogenctl bench` reported the GPU fabric clock as not held when it was: it now asks the clock
-  the way the selftest does. `flash check` prints its numbers rounded, no longer shows a passing
-  download hiccup as an error, and gives the time it took on the test machine. (#81)
+- `halogenctl bench` reported that the GPU fabric clock was not held when it was. It now asks for
+  the clock the same way as the selftest. `flash check` prints its numbers rounded, no longer shows
+  a short download problem as an error, and gives the time it took on the test machine. (#81)
 - **Halogen 0.20.0** ([its changelog](https://github.com/peonist-ai/halogen-flash-server/blob/8242b157ce78fd720f5b3da18d398d2fb8cebce5/CHANGELOG.md)):
-  its image moves to ROCm 10.1 (less power while generating, same speed), prompts read a few
-  percent faster, and a crash with strict tool calls under load is fixed. New: document parsing on
-  the NPU with your own OvisOCR3 (`sudo halogenctl model pull ATH-MaaS/OvisOCR3`; INSTALL.md says
-  how to serve it). The Flash checkpoint and every setting stay the same; at temperature 0 replies
-  can differ from 0.19.1's in the last bits. (#78)
-- `halogenctl selftest` no longer reports a `chcon` SELinux denial: that is bootc checking its own
-  rights (it expects the refusal) each time halOS asks it for status. Other denials still fail. (#82)
-- **Power profile:** halOS now sets the firmware's power profile to `performance` at every boot,
-  where some machines, freyja among them, ship at `balanced`. On freyja that read prompts about 22% faster.
-  `sudo halosctl power balanced` (or `low-power`) picks a cooler, quieter one, at once and for
-  every boot; `sudo halosctl power` shows it, and the selftest warns when it isn't as chosen. (#83)
+  its image moves to ROCm 10.1 (less power when it generates, same speed). Halogen reads prompts a
+  few percent faster, and it fixes a crash with strict tool calls under load. New: document
+  parsing on the NPU with your own OvisOCR3 (`sudo halogenctl model pull ATH-MaaS/OvisOCR3`;
+  INSTALL.md tells how to serve it). The Flash checkpoint and every setting stay the same. At
+  temperature 0, replies can differ from 0.19.1's in the last bits. (#78)
+- `halogenctl selftest` no longer reports a `chcon` SELinux denial. bootc causes that denial when
+  it checks its own rights (it expects the refusal), each time halOS asks it for status. Other
+  denials still fail. (#82)
+- **Power profile:** halOS now sets the firmware's power profile to `performance` at every boot.
+  Some machines, freyja among them, ship at `balanced`. On freyja, Halogen read prompts about 22%
+  faster at `performance`. `sudo halosctl power balanced` (or `low-power`) selects a cooler,
+  quieter profile, at once and for every boot. `sudo halosctl power` shows it, and the selftest
+  warns when it isn't as chosen. (#83)
 
 ## v0.19.1-alpha.6 (2026-11-08)
 
-No change to what users get: the project notes and roadmap were brought up to date (#79).
+No change for users: the project notes and roadmap are now up to date (#79).
 
 ## v0.19.1-alpha.5 (2026-11-08)
 
-- **Hardening:** programs running as the `halogen` user (Halogen's helpers, and anything that
+- **Hardening:** programs that run as the `halogen` user (Halogen's helpers, and anything that
   might break out of its container) can no longer type into an admin's root terminal or send it
-  escape codes. `halogenctl` gives the scripts it runs as `halogen` no access to your terminal,
-  and `status`, `selftest`, `api-key` and `model pull` strip control characters from anything the
-  `halogen` user could have written. The kernel's terminal-injection call (`TIOCSTI`), already
-  off in Fedora's kernel, is kept off by a setting. (#76)
-- Images now say which edition they are (NPU or no-NPU) in a label. `halosctl` checks it before
-  switching, and reads it to tell the edition of a build a pinned machine has waiting for the next
-  boot, where it used to ask you to reboot first. Images from before this change have no label,
-  so for those it still asks. (#77)
+  escape codes. `halogenctl` gives the scripts that it runs as `halogen` no access to your
+  terminal. `status`, `selftest`, `api-key` and `model pull` remove control characters from
+  anything that the `halogen` user could have written. The kernel's terminal-injection call
+  (`TIOCSTI`) is already off in Fedora's kernel, and a setting keeps it off. (#76)
+- Images now have a label that tells their edition (NPU or no-NPU). `halosctl` checks it before a
+  switch. On a pinned machine, it also reads the label to find the edition of a build that waits
+  for the next boot. Before, it asked you to reboot first. Images from before this change have no
+  label, so for those it still asks. (#77)
 - Tab completion for `halogenctl`, `halosctl` and `halogen-enroll-tpm`: commands, options,
   channels and LUKS devices. (#75)
-- `sudo halogenctl flash check <name>` measures your own Flash checkpoint against the official
-  one with Halogen's `ppl`, on the same public text Halogen's docs use: perplexity, how often both
-  pick the same next word, and how far apart their predictions are. Halogen stops while it runs
-  and starts again afterwards. `flash list` shows the result. (#74)
+- `sudo halogenctl flash check <name>` compares your own Flash checkpoint with the official one,
+  with Halogen's `ppl`, on the same public text that Halogen's docs use. It measures perplexity, how
+  often both pick the same next word, and how far apart their predictions are. Halogen stops while
+  it runs and starts again after. `flash list` shows the result. (#74)
 - `sudo halogenctl bench` measures how fast the server reads prompts and writes answers, with
-  Halogen's own benchmark tool, without restarting it. The report lists what the numbers depend
-  on (versions, BIOS, kernel settings, power profile, checkpoint, settings) and is saved in
-  `/srv/configs/bench/` to compare later runs. `--quick` takes under a minute. It uses the prompt
-  cache as your server does, so its prompts can push long cached conversations out once. (#73)
-- `sudo halosctl npu off` moves a machine to the no-NPU edition, and `npu on` back, keeping its
-  channel (or exact release) and everything in `/srv`. It warns when turning the NPU on for a
-  machine that has none, and says plainly what turning the IOMMU off costs. A channel switch or
-  `rollback --to` now keeps an edition change that is waiting for the next boot, or, when that
-  can't be told (a machine pinned to one release), asks you to reboot first instead of guessing.
-  (#72)
+  Halogen's own benchmark tool, without a restart. The report lists what the numbers depend on
+  (versions, BIOS, kernel settings, power profile, checkpoint, settings). It is saved in
+  `/srv/configs/bench/`, so you can compare later runs. `--quick` takes less than a minute. It uses
+  the prompt cache as your server does, so its prompts can make the cache drop long cached
+  conversations once. (#73)
+- `sudo halosctl npu off` moves a machine to the no-NPU edition, and `npu on` moves it back. The
+  machine keeps its channel (or exact release) and everything in `/srv`. It warns when you turn
+  the NPU on for a machine that has none, and it says clearly what you lose when you turn the IOMMU
+  off. A channel switch or `rollback --to` now keeps an edition change that waits for the next
+  boot. When halosctl can't tell (a machine pinned to one release), it asks you to reboot first
+  and doesn't guess. (#72)
 
 ## v0.19.1-alpha.4 (2026-11-07)
 
-- A setting written twice in `halogen.env` (easy to do when pasting from the example file) is
-  now pointed out: `halogenctl status`, `config` and `options` name it, and Halogen's log says
-  which line is used (the last one). Nothing changes in what Halogen receives. (#71)
-- Restarting Halogen yourself (`sudo halogenctl restart`, `flash use`, or after a settings
-  change) always works now. A few restarts in a row used to hit Halogen's crash-loop guard ("start
-  of the service was attempted too often"), which only automatic restarts should count towards.
-  (#70)
+- halOS now tells you about a setting written twice in `halogen.env` (easy to do when you paste
+  from the example file). `halogenctl status`, `config` and `options` name it, and Halogen's log
+  says which line it uses (the last one). Nothing changes in what Halogen receives. (#71)
+- When you restart Halogen yourself (`sudo halogenctl restart`, `flash use`, or after a settings
+  change), the restart now always works. Before, a few restarts in a row hit Halogen's crash-loop
+  guard ("start of the service was attempted too often"). Only automatic restarts should count
+  towards that guard. (#70)
 - **Security fixes from the full audit:**
-  - Your own NPU checkpoints are checked offline, with no access to your Hugging Face token,
-    before the download step, which no longer reads them itself.
-  - `model pull`'s download and check see only that checkpoint's folder, the check read-only.
-    `--revision` or `--as` with nothing after it no longer hangs.
+  - halOS checks your own NPU checkpoints offline, with no access to your Hugging Face token,
+    before the download step. The download step no longer reads them itself.
+  - `model pull`'s download and check see only the folder of that checkpoint, and the check sees
+    it read-only. `--revision` or `--as` with nothing after it no longer hangs.
   - `model list` prints no folder name that holds terminal control codes.
-  - The docs no longer say Halogen serves "offline": it never downloads, but its container can
-    reach the network.
-  - The download log no longer claims more than the estimate was downloaded when your own
-    checkpoints are counted in.
-  - The build and release workflows use GitHub's actions pinned to exact commits, so a moved
+  - The docs no longer say that Halogen serves "offline": it never downloads, but its container
+    can reach the network.
+  - When your own checkpoints are counted in, the download log no longer claims more downloaded
+    data than the estimate.
+  - The build and release workflows use GitHub's actions pinned to exact commits. So a moved
     version tag can't change what runs beside the signing key. (#69)
-- The installer, `halosctl setup` and the docs now say plainly what TPM unlock protects: a disk
-  taken out of the machine, not the machine taken whole. INSTALL.md section 8 explains how to
+- The installer, `halosctl setup` and the docs now say clearly what TPM unlock protects: a disk
+  taken out of the machine, not the whole machine taken away. INSTALL.md section 8 tells how to
   protect the machine too (BIOS password, USB boot off, a boot menu password). (#68)
-- No more serial login prompt restarting every 10 seconds on machines whose first serial port
-  doesn't work (freyja logged "failed to get terminal attributes" from boot on). A serial login
-  prompt now starts only on a port that answers, and new installs no longer get a serial
-  console at all. (#67)
+- The serial login prompt no longer restarts every 10 seconds on machines whose first serial port
+  doesn't work (freyja logged "failed to get terminal attributes" from boot). A serial login
+  prompt now starts only on a port that answers, and new installs get no serial console at all.
+  (#67)
 - **Guided installer.** The first boot menu entry asks only for the disk, the machine's name,
-  encryption, root and the admin user, on a text screen, then installs by itself. It never
-  offers USB drives, and a disk with data on it, or a choice of disks, needs its name typed. Every
-  machine gets the same volume names (`halos-root`, `halos-models` and so on). The full graphical
-  installer stays as "custom partitioning". (#66)
+  encryption, root and the admin user, on a text screen. Then it installs by itself. It never
+  offers USB drives. If a disk has data on it, or if there is a choice of disks, you must type the
+  disk's name. Every machine gets the same volume names (`halos-root`, `halos-models` and more).
+  The full graphical installer stays as "custom partitioning". (#66)
 
 ## v0.19.1-alpha.3 (2026-11-07)
 
-- Images are also signed with halOS's own key, and every image carries its public key at
+- halOS also signs images with its own key, and every image has its public key at
   `/etc/pki/containers/halos-flash.pub`. A later release makes machines refuse images without
   that signature. (#65)
 - This changelog, and [ROADMAP.md](ROADMAP.md): what comes next on the way to a stable release.
   (#62)
 - **"API ready" at a glance.** The login screen shows Halogen's state: downloading with a
   percentage, checking, starting, or `ready` with the address. The SSH login message shows the
-  same, with the release, channel and any staged update. Logged-in users get a one-time notice
-  when Halogen first answers after a boot. (#63)
+  same, with the release, channel and any staged update. When Halogen first answers after a boot,
+  logged-in users get a one-time notice. (#63)
 - **First-boot setup.** `sudo halosctl setup` asks how the disk unlocks (TPM or passphrase), for
-  an optional Hugging Face token, and whether to edit the settings. On a new install the first
-  download waits for it, up to 30 minutes, so the token and settings count from the start;
-  `--skip` starts it at once. Upgraded machines never wait. (#64)
+  an optional Hugging Face token, and if you want to edit the settings. On a new install, the first
+  download waits for setup, up to 30 minutes, so the token and settings apply from the start.
+  `--skip` starts the download at once. Upgraded machines never wait. (#64)
 
 ## v0.19.1-alpha.2 (2026-11-06)
 
 - **Your own Flash checkpoint.** `sudo halogenctl flash pull|list|use|verify|remove` runs a
-  community or self-trained `.hgn` build of the Flash model in place of the official one, which
-  always stays downloaded. A pull fetches only what Halogen loads, at an exact commit, checks
-  every file against the repository's hashes and with Halogen's `verify`, and is checked again
-  after each Halogen update. See [INSTALL.md](INSTALL.md#your-own-flash-checkpoint). (#60)
+  community or self-trained `.hgn` build of the Flash model in place of the official one. The
+  official one always stays downloaded. A pull fetches only what Halogen loads, at an exact
+  commit. It checks every file against the repository's hashes and with Halogen's `verify`, and
+  halOS checks the checkpoint again after each Halogen update. See
+  [INSTALL.md](INSTALL.md#your-own-flash-checkpoint). (#60)
 - The model download and `model pull` no longer get the NPU device. (#60)
 
 ## v0.19.1-alpha.1 (2026-11-06)
 
-- **Halogen 0.19.1.** Its image now carries AMD's XRT, so halOS no longer ships or mounts its own.
+- **Halogen 0.19.1.** Its image now has AMD's XRT, so halOS no longer ships or mounts its own.
   (#58, #59)
-- **New Halogen options are easy to find.** `sudo halogenctl options --new` lists the ones your
-  `halogen.env` doesn't mention yet. `/srv/configs/halogen.env.example` holds every option and is
-  refreshed at each boot. Each release attaches both editions' lists. `halogen.env` itself is never
-  changed. (#57)
+- **New Halogen options are easy to find.** `sudo halogenctl options --new` lists the options
+  that your `halogen.env` doesn't name yet. `/srv/configs/halogen.env.example` holds every option,
+  and halOS writes it again at each boot. Each release attaches the lists of both editions. halOS
+  never changes `halogen.env` itself. (#57)
 - **Security hardening** from a full audit:
   - Root never reads or writes in the `halogen` user's folders. (#51)
-  - The root boot services are sandboxed.
+  - The root boot services run in a sandbox.
   - Halogen's checks run without network.
-  - Kernel settings that cost nothing are tightened.
+  - halOS tightens the kernel settings that cost nothing.
   - SSH X11 forwarding is off.
-  - The installer builder is pinned. (#52)
+  - halOS pins the installer builder. (#52)
   - Halogen's container runs with no capabilities. (#53)
-- `sudo halogenctl model list` is readable. (#55)
-- Edge is rebuilt weekly, so machines get Fedora fixes in quiet weeks. (#54)
+- `sudo halogenctl model list` is now easy to read. (#55)
+- halOS rebuilds edge every week, so machines get Fedora fixes also in weeks with no halOS change.
+  (#54)
 
 ## v0.19.0-beta.1 (2026-11-06)
 
 Promoted from `v0.19.0-alpha.4`. Freyja passed the beta hardware checklist:
 - TPM unlock
-- `halosctl` switch, upgrade and rollback, each keeping `/srv`
+- `halosctl` switch, upgrade and rollback, each of which keeps `/srv`
 - selftest 30 of 30
 
 ## v0.19.0-alpha.5 (2026-11-06)
 
-- Every pushed image is signed with cosign, keyless. Machines don't check it yet. (#50)
+- halOS signs every pushed image with cosign, keyless. Machines don't check the signature yet.
+  (#50)
 
 ## v0.19.0-alpha.4 (2026-11-06)
 
-- No more fstab warning at every boot. `halosctl upgrade` says "Already up to date" instead of
-  asking when there is nothing new. (#49)
+- No more fstab warning at every boot. When there is nothing new, `halosctl upgrade` says
+  "Already up to date" and doesn't ask. (#49)
 
 ## v0.19.0-alpha.3 (2026-11-05)
 
-- Releases are cut by picking alpha, beta, rc or stable. The number is worked out, and beta, RC
-  and stable promote the newest release one step below. (#48)
-- Fixes the failed `v0.19.0-alpha.2` release run. That tag exists, but has no release. (#47)
+- To cut a release, you select alpha, beta, rc or stable. The workflow calculates the number, and
+  beta, RC and stable promote the newest release one step below. (#48)
+- Fixes the failed `v0.19.0-alpha.2` release run. That tag exists, but it has no release. (#47)
 
 ## v0.19.0-alpha.2 (2026-11-05, tag only)
 
 - **`halosctl`**, one command for the OS: `version`, `switch <channel>`, `upgrade`, `rollback
   [--to]` and `history`. Channels follow newer, more stable releases. (#41)
 - Root can never log in over SSH. (#45)
-- The selftest treats Halogen waiting at boot as a warning. Adds `wireless-regdb`. (#39)
+- When Halogen waits at boot, the selftest shows a warning. The image now has `wireless-regdb`.
+  (#39)
 
 ## v0.19.0-alpha.1 (2026-11-05)
 
@@ -502,7 +539,7 @@ Promoted from `v0.19.0-alpha.4`. Freyja passed the beta hardware checklist:
   - single-file installer ISOs
   - download progress at first boot
   - docs from the first hardware install (#17)
-- Enrolling the TPM again replaces the old binding. (#21)
+- When you enroll the TPM again, it replaces the old binding. (#21)
 
 ## v0.18.23-alpha.2 (2026-11-05)
 
