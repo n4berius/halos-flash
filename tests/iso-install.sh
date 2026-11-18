@@ -87,7 +87,7 @@ for v in /sysroot:root /var:var /var/log:log /var/log/audit:audit /var/home:home
          /var/srv/configs:configs /var/srv/logs:logs /var/srv/models:models; do
   grep -qx "${v%%:*} /dev/mapper/halos-${v#*:}" "$out/report.txt" || { echo "${v%%:*} is not on halos-${v#*:}" >&2; exit 1; }
 done
-# The models volume takes the rest: about 304 GiB of a 512 GB disk, 1686 GiB of a 2 TB one.
+# The models volume takes the rest: about 304 GiB of a 512 GB disk, about 1,690 GiB of a 2 TB one.
 models_gib="$(awk '$1 == "models" { printf "%d", $2 }' "$out/report.txt")"
 # The prompt cache mount is noexec,nosuid,nodev on both editions; the NPU edition's four model
 # mounts are too.
@@ -114,7 +114,7 @@ if grep -q '^PWLEAK ' "$out/report.txt"; then grep '^PWLEAK ' "$out/report.txt" 
 grep -qx 'PWJOURNAL 0' "$out/report.txt" || { echo "a password is in the journal" >&2; exit 1; }
 # The guided install's fixed boot sizes: /boot 2 GiB and the EFI partition 1 GiB, as filesystems
 # (a little less than the partitions). How full /boot is shows the real kernel and initramfs size.
-read -r _ bsize bused esize < <(grep -m1 '^BOOTSZ ' "$out/report.txt" || true)
+read -r _ bsize bused esize < <(grep -m1 '^BOOTSZ ' "$out/report.txt") || true
 echo "/boot: $(( ${bused:-0} / 1048576 )) MiB used of $(( ${bsize:-0} / 1048576 )) MiB; EFI partition $(( ${esize:-0} / 1048576 )) MiB"
 { [ "${bsize:-0}" -gt 1800000000 ] && [ "${bsize:-0}" -lt 2200000000 ] && [ "${esize:-0}" -gt 900000000 ] && [ "${esize:-0}" -lt 1100000000 ]; } \
   || { echo "the boot partitions aren't the guided install's sizes:" >&2; grep '^BOOTSZ' "$out/report.txt" >&2; exit 1; }
