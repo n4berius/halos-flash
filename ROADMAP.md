@@ -36,7 +36,8 @@ first stable release, with first-boot setup (#43), the guided installer (#42), a
   audit logs with auditd, and rotation (#118).
 - fail2ban for SSH and the Halogen API (#92, done in #129, #132 and #134).
 - The crun 1.30.1 hold, which keeps Halogen's container able to start (#137).
-- The `kernel-next` channel with a Linux 7.4 test kernel (#142, #146). The test machine runs it.
+- The `kernel-next` channel with a Linux 7.4 test kernel (#142, #146). It passed its checks on the
+  test machine (#147), which runs it.
 
 `v0.20.7-alpha.1` (2026-11-18) has Halogen 0.20.7 (#149) and safer releases: the channel tags
 move only after the install tests pass (#150).
@@ -50,8 +51,7 @@ Simplified Technical English (#152).
    concurrency mode, and a benchmark against 0.20.6. Then promote it to rc and stable.
 2. When Fedora ships a fixed podman or crun (crun#2480, podman#30265), remove the crun 1.30.1
    hold (#137). The line "crun in Fedora's base today" in the build log shows when.
-3. Compare Linux 7.4 (`kernel-next`) with 7.3 on the test machine: run the selftest and the
-   benchmark, with the NPU and GPU together. A weekly workflow proposes newer plain builds
+3. Keep `kernel-next` on the newest plain Linux 7.4 build: a weekly workflow proposes each one
    (#146). When Fedora 45 ships 7.4 itself, end the channel.
 4. Unlock the disk from a tang server on the network (#44).
 5. Let `flash pull` use GGUF repositories (#61).

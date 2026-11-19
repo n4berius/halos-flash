@@ -8,8 +8,9 @@
 
 Pull requests that change only docs skip the image build. Changes to `versions.env`,
 `Containerfile*`, `files/`, `variants/`, `installer/`, `scripts/`, `src/` or the VM test files
-also run the full ISO install test in CI. The editions run at the same time: the test takes about
-40 minutes without the NPU, and about an hour for the NPU edition and for `kernel-next`. A new push cancels older runs on the same pull request.
+also run the full ISO install test in CI. The editions run at the same time. The test takes about
+40 minutes without the NPU, and about an hour for the NPU edition and for `kernel-next`. A new
+push cancels older runs on the same pull request.
 
 AI wrote most of this project, so review each change as you review a change from a stranger.
 Use the issue forms for bugs, ideas and hardware test reports. Hardware reports are very useful,
