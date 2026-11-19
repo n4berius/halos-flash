@@ -108,7 +108,7 @@ name, but allows saying halOS runs Halogen.
   gen-options). `halogenctl api-key [status|on|off [--yes]]` (bare still prints the key; on/off need root,
   ask `is-active` over halogen's own socket, take the GPU lock before writing when Halogen runs, and
   restart only a running Halogen; `mv -T`, then a check, so a folder at the name never reads as "off"). The key file and its mount stay, so the dashboard, bench and the
-  selftest keep sending it (Halogen ignores it). Selftest `api-key`: a request with no key to 18731
+  selftest keep sending it (Halogen's docs say it then checks no key; unconfirmed on freyja that a key sent anyway is accepted). Selftest `api-key`: a request with no key to 18731
   must get 401 while on (200 FAILs); off WARNs, and says "still asks" on a 401. A rollback to an image
   from before the switch has the key in `locked.env` again, so it is on. Halogen's docs: no key is
   required unless one of the two is set (FLAGS.md, configuration.md). Left for the owner (audit): Caddy

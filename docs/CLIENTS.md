@@ -10,7 +10,7 @@ the app trust halOS's certificate. The [command reference](CLI.md) has the comma
 |---|---|
 | Address (OpenAI-style APIs) | `http://<machine>:8731/v1`, or `https://…` with HTTPS on |
 | Address (Anthropic Messages API, Claude Code) | `http://<machine>:8731`, or `https://…`, without `/v1` |
-| API key | `sudo halogenctl api-key` on the machine. If the key is [off](../INSTALL.md#the-api-key), apps can send any value or none |
+| API key | `sudo halogenctl api-key` on the machine. If the key is [off](../INSTALL.md#the-api-key), apps need no key |
 | Model name | `halogen-qwen3.8-flash-next`. Each name that is not the name of an NPU model goes to this model. `GET /v1/models` lists all the models |
 
 Halogen supports the OpenAI Chat Completions, Completions and Responses APIs and the Anthropic

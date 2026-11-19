@@ -458,14 +458,15 @@ The firewall lets every address reach port 8731. This includes global IPv6 addre
 and port forwards on your router. A home network with IPv6 can be reachable from the internet.
 
 - The key stays in `/srv/configs/api-key`. When you turn it on again, apps use the same key.
-- Apps that send the key still work while it is off. Halogen ignores the key.
+- Apps that send the key are expected to work while it is off: Halogen's documentation says
+  that without a key it checks no key. This is not confirmed on the test machine yet.
 - The dashboard, `sudo halogenctl bench` and the selftest work in both states.
 - fail2ban gives no protection to the API while the key is off. It counts wrong keys, and no
   request has a wrong key.
 - While the key is off, anybody can read Halogen's `/metrics`. Each read resets two values that
   the dashboard shows (see [The dashboard](#the-dashboard)).
-- `sudo halogenctl selftest` shows `api-key`. It sends a request without the key, and it fails if
-  Halogen does not refuse the request while the key is on.
+- `sudo halogenctl selftest` shows `api-key`. It sends a request without the key. While the key is
+  on, it shows FAIL if Halogen answers the request, and WARN for an unexpected answer.
 - The setting is the file `/etc/halos/api-key-off`, which only root can write. A rollback to a
   release from before this switch turns the key on again. The file stays, so the next upgrade
   turns the key off again. To keep the key on, run `sudo halogenctl api-key on` after the upgrade.
@@ -773,7 +774,8 @@ The records go to `/srv/logs/halogen`, and only the `halogen` user can read them
 - `HALOGEN_RECORD_TEXT`: `none` on halOS (counts only), or `all`, or a list of `prompt`,
   `reply`, `reasoning`, `args` and `results`. **Before you keep text on a server that other
   people use:** Halogen writes to disk everything that they send. The API key keeps strangers out,
-  but Halogen also records anyone who has the key. The session fields show only what a client
+  but Halogen also records anyone who has the key. If you turn the key off, Halogen records
+  anybody who can reach port 8731. The session fields show only what a client
   claims.
 - `HALOGEN_RECORD_GIB`: the size limit of the folder, 2 GiB by default. Above this limit, Halogen
   drops new records and counts them. It never slows or refuses requests.
