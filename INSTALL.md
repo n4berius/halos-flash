@@ -12,20 +12,23 @@ For information about how Halogen itself works, see its
 
 | Machine | Memory | Disk | Release | Edition |
 |---|---|---|---|---|
-| [AMD Ryzen AI Halo Developer Platform](https://www.microcenter.com/product/711961/amd-ryzen-ai-halo-developer-platform-linux-os) (Micro Center) | 128 GB | 2 TB NVMe | `v0.18.23-alpha.2` | With NPU |
+| [AMD Ryzen AI Halo Developer Platform](https://www.microcenter.com/product/711961/amd-ryzen-ai-halo-developer-platform-linux-os) (Micro Center) | 128 GB | 2 TB NVMe | `v0.18.23-alpha.2` to `v0.20.6`, and the `kernel-next` test kernel | With NPU, and without NPU through `halosctl npu off` |
 
 On that machine, these items work:
 
 - USB install with Secure Boot on, and no MOK enrollment
-- Automatic storage, which makes each volume
-- First-boot download of the Halogen container and about 125 GB of models
+- Automatic storage, which makes each volume, and the guided install (since `v0.20.0`)
+- First-boot download of the Halogen container and about 130 GB of models
 - Halogen on the GPU, with all 5 NPU models loaded
 - Access to the API from other machines on the network, for example Hermes
+
+Since `v0.20.0`, these items also work: the selftest, the benchmark, `flash check`, the change
+between the two editions with `halosctl npu off` and `on`, tab completion, restarts and a
+`model pull` of OvisOCR3.
 
 These items are not yet confirmed on hardware:
 
 - LUKS with TPM unlock (it passes in the VM test)
-- The edition without NPU
 - A long soak test under real load
 
 The BIOS of that machine has no UMA frame buffer setting. This is not a problem: the GTT kernel
@@ -36,7 +39,7 @@ settings give Halogen its memory in all cases.
 - A dedicated AMD Strix Halo machine with 128 GB of memory. The GTT settings are for 128 GB.
 - A USB drive of 4 GB or more. When you write the ISO to the drive, you erase all data on it.
 - An internal disk of 480 GB or more (a 500 GB or 512 GB drive is sufficient). The models use
-  about 125 GB.
+  about 130 GB (about 120 GB for the edition without NPU).
 - Internet access at first boot, to get the Halogen container and the models.
 - A second computer, to download the ISO and write it to the USB drive.
 
@@ -47,7 +50,7 @@ settings give Halogen its memory in all cases.
 | Serves | Flash and NPU models | Flash only |
 | IOMMU | On, with `iommu=pt` | Off, with `amd_iommu=off` |
 | Trade-off | Slower prefill, DMA protection stays on | 13-16% more prefill (Halogen's measurement), but DMA protection is off |
-| Image | `halos-flash:0.19.0` | `halos-flash:0.19.0-no-npu` |
+| Image | `halos-flash:0.20.7` | `halos-flash:0.20.7-no-npu` |
 
 You can change the edition later, without a new install:
 
@@ -128,13 +131,13 @@ newer build. To get the newest build of the current name, use `sudo bootc upgrad
 
 halOS signs every halOS image with its key. A machine accepts an update only when that signature
 is correct. So nobody can give you a different image as a halOS image. `sudo halogenctl
-selftest` shows this check as `image-signatures`. Machines that you install from this release or
-later do the check from the start.
+selftest` shows this check as `image-signatures`. Machines that you install from `v0.20.0-alpha.4`
+or later do the check from the start.
 
-Older installs turn the check on at their next `sudo halosctl upgrade`, after a reboot into this
-release. `halosctl` tells you about the check and asks. Then it stages the newest image of the
-name that the machine follows, with the check on. So the first upgrade to this release installs
-without the check, and the next upgrade turns it on. Each upgrade needs a reboot.
+Older installs turn the check on at their next `sudo halosctl upgrade`, after a reboot into
+`v0.20.0-alpha.4` or later. `halosctl` tells you about the check and asks. Then it stages the newest
+image of the name that the machine follows, with the check on. So the first upgrade to such a
+release installs without the check, and the next upgrade turns it on. Each upgrade needs a reboot.
 
 - Releases before `0.19.1-alpha.3` don't have the key signature. So `halosctl rollback --to`
   can't go back to them. `halosctl rollback` to the previous image on the disk still works.
@@ -167,7 +170,7 @@ ask first.
 
 ```bash
 lsblk
-sudo dd if=halos-flash-v0.19.0-alpha.1-npu.iso of=/dev/sdX bs=4M status=progress conv=fsync
+sudo dd if=halos-flash-v0.20.7-alpha.1-npu.iso of=/dev/sdX bs=4M status=progress conv=fsync
 ```
 
 ## 5. Run the installer
@@ -322,7 +325,7 @@ shows one line. This line updates automatically every 30 seconds. Before setup, 
 setup`. Then it shows:
 
 ```
-halOS 0.19.1-beta.1 (npu edition) - downloading models 45%
+halOS 0.20.7-alpha.1 (npu edition) - downloading models 45%
 ```
 
 Next it shows `checking models`, then `starting`, and at the end
@@ -462,7 +465,7 @@ as its own user, with no access to Halogen's files, models or tokens.
   Tailscale, and also the shared addresses of some internet providers.) A computer with a public
   address (for example, through a port forward) gets no answer. The exception is when something
   on your network sends the request on (a reverse proxy, a tunnel or `tailscale serve`). Caddy
-  applies this rule, on IPv4 (as before).
+  applies this rule, on IPv4.
 
   If your network uses other addresses, browsers get no answer. Then do these steps:
 
@@ -633,9 +636,9 @@ history keeps the command. Delete the file after use:
 sudo halosctl https letsencrypt cloudflare halos.example.com --yes < cloudflare.txt   # api_token=...
 ```
 
-halOS releases before this one don't know `letsencrypt`. After `sudo halosctl rollback` to one of
-them, Caddy doesn't start until you run `sudo halosctl https off` or `self-signed`. (Caddy never
-goes back to plain HTTP automatically.)
+halOS releases before `v0.20.1-alpha.3` don't know `letsencrypt`. After `sudo halosctl rollback` to
+one of them, Caddy doesn't start until you run `sudo halosctl https off` or `self-signed`. (Caddy
+never goes back to plain HTTP automatically.)
 
 The halOS tools (`halogenctl bench`, the API checks of the selftest, the check of the login line)
 connect to Halogen directly on the machine. So they work the same in each mode.
@@ -1208,7 +1211,7 @@ with no as the default.
 | Symptom | Check |
 |---|---|
 | The machine shows much less than 128 GB | If the BIOS has a UMA frame buffer setting, set it to its minimum, not Auto |
-| `curl localhost:8731` gets "connection reset" | Only releases before alpha.3. Use `127.0.0.1` instead of `localhost` |
+| `curl localhost:8731` gets "connection reset" | Only releases before `v0.18.23-alpha.3`. Use `127.0.0.1` instead of `localhost` |
 | `/dev/accel/accel0` is missing | Use the NPU edition, and check the IOMMU and the firmware |
 | The fabric clock is not held | `systemctl status halogen-fabric-clock` |
 | The selftest warns about the power profile | `sudo halosctl power` shows the profile. `systemctl status halos-platform-profile` tells what occurred at boot |

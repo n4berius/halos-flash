@@ -14,8 +14,9 @@ halogen-flash-server ("Halogen") unmodified, and is not made, endorsed or suppor
 ([trademark policy](https://github.com/peonist-ai/halogen-flash-server/blob/main/TRADEMARKS.md)).
 
 > **Status:** both editions build, install and boot in a virtual machine with Secure Boot on.
-> Neither has run on real hardware, so the GPU, NPU, model download, TPM enrollment and
-> Halogen itself are still untested on a Strix Halo.
+> Since `v0.20.0`, both editions also run on a real Strix Halo machine, with the GPU, the NPU
+> and the model download. LUKS with TPM unlock is tested only in the virtual machine. For the
+> details, see [Tested hardware](INSTALL.md#tested-hardware).
 
 This is an independent project. It is not made, endorsed or supported by Peonist, LLC.
 For problems with this OS, use this repository's issues. Report problems in Halogen itself
@@ -37,7 +38,7 @@ This project follows the official
 [halogen-flash-server](https://github.com/peonist-ai/halogen-flash-server). It does not fork
 or change it.
 
-- Each image tag names the Halogen release that it contains, for example `0.19.0`.
+- Each image tag names the Halogen release that it contains, for example `0.20.7`.
 - `versions.env` pins that release, the commit that it matches, and the hashes of the files
   that the build takes from it. The build then pins the container by digest.
 - The container runs unmodified. The machine pulls it from Halogen's own registry on the
@@ -97,7 +98,7 @@ See **[INSTALL.md](INSTALL.md)**. In short:
 | OS image | Kernel arguments, services, firewall, Halogen digest | Rebuild, then `bootc upgrade` |
 | `/srv/configs` | `halogen.env` (yours), `halogen.env.example` (every option, written again at each boot), `api-key`, `flash-checkpoint` (the Flash checkpoint that Halogen serves) | Edit `halogen.env`. For `flash-checkpoint`, use `sudo halogenctl flash use` |
 | `/usr/share/halogen` | Locked settings and the list of allowed options | Rebuild only (read-only) |
-| `/srv/models` | Flash weights and NPU models, about 125 GB, on their own volume | The first boot downloads them |
+| `/srv/models` | Flash weights and NPU models, about 130 GB (about 120 GB without the NPU), on their own volume | The first boot downloads them |
 | `/srv/logs/halogen` | Halogen's request records, when they are on: only counts, unless you choose text | `sudo halogenctl records` ([how](INSTALL.md#request-records)) |
 | `/srv/models/flash` | Your own Flash checkpoints, about 60 to 110 GB each | `sudo halogenctl flash pull` ([how](INSTALL.md#your-own-flash-checkpoint)) |
 | BIOS | UMA frame buffer at its explicit minimum, not Auto; the newest firmware | Set it by hand |
@@ -106,7 +107,7 @@ See **[INSTALL.md](INSTALL.md)**. In short:
 
 | | With NPU | Without NPU |
 |---|---|---|
-| Image | `halos-flash:0.19.0` | `halos-flash:0.19.0-no-npu` |
+| Image | `halos-flash:0.20.7` | `halos-flash:0.20.7-no-npu` |
 | Serves | Flash and NPU models | Flash only |
 | IOMMU | `iommu=pt`, which the NPU needs | `amd_iommu=off`, for 13-16% more prefill (Halogen's measurement) |
 | Includes | The fabric clock service | No |
@@ -123,8 +124,8 @@ of the same name. [RELEASING.md](RELEASING.md) defines the channels.
 
 | Use | Image tag |
 |---|---|
-| Recommended | `stable`, or a version such as `0.19.0` |
-| Test a release | `rc`, or an exact tag such as `0.19.0-rc.1` |
+| Recommended | `stable`, or a version such as `0.20.7` |
+| Test a release | `rc`, or an exact tag such as `0.20.7-rc.1` |
 | Earliest tests | `alpha` |
 | Newest `main` build | `edge` |
 | Newest `main` build with a test kernel (a Linux 7.4 release candidate) | `kernel-next` |
@@ -134,7 +135,7 @@ For the edition without the NPU, add `-no-npu`.
 ## Build
 
 Each image tag names the Halogen version that the image contains, for example
-`ghcr.io/n4berius/halos-flash:0.19.0`.
+`ghcr.io/n4berius/halos-flash:0.20.7`.
 
 A push to `main` publishes the `edge` images. A tag publishes a release. Each Monday, the
 workflow builds the newest stable release again with the Fedora updates. A change to the image
@@ -248,7 +249,7 @@ or immediately with `--reboot`. Each command asks before it changes something:
 sudo halosctl version            # release, edition, channel, Halogen version, staged update, rollback image
 sudo halosctl switch rc          # follow a channel: alpha, rc, release (stable), edge or kernel-next
 sudo halosctl upgrade            # stage the newest release on your channel (--check only looks)
-sudo halosctl rollback           # back to the previous image (--to 0.19.0-alpha.1 for an older one)
+sudo halosctl rollback           # back to the previous image (--to 0.20.6 for an older one)
 sudo halosctl history            # every change made with halosctl
 sudo halosctl npu off            # the no-NPU edition (faster prefill, IOMMU off); npu on goes back
 sudo halosctl power performance  # firmware power profile: low-power, balanced or performance (the default)
@@ -290,8 +291,8 @@ all its NPU models again, about 15 GB.
   of its repository and passes Halogen's `verify`. After a Halogen update, the next start checks
   it again with the new version.
 
-- **XRT comes with Halogen.** Since 0.19.1, Halogen's image contains AMD's XRT 2.25 with its
-  NPU plugin, so halOS installs and mounts no XRT ([Halogen's NPU host
+- **XRT comes with Halogen.** Since 0.19.1, Halogen's image contains AMD's XRT (2.27 since
+  Halogen 0.20.5) with its NPU plugin, so halOS installs and mounts no XRT ([Halogen's NPU host
   notes](https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/NPU.md#host)). Only
   the NPU driver and firmware come from the OS.
 - **The NPU edition keeps the IOMMU on,** because the NPU needs it. The cost is the prefill gain
@@ -304,8 +305,8 @@ all its NPU models again, about 15 GB.
 ## Name
 
 Halogen's trademark policy does not allow "halogen" in another machine-learning product or
-project name without written permission. This name is provisional until that is settled with
-Peonist, LLC, and the project may be renamed.
+project name without written permission. So the project changed its name from halogen-bootc to
+halOS. The policy lets halOS say that it runs Halogen.
 
 ## License
 
