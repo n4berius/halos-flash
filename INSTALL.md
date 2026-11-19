@@ -432,6 +432,32 @@ you set that up). Have the passphrase ready. When the machine is up, run
 `sudo halogen-enroll-tpm`, so that the machine unlocks automatically again. Without TPM unlock,
 nothing changes at boot.
 
+### The API key
+
+By default, every request to Halogen's API on port 8731 must include the API key. halOS makes the
+key at the first boot. Halogen's `/health` page stays open without the key.
+
+If you trust every device that can reach port 8731, you can turn the key off:
+
+```bash
+sudo halogenctl api-key status   # on or off
+sudo halogenctl api-key off      # asks first, then restarts Halogen
+sudo halogenctl api-key on       # the same key as before
+```
+
+**Warning:** Do not turn the key off on a network that you do not control. Without the key,
+anybody who can reach port 8731 can use Halogen. They can send prompts, read the replies and fill
+its memory, and HTTPS does not stop them.
+
+- The key stays in `/srv/configs/api-key`. When you turn it on again, apps use the same key.
+- Apps that send the key still work while it is off. Halogen ignores the key.
+- The dashboard, `sudo halogenctl bench` and the selftest work in both states.
+- fail2ban counts wrong keys. While the key is off, no request has a wrong key.
+- `sudo halogenctl selftest` shows `api-key`. It sends a request without the key, and it fails if
+  Halogen does not refuse the request while the key is on.
+- The setting is the file `/etc/halos/api-key-off`, which only root can write. A rollback to a
+  release from before this switch turns the key on again.
+
 ### The dashboard
 
 For a live view of Halogen, open `https://<this machine's address>:8732` in a browser on your

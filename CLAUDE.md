@@ -101,6 +101,16 @@ name, but allows saying halOS runs Halogen.
   `/srv/configs/halogen.env.example` (the edition's template) at every boot, `halogenctl options
   [--new]` lists every option as set, commented or new, and each release attaches both editions'
   templates as `halos-flash-<tag>-<edition>-halogen.env.example`.
+- API key switch: `HALOGEN_API_KEY_FILE=/run/secrets/halogen-api-key` left `locked.env`; `render-config`
+  sets it unless root's `/etc/halos/api-key-off` is a regular file (anything else keeps the key; halogen
+  can't write `/etc/halos`), and drops `HALOGEN_API_KEY`/`_FILE` from `halogen.env` (also blocked in
+  gen-options). `halogenctl api-key [status|on|off [--yes]]` (bare still prints the key; on/off need root,
+  ask `is-active` over halogen's own socket, take the GPU lock before writing when Halogen runs, and
+  restart only a running Halogen). The key file and its mount stay, so the dashboard, bench and the
+  selftest keep sending it (Halogen ignores it). Selftest `api-key`: a request with no key to 18731
+  must get 401 while on (200 FAILs); off WARNs, and says "still asks" on a 401. A rollback to an image
+  from before the switch has the key in `locked.env` again, so it is on. Halogen's docs: no key is
+  required unless one of the two is set (FLAGS.md, configuration.md).
 - NPU models live in `/srv/models/npu/<model>`, with no version folder. Their files are
   checked against the hashes in the pinned image's `/opt/halogen/npu/models.txt`, so an
   upgrade downloads only what changed. Old `npu/<version>/` folders are moved across by

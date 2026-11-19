@@ -16,6 +16,7 @@ clock="${HALOGEN_CLOCK:-/usr/libexec/halogen/halogen-fabric-clock}"
 port="${HALOGEN_API_PORT:-8731}"
 # Halogen itself, behind halos-proxy (Caddy) on this machine only.
 local_port="${HALOS_API_LOCAL_PORT:-18731}"
+api_key_off="${HALOS_API_KEY_OFF_FILE:-/etc/halos/api-key-off}"
 # shellcheck disable=SC1090
 . "$release"
 npu=0; [ "${HALOGEN_VARIANT:-}" = npu ] && npu=1
@@ -391,6 +392,18 @@ if have curl; then
     ids="$(printf '%s' "$out" | python3 -c 'import json,sys; print(" ".join(m["id"] for m in json.load(sys.stdin)["data"]))' 2>/dev/null)"
     if [ -n "$ids" ]; then say PASS api-models "serving: $ids"
     else say "$miss" api-models "the API key was not accepted, or no models are served"; fi
+  fi
+  # Whether Halogen asks for the key as chosen (sudo halogenctl api-key on|off). Asked only of a
+  # running Halogen: a request with no key gets 401 while the key is on.
+  if [ "${running:-0}" = 1 ]; then
+    code="$(curl -q -sS -m 10 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$local_port/v1/models" 2>/dev/null)"
+    if [ -f "$api_key_off" ]; then
+      if [ "$code" = 401 ]; then say WARN api-key "off, but Halogen still asks for the key: sudo halogenctl restart"
+      else say WARN api-key "off: anyone who can reach port $port can use the API (sudo halogenctl api-key on)"; fi
+    elif [ "$code" = 401 ]; then say PASS api-key "on: a request without the key is refused"
+    elif [ "$code" = 200 ]; then say FAIL api-key "on, but Halogen answers without the key: sudo halogenctl restart"
+    else say WARN api-key "on, but a request without the key got ${code:-no answer}, not 401"; fi
+  elif [ -f "$api_key_off" ]; then say WARN api-key "off: anyone who can reach port $port can use the API once Halogen runs (sudo halogenctl api-key on)"
   fi
 fi
 
