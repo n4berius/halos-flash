@@ -25,7 +25,7 @@ cd halos-flash
 ```
 
 To build a published release exactly, check out its tag first, for example
-`git checkout v0.18.23-alpha.2`.
+`git checkout v0.20.6`.
 
 ## 2. Run the checks
 
@@ -44,7 +44,7 @@ sudo scripts/build.sh                          # with NPU
 sudo HALOGEN_VARIANT=no-npu scripts/build.sh   # without NPU
 ```
 
-At the end, the build shows `Built ghcr.io/n4berius/halos-flash:0.19.0 ...`. The image is now in
+At the end, the build shows `Built ghcr.io/n4berius/halos-flash:0.20.7 ...`. The image is now in
 root's Podman storage.
 
 `versions.env` pins Halogen by digest, so your build has the same Halogen container as the
@@ -97,7 +97,7 @@ default, that is the official `ghcr.io/n4berius/halos-flash`. So:
 You can also move an installed machine to your image without a new installation:
 
 ```bash
-sudo bootc switch ghcr.io/<you>/halos-flash:0.19.0
+sudo bootc switch ghcr.io/<you>/halos-flash:0.20.7
 sudo systemctl reboot
 ```
 
@@ -126,8 +126,8 @@ not in the image. See [Configure](README.md#configure).
 ## Testing an ISO in a VM
 
 CI runs `tests/iso-install.sh`. It installs an ISO into a QEMU VM with Secure Boot and an emulated
-TPM. Then it logs in and checks the result. It needs `qemu-system-x86`, `ovmf`, `swtpm`,
-`tesseract-ocr`, `genisoimage` and KVM:
+TPM. Then it logs in and checks the result. It needs `qemu-system-x86`, `qemu-utils`, `ovmf`,
+`swtpm`, `swtpm-tools`, `tesseract-ocr`, `genisoimage`, `squashfs-tools` and KVM:
 
 ```bash
 tests/iso-install.sh "$(find output -name '*.iso' | head -1)" "$(scripts/image-ref.sh)" install-test npu

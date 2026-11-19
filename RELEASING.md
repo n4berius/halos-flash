@@ -9,18 +9,18 @@ A Git tag starts a release. The tag must be on `main`. It must also match `HALOG
 |---|---|---|---|---|
 | Edge | None, every push to `main` | `edge` | Newest build, for tests | None |
 | Kernel next | None, every push to `main` | `kernel-next` | Edge with a test kernel (now Linux 7.4-rc3 from Fedora 46) in place of the Fedora 45 kernel | None |
-| Alpha | `v0.18.23-alpha.1` | `0.18.23-alpha.1`, `alpha` | Builds and installs in a VM. Not proven on hardware | Pre-release |
-| RC | `v0.18.23-rc.1` | `0.18.23-rc.1`, `rc` | Passed the hardware checklist on one machine. No known blockers | Pre-release |
-| Stable | `v0.18.23` | `0.18.23`, `stable`, `latest` | Recommended | Release |
-| Stable fix | `v0.18.23-r2` | `0.18.23`, `stable`, `latest` | A fix to this project on the same Halogen version | Release |
+| Alpha | `v0.20.7-alpha.1` | `0.20.7-alpha.1`, `alpha` | Builds and installs in a VM. Not proven on hardware | Pre-release |
+| RC | `v0.20.7-rc.1` | `0.20.7-rc.1`, `rc` | Passed the hardware checklist on one machine. No known blockers | Pre-release |
+| Stable | `v0.20.7` | `0.20.7`, `stable`, `latest` | Recommended | Release |
+| Stable fix | `v0.20.7-r2` | `0.20.7`, `stable`, `latest` | A fix to this project on the same Halogen version | Release |
 
-For the other edition, add `-no-npu` to an image tag, for example `0.18.23-rc.1-no-npu`.
+For the other edition, add `-no-npu` to an image tag, for example `0.20.7-rc.1-no-npu`.
 
 There is no beta step since November 2026: an RC promotes the newest alpha. Old beta releases
 stay as they were. The `beta` channel tag moves with every RC and stable release. So a machine
 that still follows `beta` gets the same releases as `rc`.
 
-`0.18.23` and the channel tags move. The workflows never rebuild `0.18.23-alpha.1` and other
+`0.20.7` and the channel tags move. The workflows never rebuild `0.20.7-alpha.1` and other
 exact tags. Each Monday, a workflow rebuilds the newest *published* stable release with Fedora
 updates. A stable tag whose release run failed has no release, so the workflow never rebuilds it.
 
@@ -53,9 +53,9 @@ release. Then choose **Run workflow**. You never type a tag: the workflow takes 
 
 | Pick | What it does | Example |
 |---|---|---|
-| `alpha` | Builds `main` as the next alpha | `v0.19.0-alpha.3` after alpha.2 |
-| `rc` | Promotes the newest published alpha: it builds the same code again | alpha.3 becomes `v0.19.0-rc.1` |
-| `stable` | Promotes the newest published RC. A second stable of the same version becomes `-r2` | `v0.19.0`, then `v0.19.0-r2` |
+| `alpha` | Builds `main` as the next alpha | `v0.20.7-alpha.3` after alpha.2 |
+| `rc` | Promotes the newest published alpha: it builds the same code again | alpha.3 becomes `v0.20.7-rc.1` |
+| `stable` | Promotes the newest published RC. A second stable of the same version becomes `-r2` | `v0.20.7`, then `v0.20.7-r2` |
 
 To build an RC or stable from `main` in place of a promotion, tick **from main**. Use this for
 example for a stable fix.
@@ -75,21 +75,22 @@ You can also push a tag manually from your own computer:
 
 ```bash
 git checkout main && git pull
-git tag v0.19.0-alpha.3
-git push origin v0.19.0-alpha.3
+git tag v0.20.7-alpha.3
+git push origin v0.20.7-alpha.3
 ```
 
 In the two cases, the workflow does these steps:
 
 - It runs checks and builds the two images.
-- It pushes the exact image tags (for example `0.19.0-alpha.3`) before the ISO tests, because the
+- It pushes the exact image tags (for example `0.20.7-alpha.3`) before the ISO tests, because the
   tests install them.
 - It runs a full VM install of each ISO.
-- It moves the channel tags (`alpha`, `rc`, `stable`, `latest`) only after the two installs pass.
+- It moves the channel tags (`alpha`, `beta`, `rc`, `stable`, `latest`) only after the two installs
+  pass.
   So no machine upgrades to a release that failed them.
 - It makes the GitHub release last.
 
-One exception: the exact tag of a stable release is the plain version (`0.19.0`). A machine
+One exception: the exact tag of a stable release is the plain version (`0.20.7`). A machine
 pinned to a stable release can follow that tag, so the workflow also pushes it before the tests.
 
 If a run fails, fix the problem on `main` and run the workflow again. It takes the next number. A
@@ -161,7 +162,7 @@ request does these things:
 
 It does not change `HALOGEN_WEIGHTS_REVISION`. If the notes say that the Flash checkpoints
 changed, change it manually. To ask for a version now, open **Actions > Halogen update > Run
-workflow**. You can give a version, for example `0.19.0`. If you close its pull request without a
+workflow**. You can give a version, for example `0.20.7`. If you close its pull request without a
 merge, delete its `halogen-update/x.y.z` branch. Then the workflow can open the pull request again.
 
 Then:
