@@ -86,6 +86,8 @@ case "${1:-status}" in
         echo "Flash checkpoint: you chose $c, but Halogen serves the official one: $(sed -n 2p <<< "$s")"
       fi
     fi
+    [ ! -f "${HALOS_API_KEY_OFF_FILE:-/etc/halos/api-key-off}" ] \
+      || printf '\nAPI key: off. Anyone who can reach port 8731 can use the API. On again: sudo halogenctl api-key on\n'
     duplicate_settings ;;
   start|restart) gpu_lock; start_halogen "$1" ;;
   stop) unit stop halogen.service ;;
@@ -146,7 +148,63 @@ case "${1:-status}" in
     # BASH_ENV file or an exported function can't run before this line either.
     exec /usr/bin/env -i PATH=/usr/sbin:/usr/bin LANG=C.UTF-8 /usr/libexec/halogen/selftest
     ;;
-  api-key) as_owner cat "$configs/api-key" | tr -cd '[:print:]'; echo ;;
+  api-key)
+    # The key apps send (bare: print it), and whether Halogen requires it (on by default). Off is
+    # root's /etc/halos/api-key-off, which render-config reads at Halogen's start; the key file
+    # stays, so on again uses the same key, and the dashboard, bench and selftest keep sending it.
+    koff="${HALOS_API_KEY_OFF_FILE:-/etc/halos/api-key-off}"
+    kstate=on; [ ! -f "$koff" ] || kstate=off
+    yes=0; args=()
+    for a in "${@:2}"; do if [ "$a" = --yes ]; then yes=1; else args+=("$a"); fi; done
+    case "${args[0]:-}" in
+      '') as_owner cat "$configs/api-key" | tr -cd '[:print:]'; echo ;;
+      status)
+        if [ "$kstate" = on ]; then echo "API key: on. Apps must send it (sudo halogenctl api-key prints it)."
+        else echo "API key: off. Anyone who can reach port 8731 can use the API. Turn it on: sudo halogenctl api-key on"; fi ;;
+      on|off)
+        [ "$(id -u)" = 0 ] || { echo "Run it with sudo: sudo halogenctl api-key ${args[0]}" >&2; exit 1; }
+        want="${args[0]}"
+        huid="$(id -u halogen 2> /dev/null || echo 970)"
+        as_manager() { setpriv --reuid="$huid" --regid="$huid" --clear-groups env -C / XDG_RUNTIME_DIR="/run/user/$huid" setsid -w systemctl --user "$@"; }
+        # Asked over halogen's own socket, as records and cache do. An answer that is neither
+        # running nor stopped stops here: taking it for "stopped" would skip the restart.
+        krunning() {
+          local s; s="$(as_manager is-active halogen.service 2> /dev/null | head -n 1)" || true
+          case "$s" in active|activating|reloading|deactivating) return 0 ;; inactive|failed) return 1 ;;
+            *) echo "Couldn't ask halogen's service manager whether Halogen runs (${s:-no answer}). Nothing was changed; try again." >&2; exit 1 ;; esac
+        }
+        if [ "$want" = "$kstate" ]; then
+          echo "The API key is already $want. If Halogen didn't restart since: sudo halogenctl restart"; exit 0
+        fi
+        if [ "$want" = off ] && [ "$yes" != 1 ]; then
+          [ -t 0 ] || { echo "Nothing changed: add --yes to confirm without a terminal." >&2; exit 1; }
+          echo "With the API key off, anyone who can reach port 8731 can use Halogen: send prompts, read"
+          echo "the replies and fill its memory. The firewall lets every address reach 8731, also over IPv6,"
+          echo "Tailscale or a port forward, and fail2ban has no wrong keys to count. Do this only on a"
+          echo "network you control."
+          read -rp "Turn the API key off? Halogen restarts if it runs. [y/N] " answer
+          [ "$answer" = y ] || [ "$answer" = Y ] || { echo "Nothing changed."; exit 1; }
+        fi
+        # The GPU lock first, so a flash check under way never sees Halogen restart under it.
+        was=0; if krunning; then was=1; gpu_lock; fi
+        if [ "$want" = off ]; then
+          install -d -m 0755 "${koff%/*}"
+          printf '%s\n' "# Written by sudo halogenctl api-key off; removed by api-key on." > "$koff.new"
+          # -T: a folder at the name would otherwise take the file inside it and leave the key on.
+          chmod 0644 "$koff.new"
+          if ! mv -T -f "$koff.new" "$koff" 2> /dev/null || [ ! -f "$koff" ]; then
+            rm -f "$koff.new"; echo "Couldn't write $koff (is it a folder?), so the API key stays on." >&2; exit 1
+          fi
+        else
+          rm -f "$koff"
+          [ ! -e "$koff" ] || { echo "Couldn't remove $koff (is it a folder?), so the API key stays off." >&2; exit 1; }
+        fi
+        echo "The API key is $want."
+        if [ "$was" = 1 ]; then start_halogen restart; echo "Halogen is restarting; follow it with: sudo halogenctl logs"
+        else echo "It applies when Halogen next starts (sudo halogenctl start)."; fi ;;
+      *) echo "usage: halogenctl api-key [status | on | off [--yes]]" >&2; exit 2 ;;
+    esac
+    ;;
   hf-token)
     # Store a Hugging Face read token for model downloads. It is never printed.
     token="$configs/hf-token"
@@ -723,5 +781,5 @@ case "${1:-status}" in
     [ "$(id -u)" = 0 ] || { echo "Run it with sudo: sudo halogenctl bench ${2:-}" >&2; exit 1; }
     halogen_run /usr/libexec/halogen/bench ${2:+"$2"}
     ;;
-  *) echo "usage: halogenctl status|start|stop|restart|logs [lines]|fetch-logs [lines]|doctor|selftest|bench [--quick]|config|options [--new]|api-key|hf-token [--remove]|records [on|off|stats|prune]|cache [on|off|clear]|model pull|list|remove|flash pull|convert|convert-logs|convert-stop|list|use|verify|check|remove" >&2; exit 2 ;;
+  *) echo "usage: halogenctl status|start|stop|restart|logs [lines]|fetch-logs [lines]|doctor|selftest|bench [--quick]|config|options [--new]|api-key [status|on|off]|hf-token [--remove]|records [on|off|stats|prune]|cache [on|off|clear]|model pull|list|remove|flash pull|convert|convert-logs|convert-stop|list|use|verify|check|remove" >&2; exit 2 ;;
 esac

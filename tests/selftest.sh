@@ -69,7 +69,7 @@ f fabric-clock 'exit 0'
 f ssh-unlock 'case "$1" in verify) exit "${FAKE_VERIFY:-0}" ;; *) echo "${FAKE_SSHU:-on 2}" ;; esac'
 # Group, owner and label as the real image sets them.
 f stat 'case "$2" in %G|%U) echo halogen ;; %u) case "$3" in /proc/4242/environ) echo "${FAKE_DASH_DUMP_UID:-0}" ;; *) exec /usr/bin/stat "$@" ;; esac ;; %C) case "$3" in *accel*) echo system_u:object_r:dri_device_t:s0 ;; *) echo system_u:object_r:container_file_t:s0 ;; esac ;; *) exec /usr/bin/stat "$@" ;; esac'
-f curl 'echo "curl $*" >> "$FAKE/curl.log"; case "$*" in *-w*) ;; *18731/health*) h="${FAKE_HEALTH:-}"; [ -n "$h" ] || h="{\"status\":\"ok\"}"; echo "$h"; exit 0 ;; esac; case "$*" in *8732/healthz*) printf "${FAKE_DASH_CODE:-200}" ;; *models*) echo "{\"data\":[{\"id\":\"halogen-qwen3.8-flash-next\"},{\"id\":\"qwen3.5-2b\"}]}" ;; *::1*) [ -n "${FAKE_NOIPV6:-}" ] && printf 000 || printf 200 ;; *) printf 200 ;; esac'
+f curl 'echo "curl $*" >> "$FAKE/curl.log"; case "$*" in *-H*) ;; *-w*18731/v1/models*) printf "${FAKE_NOKEY_CODE:-401}"; exit 0 ;; esac; case "$*" in *-w*) ;; *18731/health*) h="${FAKE_HEALTH:-}"; [ -n "$h" ] || h="{\"status\":\"ok\"}"; echo "$h"; exit 0 ;; esac; case "$*" in *8732/healthz*) printf "${FAKE_DASH_CODE:-200}" ;; *models*) echo "{\"data\":[{\"id\":\"halogen-qwen3.8-flash-next\"},{\"id\":\"qwen3.5-2b\"}]}" ;; *::1*) [ -n "${FAKE_NOIPV6:-}" ] && printf 000 || printf 200 ;; *) printf 200 ;; esac'
 echo "halogen" > "$work/services"
 # Files halogen owns are read through runuser (security audit P2/P7); log it, then run the command.
 f runuser 'echo "runuser $*" >> "$FAKE/runuser.log"; [ "$1 $2 $3" = "-u halogen --" ] || exit 9; shift 3; exec "$@"'
@@ -92,7 +92,7 @@ export HALOGEN_STATE_DIR="$work/hstate" PATH="$fake:$sysbin" HALOGEN_RELEASE_FIL
   HALOS_AUDIT_RULES="$work/halos.rules" HALOGEN_PROC="$work/proc" HALOGEN_HOME="$work/home" HALOGEN_RUNTIME_DIR="$work/run-user" \
   HALOS_POLICY="$repo/files/etc/containers/policy.json" HALOS_SSH_UNLOCK="$fake/ssh-unlock" \
   HALOS_ETC="$work/etc" HALOS_USR_ETC="$work/usretc" HALOS_ROOT_POLICY="$work/root-policy.json" \
-  HALOS_HTTPS_HELPER="$fake/https" HALOS_HTTPS_RUN="$work/run-halos"
+  HALOS_HTTPS_HELPER="$fake/https" HALOS_HTTPS_RUN="$work/run-halos" HALOS_API_KEY_OFF_FILE="$work/api-key-off"
 # The https helper: off unless FAKE_HTTPS says otherwise.
 f https 'case "$1" in
   describe) case "${FAKE_HTTPS:-off}" in
@@ -122,7 +122,7 @@ refuse() { if grep -qE "$1" "$work/out"; then echo "did not expect '$1' in:" >&2
 "$selftest" > "$work/out" 2>&1 || { cat "$work/out" >&2; echo "a healthy machine failed" >&2; exit 1; }
 grep -q "runuser -u halogen -- test -f $work/hstate/fetch-stamp" "$work/runuser.log" || { echo "the stamp wasn't checked as halogen, in halogen's own folder" >&2; exit 1; }
 for id in secure-boot image-signatures signature-files ssh-unlock kernel-iommu memory selinux-denials firewall luks-tpm gpu-kfd npu-device npu-label \
-  fabric-clock server preflight container-start api-ipv4 api-ipv6 proxy api-models dashboard dashboard-filter dashboard-nodump npu-folder folder-LFM folder-flash folder-logs; do
+  fabric-clock server preflight container-start api-ipv4 api-ipv6 proxy api-models api-key dashboard dashboard-filter dashboard-nodump npu-folder folder-LFM folder-flash folder-logs; do
   expect "^PASS $id:"
 done
 expect '^Summary: [0-9]+ passed, 0 warnings, 0 failed'
@@ -313,6 +313,17 @@ if ! { grep -q "runuser -u halogen -- cat $work/configs/api-key" "$work/runuser.
   echo "the API key or weights record was read as root" >&2; exit 1
 fi
 ok "a healthy NPU machine passes every check, reading the halogen user's files as halogen"
+
+# The API key switch (sudo halogenctl api-key on|off): on and refused without the key passes; on
+# and answered without it fails; off warns, and says so when Halogen didn't restart yet.
+FAKE_NOKEY_CODE=200 "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL api-key: on, but Halogen answers without the key'
+/usr/bin/touch "$work/api-key-off"
+FAKE_NOKEY_CODE=200 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN api-key: off: anyone who can reach port 8731'
+"$selftest" > "$work/out" 2>&1 || true; expect '^WARN api-key: off, but Halogen still asks for the key'
+FAKE_STATE=inactive "$selftest" > "$work/out" 2>&1 || true; expect '^WARN api-key: off: .*once Halogen runs'
+rm "$work/api-key-off"
+FAKE_STATE=inactive "$selftest" > "$work/out" 2>&1 || true; refuse 'api-key:'
+ok "the selftest checks that Halogen asks for the key as chosen"
 
 refuse 'SECRET-KEY-MARKER|SECRET-TOKEN-MARKER'
 if grep -q 'SECRET-KEY-MARKER' "$work/curl.log"; then echo "the API key was on a command line" >&2; exit 1; fi

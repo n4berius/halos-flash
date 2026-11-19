@@ -6,9 +6,15 @@ work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
 export XDG_RUNTIME_DIR="$work/run" HALOGEN_CONFIG_FILE="$work/config"
 export HALOGEN_FLASH_FILE="$work/flash-checkpoint" HALOGEN_MODELS_DIR="$work/models"
 export HALOGEN_RECORDS_DROPIN="$work/20-records.conf"
+# The API key off for the checks below, so they compare only what halogen.env sets; the key's own
+# checks are at the end.
+# render-config reads a fixed path (halogen can set its manager's environment), so the test runs
+# a copy that reads this folder's file instead.
+sed "s|^api_key_off=/etc/halos/api-key-off$|api_key_off=$work/api-key-off|" "$repo/files/usr/libexec/halogen/render-config" > "$work/render-config"
+chmod +x "$work/render-config"; touch "$work/api-key-off"
 official=HALOGEN_CHECKPOINT=/models/qwen38-flash-next-v2.hgn
 export HALOGEN_ALLOWED_FILE="$repo/variants/npu/usr/share/halogen/options.allowed"
-render="$repo/files/usr/libexec/halogen/render-config"
+render="$work/render-config"
 cat > "$work/config" <<'S'
 # a comment
 HALOGEN_KV_SLOTS=2
@@ -134,3 +140,22 @@ rm -f "$work/prompt-cache"; : > "$work/cache-off.conf"
 if grep -q '^HALOGEN_CACHE_DIR' "$work/out"; then echo "Halogen is told about a cache folder mounted read-only" >&2; exit 1; fi
 rm -f "$work/config" "$work/prompt-cache" "$work/cache-off.conf"
 echo "ok: the prompt cache on disk is on by default, off on request, and only a valid limit reaches Halogen"
+
+# The API key (sudo halogenctl api-key on|off): required unless root's off file is there, and
+# halogen.env can never set it or point it elsewhere.
+printf 'HALOGEN_API_KEY=open\nHALOGEN_API_KEY_FILE=/models/x\n' > "$work/config"
+rm -f "$work/api-key-off"
+out="$("$render" --show 2>"$work/log")"
+grep -qx 'HALOGEN_API_KEY_FILE=/run/secrets/halogen-api-key' <<< "$out" || { echo "the key isn't required by default: $out" >&2; exit 1; }
+if grep -q '^HALOGEN_API_KEY=' <<< "$out"; then echo "halogen.env set HALOGEN_API_KEY" >&2; exit 1; fi
+touch "$work/api-key-off"
+out="$("$render" --show 2>"$work/log")"
+if grep -q '^HALOGEN_API_KEY' <<< "$out"; then echo "the key is still required while off: $out" >&2; exit 1; fi
+grep -q 'the API key is off' "$work/log" || { echo "no warning while the key is off" >&2; exit 1; }
+rm "$work/api-key-off"; mkdir "$work/api-key-off"
+"$render" --show 2>/dev/null | grep -qx 'HALOGEN_API_KEY_FILE=/run/secrets/halogen-api-key' || { echo "a folder at the off file's name turned the key off" >&2; exit 1; }
+echo "ok: the API key is required unless root's off file is there"
+# The real script: no variable can point it at another off file.
+HALOGEN_API_KEY_OFF_FILE="$work/api-key-off" "$repo/files/usr/libexec/halogen/render-config" --show 2>/dev/null \
+  | grep -qx 'HALOGEN_API_KEY_FILE=/run/secrets/halogen-api-key' || { echo "an environment variable turned the key off" >&2; exit 1; }
+echo "ok: the environment can't turn the key off"

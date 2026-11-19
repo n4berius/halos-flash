@@ -90,6 +90,8 @@ after a change, halOS puts back the previous setting automatically.
 | `halogenctl logs [lines]` | Shows the logs of Halogen and of the download step together (100 lines by default). On a terminal, it shows new lines as they come. |
 | `halogenctl fetch-logs [lines]` | Shows only the log of the download-and-check step. |
 | `halogenctl api-key` | Prints the API key that apps need (`/srv/configs/api-key`). |
+| `halogenctl api-key status` | Shows if Halogen requires the [API key](../INSTALL.md#the-api-key) (on, the default) or not (off). |
+| `halogenctl api-key on\|off [--yes]` | Requires the API key again, or stops requiring it. `off` asks first. If Halogen runs, both restart it. The key itself does not change. |
 | `halogenctl cache [status]` | Shows if Halogen's [prompt cache on disk](../INSTALL.md#prompt-cache-on-disk) is on, and the space that it uses. |
 | `halogenctl cache on\|off [--yes]` | Turns the cache on (the default) or off. If Halogen runs, it restarts Halogen. `off` keeps the saved data, and then Halogen can only read the folder. |
 | `halogenctl cache clear [--yes]` | Asks, then deletes all saved conversation states. It stops Halogen for a short time and starts it again. |
@@ -161,6 +163,7 @@ passphrase: it is your recovery key.
 | `/srv/configs/halogen.env` | Your Halogen settings |
 | `/srv/configs/halogen.env.example` | The template of this release, with every option |
 | `/srv/configs/api-key` | The API key |
+| `/etc/halos/api-key-off` | Present only while the API key is off (`sudo halogenctl api-key off`) |
 | `/srv/configs/bench/` | Benchmark reports |
 | `/srv/models/.prompt-cache/` | Halogen's prompt cache on disk: conversation states, which only `halogen` can read |
 | `/srv/configs/prompt-cache` | `off` after `halogenctl cache off`. If not, the cache is on |
