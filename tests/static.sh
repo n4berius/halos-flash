@@ -42,6 +42,8 @@ for edition in ("npu", "no-npu"):
     allowed = set(open(f"variants/{edition}/usr/share/halogen/options.allowed").read().split())
     assert allowed and not allowed & locked, allowed & locked
     assert "HALOGEN_DOWNLOAD" not in allowed
+    # The key settings left locked.env (render-config sets them, api-key on|off): still never allowed.
+    assert not allowed & {"HALOGEN_API_KEY", "HALOGEN_API_KEY_FILE"}, edition
     assert (edition == "npu") == ("HALOGEN_NPU_MODELS" in allowed)
 assert "HALOGEN_DOWNLOAD" not in q.replace("# No download settings here", "")
 assert "@sha256" not in q and "Image=@HALOGEN_IMAGE@" in q

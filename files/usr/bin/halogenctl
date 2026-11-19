@@ -179,8 +179,9 @@ case "${1:-status}" in
         if [ "$want" = off ] && [ "$yes" != 1 ]; then
           [ -t 0 ] || { echo "Nothing changed: add --yes to confirm without a terminal." >&2; exit 1; }
           echo "With the API key off, anyone who can reach port 8731 can use Halogen: send prompts, read"
-          echo "the replies and fill its memory. Do this only on a network you trust. fail2ban then has no"
-          echo "wrong keys to count, and the dashboard (port 8732) is not affected."
+          echo "the replies and fill its memory. The firewall lets every address reach 8731, also over IPv6,"
+          echo "Tailscale or a port forward, and fail2ban has no wrong keys to count. Do this only on a"
+          echo "network you control."
           read -rp "Turn the API key off? Halogen restarts if it runs. [y/N] " answer
           [ "$answer" = y ] || [ "$answer" = Y ] || { echo "Nothing changed."; exit 1; }
         fi
@@ -189,9 +190,14 @@ case "${1:-status}" in
         if [ "$want" = off ]; then
           install -d -m 0755 "${koff%/*}"
           printf '%s\n' "# Written by sudo halogenctl api-key off; removed by api-key on." > "$koff.new"
-          chmod 0644 "$koff.new"; mv -f "$koff.new" "$koff"
+          # -T: a folder at the name would otherwise take the file inside it and leave the key on.
+          chmod 0644 "$koff.new"
+          if ! mv -T -f "$koff.new" "$koff" 2> /dev/null || [ ! -f "$koff" ]; then
+            rm -f "$koff.new"; echo "Couldn't write $koff (is it a folder?), so the API key stays on." >&2; exit 1
+          fi
         else
           rm -f "$koff"
+          [ ! -e "$koff" ] || { echo "Couldn't remove $koff (is it a folder?), so the API key stays off." >&2; exit 1; }
         fi
         echo "The API key is $want."
         if [ "$was" = 1 ]; then start_halogen restart; echo "Halogen is restarting; follow it with: sudo halogenctl logs"

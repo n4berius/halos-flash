@@ -401,7 +401,7 @@ if have curl; then
       if [ "$code" = 401 ]; then say WARN api-key "off, but Halogen still asks for the key: sudo halogenctl restart"
       else say WARN api-key "off: anyone who can reach port $port can use the API (sudo halogenctl api-key on)"; fi
     elif [ "$code" = 401 ]; then say PASS api-key "on: a request without the key is refused"
-    elif [ "$code" = 200 ]; then say FAIL api-key "on, but Halogen answers without the key: sudo halogenctl restart"
+    elif [ "$code" = 200 ]; then say FAIL api-key "on, but Halogen answers without the key: sudo halogenctl restart; if it stays, look for HALOGEN_API_KEY in halogen's manager (sudo -u halogen XDG_RUNTIME_DIR=/run/user/970 systemctl --user show-environment) and at the halogen-autostart line"
     else say WARN api-key "on, but a request without the key got ${code:-no answer}, not 401"; fi
   elif [ -f "$api_key_off" ]; then say WARN api-key "off: anyone who can reach port $port can use the API once Halogen runs (sudo halogenctl api-key on)"
   fi

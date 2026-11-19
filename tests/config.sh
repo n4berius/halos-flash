@@ -8,10 +8,13 @@ export HALOGEN_FLASH_FILE="$work/flash-checkpoint" HALOGEN_MODELS_DIR="$work/mod
 export HALOGEN_RECORDS_DROPIN="$work/20-records.conf"
 # The API key off for the checks below, so they compare only what halogen.env sets; the key's own
 # checks are at the end.
-export HALOGEN_API_KEY_OFF_FILE="$work/api-key-off"; touch "$work/api-key-off"
+# render-config reads a fixed path (halogen can set its manager's environment), so the test runs
+# a copy that reads this folder's file instead.
+sed "s|^api_key_off=/etc/halos/api-key-off$|api_key_off=$work/api-key-off|" "$repo/files/usr/libexec/halogen/render-config" > "$work/render-config"
+chmod +x "$work/render-config"; touch "$work/api-key-off"
 official=HALOGEN_CHECKPOINT=/models/qwen38-flash-next-v2.hgn
 export HALOGEN_ALLOWED_FILE="$repo/variants/npu/usr/share/halogen/options.allowed"
-render="$repo/files/usr/libexec/halogen/render-config"
+render="$work/render-config"
 cat > "$work/config" <<'S'
 # a comment
 HALOGEN_KV_SLOTS=2
@@ -152,3 +155,7 @@ grep -q 'the API key is off' "$work/log" || { echo "no warning while the key is 
 rm "$work/api-key-off"; mkdir "$work/api-key-off"
 "$render" --show 2>/dev/null | grep -qx 'HALOGEN_API_KEY_FILE=/run/secrets/halogen-api-key' || { echo "a folder at the off file's name turned the key off" >&2; exit 1; }
 echo "ok: the API key is required unless root's off file is there"
+# The real script: no variable can point it at another off file.
+HALOGEN_API_KEY_OFF_FILE="$work/api-key-off" "$repo/files/usr/libexec/halogen/render-config" --show 2>/dev/null \
+  | grep -qx 'HALOGEN_API_KEY_FILE=/run/secrets/halogen-api-key' || { echo "an environment variable turned the key off" >&2; exit 1; }
+echo "ok: the environment can't turn the key off"

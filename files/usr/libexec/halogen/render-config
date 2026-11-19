@@ -19,7 +19,9 @@ allowed="${HALOGEN_ALLOWED_FILE:-/usr/share/halogen/options.allowed}"
 cache_choice="${HALOGEN_CACHE_CHOICE_FILE:-/srv/configs/prompt-cache}"
 # Root's drop-in that mounts the cache folder read-only while it is off (halogenctl cache off).
 cache_off_dropin="${HALOGEN_CACHE_OFF_DROPIN:-/etc/containers/systemd/users/halogen.container.d/15-prompt-cache.conf}"
-api_key_off="${HALOGEN_API_KEY_OFF_FILE:-/etc/halos/api-key-off}"
+# A fixed path, never from the environment: this runs under halogen's user manager, whose
+# environment halogen can set (systemctl --user set-environment), and that must not open the API.
+api_key_off=/etc/halos/api-key-off
 records_dropin="${HALOGEN_RECORDS_DROPIN:-/etc/containers/systemd/users/970/halogen.container.d/20-records.conf}"
 runtime="${XDG_RUNTIME_DIR:-/run/user/970}/halogen"
 output="$runtime/effective.env"

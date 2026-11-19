@@ -591,5 +591,9 @@ echo secret-key > "$work/configs/api-key"; [ "$("$ctl" api-key)" = secret-key ] 
 [ ! -e "$HALOS_API_KEY_OFF_FILE" ] || { echo "api-key on left the off file" >&2; exit 1; }
 if grep -q 'restart halogen.service' "$work/log"; then echo "api-key on started a stopped Halogen" >&2; exit 1; fi
 if FAKE_ACTIVE=x "$ctl" api-key off --yes > "$work/out" 2>&1 || [ -e "$HALOS_API_KEY_OFF_FILE" ]; then echo "no answer from the manager was taken for stopped" >&2; exit 1; fi
+# A folder at the off file's name: off says it failed (the key stays on), never "off".
+mkdir -p "$HALOS_API_KEY_OFF_FILE"
+if "$ctl" api-key off --yes > "$work/out" 2>&1 || ! grep -q 'stays on' "$work/out"; then cat "$work/out" >&2; echo "off reported success with a folder at the off file's name" >&2; exit 1; fi
+rm -rf "$HALOS_API_KEY_OFF_FILE"
 if "$ctl" api-key open > /dev/null 2>&1; then echo "api-key took an unknown word" >&2; exit 1; fi
 ok "api-key on/off writes root's off file after asking and restarts a running Halogen; the bare command prints the key"

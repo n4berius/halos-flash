@@ -449,14 +449,21 @@ sudo halogenctl api-key on       # the same key as before
 anybody who can reach port 8731 can use Halogen. They can send prompts, read the replies and fill
 its memory, and HTTPS does not stop them.
 
+The firewall lets every address reach port 8731. This includes global IPv6 addresses, Tailscale
+and port forwards on your router. A home network with IPv6 can be reachable from the internet.
+
 - The key stays in `/srv/configs/api-key`. When you turn it on again, apps use the same key.
 - Apps that send the key still work while it is off. Halogen ignores the key.
 - The dashboard, `sudo halogenctl bench` and the selftest work in both states.
-- fail2ban counts wrong keys. While the key is off, no request has a wrong key.
+- fail2ban gives no protection to the API while the key is off. It counts wrong keys, and no
+  request has a wrong key.
+- While the key is off, anybody can read Halogen's `/metrics`. Each read resets two values that
+  the dashboard shows (see [The dashboard](#the-dashboard)).
 - `sudo halogenctl selftest` shows `api-key`. It sends a request without the key, and it fails if
   Halogen does not refuse the request while the key is on.
 - The setting is the file `/etc/halos/api-key-off`, which only root can write. A rollback to a
-  release from before this switch turns the key on again.
+  release from before this switch turns the key on again. The file stays, so the next upgrade
+  turns the key off again. To keep the key on, run `sudo halogenctl api-key on` after the upgrade.
 
 ### The dashboard
 
