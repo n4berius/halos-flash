@@ -17,18 +17,23 @@ For information about how Halogen itself works, see its
 On that machine, these items work:
 
 - USB install with Secure Boot on, and no MOK enrollment
-- Automatic storage, which makes each volume, and the guided install (since `v0.20.0`)
+- Automatic storage, which makes each volume
+- The guided install (since `v0.20.0`)
 - First-boot download of the Halogen container and about 130 GB of models
 - Halogen on the GPU, with all 5 NPU models loaded
 - Access to the API from other machines on the network, for example Hermes
 
-Since `v0.20.0`, these items also work: the selftest, the benchmark, `flash check`, the change
-between the two editions with `halosctl npu off` and `on`, tab completion, restarts and a
-`model pull` of OvisOCR3.
+Since `v0.20.0`, these items also work:
 
-These items are not yet confirmed on hardware:
+- The selftest, the benchmark and `flash check`
+- The change between the two editions with `halosctl npu off` and `on`
+- Tab completion and restarts
+- A `model pull` of OvisOCR3
+- LUKS with TPM unlock, and the fabric clock with Secure Boot on
+- Access to the API from Open WebUI, Claude Code, Pi and oh-my-pi
 
-- LUKS with TPM unlock (it passes in the VM test)
+This item is not yet confirmed on hardware:
+
 - A long soak test under real load
 
 The BIOS of that machine has no UMA frame buffer setting. This is not a problem: the GTT kernel
@@ -50,7 +55,7 @@ settings give Halogen its memory in all cases.
 | Serves | Flash and NPU models | Flash only |
 | IOMMU | On, with `iommu=pt` | Off, with `amd_iommu=off` |
 | Trade-off | Slower prefill, DMA protection stays on | 13-16% more prefill (Halogen's measurement), but DMA protection is off |
-| Image | `halos-flash:0.20.7` | `halos-flash:0.20.7-no-npu` |
+| Image | `halos-flash:0.20.6` | `halos-flash:0.20.6-no-npu` |
 
 You can change the edition later, without a new install:
 
@@ -404,7 +409,7 @@ On the NPU edition, also confirm these items:
 
 - `ls -lZ /dev/accel/accel0` shows the group `halogen` and the type `dri_device_t`.
 - `/usr/libexec/halogen/halogen-fabric-clock status` shows that the clock is held. With Secure
-  Boot on, the kernel runs in lockdown. Nobody has tested this on hardware yet.
+  Boot on, the kernel runs in lockdown. The hold works in lockdown on the test machine.
 
 ### Tools on the machine
 
@@ -669,9 +674,8 @@ history keeps the command. Delete the file after use:
 sudo halosctl https letsencrypt cloudflare halos.example.com --yes < cloudflare.txt   # api_token=...
 ```
 
-halOS releases before `v0.20.1-alpha.3` don't know `letsencrypt`. After `sudo halosctl rollback` to
-one of them, Caddy doesn't start until you run `sudo halosctl https off` or `self-signed`. (Caddy
-never goes back to plain HTTP automatically.)
+halOS releases before `v0.20.1-alpha.3` have no HTTPS and no Caddy. After `sudo halosctl rollback`
+to one of them, the API uses plain HTTP again.
 
 The halOS tools (`halogenctl bench`, the API checks of the selftest, the check of the login line)
 connect to Halogen directly on the machine. So they work the same in each mode.
@@ -1249,7 +1253,7 @@ with no as the default.
 | The fabric clock is not held | `systemctl status halogen-fabric-clock` |
 | The selftest warns about the power profile | `sudo halosctl power` shows the profile. `systemctl status halos-platform-profile` tells what occurred at boot |
 | Halogen does not start after a change to the config | Run `sudo halogenctl status`, then check the NPU model names |
-| "start of the service was attempted too often" | Halogen crashed 3 times in 15 minutes. This is its guard against a crash loop. To see why, run `sudo halogenctl logs`. If the GPU is stuck, reboot. If not, `sudo halogenctl restart` tries again. On releases before this fix, first run `sudo systemctl --user -M halogen@ reset-failed halogen.service`, then `sudo halogenctl restart` |
+| "start of the service was attempted too often" | Halogen crashed 3 times in 15 minutes. This is its guard against a crash loop. To see why, run `sudo halogenctl logs`. If the GPU is stuck, reboot. If not, `sudo halogenctl restart` tries again. On releases before `v0.19.1-alpha.4`, first run `sudo systemctl --user -M halogen@ reset-failed halogen.service`, then `sudo halogenctl restart` |
 | Halogen does not start after `flash use` | `sudo halogenctl logs` tells why. `sudo halogenctl flash use official` goes back |
 | Halogen's start does not finish, or GTT stays in use after a crash | Reboot, as Halogen's troubleshooting guide tells |
 

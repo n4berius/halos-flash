@@ -15,8 +15,8 @@ halogen-flash-server ("Halogen") unmodified, and is not made, endorsed or suppor
 
 > **Status:** both editions build, install and boot in a virtual machine with Secure Boot on.
 > Since `v0.20.0`, both editions also run on a real Strix Halo machine, with the GPU, the NPU
-> and the model download. LUKS with TPM unlock is tested only in the virtual machine. For the
-> details, see [Tested hardware](INSTALL.md#tested-hardware).
+> and the model download. LUKS with TPM unlock works there too. For the details, see
+> [Tested hardware](INSTALL.md#tested-hardware).
 
 This is an independent project. It is not made, endorsed or supported by Peonist, LLC.
 For problems with this OS, use this repository's issues. Report problems in Halogen itself
@@ -38,7 +38,7 @@ This project follows the official
 [halogen-flash-server](https://github.com/peonist-ai/halogen-flash-server). It does not fork
 or change it.
 
-- Each image tag names the Halogen release that it contains, for example `0.20.7`.
+- Each image tag names the Halogen release that it contains, for example `0.20.6`.
 - `versions.env` pins that release, the commit that it matches, and the hashes of the files
   that the build takes from it. The build then pins the container by digest.
 - The container runs unmodified. The machine pulls it from Halogen's own registry on the
@@ -107,7 +107,7 @@ See **[INSTALL.md](INSTALL.md)**. In short:
 
 | | With NPU | Without NPU |
 |---|---|---|
-| Image | `halos-flash:0.20.7` | `halos-flash:0.20.7-no-npu` |
+| Image | `halos-flash:0.20.6` | `halos-flash:0.20.6-no-npu` |
 | Serves | Flash and NPU models | Flash only |
 | IOMMU | `iommu=pt`, which the NPU needs | `amd_iommu=off`, for 13-16% more prefill (Halogen's measurement) |
 | Includes | The fabric clock service | No |
@@ -124,8 +124,8 @@ of the same name. [RELEASING.md](RELEASING.md) defines the channels.
 
 | Use | Image tag |
 |---|---|
-| Recommended | `stable`, or a version such as `0.20.7` |
-| Test a release | `rc`, or an exact tag such as `0.20.7-rc.1` |
+| Recommended | `stable`, or a version such as `0.20.6` |
+| Test a release | `rc`, or an exact tag such as `0.20.6-rc.1` |
 | Earliest tests | `alpha` |
 | Newest `main` build | `edge` |
 | Newest `main` build with a test kernel (a Linux 7.4 release candidate) | `kernel-next` |
@@ -135,7 +135,7 @@ For the edition without the NPU, add `-no-npu`.
 ## Build
 
 Each image tag names the Halogen version that the image contains, for example
-`ghcr.io/n4berius/halos-flash:0.20.7`.
+`ghcr.io/n4berius/halos-flash:0.20.6`.
 
 A push to `main` publishes the `edge` images. A tag publishes a release. Each Monday, the
 workflow builds the newest stable release again with the Fedora updates. A change to the image
@@ -249,7 +249,7 @@ or immediately with `--reboot`. Each command asks before it changes something:
 sudo halosctl version            # release, edition, channel, Halogen version, staged update, rollback image
 sudo halosctl switch rc          # follow a channel: alpha, rc, release (stable), edge or kernel-next
 sudo halosctl upgrade            # stage the newest release on your channel (--check only looks)
-sudo halosctl rollback           # back to the previous image (--to 0.20.6 for an older one)
+sudo halosctl rollback           # back to the previous image (--to 0.20.5 for an older one)
 sudo halosctl history            # every change made with halosctl
 sudo halosctl npu off            # the no-NPU edition (faster prefill, IOMMU off); npu on goes back
 sudo halosctl power performance  # firmware power profile: low-power, balanced or performance (the default)
