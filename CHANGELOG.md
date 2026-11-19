@@ -13,7 +13,7 @@ it promotes.
 - The documentation now matches the current state: both editions run on real hardware since
   `v0.20.0`, the roadmap starts from `v0.20.6`, the download is about 130 GB (about 120 GB without
   the NPU), and examples use current versions. Statements like "this release" now name the
-  release. (#PRNUM)
+  release. (#153)
 - The documentation now follows ASD-STE100 Simplified Technical English: shorter sentences, one
   instruction per step and plain words. Only the wording changed: every command, setting, link
   and number is the same. (#152)
