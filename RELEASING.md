@@ -8,7 +8,7 @@ A Git tag starts a release. The tag must be on `main`. It must also match `HALOG
 | Channel | Git tag | Image tag | Meaning | GitHub release |
 |---|---|---|---|---|
 | Edge | None, every push to `main` | `edge` | Newest build, for tests | None |
-| Kernel next | None, every push to `main` | `kernel-next` | Edge with a test kernel (now Linux 7.4-rc3 from Fedora 46) in place of the Fedora 45 kernel | None |
+| Kernel next | None, every push to `main` | `kernel-next` | Edge with a test kernel (a Linux 7.4 release candidate from Fedora 46) in place of the Fedora 45 kernel | None |
 | Alpha | `v0.20.7-alpha.1` | `0.20.7-alpha.1`, `alpha` | Builds and installs in a VM. Not proven on hardware | Pre-release |
 | RC | `v0.20.7-rc.1` | `0.20.7-rc.1`, `rc` | Passed the hardware checklist on one machine. No known blockers | Pre-release |
 | Stable | `v0.20.7` | `0.20.7`, `stable`, `latest` | Recommended | Release |
