@@ -29,10 +29,11 @@ Since `v0.20.0`, these items also work:
 - The change between the two editions with `halosctl npu off` and `on`
 - Tab completion and restarts
 - A `model pull` of OvisOCR3
+- LUKS with TPM unlock, and the fabric clock with Secure Boot on
+- Access to the API from Open WebUI, Claude Code, Pi and oh-my-pi
 
-These items are not yet confirmed on hardware:
+This item is not yet confirmed on hardware:
 
-- LUKS with TPM unlock (it passes in the VM test)
 - A long soak test under real load
 
 The BIOS of that machine has no UMA frame buffer setting. This is not a problem: the GTT kernel
@@ -408,7 +409,7 @@ On the NPU edition, also confirm these items:
 
 - `ls -lZ /dev/accel/accel0` shows the group `halogen` and the type `dri_device_t`.
 - `/usr/libexec/halogen/halogen-fabric-clock status` shows that the clock is held. With Secure
-  Boot on, the kernel runs in lockdown. Nobody has tested this on hardware yet.
+  Boot on, the kernel runs in lockdown. The hold works in lockdown on the test machine.
 
 ### Tools on the machine
 

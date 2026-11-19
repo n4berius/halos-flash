@@ -84,8 +84,9 @@ it is sufficient to accept the browser's warning one time.
 Each app reads the setting below when it starts. So put the setting in the shell (or service)
 that starts the app. Then restart the app. In the examples, `192.168.1.20` is the machine.
 `HALOS_API_KEY` holds the key from `sudo halogenctl api-key`. These settings come from the
-documentation and source of each project (November 2026). We did not try them against halOS yet,
-so tell us what works.
+documentation and source of each project (November 2026). Open WebUI, Claude Code, Pi and
+oh-my-pi work against halOS on the test machine. The others are not tried yet, so tell us what
+works.
 
 "Adds" means that the app trusts halOS together with all the websites that it already trusts.
 "Replaces" means that the app then trusts only the file that you give it (see the bundle below).

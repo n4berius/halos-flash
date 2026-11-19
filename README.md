@@ -15,8 +15,8 @@ halogen-flash-server ("Halogen") unmodified, and is not made, endorsed or suppor
 
 > **Status:** both editions build, install and boot in a virtual machine with Secure Boot on.
 > Since `v0.20.0`, both editions also run on a real Strix Halo machine, with the GPU, the NPU
-> and the model download. LUKS with TPM unlock is tested only in the virtual machine. For the
-> details, see [Tested hardware](INSTALL.md#tested-hardware).
+> and the model download. LUKS with TPM unlock works there too. For the details, see
+> [Tested hardware](INSTALL.md#tested-hardware).
 
 This is an independent project. It is not made, endorsed or supported by Peonist, LLC.
 For problems with this OS, use this repository's issues. Report problems in Halogen itself
