@@ -12,7 +12,7 @@ it promotes.
 
 - You can now turn the API key off, for a network that you trust: `sudo halogenctl api-key off`
   (asks first) and `sudo halogenctl api-key on`. The key stays on by default, and the selftest
-  checks that Halogen refuses a request without the key while it is on. (#PR)
+  checks that Halogen refuses a request without the key while it is on. (#155)
 - The documentation now matches the current state: both editions run on real hardware since
   `v0.20.0`, the roadmap starts from `v0.20.6`, the download is about 130 GB (about 120 GB without
   the NPU), and examples use current versions. Statements like "this release" now name the
