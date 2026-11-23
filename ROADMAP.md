@@ -56,7 +56,7 @@ Simplified Technical English (#152).
 4. Unlock the disk from a tang server on the network (#44).
 5. Let `flash pull` use GGUF repositories (#61).
 
-Also open, not yet in order: an outbound network policy for Halogen's container (#120), a record
+Also open, not yet in order: a record
 of the exact Fedora build inputs (#121), and faster image builds that reuse the Caddy layers
 (#122).
 

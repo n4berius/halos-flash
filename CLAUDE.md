@@ -61,7 +61,7 @@ name, but allows saying halOS runs Halogen.
 - First boot: `halogen-prepare` (root) creates `/srv/models`, `/srv/configs`, `halogen.env`
   and the API key. `halogen-fetch` (user) pulls the pinned image, downloads models with `hf`
   inside that image, and runs Halogen's `verify`. Then `halogen.service` starts with the models
-  read-only and never downloads (its container still has network: "offline" was wrong, audit F). Each restart of `halogen.service` reruns the fetch, which only downloads what's
+  read-only and never downloads (its container is on `halogen-internal`, see "Outbound network" below; before #120 it had network, audit F). Each restart of `halogen.service` reruns the fetch, which only downloads what's
   missing or changed.
 - `halos-status.timer` runs `login-status` (root, sandboxed, writes only under `/run`) every 30 s:
   one line in `/run/issue.d/50-halos.issue` for the console login screen (agetty's `\4` fills
@@ -1032,6 +1032,23 @@ name, but allows saying halOS runs Halogen.
   keys on the ESP of an unencrypted machine, and `halosctl npu` maps a pinned `X.Y.Z-rN` to the
   plain `X.Y.Z` tag (`release-info.sh` publishes -rN builds under it), which it then follows like a
   plain stable pin (later `-rN` and weekly rebuilds), not that exact build.
+
+- Outbound network (#120): `halogen.container` has `Network=halogen-internal.network`
+  (`Internal=true`, `DisableDNS=true`, netavark): the container gets only a link route on its
+  bridge (inside halogen's rootless network namespace, so no clash with a LAN 10.x), so any new
+  connection out fails at once with ENETUNREACH; without capabilities it can't add a route. The
+  published `127.0.0.1:18731` still works: rootlessport connects into the bridge from the rootless
+  namespace (checked with rootless podman 4.9.3, netavark 1.4, slirp4netns: port answered, 200 MB at
+  the same speed as the default network, outbound, DNS and the gateway refused). Halogen's docs:
+  no outbound connections with `HALOGEN_DOWNLOAD` unset (blocked here), no image URL fetching. The
+  fetch, pull, probe and bench containers keep their own networks. Quadlet's `network create
+  --ignore` keeps an existing network of that name as it is, so the selftest's `network-out` asks
+  the running container (python3 in Halogen's image connects to 192.0.2.1 and 2001:db8::1: PASS
+  only on no-route answers), the build checks Quadlet's dry run, and the VM test checks the unit
+  and `podman network inspect` (`HNET`). Halogen sees a bridge address as the client (in
+  that check, the container's own: rootlessport connects from inside its namespace); Caddy logs the
+  real one. On freyja still: Halogen's start, a bench (the path is
+  rootlessport, not pasta's splice), and both editions.
 
 ## Lessons already learned
 

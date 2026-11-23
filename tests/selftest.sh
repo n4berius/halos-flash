@@ -31,8 +31,9 @@ f() { printf '#!/bin/bash\n%s\n' "$2" > "$fake/$1"; chmod +x "$fake/$1"; }
 f prlimit 'case "$*" in *--memlock=unlimited*) export FAKE_MEMLOCK=1 ;; esac; while [ $# -gt 0 ] && [ "$1" != -- ]; do shift; done; shift; exec "$@"'
 # setpriv as halogen: run what follows env (the fake systemctl, or podman).
 f setpriv 'while [ $# -gt 0 ] && [ "$1" != env ]; do shift; done; exec "$@"'
-f podman 'case "$*" in *"exec halogen stat"*) [ "$PWD" = / ] || { echo "cannot chdir to $PWD: Permission denied"; exit 125; }
-    [ -n "${FAKE_MEMLOCK:-}" ] || { echo "crun: setrlimit RLIMIT_MEMLOCK: Operation not permitted"; exit 126; } ;; esac; case "$*" in *"exec halogen stat"*) printf "/tmp xfs\n/var/tmp %s\n/root xfs\n" "${FAKE_VARTMP:-xfs}" ;; *) exit 1 ;; esac'
+f podman 'case "$*" in *"exec halogen "*) [ "$PWD" = / ] || { echo "cannot chdir to $PWD: Permission denied"; exit 125; }
+    [ -n "${FAKE_MEMLOCK:-}" ] || { echo "crun: setrlimit RLIMIT_MEMLOCK: Operation not permitted"; exit 126; } ;; esac; case "$*" in *"exec halogen stat"*) printf "/tmp xfs\n/var/tmp %s\n/root xfs\n" "${FAKE_VARTMP:-xfs}" ;;
+    *"exec halogen python3 -c import socket"*) echo "${FAKE_NETOUT-ENETUNREACH ENETUNREACH}" ;; *) exit 1 ;; esac'
 f mokutil 'echo "SecureBoot ${FAKE_SB:-enabled}"'
 f getenforce 'echo "${FAKE_SELINUX:-Enforcing}"'
 # fail2ban: both jails loaded and two addresses shut out, unless FAKE_F2B says otherwise.
@@ -255,6 +256,14 @@ HALOS_LOG_MIN_FREE_MB=999999999 "$selftest" > "$work/out" 2>&1 || true; expect '
 expect '^PASS scratch: '
 FAKE_VARTMP=tmpfs "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL scratch: .*in memory'
 FAKE_STATE=inactive "$selftest" > "$work/out" 2>&1 || true; refuse '^(PASS|FAIL|WARN) scratch:'
+# Halogen's network has no route out (#120): a connection from its container fails at once.
+"$selftest" > "$work/out" 2>&1 || true; expect '^PASS network-out: .*no route out'
+FAKE_NETOUT="ENETUNREACH EAFNOSUPPORT" "$selftest" > "$work/out" 2>&1 || true; expect '^PASS network-out: '
+FAKE_NETOUT="ECONNREFUSED ENETUNREACH" "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL network-out: .*route out'
+FAKE_NETOUT="ENETUNREACH timeout" "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL network-out: '
+FAKE_NETOUT="ENETUNREACH open" "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL network-out: '
+FAKE_NETOUT="" "$selftest" > "$work/out" 2>&1 || true; expect "^WARN network-out: couldn't check"
+FAKE_STATE=inactive "$selftest" > "$work/out" 2>&1 || true; refuse '^(PASS|FAIL|WARN) network-out:'
 # Request records on (#107): Halogen's own counts from /health, or a warning when it has none.
 : > "$work/20-records.conf"
 FAKE_HEALTH='{"request_records":{"written":3,"dropped_cap":0}}' "$selftest" > "$work/out" 2>&1 || true

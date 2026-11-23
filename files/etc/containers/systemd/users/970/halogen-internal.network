@@ -1,0 +1,10 @@
+# Halogen's own network (#120): no route out and no DNS. Halogen's docs say the server opens no
+# outbound connections while HALOGEN_DOWNLOAD is unset (halOS blocks it), so nothing it serves
+# needs one. The published port (halogen.container's PublishPort) still works: Podman's port
+# forwarder connects to the container from inside halogen's network namespace, so Caddy, the
+# dashboard, bench and the status line reach Halogen on 127.0.0.1:18731 as before. The container
+# has no capabilities, so it can't add a route. The download containers don't use this network.
+[Network]
+NetworkName=halogen-internal
+Internal=true
+DisableDNS=true

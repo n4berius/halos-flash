@@ -519,6 +519,33 @@ if [ "${running:-0}" = 1 ]; then
   if [ "$(grep -c -E '^/(tmp|var/tmp|root) ' <<< "$fstypes")" != 3 ]; then say WARN scratch "couldn't see where Halogen's /tmp, /var/tmp and /root are: ${fstypes:-no answer}"
   elif grep -q tmpfs <<< "$fstypes"; then say FAIL scratch "Halogen's scratch folders are in memory, not on disk: $(tr '\n' ' ' <<< "$fstypes")"
   else say PASS scratch "Halogen's /tmp, /var/tmp and /root are on disk"; fi
+  # Halogen's network has no route out (#120): a connection from inside its container to a
+  # documentation address (192.0.2.1, 2001:db8::1: no real host) must fail at once, never wait.
+  probe='import socket, errno
+r = []
+for fam, addr in ((socket.AF_INET, ("192.0.2.1", 443)), (socket.AF_INET6, ("2001:db8::1", 443))):
+    try:
+        s = socket.socket(fam, socket.SOCK_STREAM)
+    except OSError as e:
+        r.append(errno.errorcode.get(e.errno, "error")); continue
+    s.settimeout(3)
+    try:
+        s.connect(addr); r.append("open")
+    except socket.timeout:
+        r.append("timeout")
+    except OSError as e:
+        r.append(errno.errorcode.get(e.errno, "error"))
+    finally:
+        s.close()
+print(" ".join(r))'
+  netout="$(run_alone prlimit --memlock=unlimited:unlimited -- setpriv --reuid="$huid" --regid="$huid" --clear-groups env -C / HOME=/var/lib/halogen XDG_RUNTIME_DIR="/run/user/$huid" \
+    podman exec halogen python3 -c "$probe" | tr -cd '[:print:]\n' | tail -n 1)"
+  # What is left once the answers that mean "no route" are taken out.
+  rest="$netout"; for e in ENETUNREACH EHOSTUNREACH EAFNOSUPPORT EADDRNOTAVAIL; do rest="${rest//$e/}"; done
+  # Two answers expected (IPv4, IPv6); any but "no route" (open, timeout, refused) means one exists.
+  if [ "$(wc -w <<< "$netout")" != 2 ]; then say WARN network-out "couldn't check Halogen's outbound network: ${netout:-no answer}"
+  elif [ -n "${rest// /}" ]; then say FAIL network-out "Halogen's container has a route out (IPv4 IPv6: $netout); its network should be halogen-internal (#120)"
+  else say PASS network-out "Halogen's container has no route out (IPv4 and IPv6)"; fi
 fi
 # A tiny container set up like Halogen's (read-only, the key mounted into /run/secrets) starts as
 # halogen: a podman or crun update can break that setup for every start of Halogen (crun 1.31 did).
