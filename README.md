@@ -68,7 +68,8 @@ These links show Halogen's newest code, which can be newer than the version that
 For an exact match, open the same file at the commit in `versions.env`.
 
 Base image: Fedora's official `quay.io/fedora/fedora-bootc:45`. Fedora has no separate
-image-based Server edition, so halOS adds only what the appliance needs.
+image-based Server edition, so halOS adds only what the appliance needs. Each build records the
+exact base and packages that it used ([BUILDING.md](BUILDING.md#3-build-the-os-image)).
 
 ## Install
 

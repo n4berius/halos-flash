@@ -86,6 +86,13 @@ jobs:
       - name: Build
         if: steps.changes.outputs.build == 'true'
         run: scripts/build.sh
+      # What went into the image (#121): the Fedora base's digest, every package, the toolchains.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: steps.changes.outputs.build == 'true'
+        with:
+          name: build-info-${{ matrix.variant }}-${{ matrix.kernel }}
+          path: output/build-info-*.txt
+          retention-days: 90
       - name: Push
         # Only main publishes edge; its signature names main (scripts/sign-image.sh).
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && steps.changes.outputs.build == 'true'

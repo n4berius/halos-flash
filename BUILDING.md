@@ -24,8 +24,8 @@ git clone https://github.com/n4berius/halos-flash.git
 cd halos-flash
 ```
 
-To build a published release exactly, check out its tag first, for example
-`git checkout v0.20.6`.
+To build the source of a published release, check out its tag first, for example
+`git checkout v0.20.6`. The Fedora parts can be newer than in the release (see step 3).
 
 ## 2. Run the checks
 
@@ -48,9 +48,27 @@ At the end, the build shows `Built ghcr.io/n4berius/halos-flash:0.20.7 ...`. The
 root's Podman storage.
 
 `versions.env` pins Halogen by digest, so your build has the same Halogen container as the
-official build. The Fedora base is a tag (`fedora-bootc:45`). Its packages come from Fedora's
-current repositories. So each build, also the weekly rebuild, gets Fedora's latest fixes. Two
-builds of the same commit can be different in these packages (#121).
+official build. The Fedora base is a tag (`fedora-bootc:45`), not a digest. Its packages come
+from Fedora's current repositories. So each build, also the weekly rebuild, gets Fedora's latest
+fixes. Two builds of the same commit can be different in the base and in these packages.
+
+Each build records what it used (#121):
+
+- At the start, `build.sh` finds the digest that the tag points to. All build stages use that
+  digest. The build log shows it in the line `Fedora base: ...`.
+- The image keeps the digest in `/usr/share/halogen/release.env` (`HALOS_BASE_IMAGE`) and in the
+  label `io.github.n4berius.halos.base`. It also keeps the list of all its packages
+  (`/usr/share/halogen/packages.txt`) and the compilers of the build stages
+  (`/usr/share/halogen/toolchains.txt`).
+- At the end, `build.sh` writes all of this to `output/build-info-<edition>-<kernel>.txt`. Each
+  release attaches this file for each edition. The weekly rebuild keeps it as a workflow
+  artifact. To see what changed between two builds, compare their files with `diff`.
+- The installer from `build-iso.sh` uses the same base digest as the OS image that it carries.
+
+To use the same base as a release, put that release's `HALOS_BASE_IMAGE` value (the form
+`quay.io/fedora/fedora-bootc@sha256:...`) in `FEDORA_BOOTC_IMAGE` in `versions.env`. The
+packages that the build installs still come from Fedora's current repositories, so the result
+is not an exact copy.
 
 ## 4. Build the USB installer
 
