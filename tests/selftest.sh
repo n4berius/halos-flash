@@ -38,7 +38,7 @@ f getenforce 'echo "${FAKE_SELINUX:-Enforcing}"'
 # fail2ban: both jails loaded and two addresses shut out, unless FAKE_F2B says otherwise.
 f fail2ban-client 'case "$1" in status) printf "Status\n|- Number of jail:\t2\n\`- Jail list:\t%s\n" "${FAKE_F2B:-halos-api, sshd}" ;;
   banned) echo "[{\"sshd\": [\"203.0.113.9\", \"2001:db8::7\"]}, {\"halos-api\": []}]" ;; esac'
-f journalctl 'case "$*" in *--grep*) echo "journalctl $*" >> "$FAKE/journalctl.log"; printf "%s\n" "${FAKE_DRAFT-halogen: draft head qwen38-flash-next-drafter-r2-ht4.hgn (HALOGEN_CK_OVERLAY=none for the checkpoint'"'"'s own)}" ;; *--disk-usage*) echo "Archived and active journals take up 1.2G in the file system." ;; *) cat "$FAKE/kernel.log" 2>/dev/null ;; esac; true'
+f journalctl 'case "$*" in *--grep*) echo "journalctl $*" >> "$FAKE/journalctl.log"; printf "%s\n" "${FAKE_DRAFT-halogen: draft head qwen38-flash-next-drafter-r2-ht4.hgn (HALOGEN_CK_OVERLAY=none keeps the built-in head)}" ;; *--disk-usage*) echo "Archived and active journals take up 1.2G in the file system." ;; *) cat "$FAKE/kernel.log" 2>/dev/null ;; esac; true'
 # firewalld's running rules: strict about DNAT'd ports unless FAKE_FW_LAX is set.
 f nft '[ -n "${FAKE_FW_LAX:-}" ] || { [ "$*" = "list chain inet firewalld filter_INPUT_dnat" ] && echo "    reject with icmpx admin-prohibited"; }; true'
 # auditd's loaded rules: halOS's watches unless FAKE_AUDIT says otherwise.
