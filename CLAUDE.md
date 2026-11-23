@@ -1042,10 +1042,28 @@ name, but allows saying halOS runs Halogen.
   the same speed as the default network, outbound, DNS and the gateway refused). Halogen's docs:
   no outbound connections with `HALOGEN_DOWNLOAD` unset (blocked here), no image URL fetching. The
   fetch, pull, probe and bench containers keep their own networks. Quadlet's `network create
-  --ignore` keeps an existing network of that name as it is, so the selftest's `network-out` asks
-  the running container (python3 in Halogen's image connects to 192.0.2.1 and 2001:db8::1: PASS
-  only on no-route answers), the build checks Quadlet's dry run, and the VM test checks the unit
-  and `podman network inspect` (`HNET`). Halogen sees a bridge address as the client (in
+  --ignore` keeps an existing network of that name as it is (a changed `.network` file never
+  reaches an upgraded machine until the network is removed), so the selftest's `network-config`
+  reads, from the host, the container's networks and `podman network inspect` (internal, no DNS,
+  IPv6, routes or gateway: podman 4.9.3 gives an internal network without DNS no gateway), and
+  `network-out` asks the running container (`python3 -I`, since its `/root` is writable: connects to
+  192.0.2.1 and 2001:db8::1, PASS only on no-route answers; an `AF_VSOCK` socket, which no network
+  namespace limits, only WARNs: Podman's seccomp profile should refuse it). The build checks
+  Quadlet's dry run, and the VM test the unit and the network (`HNET`). A published port on an
+  internal network is something upstream treats as a bug for its pasta port forwarder (container-libs
+  `firstIPsFromStatus`: "internal networks must not receive ports", podman#29792); the default
+  forwarder, rootlessport, has no such check. So `container-check` (image `:2`, `:1` removed) also
+  starts the tiny image on its own `halos-check-internal` network (`--internal --disable-dns`) with
+  `127.0.0.1:18739` published and the machine's python3 (real path under `/usr`, `/usr` mounted
+  read-only, `lib`/`lib64` links in the image) as a listener on `::`, which reports its own
+  connections out; the host must get the answer, with ENETUNREACH for IPv4. Exit 3 is the
+  selftest's FAIL `network-port`; the VM test needs PASS `network-port` (so Podman 6 on Fedora 45
+  is checked on every ISO run). Checked with rootless podman 4.9.3: PASS, and exit 3 without
+  `--internal`. Open (security audit): the
+  container's `eth0` keeps an `fe80::` address, so anything listening on `::` in halogen's rootless
+  network namespace is on-link (expected nothing: check `podman unshare --rootless-netns ss -tulpnH`
+  on freyja); `Sysctl=net.ipv6.conf.eth0.disable_ipv6=1` would close it once Halogen's start with it
+  is checked. Halogen sees a bridge address as the client (in
   that check, the container's own: rootlessport connects from inside its namespace); Caddy logs the
   real one. On freyja still: Halogen's start, a bench (the path is
   rootlessport, not pasta's splice), and both editions.

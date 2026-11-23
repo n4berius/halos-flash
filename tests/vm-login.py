@@ -145,7 +145,7 @@ typed("{ echo RESULT-START; cat /proc/cmdline; dmesg | grep -i secure; bootctl s
       # that network internal (no route out) and without DNS.
       "echo HNET $(setpriv --reuid=halogen --regid=halogen --init-groups env -C / XDG_RUNTIME_DIR=/run/user/970 systemctl --user cat halogen.service 2>/dev/null | grep -e ExecStart= | grep -c -E -e '--network[= ]halogen-internal( |$)') "
       "$(setpriv --reuid=970 --regid=970 --clear-groups env -C / XDG_RUNTIME_DIR=/run/user/970 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/970/bus systemctl --user start halogen-internal-network.service > /dev/null 2>&1; echo $?) "
-      "$(setpriv --reuid=970 --regid=970 --clear-groups env -C / HOME=/var/lib/halogen XDG_RUNTIME_DIR=/run/user/970 podman network inspect halogen-internal --format '{{.Internal}}-{{.DNSEnabled}}' 2>&1); "
+      "$(setpriv --reuid=970 --regid=970 --clear-groups env -C / HOME=/var/lib/halogen XDG_RUNTIME_DIR=/run/user/970 podman network inspect halogen-internal --format '{{.Internal}}-{{.DNSEnabled}}-{{.IPv6Enabled}}-{{len .Routes}}-{{range .Subnets}}{{.Gateway}}{{end}}' 2>&1); "
       "echo JOURNALCAP $(systemd-analyze cat-config systemd/journald.conf | grep -c -x SystemMaxUse=4G); "
       # fail2ban (#92): running with both jails; a ban becomes an entry in its nftables set and halosctl lifts
       # it; and the API filter matches the front door's real log line (a 503 here, Halogen being
