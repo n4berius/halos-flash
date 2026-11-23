@@ -13,7 +13,7 @@ it promotes.
 - Halogen's container can no longer open connections to the internet, your LAN or this machine.
   It is on its own Podman network with no route out and no DNS. Requests through Caddy, the
   dashboard and bench work as before, and the downloads still use the network. Three new
-  selftest lines check it: `network-out`, `network-config` and `network-port`. (#120)
+  selftest lines check it: `network-out`, `network-config` and `network-port`. (#120, #157)
 - You can now turn the API key off, for a network that you trust: `sudo halogenctl api-key off`
   (asks first) and `sudo halogenctl api-key on`. The key stays on by default, and the selftest
   checks that Halogen refuses a request without the key while it is on. (#155)
