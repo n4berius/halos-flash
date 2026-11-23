@@ -35,15 +35,18 @@ esac
 # (release.env, a label), so two builds can say which base each had. A digest in versions.env
 # (repository@sha256:…, such as a release's HALOS_BASE_IMAGE) rebuilds on that exact base; packages still come from
 # Fedora's current repositories.
-read -r BASE_DIGEST BASE_VERSION < <(skopeo inspect --format '{{.Digest}} {{index .Labels "org.opencontainers.image.version"}}' "docker://$FEDORA_BOOTC_IMAGE")
-[[ "$BASE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "no digest for $FEDORA_BOOTC_IMAGE: $BASE_DIGEST" >&2; exit 1; }
-case "$FEDORA_BOOTC_IMAGE" in
-  *@sha256:*) [ "${FEDORA_BOOTC_IMAGE##*@}" = "$BASE_DIGEST" ] || { echo "$FEDORA_BOOTC_IMAGE answered with $BASE_DIGEST" >&2; exit 1; } ;;
-esac
-[[ "${BASE_VERSION:-}" =~ ^[A-Za-z0-9._+-]+$ ]] || BASE_VERSION=unknown
-# repository@digest, without the tag: podman refuses a reference with both.
+# The repository without tag or digest (a registry's :port stays). containers/image refuses a
+# reference with both a tag and a digest, so a pinned digest is asked for as repository@digest.
 BASE_REPO="${FEDORA_BOOTC_IMAGE%@*}"
 case "${BASE_REPO##*/}" in *:*) BASE_REPO="${BASE_REPO%:*}" ;; esac
+BASE_ASK="$FEDORA_BOOTC_IMAGE"
+case "$FEDORA_BOOTC_IMAGE" in *@*) BASE_ASK="$BASE_REPO@${FEDORA_BOOTC_IMAGE##*@}" ;; esac
+read -r BASE_DIGEST BASE_VERSION < <(skopeo inspect --format '{{.Digest}} {{index .Labels "org.opencontainers.image.version"}}' "docker://$BASE_ASK") || true
+[[ "${BASE_DIGEST:-}" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "no digest for $BASE_ASK: ${BASE_DIGEST:-}" >&2; exit 1; }
+case "$BASE_ASK" in
+  *@*) [ "${BASE_ASK##*@}" = "$BASE_DIGEST" ] || { echo "$BASE_ASK answered with $BASE_DIGEST" >&2; exit 1; } ;;
+esac
+[[ "${BASE_VERSION:-}" =~ ^[A-Za-z0-9._+-]+$ ]] || BASE_VERSION=unknown
 BASE_IMAGE="$BASE_REPO@$BASE_DIGEST"
 echo "Fedora base: $BASE_IMAGE (version $BASE_VERSION)"
 SOURCE_COMMIT="$(git rev-parse HEAD 2>/dev/null || echo unknown)"

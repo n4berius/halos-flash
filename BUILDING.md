@@ -61,14 +61,19 @@ Each build records what it used (#121):
   (`/usr/share/halogen/packages.txt`) and the compilers of the build stages
   (`/usr/share/halogen/toolchains.txt`).
 - At the end, `build.sh` writes all of this to `output/build-info-<edition>-<kernel>.txt`. Each
-  release attaches this file for each edition. The weekly rebuild keeps it as a workflow
-  artifact. To see what changed between two builds, compare their files with `diff`.
+  release attaches the same record for each edition as
+  `halos-flash-<tag>-<edition>-build-info.txt`, with the digest of the pushed image on its first
+  line. The weekly rebuild keeps it as a workflow artifact. To see what changed between two
+  builds, compare their files with `diff`.
+- The weekly rebuild uses the code of the newest stable release. Until a stable release has this
+  change, its records have only the package list and no base digest.
 - The installer from `build-iso.sh` uses the same base digest as the OS image that it carries.
 
 To use the same base as a release, put that release's `HALOS_BASE_IMAGE` value (the form
 `quay.io/fedora/fedora-bootc@sha256:...`) in `FEDORA_BOOTC_IMAGE` in `versions.env`. The
 packages that the build installs still come from Fedora's current repositories, so the result
-is not an exact copy.
+is not an exact copy. quay.io can delete an old digest after Fedora replaces it, and then this
+build stops when it pulls the base.
 
 ## 4. Build the USB installer
 
