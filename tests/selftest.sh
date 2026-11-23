@@ -31,8 +31,10 @@ f() { printf '#!/bin/bash\n%s\n' "$2" > "$fake/$1"; chmod +x "$fake/$1"; }
 f prlimit 'case "$*" in *--memlock=unlimited*) export FAKE_MEMLOCK=1 ;; esac; while [ $# -gt 0 ] && [ "$1" != -- ]; do shift; done; shift; exec "$@"'
 # setpriv as halogen: run what follows env (the fake systemctl, or podman).
 f setpriv 'while [ $# -gt 0 ] && [ "$1" != env ]; do shift; done; exec "$@"'
-f podman 'case "$*" in *"exec halogen stat"*) [ "$PWD" = / ] || { echo "cannot chdir to $PWD: Permission denied"; exit 125; }
-    [ -n "${FAKE_MEMLOCK:-}" ] || { echo "crun: setrlimit RLIMIT_MEMLOCK: Operation not permitted"; exit 126; } ;; esac; case "$*" in *"exec halogen stat"*) printf "/tmp xfs\n/var/tmp %s\n/root xfs\n" "${FAKE_VARTMP:-xfs}" ;; *) exit 1 ;; esac'
+f podman 'case "$*" in *"exec halogen "*) [ "$PWD" = / ] || { echo "cannot chdir to $PWD: Permission denied"; exit 125; }
+    [ -n "${FAKE_MEMLOCK:-}" ] || { echo "crun: setrlimit RLIMIT_MEMLOCK: Operation not permitted"; exit 126; } ;; esac; case "$*" in *"exec halogen stat"*) printf "/tmp xfs\n/var/tmp %s\n/root xfs\n" "${FAKE_VARTMP:-xfs}" ;;
+    *"exec halogen python3 -I -c import socket"*) echo "${FAKE_NETOUT-ENETUNREACH ENETUNREACH EPERM}" ;;
+    *"inspect halogen --format"*) echo "${FAKE_NETS-halogen-internal }" ;; *"network inspect halogen-internal"*) echo "${FAKE_NETCFG-true false false 0 gw:<nil>}" ;; *) exit 1 ;; esac'
 f mokutil 'echo "SecureBoot ${FAKE_SB:-enabled}"'
 f getenforce 'echo "${FAKE_SELINUX:-Enforcing}"'
 # fail2ban: both jails loaded and two addresses shut out, unless FAKE_F2B says otherwise.
@@ -84,7 +86,7 @@ mkdir -p "$work/audit" "$work/proc/4711" "$work/home/.config"
 printf '%s\n' '-w /etc/passwd -p wa -k accounts' '-w /nonexistent/preload -p wa -k preload' \
   '-a always,exit -F path=/usr/bin/env -F perm=x -F auid!=unset -k halosctl' > "$work/halos.rules"
 # A container set up like Halogen's starts, unless FAKE_CC says it doesn't (1) or can't be checked (2).
-f container-check '[ "$PWD" = / ] || exit 9; case "${FAKE_CC:-0}" in 0) echo "container-check: starts" ;; 1) echo "Error: crun: open /run/secrets/x: No such file or directory" >&2; exit 1 ;; *) exit 2 ;; esac'
+f container-check '[ "$PWD" = / ] || exit 9; case "${FAKE_CC:-0}" in 0) echo "container-check: starts" ;; 1) echo "Error: crun: open /run/secrets/x: No such file or directory" >&2; exit 1 ;; 3) echo "container-check: the port published from an internal network does not answer" >&2; exit 3 ;; *) exit 2 ;; esac'
 export HALOS_CONTAINER_CHECK="$fake/container-check"
 export HALOGEN_STATE_DIR="$work/hstate" PATH="$fake:$sysbin" HALOGEN_RELEASE_FILE="$work/release.env" HALOGEN_SYSFS="$work/sys" \
   HALOGEN_DEV="$work/dev" HALOGEN_CMDLINE="$work/cmdline" HALOGEN_MEMINFO="$work/meminfo" \
@@ -256,6 +258,29 @@ HALOS_LOG_MIN_FREE_MB=999999999 "$selftest" > "$work/out" 2>&1 || true; expect '
 expect '^PASS scratch: '
 FAKE_VARTMP=tmpfs "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL scratch: .*in memory'
 FAKE_STATE=inactive "$selftest" > "$work/out" 2>&1 || true; refuse '^(PASS|FAIL|WARN) scratch:'
+# Halogen's network has no route out (#120): a connection from its container fails at once.
+"$selftest" > "$work/out" 2>&1 || true; expect '^PASS network-out: .*no route out'
+FAKE_NETOUT="ENETUNREACH EAFNOSUPPORT EAFNOSUPPORT" "$selftest" > "$work/out" 2>&1 || true; expect '^PASS network-out: '
+FAKE_NETOUT="ECONNREFUSED ENETUNREACH EPERM" "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL network-out: .*route out'
+FAKE_NETOUT="ENETUNREACH timeout EPERM" "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL network-out: '
+FAKE_NETOUT="ENETUNREACH open vsock" "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL network-out: '
+FAKE_NETOUT="ENETUNREACH ENETUNREACH vsock" "$selftest" > "$work/out" 2>&1 || true; expect '^WARN network-out: .*vsock'
+FAKE_NETOUT="ENETUNREACH ENETUNREACH" "$selftest" > "$work/out" 2>&1 || true; expect "^WARN network-out: couldn't check"
+FAKE_NETOUT="" "$selftest" > "$work/out" 2>&1 || true; expect "^WARN network-out: couldn't check"
+FAKE_NETOUT="EHOSTUNREACH EHOSTUNREACH EPERM" "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL network-out: '
+FAKE_NETOUT="ENETUNREACH EADDRNOTAVAIL EACCES" "$selftest" > "$work/out" 2>&1 || true; expect '^PASS network-out: '
+# The container check also starts one on an internal network with a published port.
+"$selftest" > "$work/out" 2>&1 || true; expect '^PASS network-port: '
+FAKE_CC=3 "$selftest" > "$work/out" 2>&1 || true; expect '^PASS container-start: '; expect "^FAIL network-port: .*doesn't work"
+FAKE_CC=1 "$selftest" > "$work/out" 2>&1 || true; refuse '^PASS network-port: '
+# The same from outside: the container's networks and the network's definition.
+"$selftest" > "$work/out" 2>&1 || true; expect '^PASS network-config: '
+FAKE_NETCFG="true false false 0 gw:" "$selftest" > "$work/out" 2>&1 || true; expect '^PASS network-config: '
+FAKE_NETS="halogen-internal podman " "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL network-config: '
+FAKE_NETCFG="false false false 0 gw:10.89.0.1" "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL network-config: '
+FAKE_NETCFG="true false false 1 gw:<nil>" "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL network-config: '
+FAKE_NETCFG="" "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL network-config: '
+FAKE_STATE=inactive "$selftest" > "$work/out" 2>&1 || true; refuse '^(PASS|FAIL|WARN) network-(out|config):'
 # Request records on (#107): Halogen's own counts from /health, or a warning when it has none.
 : > "$work/20-records.conf"
 FAKE_HEALTH='{"request_records":{"written":3,"dropped_cap":0}}' "$selftest" > "$work/out" 2>&1 || true

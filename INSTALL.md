@@ -320,7 +320,8 @@ After setup, the first boot does these steps in this order:
    succeeds.
 4. Halogen's `verify` mode checks the Flash checkpoint. The fetch checks the NPU files against the
    hashes in the pinned container.
-5. Halogen starts, with its models read-only. It never downloads anything itself. The network gets
+5. Halogen starts, with its models read-only. It never downloads anything itself, and its
+   container can't open connections out (#120). The network gets
    to it on port 8731 through [Caddy](https://caddyserver.com) (`halos-proxy.service`). See
    [The front door](#the-front-door).
 

@@ -13,6 +13,9 @@ ContainerName=halogen
 # On this machine only: halos-proxy.service (Caddy) answers the network on 8731, over HTTP or
 # HTTPS, and passes requests on to here.
 PublishPort=127.0.0.1:18731:8731
+# Its own network, with no route out and no DNS (#120): new connections from Halogen to the
+# internet, the LAN or this machine fail at once ("Network is unreachable"). See halogen-internal.network.
+Network=halogen-internal.network
 AddDevice=/dev/kfd
 AddDevice=/dev/dri
 Ulimit=memlock=-1:-1

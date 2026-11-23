@@ -5,27 +5,100 @@
 # podman or crun update that breaks that setup is caught before it reaches a machine: crun 1.31
 # stopped creating the missing /run/secrets mount point under a read-only root (crun#2480), and
 # every start of Halogen failed. The selftest runs it too. The key is a stand-in, never the real one.
-# Exit 0: it started; 1: it didn't (podman's words follow); 2: the check couldn't be made.
+# Then (#120) a second one on a network made like halogen-internal (internal, no DNS), with a port
+# published on 127.0.0.1 as Halogen's is: the port must answer from the host, and the container must
+# have no route out. Upstream podman treats a published port on an internal network as a bug for
+# its pasta forwarder (podman#29792), so a podman update could close Halogen's port this way.
+# Exit 0: both passed; 1: the first didn't start (podman's words follow); 3: it started, but the
+# network check failed; 2: a check couldn't be made.
 set -uo pipefail
-img=localhost/halos-container-check:1
+img=localhost/halos-container-check:2
 work="$(mktemp -d)" || exit 2
 trap 'rm -rf "$work"' EXIT
 if ! podman image exists "$img" 2> /dev/null; then
   # ldconfig is a static program, so it runs alone. The folders are those Halogen's image has;
   # /run/secrets is not one of them, as in Halogen's.
   mkdir -p "$work/root/usr/sbin" "$work/root"/{dev,proc,sys,run,tmp,var/tmp,root,etc} || exit 2
+  # For the network check, which runs this machine's python3 from /usr mounted read-only.
+  ln -s usr/lib64 "$work/root/lib64" && ln -s usr/lib "$work/root/lib" || exit 2
   cp "${HALOS_CHECK_PROGRAM:-/usr/sbin/ldconfig}" "$work/root/usr/sbin/ldconfig" || exit 2
   tar -C "$work/root" -c . | podman import --change 'ENTRYPOINT ["/usr/sbin/ldconfig"]' - "$img" > /dev/null 2>&1 \
     || { echo "container-check: couldn't make the test image" >&2; exit 2; }
 fi
 echo stand-in > "$work/key" || exit 2
 # A leftover from a check cut short (the selftest's time limit) goes first.
-podman rm -v -f -i -t 0 halos-container-check > /dev/null 2>&1 || true
+podman rm -v -f -i -t 0 halos-container-check halos-container-check-net > /dev/null 2>&1 || true
+podman rmi -i localhost/halos-container-check:1 > /dev/null 2>&1 || true
 if out="$(podman run --rm --name halos-container-check --pull=never --read-only --tmpfs /run --network=none --cap-drop all \
     --security-opt=no-new-privileges -v /tmp -v /var/tmp -v /root \
     -v "$work/key:/run/secrets/halogen-api-key:ro" "$img" --version 2>&1)"; then
   echo "container-check: a container set up like Halogen's starts"
-  exit 0
+else
+  printf '%s\n' "$out" | tr -cd '[:print:]\n' | tail -n 3 >&2
+  exit 1
 fi
-printf '%s\n' "$out" | tr -cd '[:print:]\n' | tail -n 3 >&2
-exit 1
+
+# The network check. The listener binds :: as Halogen does, answers once with what its own
+# connections out got (192.0.2.1 and 2001:db8::1 are documentation addresses: no real host).
+net=halos-check-internal port="${HALOS_CHECK_PORT:-18739}"
+listener='import socket, errno
+r = []
+for fam, addr in ((socket.AF_INET, ("192.0.2.1", 443)), (socket.AF_INET6, ("2001:db8::1", 443))):
+    try:
+        s = socket.socket(fam, socket.SOCK_STREAM)
+    except OSError as e:
+        r.append(errno.errorcode.get(e.errno, "error")); continue
+    s.settimeout(3)
+    try:
+        s.connect(addr); r.append("open")
+    except socket.timeout:
+        r.append("timeout")
+    except OSError as e:
+        r.append(errno.errorcode.get(e.errno, "error"))
+    finally:
+        s.close()
+try:
+    l = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+    l.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+    l.bind(("::", 8731))
+except OSError:
+    l = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    l.bind(("0.0.0.0", 8731))
+l.listen(1)
+l.settimeout(60)
+c, _ = l.accept()
+c.sendall(("HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\n\r\nout: " + " ".join(r) + "\n").encode())
+c.close()'
+# This machine's python3, by its real path, which must lie under /usr (the only folder mounted).
+py="$(readlink -f "${HALOS_CHECK_PYTHON:-/usr/bin/python3}")"
+case "$py" in /usr/*) [ -x "$py" ] || { echo "container-check: no python3 for the network check" >&2; exit 2; } ;;
+  *) echo "container-check: python3 isn't under /usr: $py" >&2; exit 2 ;; esac
+podman network rm -f "$net" > /dev/null 2>&1 || true
+# shellcheck disable=SC2317 # Called by the EXIT trap.
+cleanup() { podman rm -v -f -i -t 0 halos-container-check-net > /dev/null 2>&1; podman network rm -f "$net" > /dev/null 2>&1; rm -rf "$work"; }
+trap cleanup EXIT
+podman network create --internal --disable-dns "$net" > /dev/null 2>&1 || { echo "container-check: couldn't make a test network" >&2; exit 2; }
+if ! out="$(podman run -d --name halos-container-check-net --pull=never --read-only --tmpfs /run --network "$net" \
+    -p "127.0.0.1:$port:8731" --cap-drop all --security-opt=no-new-privileges -v /usr:/usr:ro \
+    --entrypoint "$py" "$img" -I -c "$listener" 2>&1)"; then
+  printf '%s\n' "$out" | tr -cd '[:print:]\n' | tail -n 3 >&2
+  echo "container-check: a container on an internal network with a published port doesn't start" >&2
+  exit 3
+fi
+answer=""
+for _ in $(seq 1 40); do
+  answer="$(curl -sq -m 2 "http://127.0.0.1:$port/" 2> /dev/null | tr -cd '[:print:]\n' | grep -e '^out: ' | head -n 1)" && [ -n "$answer" ] && break
+  sleep 0.5
+done
+if [ -z "$answer" ]; then
+  echo "container-check: the port published from an internal network doesn't answer: Halogen's wouldn't either" >&2
+  podman logs halos-container-check-net 2>&1 | tr -cd '[:print:]\n' | tail -n 3 >&2
+  exit 3
+fi
+read -r _ a4 a6 <<< "$answer"
+case "$a4 $a6" in
+  "ENETUNREACH ENETUNREACH"|"ENETUNREACH EAFNOSUPPORT"|"ENETUNREACH EADDRNOTAVAIL") ;;
+  *) echo "container-check: a container on an internal network has a route out ($a4 $a6)" >&2; exit 3 ;;
+esac
+echo "container-check: a port published from an internal network answers, and the container has no route out"
+exit 0

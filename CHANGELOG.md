@@ -17,7 +17,10 @@ it promotes.
   it, and `sudo halogenctl flash drafter <name> <file>` uses it; `off` goes back to the built-in
   head. Answers stay the same, only the speed changes. The selftest's new `draft-head` line says
   which one Halogen loaded. (#158)
-
+- Halogen's container can no longer open connections to the internet, your LAN or this machine.
+  It is on its own Podman network with no route out and no DNS. Requests through Caddy, the
+  dashboard and bench work as before, and the downloads still use the network. Three new
+  selftest lines check it: `network-out`, `network-config` and `network-port`. (#120, #157)
 - Each build now records which Fedora base image it used (by digest), every installed package
   and the compilers. The image keeps this in `/usr/share/halogen/` (`release.env`,
   `packages.txt`, `toolchains.txt`), the selftest shows the base, and each release attaches a

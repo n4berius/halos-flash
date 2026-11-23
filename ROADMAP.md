@@ -56,8 +56,7 @@ Simplified Technical English (#152).
 4. Unlock the disk from a tang server on the network (#44).
 5. Let `flash pull` use GGUF repositories (#61).
 
-Also open, not yet in order: an outbound network policy for Halogen's container (#120) and faster
-image builds that reuse the Caddy layers (#122).
+Also open, not yet in order: faster image builds that reuse the Caddy layers (#122).
 
 Later: a first real `flash convert` on the test machine (time and quality). Then its GPU (HIP)
 build and the Qwen4 models.

@@ -274,6 +274,17 @@ RUN set -eu; \
     find /etc/containers/systemd/users/970 -type f -exec sed -i \
       -e "s|@HALOGEN_IMAGE@|${HALOGEN_IMAGE}|g" -e "s|@HALOGEN_VERSION@|${HALOGEN_VERSION}|g" {} +; \
     if grep -rq '@HALOGEN_' /etc/containers/systemd/users/970; then exit 1; fi; \
+    # Halogen's container is on its own network with no route out and no DNS (#120): netavark makes it,
+    # and Quadlet must still turn the files into exactly that.
+    rpm -q netavark; \
+    QUADLET_UNIT_DIRS=/etc/containers/systemd/users/970 /usr/libexec/podman/quadlet -dryrun -user > /tmp/quadlet.txt 2>&1 || { cat /tmp/quadlet.txt; exit 1; }; \
+    netline="$(grep -E '^ExecStart=/usr/bin/podman network create ' /tmp/quadlet.txt)"; \
+    case "$netline" in *' --internal '*) ;; *) echo "Halogen's network isn't internal: $netline" >&2; exit 1 ;; esac; \
+    case "$netline" in *' --disable-dns '*) ;; *) echo "Halogen's network has DNS: $netline" >&2; exit 1 ;; esac; \
+    case "$netline" in *' halogen-internal') ;; *) echo "Halogen's network has another name: $netline" >&2; exit 1 ;; esac; \
+    grep -E '^ExecStart=/usr/bin/podman run ' /tmp/quadlet.txt | grep -qE ' --network[= ]halogen-internal( |$)' \
+      || { echo "Halogen's container isn't on halogen-internal" >&2; exit 1; }; \
+    rm -f /tmp/quadlet.txt; \
     { echo "HALOGEN_IMAGE=${HALOGEN_IMAGE}"; \
       echo "HALOGEN_VERSION=${HALOGEN_VERSION}"; \
       echo "HALOGEN_VARIANT=${HALOGEN_VARIANT}"; \
