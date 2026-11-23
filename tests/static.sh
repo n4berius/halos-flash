@@ -167,6 +167,18 @@ assert '*-beta.*) echo "$tag: beta releases are no longer made.' in open(".githu
 assert "rpmkeys --delete f577861e" in cf, "Fedora 45's key must leave the image's rpm keyring after crun's check"
 assert "RUN --mount=type=bind,source=src/authenticode-check.py,target=/tmp/authenticode-check.py" in cf, "the kernel-next step must check the kernel's Secure Boot signature"
 assert "HALOS_KERNEL_BUILT=" in cf, "release.env must record when the kernel was built (the selftest's kernel-next age check)"
+# The Fedora base is a tag, resolved once per build to the digest every stage and the installer
+# use, and recorded with the packages and toolchains (#121).
+b = open("scripts/build.sh").read()
+assert "skopeo inspect --format '{{.Digest}}" in b and '--build-arg "FEDORA_BOOTC_IMAGE=$BASE_IMAGE"' in b and '--label "io.github.n4berius.halos.base=$BASE_IMAGE"' in b, "build.sh must resolve the base to a digest, build on it and label it"
+assert "scripts/build-info.sh" in b, "build.sh must write the build record"
+froms = re.findall(r"^FROM\s+(\S+)", cf, re.M)
+assert all(f in ("${FEDORA_BOOTC_IMAGE}", "scratch") for f in froms) and froms.count("${FEDORA_BOOTC_IMAGE}") >= 4, f"every stage must start from the resolved base: {froms}"
+for want in ('echo "HALOS_BASE_IMAGE=${FEDORA_BOOTC_IMAGE}"', "/usr/share/halogen/packages.txt", "/usr/share/halogen/toolchains.txt", "*@sha256:*) ;;"):
+    assert want in cf, f"the image's build record is gone from the Containerfile: {want}"
+assert 'io.github.n4berius.halos.base' in open("scripts/build-iso.sh").read(), "the installer must use the OS image's base"
+rel = open(".github/workflows/release.yml").read()
+assert "git show origin/main:scripts/build-info.sh" in rel and "pattern: info-*" in rel, "releases must attach each edition's build record"
 # kernel-next: exact Fedora packages, each with a sha256, from Koji's signed copies, checked in the
 # build (sha256, signature, one kernel left, not a debug build, signed for Secure Boot); only
 # builds asked for with KERNEL_TRACK=next get it, and only main pushes them, as kernel-next.
