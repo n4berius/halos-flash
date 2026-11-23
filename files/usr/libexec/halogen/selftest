@@ -46,6 +46,7 @@ echo "halOS self-check, $(date -u '+%Y-%m-%d %H:%M UTC')"
 echo "Edition: ${HALOGEN_VARIANT:-unknown}, Halogen ${HALOGEN_VERSION:-unknown}"
 echo "Board: $(cat "$sys/class/dmi/id/board_vendor" "$sys/class/dmi/id/board_name" 2>/dev/null | paste -sd' ' -), BIOS $(cat "$sys/class/dmi/id/bios_version" 2>/dev/null)"
 echo "Kernel: $(uname -r)"
+[ -z "${HALOS_BASE_IMAGE:-}" ] || echo "Fedora base: ${HALOS_BASE_VERSION:-unknown} (${HALOS_BASE_IMAGE})"
 [ "${HALOS_KERNEL:-fedora}" != next ] || echo "Kernel track: kernel-next, a test kernel (not Fedora 45's own)"
 images=""
 if have bootc; then

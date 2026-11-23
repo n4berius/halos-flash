@@ -14,6 +14,12 @@ it promotes.
   It is on its own Podman network with no route out and no DNS. Requests through Caddy, the
   dashboard and bench work as before, and the downloads still use the network. Three new
   selftest lines check it: `network-out`, `network-config` and `network-port`. (#120, #157)
+- Each build now records which Fedora base image it used (by digest), every installed package
+  and the compilers. The image keeps this in `/usr/share/halogen/` (`release.env`,
+  `packages.txt`, `toolchains.txt`), the selftest shows the base, and each release attaches a
+  `build-info.txt` file for each edition. The base still follows Fedora's `45` tag, so weekly
+  rebuilds still get Fedora's fixes, but all build stages and the installer now use the same
+  base. (#121)
 - You can now turn the API key off, for a network that you trust: `sudo halogenctl api-key off`
   (asks first) and `sudo halogenctl api-key on`. The key stays on by default, and the selftest
   checks that Halogen refuses a request without the key while it is on. (#155)

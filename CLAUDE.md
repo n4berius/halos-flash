@@ -42,7 +42,7 @@ name, but allows saying halOS runs Halogen.
 | `Containerfile.installer`, `installer/` | The live installer image, Anaconda defaults (storage layout for custom partitioning), branding and boot menu. `installer/guided/`: the guided install's kickstart and `plan-install` (#42) |
 | `files/` | Copied into both editions: systemd units, `halosctl`, `halogenctl`, `halogen-enroll-tpm` (bash completion for all three in `usr/share/bash-completion/completions/`; `tests/completion.sh` fails when a tool gains a top-level command, or a `flash`/`model` subcommand, its completion doesn't offer; checkpoint folder names are written by halogen and its containers, so they are never passed to `compgen -W`, which expands `$(...)`: only plain names, matched by hand), `/usr/libexec/halogen/*` (`flash-checkpoint` and `model-pull` download your own checkpoints) |
 | `variants/npu`, `variants/no-npu` | Per-edition kernel arguments, Quadlet drop-ins, the allowed-options list and default `halogen.env` |
-| `scripts/` | `build.sh`, `build-iso.sh`, `package-iso.sh` (single-file release ISO), `release-info.sh`, `gen-options.py` (options from upstream `FLAGS.md`), `halogen-update.sh` (pins a new Halogen release), `size-report.sh`, `channels.sh` (which channel tags a release moves), `next-tag.sh` (the next release tag), `push-image.sh`, `sign-image.sh` (cosign signing), `kernel-next-update.sh` (moves kernel-next's pin to Fedora's newest plain build), `go-test.sh` (the Go tests of `src/caddy` without an image build; needs network; CI's `check` job in `build.yml` runs it and `tests/run.sh` once, and both edition builds wait for it, #123) |
+| `scripts/` | `build.sh`, `build-info.sh` (an image's build record, #121), `build-iso.sh`, `package-iso.sh` (single-file release ISO), `release-info.sh`, `gen-options.py` (options from upstream `FLAGS.md`), `halogen-update.sh` (pins a new Halogen release), `size-report.sh`, `channels.sh` (which channel tags a release moves), `next-tag.sh` (the next release tag), `push-image.sh`, `sign-image.sh` (cosign signing), `kernel-next-update.sh` (moves kernel-next's pin to Fedora's newest plain build), `go-test.sh` (the Go tests of `src/caddy` without an image build; needs network; CI's `check` job in `build.yml` runs it and `tests/run.sh` once, and both edition builds wait for it, #123) |
 | `docs/` | `CLI.md` (every command; update it with a command or option), `CLIENTS.md` (connecting apps and coding agents, and trusting the certificate per agent, from each project's docs and source) |
 | `CHANGELOG.md`, `ROADMAP.md` | What each release changed (PRs add to Unreleased), and the order of the work ahead |
 | `src/` | halOS's own source: `dashboard-nodump.c` (built in the Containerfile's dashboard stage), `authenticode-check.py` (kernel-next's Secure Boot check at build time) and `caddy/` (`main.go`, `go.mod`, `go.sum`: Caddy with the DNS providers, built in the caddy stage; Dependabot `gomod`) |
@@ -1021,7 +1021,7 @@ name, but allows saying halOS runs Halogen.
   `refresh.yml`, no credentials in its checkout) works the channels out then with main's
   `channels.sh` and copies the digest to the release's own tag and each channel tag with `skopeo
   copy --all --preserve-digests`, checking each digest and the signatures after; `publish` needs it
-  and uploads only `iso-*` artifacts. A run whose `publish` fails after `channels` has moved them
+  and uploads only `iso-*` and `info-*` (build record, #121) artifacts. A run whose `publish` fails after `channels` has moved them
   leaves a tag with no release (and `next-tag.sh` won't promote it). So a release whose install
   test fails moves no channel. The `info` job stops a release `channels.sh` gives no channel for
   (an alpha or rc of a version with a stable release: `next-tag.sh alpha` gives one until the next
@@ -1067,6 +1067,22 @@ name, but allows saying halOS runs Halogen.
   that check, the container's own: rootlessport connects from inside its namespace); Caddy logs the
   real one. On freyja still: Halogen's start, a bench (the path is
   rootlessport, not pasta's splice), and both editions.
+
+- Build record (#121): the base stays the moving tag `fedora-bootc:45` (Fedora's fixes, weekly
+  rebuild). `build.sh` resolves it once with `skopeo inspect` (a pinned `repo@sha256:` is checked
+  to answer with that digest; a tag+digest reference is asked for as `repo@digest`, since
+  containers/image refuses both), builds every stage `FROM` that digest, and labels the image
+  `io.github.n4berius.halos.base` and `org.opencontainers.image.revision`. release.env gains
+  `HALOS_BASE_IMAGE`, `HALOS_BASE_VERSION` (the base's version label) and `HALOS_SOURCE_COMMIT`
+  (`-modified` with a dirty tree); the image keeps `/usr/share/halogen/packages.txt` (`rpm -qa`,
+  written after the kernel swap) and `toolchains.txt` (each build stage's compilers). The
+  selftest prints a "Fedora base" line. `scripts/build-info.sh <image>` prints labels, release.env,
+  toolchains and packages (rpm inside the image for older images); `build.sh` writes it to
+  `output/build-info-<edition>-<kernel>.txt`, build.yml and refresh.yml keep it as an artifact
+  (refresh also puts the base lines in the run summary), and release.yml's image job runs main's
+  copy (`continue-on-error`: the tag is already pushed) and publishes
+  `halos-flash-<tag>-<edition>-build-info.txt`. `build-iso.sh` builds the installer on the OS
+  image's label, else the tag. Not reproducible: dnf still installs from Fedora's current repos.
 
 ## Lessons already learned
 

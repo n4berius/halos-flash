@@ -12,7 +12,8 @@ RUN set -eu; \
     [ "$(git rev-parse HEAD)" = "$BF16_TO_HGN_COMMIT" ]; \
     mkdir -p "$(realpath /root)"; \
     cargo build --release --locked; \
-    ./target/release/bf16-to-hgn --version
+    ./target/release/bf16-to-hgn --version; \
+    { echo "bf16-to-hgn stage:"; rpm -q cargo rust gcc-c++ | sed 's/^/  /'; } > /toolchain.txt
 
 # halogen-dashboard (Quaternion's live page of Halogen's load), built from its pinned commit: the
 # web page first (the binary embeds it), then the collector. Node and Rust stay in this stage.
@@ -55,7 +56,8 @@ RUN set -eu; \
     [ -z "$(LD_PRELOAD=/out/dashboard-nodump.so /usr/bin/true 2>&1)" ]; \
     chmod 0755 /out; \
     setpriv --reuid=65534 --regid=65534 --clear-groups cat /proc/self/environ > /dev/null; \
-    ! LD_PRELOAD=/out/dashboard-nodump.so setpriv --reuid=65534 --regid=65534 --clear-groups cat /proc/self/environ > /dev/null 2>&1
+    ! LD_PRELOAD=/out/dashboard-nodump.so setpriv --reuid=65534 --regid=65534 --clear-groups cat /proc/self/environ > /dev/null 2>&1; \
+    { echo "dashboard stage:"; rpm -q cargo rust gcc nodejs pnpm | sed 's/^/  /'; } > /toolchain.txt
 
 # Caddy, halOS's front door (halos-proxy.service): Halogen's API on 8731 and the dashboard on 8732,
 # over HTTP or HTTPS. Built from src/caddy, whose go.mod and go.sum pin every module by version and
@@ -94,7 +96,8 @@ RUN set -eu; \
     for m in github.com/caddyserver/caddy/v2 github.com/caddy-dns/cloudflare github.com/caddy-dns/porkbun \
       github.com/libdns/duckdns github.com/libdns/namecheap; do \
       ls "$lic/modules/$m/"* > /dev/null || { echo "no licence file for $m" >&2; exit 1; }; \
-    done
+    done; \
+    { echo "caddy stage:"; rpm -q golang | sed 's/^/  /'; echo "  $(go env GOVERSION)"; } > /toolchain.txt
 
 FROM ${FEDORA_BOOTC_IMAGE} AS os
 ARG HALOGEN_VARIANT
@@ -225,6 +228,10 @@ COPY --from=dashboard /out/licenses/ /usr/share/licenses/halogen-dashboard/
 COPY --from=dashboard /out/dashboard-nodump.so /usr/lib64/halos/dashboard-nodump.so
 COPY --from=caddy /out/caddy /usr/libexec/halogen/caddy
 COPY --from=caddy /out/licenses/ /usr/share/licenses/halos-caddy/
+# The compilers each build stage used, for the build record (scripts/build-info.sh, #121).
+COPY --from=bf16-to-hgn /toolchain.txt /tmp/toolchain-1.txt
+COPY --from=dashboard /toolchain.txt /tmp/toolchain-2.txt
+COPY --from=caddy /toolchain.txt /tmp/toolchain-3.txt
 
 # Upstream's clock script and terms, unmodified and checked by hash.
 RUN set -eu; \
@@ -241,6 +248,11 @@ RUN set -eu; \
 ARG HALOS_RELEASE
 ARG BF16_TO_HGN_COMMIT
 ARG HALOGEN_DASHBOARD_COMMIT
+# What this build was made from (#121): the Fedora base as build.sh resolved it (repository@digest,
+# used by every stage), the base's own version label and the halOS source commit.
+ARG FEDORA_BOOTC_IMAGE
+ARG HALOS_BASE_VERSION=unknown
+ARG HALOS_SOURCE_COMMIT=unknown
 RUN set -eu; \
     /usr/libexec/halogen/bf16-to-hgn --version; \
     /usr/libexec/halogen/halogen-dashboard --version; \
@@ -282,7 +294,15 @@ RUN set -eu; \
       echo "BF16_TO_HGN_COMMIT=${BF16_TO_HGN_COMMIT}"; \
       echo "HALOGEN_DASHBOARD_COMMIT=${HALOGEN_DASHBOARD_COMMIT}"; \
       echo "HALOS_KERNEL=${KERNEL_TRACK}"; \
-      echo "HALOS_KERNEL_BUILT=$(rpm -q --qf '%{BUILDTIME}' kernel-core)"; } > /usr/share/halogen/release.env; \
+      echo "HALOS_KERNEL_BUILT=$(rpm -q --qf '%{BUILDTIME}' kernel-core)"; \
+      echo "HALOS_BASE_IMAGE=${FEDORA_BOOTC_IMAGE}"; \
+      echo "HALOS_BASE_VERSION=${HALOS_BASE_VERSION}"; \
+      echo "HALOS_SOURCE_COMMIT=${HALOS_SOURCE_COMMIT}"; } > /usr/share/halogen/release.env; \
+    case "$FEDORA_BOOTC_IMAGE" in *@sha256:*) ;; *) echo "the base must come by digest (scripts/build.sh resolves it)" >&2; exit 1 ;; esac; \
+    cat /tmp/toolchain-1.txt /tmp/toolchain-2.txt /tmp/toolchain-3.txt > /usr/share/halogen/toolchains.txt; \
+    rm -f /tmp/toolchain-*.txt; \
+    rpm -qa --qf '%{NAME}-%{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort > /usr/share/halogen/packages.txt; \
+    grep -q '^kernel-core-' /usr/share/halogen/packages.txt; \
     echo 'halogen:524288:65536' >> /etc/subuid; \
     echo 'halogen:524288:65536' >> /etc/subgid; \
     firewall-offline-cmd --add-service=halogen; \
