@@ -168,6 +168,16 @@ name, but allows saying halOS runs Halogen.
   `flash-drafter.lock` for the shared list; `official` drops the line); `flash remove` drops it.
   With an explicit `CK_OVERLAY` path the entrypoint prints `overlay <path>`, not `draft head`; the
   selftest's `draft-head` reads Halogen's journal since `ExecMainStartTimestamp` (`--timestamp=unix`).
+  Also skipped unless `halos.info` has `own_precision=1` (`verify_dir` records `flash_serve
+  --resident-gib`'s third field: with a w4b-style checkpoint `CK_OVERLAY` selects the precision
+  sidecar; pulls from before need `flash verify` once). `verify_dir` skips only `*drafter*.hgn`
+  names listed as `drafter=` and never the `checkpoint=` file. For a checkpoint named
+  `qwen38-flash-next-*.hgn` with a drafter under Halogen's names beside it (Peonist's layout),
+  render-config says `none` (or the sidecar's path) outright where it names no draft head, since
+  the entrypoint's `drafter_head` would pick the folder's file over off or a sidecar (code
+  review). Pull removes links, hard links and non-files at `*drafter*.hgn` before its container
+  gets the folder and before hashing (security audit). Left for the owner (audit P1, from before
+  this): a failed pull leaves `halos.info` that its container could have forged.
   Whether the official head speeds up a fine-tune is unmeasured (bench on freyja).
 - `halosctl power [low-power|balanced|performance]` (#83) saves the firmware's ACPI platform profile in
   `/etc/halos/platform-profile` and sets it at once; `halos-platform-profile.service` (root, oneshot,

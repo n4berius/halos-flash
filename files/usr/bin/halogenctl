@@ -323,7 +323,9 @@ case "${1:-status}" in
         echo
         [ "$c" = "$served" ] || echo "You chose $c, but Halogen serves the official checkpoint: $(sed -n 2p <<< "$s")"
         drafted="$( { as_owner grep -E '^[A-Za-z0-9][A-Za-z0-9._-]*=[A-Za-z0-9][A-Za-z0-9._-]*$' "$configs/flash-drafter" 2> /dev/null || true; } | tr '\n' ' ')"
-        echo "Your checkpoints draft with Halogen's official draft head${drafted:+, except: ${drafted% }} (sudo halogenctl flash drafter <name>)."
+        if compgen -G "$models/flash/*/halos.info" > /dev/null; then
+          echo "Your checkpoints draft with Halogen's official draft head${drafted:+, except: ${drafted% }} (sudo halogenctl flash drafter <name>)."
+        fi
         echo "ACTIVE: the checkpoint Halogen serves. Switch with: sudo halogenctl flash use <name>"
         echo "Add one with: sudo halogenctl flash pull <Hugging Face repo>"
         ;;

@@ -96,7 +96,7 @@ echo "ok: a checkpoint folder holding links falls back to the official checkpoin
 export HALOGEN_DRAFTER_CHOICE_FILE="$work/flash-drafter"
 dh=/models/qwen38-flash-next-drafter-r2-ht4.hgn
 ovl() { "$render" --show 2>"$work/log" | sed -n 's/^HALOGEN_CK_OVERLAY=//p'; }
-mkdir -p "$work/models/flash/mine"; printf 'repo=a/b\ncheckpoint=model.hgn\ndrafter=their-drafter.hgn\nverified=pass\n' > "$work/models/flash/mine/halos.info"
+mkdir -p "$work/models/flash/mine"; printf 'repo=a/b\ncheckpoint=model.hgn\ndrafter=their-drafter.hgn\nown_precision=1\nverified=pass\n' > "$work/models/flash/mine/halos.info"
 printf 'HGN1rest' > "$work/models/flash/mine/model.hgn"; printf 'HGN1head' > "$work/models/qwen38-flash-next-drafter-r2-ht4.hgn"
 printf 'HGN1them' > "$work/models/flash/mine/their-drafter.hgn"
 echo mine > "$work/flash-checkpoint"; : > "$work/config"
@@ -119,6 +119,19 @@ printf 'mine=../x\nmine=off\n' > "$work/flash-drafter"
 [ -z "$(ovl)" ] || { echo "off didn't keep the built-in head" >&2; exit 1; }
 printf 'notmine=off\n' > "$work/flash-drafter"
 [ "$(ovl)" = "$dh" ] || { echo "another checkpoint's line was read" >&2; exit 1; }
+# Only for a checkpoint that carries its own precision: with a w4b-style one the setting selects
+# the precision sidecar. Unknown (a pull from before this) waits for flash verify.
+for p in 0 unknown; do
+  sed -i "s/^own_precision=.*/own_precision=$p/" "$work/models/flash/mine/halos.info"
+  { [ -z "$(ovl)" ] && grep -q 'carries its own precision' "$work/log"; } || { echo "a draft head was named with own_precision=$p" >&2; exit 1; }
+done
+sed -i '/^own_precision=/d' "$work/models/flash/mine/halos.info"
+[ -z "$(ovl)" ] || { echo "a draft head was named without own_precision" >&2; exit 1; }
+sed -i 's/^verified=pass$/own_precision=1\nverified=pass/' "$work/models/flash/mine/halos.info"
+# A drafter= line naming the checkpoint itself, or a name a draft head can't have, is never used.
+printf 'mine=model.hgn\n' > "$work/flash-drafter"; printf 'drafter=model.hgn\n' >> "$work/models/flash/mine/halos.info"
+[ "$(ovl)" = "$dh" ] || { echo "the checkpoint itself was named as its draft head" >&2; exit 1; }
+printf 'notmine=off\n' > "$work/flash-drafter"
 echo official > "$work/flash-checkpoint"
 [ -z "$(ovl)" ] || { echo "the official checkpoint got a draft head path (its entrypoint finds it)" >&2; exit 1; }
 echo mine > "$work/flash-checkpoint"
@@ -134,7 +147,19 @@ rm "$work/models/qwen38-flash-next-drafter-r2-ht4.hgn"; ln -s "$work/models/flas
 { [ -z "$(ovl)" ] && grep -q "isn't downloaded" "$work/log"; } || { echo "a link at the draft head's name was used" >&2; exit 1; }
 rm "$work/models/qwen38-flash-next-drafter-r2-ht4.hgn"
 [ -z "$(ovl)" ] || { echo "a missing draft head was named" >&2; exit 1; }
-rm -f "$work/flash-drafter"; rm -rf "$work/models/flash/mine"
+# A checkpoint in Peonist's layout (named qwen38-flash-next-*.hgn, with a draft head file under
+# Halogen's own name beside it): Halogen's entrypoint would pick that file by itself, so off says
+# none and a quality sidecar is named outright.
+mkdir -p "$work/models/flash/peo"; printf 'repo=a/b\ncheckpoint=qwen38-flash-next-v2-ft.hgn\ndrafter=qwen38-flash-next-drafter-r2.hgn\nown_precision=1\nverified=pass\n' > "$work/models/flash/peo/halos.info"
+printf 'HGN1' > "$work/models/flash/peo/qwen38-flash-next-v2-ft.hgn"; printf 'HGN1' > "$work/models/flash/peo/qwen38-flash-next-drafter-r2.hgn"
+printf 'HGN1head' > "$work/models/qwen38-flash-next-drafter-r2-ht4.hgn"
+echo peo > "$work/flash-checkpoint"; : > "$work/config"
+[ "$(ovl)" = "$dh" ] || { echo "Peonist's layout didn't get the official draft head" >&2; exit 1; }
+printf 'peo=off\n' > "$work/flash-drafter"
+[ "$(ovl)" = none ] || { echo "off left Halogen to pick the folder's draft head" >&2; exit 1; }
+: > "$work/flash-drafter"; printf 'x' > "$work/models/flash/peo/qwen38-flash-next-v2-ft.overlay.hgn"
+[ "$(ovl)" = /models/flash/peo/qwen38-flash-next-v2-ft.overlay.hgn ] || { echo "the sidecar wasn't named, so the folder's draft head would replace it" >&2; exit 1; }
+rm -f "$work/flash-drafter" "$work/models/qwen38-flash-next-drafter-r2-ht4.hgn"; rm -rf "$work/models/flash/mine" "$work/models/flash/peo"
 echo "ok: your own checkpoint drafts with the official draft head by default, with its repository's when chosen, and never over a sidecar or HALOGEN_CK_OVERLAY=none"
 
 

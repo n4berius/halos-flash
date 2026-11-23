@@ -504,7 +504,7 @@ if [ "${running:-0}" = 1 ] && have journalctl && have systemctl; then
   since="$(run systemctl --user --machine=halogen@.host show --timestamp=unix -p ExecMainStartTimestamp --value halogen.service | head -n 1)"
   dh=""
   if [[ "$since" =~ ^@[0-9]+$ ]]; then
-    dh="$(run journalctl --no-pager -o cat --since "$since" --grep '^halogen: (draft head|overlay /models/)' _SYSTEMD_USER_UNIT=halogen.service \
+    dh="$(run journalctl -q --no-pager -o cat --since "$since" --grep '^halogen: (draft head|overlay /models/)' _UID=970 _SYSTEMD_USER_UNIT=halogen.service \
       | tail -n 1 | tr -cd '[:print:]' | cut -c1-200)"
   fi
   case "$dh" in
@@ -513,7 +513,7 @@ if [ "${running:-0}" = 1 ] && have journalctl && have systemctl; then
     "halogen: overlay /models/flash/"*)
       say INFO draft-head "Halogen drafts with ${dh#halogen: overlay /models/flash/}, a draft head shipped with your checkpoint (sudo halogenctl flash drafter <name> official goes back)" ;;
     *"is not in"*)
-      say WARN draft-head "Halogen didn't find the official draft head beside the checkpoint, so the checkpoint's own drafts (slower): sudo halogenctl restart fetches it" ;;
+      if [ -n "$flash" ] && [ "$flash" != official ]; then say INFO draft-head "${dh#halogen: }"; else say WARN draft-head "Halogen didn't find the official draft head beside the checkpoint, so the checkpoint's own drafts (slower): sudo halogenctl restart fetches it"; fi ;;
     "") say INFO draft-head "the checkpoint's built-in draft head (Halogen names no draft head file at its start: sudo halogenctl config says why)" ;;
     *) say INFO draft-head "${dh#halogen: }" ;;
   esac

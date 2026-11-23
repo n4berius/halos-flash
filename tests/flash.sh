@@ -103,6 +103,16 @@ grep -qx "hf $commit model.hgn qwen38-flash-next-vision.hgn tokenizer/chat_templ
 grep -qx "hf $commit qwen38-flash-next-drafter-r2.hgn" "$work/hf.log" || fail "the repository's draft head wasn't fetched: $(cat "$work/hf.log")"
 { [ "$(cat "$d/qwen38-flash-next-drafter-r2.hgn")" = drafter ] && [ "$(info mine drafter)" = qwen38-flash-next-drafter-r2.hgn ]; } || fail "the draft head wasn't kept and listed"
 if grep -q drafter "$work/verify.log"; then fail "verify was given a draft head file"; fi
+[ "$(info mine own_precision)" = 1 ] || fail "whether it carries its own precision wasn't recorded"
+# A draft head hard-linked to another file (the official one, say) goes before the container gets
+# the folder; a FIFO at its name is removed, never hashed (which would hang).
+printf 'official' > "$work/models/qwen38-flash-next-drafter-r2-ht4.hgn"
+rm "$d/qwen38-flash-next-drafter-r2.hgn"; ln "$work/models/qwen38-flash-next-drafter-r2-ht4.hgn" "$d/qwen38-flash-next-drafter-r2.hgn"
+mkfifo "$d/old-drafter.hgn"
+timeout 60 "$tool" pull someone/My-Flash-HGN --as mine > "$work/out" 2>&1 || fail "the pull with a hard-linked draft head failed"
+{ [ "$(stat -c %h "$work/models/qwen38-flash-next-drafter-r2-ht4.hgn")" = 1 ] && [ "$(cat "$work/models/qwen38-flash-next-drafter-r2-ht4.hgn")" = official ] &&
+  [ ! -e "$d/old-drafter.hgn" ] && [ "$(cat "$d/qwen38-flash-next-drafter-r2.hgn")" = drafter ]; } || fail "a hard link or FIFO at a draft head's name survived"
+rm "$work/models/qwen38-flash-next-drafter-r2-ht4.hgn"
 grep -q 'sudo halogenctl flash drafter mine qwen38-flash-next-drafter-r2.hgn' "$work/out" || fail "the pull doesn't say how to use its draft head"
 # A copy of the official draft head is copied (its own file, no link), not downloaded.
 printf 'drafter' > "$work/models/qwen38-flash-next-drafter-r2-ht4.hgn"
