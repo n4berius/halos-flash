@@ -24,6 +24,7 @@ inputs() { # $1: the base image by digest
   local sums
   sums="$(find Containerfile.helpers src/caddy src/dashboard-nodump.c -type f -print0 | LC_ALL=C sort -z \
     | xargs -0 sha256sum | sha256sum)"
+  echo "image=$FEDORA_BOOTC_IMAGE"
   echo "base=$1"
   echo "bf16_to_hgn=$BF16_TO_HGN_COMMIT"
   echo "halogen_dashboard=$HALOGEN_DASHBOARD_COMMIT"
@@ -64,7 +65,7 @@ mkdir -p "$DIR"
 
 # The base by digest, so the helpers and every image built from them share one base even if the
 # tag moves during the run.
-digest="$(skopeo inspect --format '{{.Digest}}' "docker://$FEDORA_BOOTC_IMAGE")"
+digest="$(skopeo inspect --retry-times 3 --format '{{.Digest}}' "docker://$FEDORA_BOOTC_IMAGE")"
 case "$digest" in
   sha256:*) [ "${#digest}" = 71 ] || { echo "bad digest: $digest" >&2; exit 1; } ;;
   *) echo "bad digest: $digest" >&2; exit 1 ;;

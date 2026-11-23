@@ -34,7 +34,9 @@ esac
 
 # The helper programs, and the base they were built on: the OS image uses that same base by
 # digest, so their libraries match (Containerfile.helpers).
-if [ -z "${HALOS_HELPERS:-}" ]; then
+if [ -n "${HALOS_HELPERS:-}" ]; then
+  HALOS_HELPERS="$(cd "$OLDPWD" && realpath -e "$HALOS_HELPERS")"
+else
   HALOS_HELPERS="$(mktemp -d)"
   trap 'rm -rf "$HALOS_HELPERS"' EXIT
   scripts/build-helpers.sh "$HALOS_HELPERS"

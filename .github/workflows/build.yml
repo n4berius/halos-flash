@@ -80,13 +80,19 @@ jobs:
           name: helpers
           path: ${{ runner.temp }}/helpers.tar
           if-no-files-found: error
-          retention-days: 1
+          # A re-run of the run's failed jobs can still find it a few days later.
+          retention-days: 3
+          overwrite: true
 
   build:
     # main's ruleset requires "build (npu)" and "build (no-npu)": the Fedora-kernel jobs keep
     # those names; the test-kernel jobs are "build (<edition>, kernel-next)" and not required.
     name: build (${{ matrix.variant }}${{ matrix.kernel == 'next' && ', kernel-next' || '' }})
     needs: [check, helpers]
+    # Runs even when a job it needs failed, and then fails itself: a skipped job counts as passed,
+    # and only check and the build jobs are required checks, so a failed helpers build must fail
+    # "build (npu)" as it did when the helpers were built inside it.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     # The signing key lives in the "signing" environment, which only main and v* tags may use
     # (#46). Pull requests run without it, since they never sign.
@@ -108,6 +114,13 @@ jobs:
       # The test-kernel image is tagged kernel-next (scripts/image-ref.sh), the tag it is pushed as.
       IMAGE_TAG: ${{ matrix.kernel == 'next' && 'kernel-next' || '' }}
     steps:
+      - name: The checks and the helpers passed
+        env:
+          CHECK: ${{ needs.check.result }}
+          HELPERS: ${{ needs.helpers.result }}
+        run: |
+          [ "$CHECK" = success ] && [ "$HELPERS" = success ] \
+            || { echo "check: $CHECK, helpers: $HELPERS" >&2; exit 1; }
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false

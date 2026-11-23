@@ -27,7 +27,9 @@ export PATH="$t/bin:$PATH" FAKE_LOG="$t/podman.log"
 base="${FEDORA_BOOTC_IMAGE%:*}@$digest"
 
 scripts/build-helpers.sh "$t/h" > "$t/out"
-grep -qx "base=$base" "$t/h/inputs" || { echo "inputs don't name the base by digest" >&2; exit 1; }
+if ! grep -qx "image=$FEDORA_BOOTC_IMAGE" "$t/h/inputs" || ! grep -qx "base=$base" "$t/h/inputs"; then
+  echo "inputs don't name the base by tag and digest" >&2; exit 1
+fi
 grep -qx "FEDORA_BOOTC_IMAGE=$base" "$t/podman.log" || { echo "the helpers aren't built on the base by digest" >&2; exit 1; }
 if ! grep -qx "BF16_TO_HGN_COMMIT=$BF16_TO_HGN_COMMIT" "$t/podman.log" || ! grep -qx "Containerfile.helpers" "$t/podman.log"; then
   echo "podman wasn't given the pins or Containerfile.helpers" >&2; exit 1
@@ -46,4 +48,5 @@ reset; sed -i "s|^base=.*|base=${FEDORA_BOOTC_IMAGE%:*}@sha256:1|" "$t/c/inputs"
 reset; rm "$t/c/tree/caddy/caddy"; refused "no Caddy"
 reset; rm "$t/c/tree/dashboard/dashboard-nodump.so"; ln -s /bin/true "$t/c/tree/dashboard/dashboard-nodump.so"; refused "a link"
 reset; rm "$t/c/inputs"; refused "no inputs file"
+reset; sed -i "s|^image=.*|image=${FEDORA_BOOTC_IMAGE%:*}:other|" "$t/c/inputs"; refused "another base tag"
 echo "ok: the helpers record their inputs, and build.sh's check refuses other ones"
