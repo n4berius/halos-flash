@@ -10,6 +10,14 @@ it promotes.
 
 ## Unreleased
 
+- Your own Flash checkpoints now draft with Halogen's official draft head
+  (`qwen38-flash-next-drafter-r2-ht4.hgn`), as the official checkpoint does. Before, Halogen used
+  it only beside the official checkpoint, so yours drafted with their built-in head. If a
+  checkpoint's repository supplies its own draft head file, `flash pull` now downloads and checks
+  it, and `sudo halogenctl flash drafter <name> <file>` uses it; `off` goes back to the built-in
+  head. Answers stay the same, only the speed changes. The selftest's new `draft-head` line says
+  which one Halogen loaded. (#PR)
+
 - Each build now records which Fedora base image it used (by digest), every installed package
   and the compilers. The image keeps this in `/usr/share/halogen/` (`release.env`,
   `packages.txt`, `toolchains.txt`), the selftest shows the base, and each release attaches a

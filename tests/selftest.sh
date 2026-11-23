@@ -38,7 +38,7 @@ f getenforce 'echo "${FAKE_SELINUX:-Enforcing}"'
 # fail2ban: both jails loaded and two addresses shut out, unless FAKE_F2B says otherwise.
 f fail2ban-client 'case "$1" in status) printf "Status\n|- Number of jail:\t2\n\`- Jail list:\t%s\n" "${FAKE_F2B:-halos-api, sshd}" ;;
   banned) echo "[{\"sshd\": [\"203.0.113.9\", \"2001:db8::7\"]}, {\"halos-api\": []}]" ;; esac'
-f journalctl 'case "$*" in *--disk-usage*) echo "Archived and active journals take up 1.2G in the file system." ;; *) cat "$FAKE/kernel.log" 2>/dev/null ;; esac; true'
+f journalctl 'case "$*" in *--grep*) echo "journalctl $*" >> "$FAKE/journalctl.log"; printf "%s\n" "${FAKE_DRAFT-halogen: draft head qwen38-flash-next-drafter-r2-ht4.hgn (HALOGEN_CK_OVERLAY=none for the checkpoint'"'"'s own)}" ;; *--disk-usage*) echo "Archived and active journals take up 1.2G in the file system." ;; *) cat "$FAKE/kernel.log" 2>/dev/null ;; esac; true'
 # firewalld's running rules: strict about DNAT'd ports unless FAKE_FW_LAX is set.
 f nft '[ -n "${FAKE_FW_LAX:-}" ] || { [ "$*" = "list chain inet firewalld filter_INPUT_dnat" ] && echo "    reject with icmpx admin-prohibited"; }; true'
 # auditd's loaded rules: halOS's watches unless FAKE_AUDIT says otherwise.
@@ -64,6 +64,7 @@ f systemctl 'case "$*" in *--failed*) cat "$FAKE/failed" 2>/dev/null ;; *"show -
   *"IPAddressAllow --value halos-dashboard"*) echo "127.0.0.0/8 ::1/128" ;; *"MainPID --value halos-dashboard"*) echo "${FAKE_DASH_PID-4242}" ;; *"MainPID --value user@"*) echo "${FAKE_MGR_PID-0}" ;;
   *"--machine"*"cat halogen.service"*) exit 1 ;;  # that route failed on freyja: the selftest must not use it
   *"cat halogen.service"*) echo "${FAKE_UNIT-ExecStart=podman run -v /srv/logs/halogen:/records x}" ;;
+  *ExecMainStartTimestamp*) echo "${FAKE_SINCE-@1700000000}" ;;
   *halogen-fetch*) echo "${FAKE_FETCH:-inactive}" ;; *) echo "${FAKE_STATE:-active}" ;; esac'
 f fabric-clock 'exit 0'
 f ssh-unlock 'case "$1" in verify) exit "${FAKE_VERIFY:-0}" ;; *) echo "${FAKE_SSHU:-on 2}" ;; esac'
@@ -464,6 +465,24 @@ ok "Halogen waiting for the fetch, or stopping, is a warning; a failed fetch or 
 # The Flash checkpoint: named when it is your own, with the way back when Halogen isn't running.
 "$selftest" > "$work/out" 2>&1 || true
 expect '^INFO flash: serving the official Flash checkpoint'
+# The draft head, as Halogen's start since the container's own start names it.
+expect '^PASS draft-head: Halogen drafts with the official draft head'
+grep -q -- '--since @1700000000 ' "$work/journalctl.log" || { echo "the draft head line wasn't read from this start only" >&2; exit 1; }
+FAKE_DRAFT='halogen: overlay /models/qwen38-flash-next-drafter-r2-ht4.hgn' "$selftest" > "$work/out" 2>&1 || true
+expect '^PASS draft-head: '
+FAKE_DRAFT='halogen: overlay /models/flash/mine/thirdparty-drafter.hgn' "$selftest" > "$work/out" 2>&1 || true
+expect '^INFO draft-head: Halogen drafts with mine/thirdparty-drafter.hgn, a draft head shipped with your checkpoint'
+FAKE_DRAFT="halogen: draft head: the checkpoint's own (qwen38-flash-next-drafter-r2-ht4.hgn is not in /models; HALOGEN_DOWNLOAD fetches it)" "$selftest" > "$work/out" 2>&1 || true
+expect "^WARN draft-head: Halogen didn't find the official draft head"
+FAKE_DRAFT='' "$selftest" > "$work/out" 2>&1 || true
+expect "^INFO draft-head: the checkpoint's built-in draft head"
+FAKE_SINCE='' "$selftest" > "$work/out" 2>&1 || true
+expect "^INFO draft-head: the checkpoint's built-in draft head"
+FAKE_DRAFT=$'halogen: draft head \033]0;x\007odd' "$selftest" > "$work/out" 2>&1 || true
+if grep -q $'\033' "$work/out"; then echo "the draft head line printed a control character" >&2; exit 1; fi
+FAKE_STATE=failed "$selftest" > "$work/out" 2>&1 || true
+if grep -q 'draft-head' "$work/out"; then echo "a draft head line while Halogen doesn't run" >&2; exit 1; fi
+ok "the draft head line reads Halogen's start, and warns when the official one is missing"
 mkdir -p "$work/models/flash/mine"; printf 'repo=someone/Mine-HGN\n' > "$work/models/flash/mine/halos.info"
 echo mine > "$work/configs/flash-checkpoint"
 export FAKE_RENDER=HALOGEN_CHECKPOINT=/models/flash/mine/model.hgn

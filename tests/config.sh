@@ -90,6 +90,53 @@ ln -s /etc/hostname "$work/models/flash/linked/model.hgn"; echo linked > "$work/
 grep -q 'holds links' "$work/log" || exit 1
 echo "ok: a checkpoint folder holding links falls back to the official checkpoint"
 
+# The draft head for your own checkpoint: the official one by default (while the file is there, no
+# link, starting as a draft head does); off keeps the built-in head; a file its pull listed and
+# checked when chosen; never over a quality sidecar, a converted GGUF or HALOGEN_CK_OVERLAY=none.
+export HALOGEN_DRAFTER_CHOICE_FILE="$work/flash-drafter"
+dh=/models/qwen38-flash-next-drafter-r2-ht4.hgn
+ovl() { "$render" --show 2>"$work/log" | sed -n 's/^HALOGEN_CK_OVERLAY=//p'; }
+mkdir -p "$work/models/flash/mine"; printf 'repo=a/b\ncheckpoint=model.hgn\ndrafter=their-drafter.hgn\nverified=pass\n' > "$work/models/flash/mine/halos.info"
+printf 'HGN1rest' > "$work/models/flash/mine/model.hgn"; printf 'HGN1head' > "$work/models/qwen38-flash-next-drafter-r2-ht4.hgn"
+printf 'HGN1them' > "$work/models/flash/mine/their-drafter.hgn"
+echo mine > "$work/flash-checkpoint"; : > "$work/config"
+"$render" --show 2> /dev/null > "$work/out"
+{ grep -qx "HALOGEN_CK_OVERLAY=$dh" "$work/out" && grep -qx HALOGEN_MTP_GATE_RULE=cost "$work/out" && grep -qx HALOGEN_SAMPLED_GATE=cost "$work/out"; } \
+  || { cat "$work/out" >&2; echo "the official draft head or its rules were not the default" >&2; exit 1; }
+echo 'HALOGEN_SAMPLED_GATE=0.9,0.95' > "$work/config"
+"$render" --show 2> /dev/null | grep -qx 'HALOGEN_SAMPLED_GATE=0.9,0.95' || { echo "the user's HALOGEN_SAMPLED_GATE was replaced" >&2; exit 1; }
+echo 'HALOGEN_CK_OVERLAY=none' > "$work/config"
+{ [ "$(ovl)" = none ] && grep -q 'which wins' "$work/log"; } || { echo "HALOGEN_CK_OVERLAY=none didn't win" >&2; exit 1; }
+: > "$work/config"
+printf 'other=off\nmine=their-drafter.hgn\n' > "$work/flash-drafter"
+[ "$(ovl)" = /models/flash/mine/their-drafter.hgn ] || { echo "the checkpoint's own draft head file wasn't used when chosen" >&2; exit 1; }
+printf 'mine=other.hgn\n' > "$work/flash-drafter"; printf 'HGN1x' > "$work/models/flash/mine/other.hgn"
+{ [ "$(ovl)" = "$dh" ] && grep -q "isn't one from its pull" "$work/log"; } || { echo "a file the pull didn't list was used" >&2; exit 1; }
+printf 'mine=their-drafter.hgn\n' > "$work/flash-drafter"; printf 'XXXXthem' > "$work/models/flash/mine/their-drafter.hgn"
+[ "$(ovl)" = "$dh" ] || { echo "a listed file that isn't a draft head was used" >&2; exit 1; }
+printf 'HGN1them' > "$work/models/flash/mine/their-drafter.hgn"
+printf 'mine=../x\nmine=off\n' > "$work/flash-drafter"
+[ -z "$(ovl)" ] || { echo "off didn't keep the built-in head" >&2; exit 1; }
+printf 'notmine=off\n' > "$work/flash-drafter"
+[ "$(ovl)" = "$dh" ] || { echo "another checkpoint's line was read" >&2; exit 1; }
+echo official > "$work/flash-checkpoint"
+[ -z "$(ovl)" ] || { echo "the official checkpoint got a draft head path (its entrypoint finds it)" >&2; exit 1; }
+echo mine > "$work/flash-checkpoint"
+touch "$work/models/flash/mine/model.overlay.hgn"
+{ [ -z "$(ovl)" ] && grep -q 'quality sidecar' "$work/log"; } || { echo "a draft head replaced a quality sidecar" >&2; exit 1; }
+rm "$work/models/flash/mine/model.overlay.hgn"
+{ printf 'HGN1'; head -c 46 /dev/zero; printf 'qwen-gguf'; head -c 60 /dev/zero; } > "$work/models/flash/mine/model.hgn"
+{ [ -z "$(ovl)" ] && grep -q "converted GGUF" "$work/log"; } || { echo "a draft head was named for a converted GGUF" >&2; exit 1; }
+printf 'HGN1rest' > "$work/models/flash/mine/model.hgn"
+printf 'XXXXhead' > "$work/models/qwen38-flash-next-drafter-r2-ht4.hgn"
+[ -z "$(ovl)" ] || { echo "an official file that isn't a draft head was named" >&2; exit 1; }
+rm "$work/models/qwen38-flash-next-drafter-r2-ht4.hgn"; ln -s "$work/models/flash/mine/their-drafter.hgn" "$work/models/qwen38-flash-next-drafter-r2-ht4.hgn"
+{ [ -z "$(ovl)" ] && grep -q "isn't downloaded" "$work/log"; } || { echo "a link at the draft head's name was used" >&2; exit 1; }
+rm "$work/models/qwen38-flash-next-drafter-r2-ht4.hgn"
+[ -z "$(ovl)" ] || { echo "a missing draft head was named" >&2; exit 1; }
+rm -f "$work/flash-drafter"; rm -rf "$work/models/flash/mine"
+echo "ok: your own checkpoint drafts with the official draft head by default, with its repository's when chosen, and never over a sidecar or HALOGEN_CK_OVERLAY=none"
+
 
 # Request records (#107): off unless halogenctl records on put its mount in place; then counts only
 # unless HALOGEN_RECORD_TEXT says otherwise, and a value Halogen would refuse never reaches it.

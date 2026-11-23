@@ -322,6 +322,8 @@ case "${1:-status}" in
         if [ -n "$checks" ]; then echo; echo "Quality against the official checkpoint (sudo halogenctl flash check <name>):"; printf '%s' "$checks"; fi
         echo
         [ "$c" = "$served" ] || echo "You chose $c, but Halogen serves the official checkpoint: $(sed -n 2p <<< "$s")"
+        drafted="$( { as_owner grep -E '^[A-Za-z0-9][A-Za-z0-9._-]*=[A-Za-z0-9][A-Za-z0-9._-]*$' "$configs/flash-drafter" 2> /dev/null || true; } | tr '\n' ' ')"
+        echo "Your checkpoints draft with Halogen's official draft head${drafted:+, except: ${drafted% }} (sudo halogenctl flash drafter <name>)."
         echo "ACTIVE: the checkpoint Halogen serves. Switch with: sudo halogenctl flash use <name>"
         echo "Add one with: sudo halogenctl flash pull <Hugging Face repo>"
         ;;
@@ -346,6 +348,41 @@ case "${1:-status}" in
         start_halogen restart
         echo "Switched to $name. Halogen is starting; follow it with: sudo halogenctl logs"
         [ "$name" = official ] || echo "If it doesn't start, go back with: sudo halogenctl flash use official"
+        ;;
+      drafter)
+        # Which draft head your own checkpoint drafts with: Halogen's official one (0.20.7's
+        # qwen38-flash-next-drafter-r2-ht4.hgn, the default), off (the checkpoint's built-in head), or
+        # a draft head file its repository ships. Answers stay the same; only the speed changes.
+        name="${3:-}"; want="${4:-}"
+        if ! valid "$name" || [ "$name" = official ] || { [ -n "$want" ] && ! valid "$want"; }; then
+          echo "usage: halogenctl flash drafter <name> [official|off|<file>] [--yes] (the official checkpoint always uses the official one)" >&2; exit 2
+        fi
+        [ -n "$(flash_info "$name" repo)" ] || { echo "No checkpoint called $name. See: sudo halogenctl flash list" >&2; exit 1; }
+        # shellcheck disable=SC2016 # awk expands them.
+        now="$( { as_owner awk -F= -v n="$name" '$1 == n { v = substr($0, length($1) + 2) } END { print v }' "$configs/flash-drafter" 2> /dev/null || true; } | tr -cd 'A-Za-z0-9._-')"
+        now="${now:-official}"
+        own="$( { as_owner sed -n 's/^drafter=//p' "$models/flash/$name/halos.info" 2> /dev/null || true; } | tr -cd 'A-Za-z0-9._\n-' | tr '\n' ' ')"
+        if [ -z "$want" ]; then
+          case "$now" in
+            official) echo "$name drafts with Halogen's official draft head (the default)." ;;
+            off) echo "$name drafts with its own built-in draft head." ;;
+            *) echo "$name drafts with $now, a draft head file from its repository." ;;
+          esac
+          echo "Choices: official, off${own:+, or one shipped with it: ${own% }}. Change it: sudo halogenctl flash drafter $name <choice>"
+          exit 0
+        fi
+        if [ "$want" = "$now" ]; then echo "$name already drafts with $want."; exit 0; fi
+        if [ "$name" = "$(chosen_flash)" ]; then
+          restart_now "Switch $name's draft head to $want?"
+          gpu_lock
+          as_halogen /usr/libexec/halogen/flash-checkpoint drafter "$name" "$want" || { echo "Nothing changed." >&2; exit 1; }
+          start_halogen restart
+          echo "$name now drafts with $want. Halogen is starting; check it with: sudo halogenctl logs 300 | grep -e 'draft head' -e overlay"
+        else
+          as_halogen /usr/libexec/halogen/flash-checkpoint drafter "$name" "$want" || { echo "Nothing changed." >&2; exit 1; }
+          echo "$name drafts with $want from its next start (sudo halogenctl flash use $name)."
+        fi
+        echo "Answers stay the same; compare the speed with sudo halogenctl bench."
         ;;
       convert)
         # Full-precision (BF16) Qwen3.8 Flash Next weights to a checkpoint, on this machine. The
@@ -423,7 +460,7 @@ case "${1:-status}" in
         # were asked (#119).
         as_halogen /usr/libexec/halogen/flash-checkpoint remove "$name" || exit 1
         ;;
-      *) echo "usage: halogenctl flash pull <hf-repo> [--revision <rev>] [--as <name>] [--file <checkpoint.hgn>] | convert <hf-repo> [--revision <rev>] [--as <name>] [--threads <n>] [--keep-source] [--yes] | convert-logs [lines] | convert-stop [<name>] [--yes] | list | use <name>|official [--yes] | verify <name> | check <name> [--yes] | remove <name> [--yes]" >&2; exit 2 ;;
+      *) echo "usage: halogenctl flash pull <hf-repo> [--revision <rev>] [--as <name>] [--file <checkpoint.hgn>] | convert <hf-repo> [--revision <rev>] [--as <name>] [--threads <n>] [--keep-source] [--yes] | convert-logs [lines] | convert-stop [<name>] [--yes] | list | use <name>|official [--yes] | drafter <name> [official|off|<file>] [--yes] | verify <name> | check <name> [--yes] | remove <name> [--yes]" >&2; exit 2 ;;
     esac
     ;;
   model)
@@ -781,5 +818,5 @@ case "${1:-status}" in
     [ "$(id -u)" = 0 ] || { echo "Run it with sudo: sudo halogenctl bench ${2:-}" >&2; exit 1; }
     halogen_run /usr/libexec/halogen/bench ${2:+"$2"}
     ;;
-  *) echo "usage: halogenctl status|start|stop|restart|logs [lines]|fetch-logs [lines]|doctor|selftest|bench [--quick]|config|options [--new]|api-key [status|on|off]|hf-token [--remove]|records [on|off|stats|prune]|cache [on|off|clear]|model pull|list|remove|flash pull|convert|convert-logs|convert-stop|list|use|verify|check|remove" >&2; exit 2 ;;
+  *) echo "usage: halogenctl status|start|stop|restart|logs [lines]|fetch-logs [lines]|doctor|selftest|bench [--quick]|config|options [--new]|api-key [status|on|off]|hf-token [--remove]|records [on|off|stats|prune]|cache [on|off|clear]|model pull|list|remove|flash pull|convert|convert-logs|convert-stop|list|use|drafter|verify|check|remove" >&2; exit 2 ;;
 esac
