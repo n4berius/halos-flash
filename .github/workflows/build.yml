@@ -41,11 +41,52 @@ jobs:
       - name: go.mod and go.sum are unchanged
         run: git diff --exit-code -- src/caddy
 
+  # bf16-to-hgn, halogen-dashboard and Caddy (Containerfile.helpers), built once on the base by
+  # digest and handed to the four image jobs as an artifact of this run only (#122): they took
+  # each job the same time again, and nothing is cached between runs, so a pull request can't
+  # leave anything for main or a release to pick up. Runs beside check, not after it.
+  helpers:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      build: ${{ steps.changes.outputs.build }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: See whether the image changed
+        id: changes
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE" 2>/dev/null \
+             || git diff --name-only "$BASE" HEAD | scripts/needs-build.sh; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            echo "Only docs or repository files changed, so the build is skipped."
+          fi
+      - name: Build the helpers
+        if: steps.changes.outputs.build == 'true'
+        # A tar keeps the programs' modes, which the artifact's zip would drop.
+        run: |
+          scripts/build-helpers.sh "$RUNNER_TEMP/helpers"
+          tar -C "$RUNNER_TEMP" -cf "$RUNNER_TEMP/helpers.tar" helpers
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: steps.changes.outputs.build == 'true'
+        with:
+          name: helpers
+          path: ${{ runner.temp }}/helpers.tar
+          if-no-files-found: error
+          retention-days: 1
+
   build:
     # main's ruleset requires "build (npu)" and "build (no-npu)": the Fedora-kernel jobs keep
     # those names; the test-kernel jobs are "build (<edition>, kernel-next)" and not required.
     name: build (${{ matrix.variant }}${{ matrix.kernel == 'next' && ', kernel-next' || '' }})
-    needs: check
+    needs: [check, helpers]
     runs-on: ubuntu-24.04
     # The signing key lives in the "signing" environment, which only main and v* tags may use
     # (#46). Pull requests run without it, since they never sign.
@@ -70,25 +111,19 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          fetch-depth: 0
-      - name: See whether the image changed
-        id: changes
-        env:
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: |
-          if [ -z "$BASE" ] || ! git cat-file -e "$BASE" 2>/dev/null \
-             || git diff --name-only "$BASE" HEAD | scripts/needs-build.sh; then
-            echo "build=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "build=false" >> "$GITHUB_OUTPUT"
-            echo "Only docs or repository files changed, so the build is skipped."
-          fi
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: needs.helpers.outputs.build == 'true'
+        with:
+          name: helpers
+          path: ${{ runner.temp }}
       - name: Build
-        if: steps.changes.outputs.build == 'true'
-        run: scripts/build.sh
+        if: needs.helpers.outputs.build == 'true'
+        run: |
+          tar -C "$RUNNER_TEMP" -xf "$RUNNER_TEMP/helpers.tar"
+          HALOS_HELPERS="$RUNNER_TEMP/helpers" scripts/build.sh
       - name: Push
         # Only main publishes edge; its signature names main (scripts/sign-image.sh).
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && steps.changes.outputs.build == 'true'
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && needs.helpers.outputs.build == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -100,7 +135,7 @@ jobs:
           podman push "$(scripts/image-ref.sh)" "$edge"
           echo "EDGE_IMAGE=$edge" >> "$GITHUB_ENV"
       - name: Sign
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && steps.changes.outputs.build == 'true'
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && needs.helpers.outputs.build == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # halOS's own signing key (#46): only this step gets it, and it runs only main's script.

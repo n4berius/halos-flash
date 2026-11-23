@@ -1,6 +1,8 @@
 #!/bin/bash
 # Build an OS image, tagged with its Halogen version.
-# Usage: [HALOGEN_VARIANT=npu|no-npu] [KERNEL_TRACK=fedora|next] scripts/build.sh
+# Usage: [HALOGEN_VARIANT=npu|no-npu] [KERNEL_TRACK=fedora|next] [HALOS_HELPERS=<dir>] scripts/build.sh
+# HALOS_HELPERS: a folder scripts/build-helpers.sh made (bf16-to-hgn, the dashboard, Caddy), which
+# CI builds once for its four image jobs. Without it they are built here first.
 # KERNEL_TRACK=next puts the test kernel versions.env names in place of Fedora 45's (the
 # kernel-next images); only main's build workflow and its VM test use it.
 set -euo pipefail
@@ -30,12 +32,24 @@ case "$HALOGEN_DIGEST" in
   *) echo "bad digest: $HALOGEN_DIGEST" >&2; exit 1 ;;
 esac
 
+# The helper programs, and the base they were built on: the OS image uses that same base by
+# digest, so their libraries match (Containerfile.helpers).
+if [ -z "${HALOS_HELPERS:-}" ]; then
+  HALOS_HELPERS="$(mktemp -d)"
+  trap 'rm -rf "$HALOS_HELPERS"' EXIT
+  scripts/build-helpers.sh "$HALOS_HELPERS"
+fi
+scripts/build-helpers.sh --check "$HALOS_HELPERS"
+BASE_IMAGE="$(sed -n 's/^base=//p' "$HALOS_HELPERS/inputs")"
+echo "Base: $FEDORA_BOOTC_IMAGE ($BASE_IMAGE)"
+
 podman build --pull=newer -t "$TAG" \
   --label "org.opencontainers.image.source=https://github.com/n4berius/halos-flash" \
   --label "org.opencontainers.image.version=$RELEASE" \
   --label "io.github.n4berius.halos.edition=$VARIANT" \
   --label "io.github.n4berius.halos.kernel=$KERNEL_TRACK" \
-  --build-arg "FEDORA_BOOTC_IMAGE=$FEDORA_BOOTC_IMAGE" \
+  --build-context "helpers=$HALOS_HELPERS/tree" \
+  --build-arg "FEDORA_BOOTC_IMAGE=$BASE_IMAGE" \
   --build-arg "HALOGEN_IMAGE=$SOURCE@$HALOGEN_DIGEST" \
   --build-arg "HALOGEN_VERSION=$HALOGEN_VERSION" \
   --build-arg "HALOGEN_VARIANT=$VARIANT" \

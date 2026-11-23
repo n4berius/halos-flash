@@ -65,17 +65,26 @@ assert "DEBIAN_IMAGE" not in pins and "XRT_MIN_VERSION" not in pins
 # bf16-to-hgn is built from an exact commit, and its licenses ship (halogenctl flash convert).
 assert re.fullmatch(r"[0-9a-f]{40}", pins["BF16_TO_HGN_COMMIT"]), "BF16_TO_HGN_COMMIT must be a full commit"
 cf = open("Containerfile").read()
-assert 'git checkout -q "$BF16_TO_HGN_COMMIT"' in cf and "cargo build --release --locked" in cf, "bf16-to-hgn isn't built from its pin"
-assert "/usr/share/licenses/bf16-to-hgn/" in cf and "native/NOTICE" in cf, "bf16-to-hgn's licenses aren't shipped"
+# The helper programs are built in Containerfile.helpers, once per CI run, and reach the OS image
+# through the "helpers" build context on the same base by digest (#122).
+hf = open("Containerfile.helpers").read()
+bs = open("scripts/build.sh").read()
+assert '--build-context "helpers=$HALOS_HELPERS/tree"' in bs and 'scripts/build-helpers.sh --check "$HALOS_HELPERS"' in bs \
+  and '--build-arg "FEDORA_BOOTC_IMAGE=$BASE_IMAGE"' in bs, "build.sh doesn't build on the helpers' base, or doesn't check them"
+for stage in ("bf16-to-hgn", "dashboard", "caddy"):
+    assert f"FROM ${{FEDORA_BOOTC_IMAGE}} AS {stage}\n" in hf, f"Containerfile.helpers has no {stage} stage"
+    assert f" AS {stage}\n" not in cf and f"--from={stage} " not in cf, f"the Containerfile builds {stage} itself again"
+assert 'git checkout -q "$BF16_TO_HGN_COMMIT"' in hf and "cargo build --release --locked" in hf, "bf16-to-hgn isn't built from its pin"
+assert "COPY --from=helpers bf16-to-hgn/licenses/ /usr/share/licenses/bf16-to-hgn/" in cf and "native/NOTICE" in hf, "bf16-to-hgn's licenses aren't shipped"
 assert "bf16-to-hgn" in open("THIRD-PARTY-NOTICES.md").read(), "THIRD-PARTY-NOTICES doesn't name bf16-to-hgn"
 assert '--build-arg "BF16_TO_HGN_COMMIT=$BF16_TO_HGN_COMMIT"' in open("scripts/build.sh").read(), "build.sh doesn't pass the pin"
 # halogen-dashboard (Quaternion's) is built from an exact commit, and its and its parts' licences ship.
 assert re.fullmatch(r"[0-9a-f]{40}", pins["HALOGEN_DASHBOARD_COMMIT"]), "HALOGEN_DASHBOARD_COMMIT must be a full commit"
-assert 'git checkout -q "$HALOGEN_DASHBOARD_COMMIT"' in cf and "pnpm install --frozen-lockfile" in cf \
-  and "cargo build --release --locked --bin halogen-dashboard" in cf and "pnpm install --frozen-lockfile --ignore-scripts && pnpm build" in cf, "halogen-dashboard isn't built from its pin"
-assert "COPY src/dashboard-nodump.c" in cf and "COPY --from=dashboard /out/dashboard-nodump.so /usr/lib64/halos/dashboard-nodump.so" in cf \
+assert 'git checkout -q "$HALOGEN_DASHBOARD_COMMIT"' in hf and "pnpm install --frozen-lockfile" in hf \
+  and "cargo build --release --locked --bin halogen-dashboard" in hf and "pnpm install --frozen-lockfile --ignore-scripts && pnpm build" in hf, "halogen-dashboard isn't built from its pin"
+assert "COPY src/dashboard-nodump.c" in hf and "COPY --from=helpers dashboard/dashboard-nodump.so /usr/lib64/halos/dashboard-nodump.so" in cf \
   and "PR_SET_DUMPABLE, 0" in open("src/dashboard-nodump.c").read(), "the dashboard's not-dumpable library isn't built or shipped"
-assert "/usr/share/licenses/halogen-dashboard/" in cf and "ibm-plex-sans" in cf and "crates.txt" in cf, "halogen-dashboard's licences aren't shipped"
+assert "/usr/share/licenses/halogen-dashboard/" in cf and "ibm-plex-sans" in hf and "crates.txt" in hf, "halogen-dashboard's licences aren't shipped"
 notices = open("THIRD-PARTY-NOTICES.md").read()
 # Caddy (halos-proxy) is built from src/caddy's pinned modules, with its four DNS providers, and its
 # licences ship.
@@ -90,9 +99,9 @@ for m in ("github.com/caddyserver/caddy/v2", "github.com/caddy-dns/cloudflare", 
 assert "caddy-dns/duckdns" not in gomod and "caddy-dns/namecheap" not in gomod, "an unlicensed caddy-dns plugin is back"
 for mod in ("duckdns", "namecheap"):
     assert f'ID:  "dns.providers.{mod}"' in gosrc, f"halOS's {mod} module is missing"
-assert "GOFLAGS=-mod=readonly" in cf and "COPY --from=caddy /out/caddy /usr/libexec/halogen/caddy" in cf \
-  and "COPY --from=caddy /out/licenses/ /usr/share/licenses/halos-caddy/" in cf and "-iname 'notice*'" in cf \
-  and 'cp "$goli" "$lic/go-LICENSE"' in cf, "Caddy isn't built from src/caddy or its licences don't ship"
+assert "GOFLAGS=-mod=readonly" in hf and "COPY --from=helpers caddy/caddy /usr/libexec/halogen/caddy" in cf \
+  and "COPY --from=helpers caddy/licenses/ /usr/share/licenses/halos-caddy/" in cf and "-iname 'notice*'" in hf \
+  and 'cp "$goli" "$lic/go-LICENSE"' in hf, "Caddy isn't built from src/caddy or its licences don't ship"
 # Halogen's container runs read-only, with only /tmp, /var/tmp and /root writable, on disk.
 quadlet = open("files/etc/containers/systemd/users/970/halogen.container").read()
 # podman's own read-only tmpfs would race the volumes on /tmp and /var/tmp, so it is off.
@@ -104,7 +113,7 @@ assert not re.search(r"^Tmpfs=/(var/)?tmp", quadlet, re.M), "Halogen's scratch f
 # token it refuses), and the build checks the plugin still uses those two (H1).
 helper = open("files/usr/libexec/halogen/https").read()
 for rx in ("^[A-Za-z0-9_-]{35,50}$", "^cf(ut|at)_[A-Za-z0-9_-]{32,256}$"):
-    assert f"grep -qF 'regexp.MustCompile(`{rx}`)'" in cf, f"the build doesn't check caddy-dns/cloudflare still uses {rx}"
+    assert f"grep -qF 'regexp.MustCompile(`{rx}`)'" in hf, f"the build doesn't check caddy-dns/cloudflare still uses {rx}"
     assert f'"$3" =~ {rx}' in helper, f"dns_value_ok doesn't use the Cloudflare shape {rx}"
 # DNS credentials reach Caddy through systemd's credentials, read from root's folder (H5), never
 # copied into Caddy's own runtime folder.
@@ -282,7 +291,10 @@ for wf in ("build", "release", "refresh"):
                 assert step.get("name") == "Sign" and "sign-image.sh" in step["run"] and "\n" not in step["run"].strip(), (wf, step.get("name"))
 # The quick checks run once, before both edition builds, in a job that can only read (#123).
 bj = yaml.safe_load(open(".github/workflows/build.yml").read())["jobs"]
-assert bj["build"]["needs"] == "check" and "environment" not in bj["check"] and bj["check"]["permissions"] == {"contents": "read"}, "build.yml's check job must gate the builds and hold no rights"
+assert "check" in bj["build"]["needs"] and "environment" not in bj["check"] and bj["check"]["permissions"] == {"contents": "read"}, "build.yml's check job must gate the builds and hold no rights"
+# The helper programs are built once per run, by a job that can only read and never signs (#122).
+assert "helpers" in bj["build"]["needs"] and "environment" not in bj["helpers"] and bj["helpers"]["permissions"] == {"contents": "read"}, "build.yml's helpers job must feed the builds and hold no rights"
+assert 'HALOS_HELPERS="$RUNNER_TEMP/helpers" scripts/build.sh' in str(bj["build"]["steps"]), "build.yml's image jobs don't use the helpers job's programs"
 assert '{"context": "check"}' in open(".github/rulesets/protect-main.json").read(), "the check job isn't a required check in the ruleset"
 # udisks2 (kept for fwupd, #106) is root's alone: a polkit rule refuses everyone else, and halogen
 # can't reach it on the bus.

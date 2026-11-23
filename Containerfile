@@ -1,101 +1,5 @@
 ARG FEDORA_BOOTC_IMAGE
 
-# bf16-to-hgn, built from its pinned commit on the same base, so its C++ and OpenMP libraries are
-# the ones the OS image has (libstdc++, libgomp). The compilers stay in this stage. /root links to
-# /var/roothome, which the base image lacks, and cargo keeps its downloads in ~/.cargo.
-FROM ${FEDORA_BOOTC_IMAGE} AS bf16-to-hgn
-ARG BF16_TO_HGN_COMMIT
-RUN set -eu; \
-    dnf -y --setopt=install_weak_deps=False install cargo rust gcc-c++ git-core; \
-    git clone -q https://github.com/Quat3rnion/bf16-to-hgn /src; \
-    cd /src; git checkout -q "$BF16_TO_HGN_COMMIT"; \
-    [ "$(git rev-parse HEAD)" = "$BF16_TO_HGN_COMMIT" ]; \
-    mkdir -p "$(realpath /root)"; \
-    cargo build --release --locked; \
-    ./target/release/bf16-to-hgn --version
-
-# halogen-dashboard (Quaternion's live page of Halogen's load), built from its pinned commit: the
-# web page first (the binary embeds it), then the collector. Node and Rust stay in this stage.
-# Packages' install scripts never run (--ignore-scripts): the page builds without them.
-# Also gathers the licences of what the binary carries: the embedded web page's font (IBM Plex
-# Sans, SIL OFL 1.1), uPlot, Svelte and the two small parts Svelte's runtime uses (clsx,
-# esm-env), and the Rust crates it is built from.
-FROM ${FEDORA_BOOTC_IMAGE} AS dashboard
-ARG HALOGEN_DASHBOARD_COMMIT
-RUN set -eu; \
-    dnf -y --setopt=install_weak_deps=False install cargo rust gcc nodejs pnpm git-core jq; \
-    git clone -q https://github.com/Quat3rnion/halogen-dashboard /src; \
-    cd /src; git checkout -q "$HALOGEN_DASHBOARD_COMMIT"; \
-    [ "$(git rev-parse HEAD)" = "$HALOGEN_DASHBOARD_COMMIT" ]; \
-    mkdir -p "$(realpath /root)"; \
-    (cd web && pnpm install --frozen-lockfile --ignore-scripts && pnpm build); \
-    cargo build --release --locked --bin halogen-dashboard; \
-    ./target/release/halogen-dashboard --version; \
-    lic=/out/licenses; mkdir -p "$lic/web"; \
-    cp LICENSE-MIT LICENSE-APACHE "$lic/"; \
-    svelte_deps="$(realpath web/node_modules/svelte)/.."; \
-    for p in @fontsource-variable/ibm-plex-sans uplot svelte clsx esm-env; do \
-      d="web/node_modules/$p"; case "$p" in clsx|esm-env) d="$svelte_deps/$p" ;; esac; \
-      f="$(find "$d/" -maxdepth 1 -iname 'licen[cs]e*' | head -n 1)"; \
-      [ -n "$f" ] || { echo "no licence file for $p" >&2; exit 1; }; \
-      cp "$f" "$lic/web/$(echo "$p" | tr / _ | tr -d @)-LICENSE"; \
-    done; \
-    { echo "Rust crates halogen-dashboard is built from (name, version, licence), from Cargo.lock at $HALOGEN_DASHBOARD_COMMIT."; \
-      echo "Their licence texts are at https://crates.io/crates/<name>/<version>."; echo; \
-      cargo metadata --format-version 1 --locked --filter-platform x86_64-unknown-linux-gnu \
-        | jq -r '.packages[] | select(.name != "halogen-dashboard") | "\(.name) \(.version) \(.license // "see crates.io")"' | sort -u; \
-    } > "$lic/crates.txt"; \
-    grep -q '^axum ' "$lic/crates.txt" && grep -q '^rusqlite ' "$lic/crates.txt" \
-      || { echo "the crate list is incomplete" >&2; exit 1; }
-# halOS's own small library, preloaded into the dashboard so a crash can't put the API key in the
-# journal (src/dashboard-nodump.c). Same base image, so the same glibc as the os stage.
-COPY src/dashboard-nodump.c /halos-src/
-RUN set -eu; \
-    gcc -O2 -shared -fPIC -Wall -Wextra -Werror -o /out/dashboard-nodump.so /halos-src/dashboard-nodump.c; \
-    [ -z "$(LD_PRELOAD=/out/dashboard-nodump.so /usr/bin/true 2>&1)" ]; \
-    chmod 0755 /out; \
-    setpriv --reuid=65534 --regid=65534 --clear-groups cat /proc/self/environ > /dev/null; \
-    ! LD_PRELOAD=/out/dashboard-nodump.so setpriv --reuid=65534 --regid=65534 --clear-groups cat /proc/self/environ > /dev/null 2>&1
-
-# Caddy, halOS's front door (halos-proxy.service): Halogen's API on 8731 and the dashboard on 8732,
-# over HTTP or HTTPS. Built from src/caddy, whose go.mod and go.sum pin every module by version and
-# hash, because Fedora's caddy package has no DNS providers for Let's Encrypt's DNS-01 challenge.
-# DuckDNS and Namecheap go through halOS's own modules (src/caddy/dnsproviders), since their
-# caddy-dns plugins carry no licence. Also gathers the licence files of every module linked in.
-FROM ${FEDORA_BOOTC_IMAGE} AS caddy
-COPY src/caddy/ /src/caddy/
-# caddy-dns/cloudflare prints a token it refuses (journal), so the https helper's dns_value_ok lets
-# only the two shapes it accepts through. The build stops if the plugin's check ever changes.
-RUN set -eu; \
-    dnf -y --setopt=install_weak_deps=False install golang; \
-    mkdir -p "$(realpath /root)"; \
-    cd /src/caddy; \
-    export GOTOOLCHAIN=local GOFLAGS=-mod=readonly CGO_ENABLED=0 GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org; \
-    go test ./dnsproviders/; \
-    go build -trimpath -ldflags='-s -w' -o /out/caddy .; \
-    /out/caddy version; \
-    for p in cloudflare duckdns namecheap porkbun; do /out/caddy list-modules | grep -qx "dns.providers.$p"; done; \
-    cf="$(go list -m -f '{{.Dir}}' github.com/caddy-dns/cloudflare)/cloudflare.go"; \
-    if ! grep -qF 'regexp.MustCompile(`^[A-Za-z0-9_-]{35,50}$`)' "$cf" \
-      || ! grep -qF 'regexp.MustCompile(`^cf(ut|at)_[A-Za-z0-9_-]{32,256}$`)' "$cf" \
-      || [ "$(grep -c 'regexp.MustCompile' "$cf")" != 2 ]; then echo "caddy-dns/cloudflare's token check changed: update dns_value_ok in files/usr/libexec/halogen/https" >&2; exit 1; fi; \
-    lic=/out/licenses; mkdir -p "$lic/modules"; \
-    { echo "Go modules linked into halOS's Caddy (path, version), from src/caddy/go.sum."; \
-      echo "Each module's licence file, where it has one, is under modules/<path>/."; echo; } > "$lic/modules.txt"; \
-    go list -deps -f '{{with .Module}}{{if .Version}}{{.Path}} {{.Version}} {{.Dir}}{{end}}{{end}}' . | sort -u \
-      | while read -r m v d; do \
-          echo "$m $v" >> "$lic/modules.txt"; \
-          f="$(find "$d" -maxdepth 1 -type f \( -iname 'licen[cs]e*' -o -iname 'copying*' -o -iname 'notice*' \) | sort)"; \
-          if [ -n "$f" ]; then mkdir -p "$lic/modules/$m"; echo "$f" | while read -r g; do cp "$g" "$lic/modules/$m/"; done; fi; \
-        done; \
-    echo "go $(go env GOVERSION) (the standard library): go-LICENSE" >> "$lic/modules.txt"; \
-    goli="$(go env GOROOT)/LICENSE"; [ -r "$goli" ] || goli=/usr/share/licenses/golang/LICENSE; \
-    cp "$goli" "$lic/go-LICENSE"; \
-    for m in github.com/caddyserver/caddy/v2 github.com/caddy-dns/cloudflare github.com/caddy-dns/porkbun \
-      github.com/libdns/duckdns github.com/libdns/namecheap; do \
-      ls "$lic/modules/$m/"* > /dev/null || { echo "no licence file for $m" >&2; exit 1; }; \
-    done
-
 FROM ${FEDORA_BOOTC_IMAGE} AS os
 ARG HALOGEN_VARIANT
 ARG HALOGEN_IMAGE
@@ -216,15 +120,15 @@ RUN --mount=type=bind,source=src/authenticode-check.py,target=/tmp/authenticode-
 COPY files/ /
 COPY variants/${HALOGEN_VARIANT}/ /
 COPY LICENSE THIRD-PARTY-NOTICES.md /usr/share/licenses/halos-flash/
-COPY --from=bf16-to-hgn /src/target/release/bf16-to-hgn /usr/libexec/halogen/bf16-to-hgn
-COPY --from=bf16-to-hgn /src/LICENSE-MIT /src/LICENSE-APACHE /usr/share/licenses/bf16-to-hgn/
-COPY --from=bf16-to-hgn /src/native/LICENSE /usr/share/licenses/bf16-to-hgn/native/LICENSE
-COPY --from=bf16-to-hgn /src/native/NOTICE /usr/share/licenses/bf16-to-hgn/native/NOTICE
-COPY --from=dashboard /src/target/release/halogen-dashboard /usr/libexec/halogen/halogen-dashboard
-COPY --from=dashboard /out/licenses/ /usr/share/licenses/halogen-dashboard/
-COPY --from=dashboard /out/dashboard-nodump.so /usr/lib64/halos/dashboard-nodump.so
-COPY --from=caddy /out/caddy /usr/libexec/halogen/caddy
-COPY --from=caddy /out/licenses/ /usr/share/licenses/halos-caddy/
+# bf16-to-hgn, halogen-dashboard and Caddy, built by Containerfile.helpers on this same base:
+# "helpers" is the build context scripts/build.sh passes (--build-context helpers=<tree>).
+COPY --from=helpers bf16-to-hgn/bf16-to-hgn /usr/libexec/halogen/bf16-to-hgn
+COPY --from=helpers bf16-to-hgn/licenses/ /usr/share/licenses/bf16-to-hgn/
+COPY --from=helpers dashboard/halogen-dashboard /usr/libexec/halogen/halogen-dashboard
+COPY --from=helpers dashboard/licenses/ /usr/share/licenses/halogen-dashboard/
+COPY --from=helpers dashboard/dashboard-nodump.so /usr/lib64/halos/dashboard-nodump.so
+COPY --from=helpers caddy/caddy /usr/libexec/halogen/caddy
+COPY --from=helpers caddy/licenses/ /usr/share/licenses/halos-caddy/
 
 # Upstream's clock script and terms, unmodified and checked by hash.
 RUN set -eu; \
