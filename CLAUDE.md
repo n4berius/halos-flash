@@ -61,7 +61,7 @@ name, but allows saying halOS runs Halogen.
 - First boot: `halogen-prepare` (root) creates `/srv/models`, `/srv/configs`, `halogen.env`
   and the API key. `halogen-fetch` (user) pulls the pinned image, downloads models with `hf`
   inside that image, and runs Halogen's `verify`. Then `halogen.service` starts with the models
-  read-only and never downloads (its container still has network: "offline" was wrong, audit F). Each restart of `halogen.service` reruns the fetch, which only downloads what's
+  read-only and never downloads (its container is on `halogen-internal`, see "Outbound network" below; before #120 it had network, audit F). Each restart of `halogen.service` reruns the fetch, which only downloads what's
   missing or changed.
 - `halos-status.timer` runs `login-status` (root, sandboxed, writes only under `/run`) every 30 s:
   one line in `/run/issue.d/50-halos.issue` for the console login screen (agetty's `\4` fills
@@ -1032,6 +1032,41 @@ name, but allows saying halOS runs Halogen.
   keys on the ESP of an unencrypted machine, and `halosctl npu` maps a pinned `X.Y.Z-rN` to the
   plain `X.Y.Z` tag (`release-info.sh` publishes -rN builds under it), which it then follows like a
   plain stable pin (later `-rN` and weekly rebuilds), not that exact build.
+
+- Outbound network (#120): `halogen.container` has `Network=halogen-internal.network`
+  (`Internal=true`, `DisableDNS=true`, netavark): the container gets only a link route on its
+  bridge (inside halogen's rootless network namespace, so no clash with a LAN 10.x), so any new
+  connection out fails at once with ENETUNREACH; without capabilities it can't add a route. The
+  published `127.0.0.1:18731` still works: rootlessport connects into the bridge from the rootless
+  namespace (checked with rootless podman 4.9.3, netavark 1.4, slirp4netns: port answered, 200 MB at
+  the same speed as the default network, outbound, DNS and the gateway refused). Halogen's docs:
+  no outbound connections with `HALOGEN_DOWNLOAD` unset (blocked here), no image URL fetching. The
+  fetch, pull, probe and bench containers keep their own networks. Quadlet's `network create
+  --ignore` keeps an existing network of that name as it is (a changed `.network` file never
+  reaches an upgraded machine until the network is removed), so the selftest's `network-config`
+  reads, from the host, the container's networks and `podman network inspect` (internal, no DNS,
+  IPv6, routes or gateway: podman 4.9.3 gives an internal network without DNS no gateway), and
+  `network-out` asks the running container (`python3 -I`, since its `/root` is writable: connects to
+  192.0.2.1 and 2001:db8::1, PASS only on no-route answers; an `AF_VSOCK` socket, which no network
+  namespace limits, only WARNs: Podman's seccomp profile should refuse it). The build checks
+  Quadlet's dry run, and the VM test the unit and the network (`HNET`). A published port on an
+  internal network is something upstream treats as a bug for its pasta port forwarder (container-libs
+  `firstIPsFromStatus`: "internal networks must not receive ports", podman#29792); the default
+  forwarder, rootlessport, has no such check. So `container-check` (image `:2`, `:1` removed) also
+  starts the tiny image on its own `halos-check-internal` network (`--internal --disable-dns`) with
+  `127.0.0.1:18739` published and the machine's python3 (real path under `/usr`, `/usr` mounted
+  read-only, `lib`/`lib64` links in the image) as a listener on `::`, which reports its own
+  connections out; the host must get the answer, with ENETUNREACH for IPv4. Exit 3 is the
+  selftest's FAIL `network-port`; the VM test needs PASS `network-port` (so Podman 6 on Fedora 45
+  is checked on every ISO run). Checked with rootless podman 4.9.3: PASS, and exit 3 without
+  `--internal`. Open (security audit): the
+  container's `eth0` keeps an `fe80::` address, so anything listening on `::` in halogen's rootless
+  network namespace is on-link (expected nothing: check `podman unshare --rootless-netns ss -tulpnH`
+  on freyja); `Sysctl=net.ipv6.conf.eth0.disable_ipv6=1` would close it once Halogen's start with it
+  is checked. Halogen sees a bridge address as the client (in
+  that check, the container's own: rootlessport connects from inside its namespace); Caddy logs the
+  real one. On freyja still: Halogen's start, a bench (the path is
+  rootlessport, not pasta's splice), and both editions.
 
 - Build record (#121): the base stays the moving tag `fedora-bootc:45` (Fedora's fixes, weekly
   rebuild). `build.sh` resolves it once with `skopeo inspect` (a pinned `repo@sha256:` is checked
