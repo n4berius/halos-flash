@@ -133,4 +133,14 @@ done
 fresh; PASSWORD=halogentest "$tang" bind or http://10.0.0.5 "$K"; : > "$work/log"
 PASSWORD=halogentest "$repo/files/usr/bin/halogen-enroll-tpm" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
 has 'cryptenroll --wipe-slot=tpm2' "$work/log"
-ok "halogen-enroll-tpm refuses a TPM-only unlock beside TPM and tang or tang alone, and re-enrolls beside 'or'"
+# A TPM-only token left beside TPM and tang (removal failed, or enrolled by hand) reads as "or":
+# the TPM alone unlocks then. Clevis tokens that can't be read are "unknown", and enrolling refuses.
+fresh; PASSWORD=halogentest "$tang" bind and http://10.0.0.5 "$K"
+echo '{"tokens":{"0":{"type":"systemd-tpm2","keyslots":["1"]}}}' > "$work/meta.json"
+[ "$("$tang" mode)" = or ] || { echo "a TPM-only token beside TPM and tang isn't reported as 'or'" >&2; exit 1; }
+rm -f "$work/bindings"; echo '{"tokens":{"0":{"type":"clevis","keyslots":["2"]}}}' > "$work/meta.json"
+rc=0; "$tang" mode > "$work/out" || rc=$?; [ "$rc" = 3 ] && has '^unknown$' "$work/out"
+: > "$work/log"
+if PASSWORD=halogentest "$repo/files/usr/bin/halogen-enroll-tpm" > "$work/out" 2>&1; then echo "enrolled beside unreadable clevis tokens" >&2; exit 1; fi
+hasnt cryptenroll "$work/log"; has "Couldn't read whether a tang server" "$work/out"
+ok "halogen-enroll-tpm refuses a TPM-only unlock beside TPM and tang or tang alone, and re-enrolls beside 'or'; a leftover TPM token reads 'or', and unreadable clevis tokens fail closed"

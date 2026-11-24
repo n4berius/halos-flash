@@ -42,7 +42,7 @@ esac'
 # Unlock from a tang server (#44): off until bound; the server's key is thpS256.
 f tang-unlock 'case "$1" in
   status) if [ -s "$FAKE/tang" ]; then if [ "${2:-}" = --short ]; then cat "$FAKE/tang"; else echo "On: from a tang server"; fi; else echo off; fi ;;
-  thumbprints) echo "thpS256 thpS1" ;;
+  thumbprints) [ -z "${FAKE_MULTI:-}" ] || echo "evilS256 evilS1"; echo "thpS256 thpS1" ;;
   bind) echo "tang-unlock $*" >> "$FAKE/log"; echo "on $2 $3" > "$FAKE/tang" ;;
 esac'
 f systemctl 'case "$1" in is-active) echo active ;; esac'
@@ -142,6 +142,14 @@ answer n n n
 grep -q 'no TPM-only unlock is added' "$work/out" || { cat "$work/out" >&2; exit 1; }
 grep -q 'set up already (sudo halosctl tang-unlock' "$work/out" || { cat "$work/out" >&2; exit 1; }
 if grep -q enroll-tpm "$work/log"; then echo "a TPM-only unlock was offered beside TPM and tang" >&2; exit 1; fi
+rm -f "$work/tang"; : > "$work/log"
+# Several signing keys: the one pasted is pinned, never the first listed; "y" is not a key.
+touch "$work/state/setup-pending"
+FAKE_MULTI=1 answer n y http://10.0.0.5:7500 y n n n
+if grep -q 'tang-unlock bind' "$work/log"; then cat "$work/log" >&2; echo "a key was pinned without being pasted" >&2; exit 1; fi
+touch "$work/state/setup-pending"
+FAKE_MULTI=1 answer n y http://10.0.0.5:7500 thpS256 '' n n n
+grep -qx 'tang-unlock bind and http://10.0.0.5:7500 thpS256' "$work/log" || { cat "$work/out" "$work/log" >&2; echo "the pasted key wasn't the one pinned" >&2; exit 1; }
 rm -f "$work/tang"
 ok "setup offers unlocking from a tang server, trusts only a key the person confirms, binds TPM and tang, and then offers no TPM-only unlock"
 

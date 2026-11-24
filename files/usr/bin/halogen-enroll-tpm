@@ -14,7 +14,9 @@ device="${1:-$(awk '/^[[:space:]]*(#|$)/ { next } { if ($2 ~ /^UUID=/) print "/d
 [ -n "$device" ] || { echo "the first volume in $crypttab isn't named by UUID; name the LUKS device as an argument" >&2; exit 1; }
 # A disk set to unlock from a tang server only with the network (halosctl tang-unlock, --tpm and or
 # off) must not get a TPM-only unlock beside it: the machine would unlock away from the network.
-tmode="$("${HALOS_TANG_UNLOCK:-/usr/libexec/halogen/tang-unlock}" mode "$device" 2> /dev/null || true)"
+# Fails closed: a header whose tang bindings can't be read gets no TPM-only unlock either.
+trc=0; tmode="$("${HALOS_TANG_UNLOCK:-/usr/libexec/halogen/tang-unlock}" mode "$device" 2> /dev/null)" || trc=$?
+[ "$trc" = 0 ] || { echo "Couldn't read whether a tang server unlocks this disk (sudo halosctl tang-unlock), so no TPM-only unlock is added." >&2; exit 1; }
 case "$tmode" in
   and) echo "This disk unlocks from a tang server together with the TPM (sudo halosctl tang-unlock). A TPM-only unlock beside it would unlock away from your network, so none is added. After a BIOS or Secure Boot change: sudo halosctl tang-unlock renew" >&2; exit 1 ;;
   off) echo "This disk unlocks from a tang server without the TPM (sudo halosctl tang-unlock). A TPM-only unlock beside it would unlock away from your network, so none is added. To allow both: sudo halosctl tang-unlock on <server> --tpm or" >&2; exit 1 ;;

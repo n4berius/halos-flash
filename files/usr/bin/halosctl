@@ -304,10 +304,21 @@ tang_trust() {
       tang_pairs+=("$url" "$given")
     else
       if [ "$yes" = 1 ] || [ ! -t 0 ]; then echo "halosctl: give each server's key with --thp (sudo tang-show-keys <port> on the server prints it)" >&2; return 1; fi
-      echo "   $url signs with the key:"; cut -d' ' -f1 <<< "$tp" | sed 's/^/     /'
-      echo "   On the tang server, sudo tang-show-keys <port> prints its key. Only trust a match."
-      ask "   Do they match? [y/N]" n || { echo "   Not trusted."; return 1; }
-      tang_pairs+=("$url" "$(head -n 1 <<< "$tp" | cut -d' ' -f1)")
+      if [ "$(wc -l <<< "$tp")" = 1 ]; then
+        echo "   $url signs with the key:"; cut -d' ' -f1 <<< "$tp" | sed 's/^/     /'
+        echo "   On the tang server, sudo tang-show-keys <port> prints its key. Only trust a match."
+        ask "   Do they match? [y/N]" n || { echo "   Not trusted."; return 1; }
+        tang_pairs+=("$url" "$(cut -d' ' -f1 <<< "$tp")")
+      else
+        # Several signing keys: pin exactly the one the person reads from the server, never one
+        # picked here (another on the network could have added its own to the list).
+        echo "   $url signs with more than one key:"; cut -d' ' -f1 <<< "$tp" | sed 's/^/     /'
+        read -rp "   Paste the key that sudo tang-show-keys <port> prints on the tang server: " given || given=""
+        ok=""
+        while read -r a b; do if [ -n "$given" ] && { [ "$given" = "$a" ] || [ "$given" = "$b" ]; }; then ok=1; fi; done <<< "$tp"
+        [ -n "$ok" ] || { echo "   That isn't one of the keys above. Not trusted."; return 1; }
+        tang_pairs+=("$url" "$given")
+      fi
     fi
   done
 }
@@ -637,7 +648,8 @@ case "$cmd" in
           off) ;;
           *) die "--tpm takes and, or or off" ;;
         esac
-        tang_on "$tpm_mode" || die "nothing changed"
+        # A refusal before the binding changes nothing; tang-unlock says itself what a later failure left.
+        tang_on "$tpm_mode" || die "see above; sudo halosctl tang-unlock shows what is set up now"
         ;;
       off)
         [ "${#args[@]}" = 1 ] || die "tang-unlock off takes nothing more"

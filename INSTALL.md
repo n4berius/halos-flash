@@ -1320,7 +1320,7 @@ sudo halosctl tang-unlock on http://192.168.1.5
 
 The command shows the key of the server. Compare it with the output of `tang-show-keys`. Continue
 only if they are the same. Then type the passphrase of the disk. `--thp <key>` gives the key in the
-command, and `--yes` then asks no questions (`PASSWORD=<passphrase>` gives the passphrase).
+command. Then `--yes` asks no other questions, but you still type the passphrase.
 `sudo halosctl setup` also offers this.
 
 Use the IP address of the server, or a name that the DNS server of your DHCP server knows. The
@@ -1331,9 +1331,12 @@ each of them can unlock the disk alone. The command replaces all servers from be
 
 - `--tpm and` (the default when the machine has a TPM): the disk unlocks only when the TPM of this
   machine agrees (Secure Boot and the BIOS did not change) **and** a tang server answers. halOS
-  removes the TPM-only unlock. A disk that somebody copies, or a machine that somebody takes away,
-  stays locked, also when that person can get to your network. After a BIOS or Secure Boot change,
-  the boot asks for the passphrase. Type it, then run `sudo halosctl tang-unlock renew`.
+  removes the TPM-only unlock. A disk that somebody copies stays locked, also when that person can
+  get to your network. A machine that somebody takes away from your network stays locked. But a
+  person who can boot the machine itself on your network can unlock it, as with the TPM alone (see
+  "What TPM unlock protects, and what it doesn't" above, and its BIOS and boot menu passwords).
+  After a BIOS or Secure Boot change, the boot asks for the passphrase. Type it, then run
+  `sudo halosctl tang-unlock renew`. Do this only after a change that you made yourself.
 - `--tpm off` (the default without a TPM): the tang server alone unlocks the disk. halOS removes the
   TPM-only unlock. BIOS updates don't change this. But a person with a copy of the disk who can get
   to your network can also unlock it.

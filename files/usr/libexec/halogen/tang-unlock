@@ -71,12 +71,20 @@ tpm_tokens() {
   cryptsetup luksDump --dump-json-metadata "$1" 2> /dev/null \
     | jq -r '.tokens | to_entries[] | select(.value.type == "systemd-tpm2") | "\(.key) \(.value.keyslots | join(" "))"' 2> /dev/null || true
 }
-mode_of() { # and|or|off from the bindings and systemd's TPM tokens; empty when there are none
-  local dev="$1" slots
+# and|or|off from the bindings and systemd's TPM tokens; empty when there are none. A TPM-only
+# token beside any tang binding is "or" whatever the bindings say: the TPM alone unlocks then.
+# Fails (unknown) when the header has clevis tokens that can't be read, so callers fail closed.
+mode_of() {
+  local dev="$1" slots tokens
   slots="$(tang_slots "$dev")"
-  [ -n "$slots" ] || return 0
-  if grep -q '^[0-9]* and ' <<< "$slots"; then echo and
-  elif [ -n "$(tpm_tokens "$dev")" ]; then echo or
+  if [ -z "$slots" ]; then
+    tokens="$(cryptsetup luksDump --dump-json-metadata "$dev" 2> /dev/null | jq '[.tokens[] | select(.type == "clevis")] | length' 2> /dev/null)" \
+      || { echo unknown; return 3; }
+    [ "${tokens:-0}" = 0 ] || { echo unknown; return 3; }
+    return 0
+  fi
+  if [ -n "$(tpm_tokens "$dev")" ]; then echo or
+  elif grep -q '^[0-9]* and ' <<< "$slots"; then echo and
   else echo off; fi
 }
 
@@ -101,8 +109,10 @@ bind() {
   if [ -n "${PASSWORD+x}" ]; then pt="$PASSWORD"
   else
     [ -t 0 ] || die "the disk's passphrase is needed: run it in a terminal"
-    read -rsp "The disk's passphrase (as typed at boot): " pt; echo
+    IFS= read -rsp "The disk's passphrase (as typed at boot): " pt; echo
   fi
+  # Not handed on to clevis, curl and the rest in their environment.
+  unset PASSWORD
   printf '%s' "$pt" | cryptsetup open --test-passphrase --key-file - "$dev" 2> /dev/null || die "that isn't the disk's passphrase; nothing changed"
   while [ $# -gt 0 ]; do
     url="$1" thp="$2"; shift 2
@@ -133,7 +143,9 @@ bind() {
   fi
   # The new bindings work; then the old ones go, as halogen-enroll-tpm replaces its binding.
   for s in $old; do clevis luks unbind -f -d "$dev" -s "$s" > /dev/null || echo "couldn't remove the old binding in slot $s" >&2; done
-  if [ "$mode" != or ]; then remove_tpm "$dev" || die "the tang binding is made, but the TPM-only unlock couldn't be removed: sudo halosctl tang-unlock"; fi
+  if [ "$mode" != or ]; then
+    remove_tpm "$dev" || die "the tang binding is made, but the TPM-only unlock couldn't be removed, so the TPM alone still unlocks the disk. Run it again, or see: sudo halosctl tang-unlock"
+  fi
 }
 
 remove() {
@@ -167,7 +179,7 @@ case "$cmd" in
   thumbprints) [ $# = 1 ] || die "thumbprints <url>"; thumbprints "$1" ;;
   bind) bind "$@" ;;
   remove) remove ;;
-  mode) d="${1:-$(device)}"; mode_of "$d" ;;
+  mode) d="${1:-$(device)}"; mode_of "$d" ;;   # exit 3: unknown
   status) status "${1:-}" ;;
   *) die "unknown command: $cmd" ;;
 esac

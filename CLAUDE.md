@@ -231,7 +231,14 @@ name, but allows saying halOS runs Halogen.
   clevis-luks, clevis-dracut, clevis-systemd and tpm2-tools and checks the initramfs. VM test
   (NPU, LUKS): Debian's tangd as QEMU `guestfwd=tcp:10.0.2.100:80-cmd:tangd <keys>`, keys made by
   `tangd-keygen` on the runner; third boot binds (and renews), fourth unlocks with no passphrase
-  typed (`TANGJ`), fifth (no guestfwd) must ask. Not run on freyja yet.
+  typed (`TANGJ`), fifth (no guestfwd) must ask. Not run on freyja yet. Security audit fixes: with
+  several signing keys the person pastes the one `tang-show-keys` prints (never the first listed);
+  any systemd-tpm2 token beside a tang binding reads `or`; `mode` exits 3 (`unknown`) on clevis tokens
+  it can't read and halogen-enroll-tpm then refuses (fails closed); `PASSWORD` is unset after reading
+  and not documented for users (sudo argv); the initramfs counts only non-removable, non-USB LUKS
+  devices. Left for the owner (audit): a Secure Boot state check before `on`/`renew`/enroll, `renew`
+  reusing the bound thumbprints, the selftest's `/adv` fetch as nobody and checking the bound key,
+  a trap in `bind`, S256-only thumbprints.
 - `halosctl power [low-power|balanced|performance]` (#83) saves the firmware's ACPI platform profile in
   `/etc/halos/platform-profile` and sets it at once; `halos-platform-profile.service` (root, oneshot,
   at boot and after resume, skipped without `/sys/firmware/acpi/platform_profile`) runs

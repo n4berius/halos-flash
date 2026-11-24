@@ -9,9 +9,11 @@
 set -u
 # The disk's volumes appear within seconds; give them up to 60. A machine without encryption
 # just finds none.
+# The machine's own disks only, as halos-ssh-unlock: a USB stick with a tang binding must not start
+# the network.
 devs=""
 for _ in {1..60}; do
-  devs="$(lsblk -rno PATH,FSTYPE 2> /dev/null | awk '$2 == "crypto_LUKS" { print $1 }')"
+  devs="$(lsblk -rno PATH,FSTYPE,RM,TRAN 2> /dev/null | awk '$2 == "crypto_LUKS" && $3 == "0" && $4 != "usb" { print $1 }')"
   [ -z "$devs" ] || break
   sleep 1
 done
