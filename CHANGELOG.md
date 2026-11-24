@@ -13,12 +13,13 @@ it promotes.
 - Fixes from a review of the whole image (#165):
   - A USB disk is now really left out when the machine looks at boot for SSH unlock keys or a
     tang binding. The check read the disk type from the partition, which never has one, so a USB
-    stick with keys on it could start the network and SSH before the disk unlocked.
+    stick with keys on it could start the network and SSH before the disk unlocked. A disk that
+    can't be asked now counts as USB.
   - `halosctl switch`, `rollback --to` and `npu on|off` refuse an image whose label says it has
     the other kernel (the test kernel on a normal channel, or the reverse), as they already do
     for the other edition.
-  - `halosctl tang-unlock`, `off` and `renew` now say so when the disk has a clevis binding halOS
-    can't read, instead of stopping without a word. `renew` refuses more `--thp` than servers.
+  - `halosctl tang-unlock` (status, `on`, `off` and `renew`) now says so when the disk has a clevis
+    binding halOS can't read, instead of stopping without a word, and changes nothing. `renew` refuses more `--thp` than servers.
   - `halosctl ssh-passwords off` could fail at random while checking sshd's settings; fixed.
   - Release and refresh builds no longer keep the GitHub token on disk while they build.
   - CI: changes only to tests skip the image builds (the checks still run), and a change to the

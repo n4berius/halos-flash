@@ -154,4 +154,6 @@ if "$ctl" tang-unlock off --yes > "$work/out" 2>&1; then echo "off went on past 
 has "can't read, so nothing was removed" "$work/out"; hasnt unbind "$work/log"
 if "$ctl" tang-unlock renew --yes > "$work/out" 2>&1; then echo "renew went on past an unreadable binding" >&2; exit 1; fi
 has "can't renew it" "$work/out"
-ok "halogen-enroll-tpm refuses a TPM-only unlock beside TPM and tang or tang alone, and re-enrolls beside 'or'; a leftover TPM token reads 'or', unreadable clevis tokens fail closed, and status, off and renew say so"
+if "$ctl" tang-unlock on http://10.0.0.5 --thp "$K" --yes > "$work/out" 2>&1; then echo "on went on past an unreadable binding" >&2; exit 1; fi
+has "would stay beside the new one" "$work/out"; hasnt 'luks bind' "$work/log"
+ok "halogen-enroll-tpm refuses a TPM-only unlock beside TPM and tang or tang alone, and re-enrolls beside 'or'; a leftover TPM token reads 'or', unreadable clevis tokens fail closed, and status, on, off and renew say so"

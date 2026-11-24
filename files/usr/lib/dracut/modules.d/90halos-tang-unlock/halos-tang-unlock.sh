@@ -11,7 +11,8 @@ set -u
 # just finds none.
 # The machine's own disks only, as halos-ssh-unlock: a USB stick with a tang binding must not start
 # the network. lsblk gives a partition no transport, so the devices under it (-s) are asked too.
-on_usb() { [[ $'\n'"$(lsblk -rsno TRAN "$1" 2> /dev/null)"$'\n' == *$'\n'usb$'\n'* ]]; }
+# A device lsblk can't answer for counts as USB (fails closed).
+on_usb() { local t; t="$(lsblk -rsno TRAN "$1" 2> /dev/null)" || return 0; [[ $'\n'"$t"$'\n' == *$'\n'usb$'\n'* ]]; }
 devs=""
 for _ in {1..60}; do
   devs=""

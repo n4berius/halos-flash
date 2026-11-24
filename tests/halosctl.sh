@@ -302,6 +302,8 @@ if FAKE_KERNEL=next "$ctl" switch beta --yes > "$work/out" 2>&1; then echo "swit
 has 'has the next kernel in the registry, not fedora' "$work/out"; hasnt 'bootc switch' "$work/log"
 if FAKE_KERNEL=fedora "$ctl" switch kernel-next --yes > "$work/out" 2>&1; then echo "took Fedora's kernel for kernel-next" >&2; exit 1; fi
 hasnt 'bootc switch' "$work/log"
+if FAKE_KERNEL=next-7.5 "$ctl" switch beta --yes > "$work/out" 2>&1; then echo "took an unknown kernel label" >&2; exit 1; fi
+has "kernel label halosctl doesn't know" "$work/out"; hasnt 'bootc switch' "$work/log"
 FAKE_KERNEL='' "$ctl" switch beta --yes > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
 has '^bootc switch --enforce-container-sigpolicy ghcr.io/n4berius/halos-flash:beta$' "$work/log"
 cp "$work/pinned.json" "$work/status.json"

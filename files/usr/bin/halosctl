@@ -213,13 +213,17 @@ switch_to() {
   # A digest names one exact build already chosen (upgrade's first signed switch): it keeps its edition.
   case "$target" in *@sha256:*) want="$edition" ;; *-no-npu) want=no-npu ;; esac
   case "$edition" in
+    '') ;;   # built before images carried the label
     npu|no-npu) [ "$edition" = "$want" ] || die "$target is the $edition edition in the registry, not $want; nothing changed" ;;
+    *) die "$target has an edition label halosctl doesn't know ($(tr -cd 'a-z0-9.-' <<< "$edition")); nothing changed" ;;
   esac
   # The same for the kernel: only the kernel-next tags carry the test kernel (the same key signs
   # both, so a channel tag moved onto a kernel-next build would otherwise pass unnoticed).
   case "$target" in *@sha256:*) want_kernel="$kernel" ;; *:kernel-next|*:kernel-next-no-npu) want_kernel=next ;; esac
   case "$kernel" in
+    '') ;;   # built before images carried the label
     fedora|next) [ "$kernel" = "$want_kernel" ] || die "$target has the $kernel kernel in the registry, not $want_kernel; nothing changed" ;;
+    *) die "$target has a kernel label halosctl doesn't know ($(tr -cd 'a-z0-9.-' <<< "$kernel")); nothing changed" ;;
   esac
   from="$(describe booted)"
   echo "Now:   $from"
@@ -650,6 +654,7 @@ case "$cmd" in
           [ "${#thps[@]}" -le "${#tang_urls[@]}" ] || die "more --thp than servers"
         else
           tang_urls=("${args[@]:1}")
+          [ "$("$tang" status --short)" != unknown ] || die "the disk has a clevis binding halOS can't read (made by hand?), which would stay beside the new one; see: sudo clevis luks list -d $("$tang" device)"
           [ "${#tang_urls[@]}" -gt 0 ] || die "name the tang server, such as: sudo halosctl tang-unlock on http://192.168.1.5:7500"
           [ "${#thps[@]}" -le "${#tang_urls[@]}" ] || die "more --thp than servers"
           if [ -z "$tpm_mode" ]; then if has_tpm; then tpm_mode=and; else tpm_mode=off; fi; fi
