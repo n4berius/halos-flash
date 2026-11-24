@@ -10,7 +10,7 @@ it promotes.
 
 ## Unreleased
 
-- Hardening from the same review (#NNN):
+- Hardening from the same review (#166):
   - Unlocking from a tang server: `halosctl tang-unlock on` with `--tpm and` or `--tpm or`, and
     `halogen-enroll-tpm`, refuse while Secure Boot is off, since the TPM's check then doesn't stop
     a changed boot loader. Only SHA-256 server keys are taken (the 43-character ones
