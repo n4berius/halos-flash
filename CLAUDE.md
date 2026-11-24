@@ -207,6 +207,39 @@ name, but allows saying halOS runs Halogen.
   gets the folder and before hashing (security audit). Left for the owner (audit P1, from before
   this): a failed pull leaves `halos.info` that its container could have forged.
   Whether the official head speeds up a fine-tune is unmeasured (bench on freyja).
+- Unlock from a tang server (#44, clevis): owner's default is "TPM and tang" on a machine with a TPM
+  (`halosctl tang-unlock on <url>... [--tpm and|or|off] [--thp <S256|S1>]...`; tang alone without a
+  TPM). `/usr/libexec/halogen/tang-unlock` (helper) makes one clevis binding per server on
+  crypttab's first volume: `and` = `sss {"t":2, pins: {tpm2: PCR 7 sha256, tang: [...]}}`, `off`/`or`
+  = plain `tang`; any server unlocks alone. It checks the passphrase first (`PASSWORD` or a prompt,
+  piped to `clevis luks bind -f -k -`; never `-y`, which skips clevis's thumbprint check), binds the
+  new ones, then unbinds the old clevis tang slots (a failure unbinds what this run made); `and`/`off`
+  then remove systemd's TPM token (`luksKillSlot -q` + `token remove`, no passphrase needed), `or`
+  enrolls it when missing. The mode is read back from the header: `sss` with tpm2 = and, else a
+  systemd-tpm2 token = or, else off. halosctl fetches `<url>/adv` (curl, `--proto =http,https`) and
+  refuses `.local` names (no mDNS at boot) and shows the S256 thumbprints to compare with `tang-show-keys`, or takes `--thp` (S256 or S1); `--yes`
+  needs `--thp`. `renew` rebinds the same servers and mode (after a PCR 7 change in `and`).
+  `halogen-enroll-tpm` refuses beside `and`/`off`; setup's step 1 then skips the TPM offer and
+  offers tang (default no) before SSH. Selftest `luks-tang` (PASS when every server answers `/adv`
+  now, WARN otherwise; `luks-tpm` says "no TPM-only unlock" then). Initramfs: dracut modules
+  `90halos-initrd-net` (network up/teardown, mask of `nm-wait-online-initrd`, shared with SSH
+  unlock) and `90halos-tang-unlock` (depends on clevis, clevis-pin-tang/-sss/-tpm2; removes clevis's
+  `cryptsetup.target.wants/clevis-luks-askpass.path`, so other machines boot as before;
+  `halos-tang-unlock.service` waits up to 60 s for a crypto_LUKS device, greps `clevis luks list`
+  for `tang`, then `halos-initrd-net up` and starts `clevis-luks-askpass.path`, whose agent retries
+  every 0.5 s while the prompt waits). No kernel arguments. The Containerfile installs clevis,
+  clevis-luks, clevis-dracut, clevis-systemd and tpm2-tools and checks the initramfs. VM test
+  (NPU, LUKS): Debian's tangd as QEMU `guestfwd=tcp:10.0.2.100:80-cmd:tangd <keys>`, keys made by
+  `tangd-keygen` on the runner, through a wrapper that sends tangd's stderr to `tang.log` (QEMU's `cmd:`
+  gives the child the guest's socket as stderr too, and tangd logs each request before replying); third boot binds (and renews), fourth unlocks with no passphrase
+  typed (`TANGJ`), fifth (no guestfwd) must ask. Not run on freyja yet. Security audit fixes: with
+  several signing keys the person pastes the one `tang-show-keys` prints (never the first listed);
+  any systemd-tpm2 token beside a tang binding reads `or`; `mode` exits 3 (`unknown`) on clevis tokens
+  it can't read and halogen-enroll-tpm then refuses (fails closed); `PASSWORD` is unset after reading
+  and not documented for users (sudo argv); the initramfs counts only non-removable, non-USB LUKS
+  devices. Left for the owner (audit): a Secure Boot state check before `on`/`renew`/enroll, `renew`
+  reusing the bound thumbprints, the selftest's `/adv` fetch as nobody and checking the bound key,
+  a trap in `bind`, S256-only thumbprints.
 - `halosctl power [low-power|balanced|performance]` (#83) saves the firmware's ACPI platform profile in
   `/etc/halos/platform-profile` and sets it at once; `halos-platform-profile.service` (root, oneshot,
   at boot and after resume, skipped without `/sys/firmware/acpi/platform_profile`) runs
@@ -276,7 +309,8 @@ name, but allows saying halOS runs Halogen.
 - Unlock over SSH (#13): `files/usr/lib/dracut/modules.d/90halos-ssh-unlock` (added in
   `dracut.conf.d/10-halogen-tpm2.conf`) puts sshd (with `sshd-session`/`sshd-auth`, its privsep
   user and `/usr/share/empty.sshd`), `halos-ssh-unlock.service` (wanted by `initrd.target`,
-  conflicts with `initrd-switch-root.target`) and `halos-ssh-unlock-teardown.service` in every
+  conflicts with `initrd-switch-root.target`) and (since #44, from the shared module
+  `90halos-initrd-net`: `halos-initrd-net up|teardown`) `halos-initrd-net-teardown.service` in every
   initramfs. dracut's `network-manager`, `dbus` and network modules were already there. The image is
   the same for every machine, so keys can't be built in: at boot the service looks for an EFI
   system partition (type c12a7328-…) on a non-removable, non-USB disk (`{1..30}`, not `seq`, which
@@ -1232,7 +1266,7 @@ and tracked on the owner's project board. [ROADMAP.md](ROADMAP.md) holds the ord
   On edge since: the tokenizer fill-in for checkpoints that ship none (#88). The issues for #14, #15,
   #40 and #56 are closed. Freyja serves the official checkpoint or its own (Signal-3.8-Flash-Next-HGN-v2),
   swapped as needed, at the `performance` profile.
-- Next: clevis/tang (#44); GGUF in `flash pull` (#61) awaits a run on freyja.
+- Next: tang unlock (#44) awaits a run on freyja; GGUF in `flash pull` (#61) too.
 - **Halogen 0.20.0** (stable since `v0.20.0`): 0.20.0 (ROCm 10.1 in its image, OvisOCR3 document parsing on the NPU as your
   own checkpoint, faster prefill, a strict-tool-call crash fixed; the Flash checkpoints and weights
   revision unchanged) is pinned by #78. Between source commits 47ceb43 and 8242b15, FLAGS.md,

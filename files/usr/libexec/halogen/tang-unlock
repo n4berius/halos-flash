@@ -1,0 +1,187 @@
+#!/bin/bash
+# Unlock the disk from a tang server on the network (#44), with clevis. The binding lives in the
+# LUKS header: a key slot whose key clevis can get back only by asking the tang server (and, in
+# "and" mode, this machine's TPM too). The initramfs module 90halos-tang-unlock looks for it at
+# boot, starts the network only then, and lets clevis answer the passphrase prompt. Run by halosctl.
+#   tang-unlock device            the encrypted volume (crypttab's first, as halogen-enroll-tpm)
+#   tang-unlock thumbprints <url> the server's signing keys: "<S256> <S1>" per line
+#   tang-unlock bind and|or|off <url> <thumbprint> [<url> <thumbprint>]...
+#                                 one binding per server (any one server unlocks), replacing those
+#                                 made before; and: each also needs the TPM; and/off: the TPM-only
+#                                 unlock (systemd's) is removed, so it can't bypass the network; or:
+#                                 the TPM-only unlock is enrolled when there is none
+#   tang-unlock remove            remove every tang binding (the TPM-only unlock isn't put back)
+#   tang-unlock mode [device]     and|or|off, or nothing when there is no tang binding
+#   tang-unlock status [--short]  --short: "off", or "on <and|or|off> <servers>"
+# The existing passphrase is asked for by clevis, or read from $PASSWORD (as systemd-cryptenroll
+# does). The passphrase slot is never touched.
+set -euo pipefail
+export LC_ALL=C
+die() { echo "tang-unlock: $*" >&2; exit 1; }
+crypttab="${HALOS_CRYPTTAB:-/etc/crypttab}"
+# What is shown on root's terminal: no control characters, even from a header someone changed.
+clean() { tr -d '\000-\010\013-\037\177-\377'; }
+
+device() {
+  [ ! -e "$crypttab" ] || [ -r "$crypttab" ] || die "can't read $crypttab: run it with sudo"
+  local d
+  d="$(awk '/^[[:space:]]*(#|$)/ { next } { if ($2 ~ /^UUID=/) print "/dev/disk/by-uuid/" substr($2, 6); exit }' "$crypttab" 2> /dev/null || true)"
+  [ -n "$d" ] || die "this disk isn't encrypted ($crypttab names no volume by UUID)"
+  printf '%s\n' "$d"
+}
+
+# http(s)://host[:port][/path]: a host name, an IPv4 address or a bracketed IPv6 one. Nothing that
+# a shell, curl's globbing or JSON could read as more than a URL.
+url_ok() {
+  # The initramfs has no mDNS, so a .local name never answers at boot (it would at bind time).
+  case "$1" in *.local|*.local:*|*.local/*) return 1 ;; esac
+  [[ "$1" =~ ^https?://([A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?|\[[0-9A-Fa-f:.]{2,45}\])(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]{0,200})?$ ]]
+}
+thp_ok() { [[ "$1" =~ ^[A-Za-z0-9_-]{20,90}$ ]]; }
+
+# The signing keys of the server's advertisement. Its signatures are checked by clevis at bind
+# time against the thumbprint given; this is what a person compares with tang-show-keys.
+thumbprints() {
+  local url="$1" adv ver
+  url_ok "$url" || die "not a tang server address: use http://<address>[:port], such as http://192.168.1.5:7500 (a .local name can't be found at boot)"
+  adv="$(curl -fsS --max-time 15 --max-filesize 65536 --proto =http,https --proto-redir =http,https \
+    "${url%/}/adv")" || die "no answer from $url/adv: is the tang server running, and the address right?"
+  ver="$(jose fmt -j- -Og payload -SyOg keys -AUo- <<< "$adv" 2> /dev/null | jose jwk use -i- -r -u verify -o- 2> /dev/null)" \
+    || die "$url answered, but not with a tang advertisement"
+  local s256 s1
+  s256="$(jose jwk thp -i- -a S256 <<< "$ver")" || die "$url's advertisement has no signing key"
+  s1="$(jose jwk thp -i- -a S1 <<< "$ver")" || die "$url's advertisement has no signing key"
+  paste -d' ' <(printf '%s\n' "$s256") <(printf '%s\n' "$s1") | clean
+}
+
+# clevis luks list: "<slot>: <pin> '<json>'" per binding.
+bindings() { clevis luks list -d "$1" 2> /dev/null || true; }
+# The tang bindings only: "<slot> <and|plain> <url>" per line.
+tang_slots() {
+  local line slot json kind
+  while IFS= read -r line; do
+    [[ "$line" =~ ^([0-9]+):\ (tang|sss)\ \'(.*)\'$ ]] || continue
+    slot="${BASH_REMATCH[1]}" json="${BASH_REMATCH[3]}"
+    kind=plain
+    jq -e '.pins? | has("tpm2")' <<< "$json" > /dev/null 2>&1 && kind=and
+    jq -r '[.. | objects | .url? // empty] | .[]' <<< "$json" 2> /dev/null | clean | while IFS= read -r u; do
+      printf '%s %s %s\n' "$slot" "$kind" "$u"
+    done
+  done < <(bindings "$1")
+}
+tpm_tokens() {
+  cryptsetup luksDump --dump-json-metadata "$1" 2> /dev/null \
+    | jq -r '.tokens | to_entries[] | select(.value.type == "systemd-tpm2") | "\(.key) \(.value.keyslots | join(" "))"' 2> /dev/null || true
+}
+# and|or|off from the bindings and systemd's TPM tokens; empty when there are none. A TPM-only
+# token beside any tang binding is "or" whatever the bindings say: the TPM alone unlocks then.
+# Fails (unknown) when the header has clevis tokens that can't be read, so callers fail closed.
+mode_of() {
+  local dev="$1" slots tokens
+  slots="$(tang_slots "$dev")"
+  if [ -z "$slots" ]; then
+    tokens="$(cryptsetup luksDump --dump-json-metadata "$dev" 2> /dev/null | jq '[.tokens[] | select(.type == "clevis")] | length' 2> /dev/null)" \
+      || { echo unknown; return 3; }
+    [ "${tokens:-0}" = 0 ] || { echo unknown; return 3; }
+    return 0
+  fi
+  if [ -n "$(tpm_tokens "$dev")" ]; then echo or
+  elif grep -q '^[0-9]* and ' <<< "$slots"; then echo and
+  else echo off; fi
+}
+
+# systemd's TPM-only unlock: its tokens and their key slots. Batch mode needs no passphrase.
+remove_tpm() {
+  local dev="$1" tok slots s
+  while read -r tok slots; do
+    [ -n "$tok" ] || continue
+    for s in $slots; do cryptsetup luksKillSlot -q "$dev" "$s"; done
+    cryptsetup token remove --token-id "$tok" "$dev"
+  done < <(tpm_tokens "$dev")
+}
+
+bind() {
+  local mode="$1"; shift
+  case "$mode" in and|or|off) ;; *) die "bind and|or|off <url> <thumbprint>..." ;; esac
+  if [ $# -lt 2 ] || [ $(($# % 2)) != 0 ]; then die "give each server's address and thumbprint"; fi
+  local dev old cfg url thp pt rc=0 s
+  dev="$(device)"
+  old="$(tang_slots "$dev" | cut -d' ' -f1 | sort -un)"
+  # The existing passphrase once, for every binding (clevis would ask for each).
+  if [ -n "${PASSWORD+x}" ]; then pt="$PASSWORD"
+  else
+    [ -t 0 ] || die "the disk's passphrase is needed: run it in a terminal"
+    IFS= read -rsp "The disk's passphrase (as typed at boot): " pt; echo
+  fi
+  # Not handed on to clevis, curl and the rest in their environment.
+  unset PASSWORD
+  printf '%s' "$pt" | cryptsetup open --test-passphrase --key-file - "$dev" 2> /dev/null || die "that isn't the disk's passphrase; nothing changed"
+  while [ $# -gt 0 ]; do
+    url="$1" thp="$2"; shift 2
+    url_ok "$url" || die "not a tang server address: $url"
+    thp_ok "$thp" || die "not a key thumbprint: $thp"
+    cfg="$(jq -cn --arg u "$url" --arg t "$thp" '{url: $u, thp: $t}')"
+    if [ "$mode" = and ]; then
+      # TPM and tang: both shares of two are needed. PCR 7 is the Secure Boot state, as halogen-enroll-tpm.
+      cfg="$(jq -cn --argjson t "$cfg" '{t: 2, pins: {tpm2: {pcr_bank: "sha256", pcr_ids: "7"}, tang: [$t]}}')"
+      printf '%s' "$pt" | clevis luks bind -f -k - -d "$dev" sss "$cfg" || rc=$?
+    else
+      printf '%s' "$pt" | clevis luks bind -f -k - -d "$dev" tang "$cfg" || rc=$?
+    fi
+    [ "$rc" = 0 ] || break
+  done
+  # "or" means the TPM alone unlocks too: enroll it when it isn't (as halogen-enroll-tpm does).
+  if [ "$rc" = 0 ] && [ "$mode" = or ] && [ -z "$(tpm_tokens "$dev")" ]; then
+    PASSWORD="$pt" systemd-cryptenroll --wipe-slot=tpm2 --tpm2-device=auto --tpm2-pcrs=7 "$dev" > /dev/null || rc=$?
+    url="the TPM"
+  fi
+  pt=""
+  if [ "$rc" != 0 ]; then
+    # Undo the bindings this run made; those from before stay as they were.
+    for s in $(tang_slots "$dev" | cut -d' ' -f1 | sort -un); do
+      grep -qx "$s" <<< "$old" || clevis luks unbind -f -d "$dev" -s "$s" > /dev/null 2>&1 || true
+    done
+    die "binding to ${url} failed (above); nothing changed"
+  fi
+  # The new bindings work; then the old ones go, as halogen-enroll-tpm replaces its binding.
+  for s in $old; do clevis luks unbind -f -d "$dev" -s "$s" > /dev/null || echo "couldn't remove the old binding in slot $s" >&2; done
+  if [ "$mode" != or ]; then
+    remove_tpm "$dev" || die "the tang binding is made, but the TPM-only unlock couldn't be removed, so the TPM alone still unlocks the disk. Run it again, or see: sudo halosctl tang-unlock"
+  fi
+}
+
+remove() {
+  local dev s
+  dev="$(device)"
+  for s in $(tang_slots "$dev" | cut -d' ' -f1 | sort -un); do clevis luks unbind -f -d "$dev" -s "$s" > /dev/null; done
+}
+
+status() {
+  local dev mode slots
+  dev="$(device 2> /dev/null)" || { [ "${1:-}" = --short ] && echo off || echo "Off: the disk isn't encrypted."; return 0; }
+  mode="$(mode_of "$dev")"
+  slots="$(tang_slots "$dev")"
+  if [ "${1:-}" = --short ]; then
+    if [ -z "$mode" ]; then echo off; else echo "on $mode $(cut -d' ' -f3 <<< "$slots" | sort -u | paste -sd' ' -)"; fi
+    return 0
+  fi
+  if [ -z "$mode" ]; then echo "Off: no tang server unlocks $dev."; return 0; fi
+  case "$mode" in
+    and) echo "On: $dev unlocks at boot when this machine's TPM agrees and a tang server answers." ;;
+    or) echo "On: $dev unlocks at boot with the TPM, or else when a tang server answers." ;;
+    off) echo "On: $dev unlocks at boot when a tang server answers (no TPM)." ;;
+  esac
+  cut -d' ' -f3 <<< "$slots" | sort -u | sed 's/^/  server: /'
+  echo "  Without them it asks for the passphrase, at the keyboard or over SSH (sudo halosctl ssh-unlock)."
+}
+
+cmd="${1:-status}"; [ $# = 0 ] || shift
+case "$cmd" in
+  device) device ;;
+  thumbprints) [ $# = 1 ] || die "thumbprints <url>"; thumbprints "$1" ;;
+  bind) bind "$@" ;;
+  remove) remove ;;
+  mode) d="${1:-$(device)}"; mode_of "$d" ;;   # exit 3: unknown
+  status) status "${1:-}" ;;
+  *) die "unknown command: $cmd" ;;
+esac

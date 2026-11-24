@@ -28,6 +28,7 @@ tests/halosctl.sh
 tests/dashboard.sh
 tests/https.sh
 tests/ssh-unlock.sh
+tests/tang-unlock.sh
 tests/completion.sh
 tests/enroll-tpm.sh
 tests/setup.sh

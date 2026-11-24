@@ -1,0 +1,11 @@
+[Unit]
+Description=halOS: unlock the disk from a tang server
+DefaultDependencies=no
+Wants=systemd-udev-trigger.service
+After=systemd-udev-trigger.service
+Conflicts=initrd-switch-root.target shutdown.target emergency.target
+Before=initrd-switch-root.target shutdown.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/halos-tang-unlock

@@ -10,6 +10,14 @@ it promotes.
 
 ## Unreleased
 
+- The encrypted disk can now unlock from a tang server on your own network (clevis):
+  `sudo halosctl tang-unlock on http://<server>`, also offered by `halosctl setup`. By default the
+  machine's TPM must agree too, so a copied disk or a machine taken away stays locked; `--tpm off`
+  (the server alone) and `--tpm or` (the TPM alone still unlocks) are the other choices. It shows
+  the server's key to compare first, and the passphrase always works. The network starts before
+  the disk unlocks only on machines set up for it (or for SSH unlock). The VM install test unlocks
+  through a real tang server and asks for the passphrase without it; not yet tried on the test
+  machine. (#44)
 - `flash pull` now takes GGUF repositories of Qwen3.8 Flash Next (llama.cpp's format). It
   downloads one build (pick it with `--file` when there are several), adds Halogen's draft head
   from the official weights, converts it one time into a `.hgn` with Halogen's own `convert`

@@ -6,7 +6,9 @@
 # LUKS to a 2 TB one, so both encrypted and plain installs and both ends of the sizing are tested.
 # The VM has an emulated TPM: the LUKS install is bound to it with halogen-enroll-tpm, then
 # rebooted to prove the disk unlocks with no passphrase. Before that, the stale binding's boot
-# asks for the passphrase, which this test answers over SSH (unlock over SSH, #13).
+# asks for the passphrase, which this test answers over SSH (unlock over SSH, #13). Then it binds
+# the disk to the TPM and a tang server (#44), proves the next boot unlocks with the server there
+# and no passphrase typed, and that the one after asks for the passphrase with the server gone.
 set -euo pipefail
 iso="$1"; target="$2"; out="$3"; variant="$4"; mkdir -p "$out/answers"
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -39,6 +41,30 @@ ssh_key=$key
 admin_ssh=yes
 S
 genisoimage -quiet -V HALOS_ANSWERS -o "$out/answers.iso" "$out/answers/answers"
+# The tang server for the LUKS install (#44): Debian's tangd, run by QEMU for each connection the
+# VM makes to 10.0.2.100:80 (guestfwd), with keys made here. Its signing key's thumbprint is what
+# halosctl is given, as a person would read it with tang-show-keys.
+tang_nic=""
+if [ -n "$luks" ]; then
+  # Debian and Ubuntu put the programs in tang-common (tang itself holds the systemd units).
+  tangd="$(dpkg -L tang tang-common 2> /dev/null | grep -m1 '/tangd$' || true)"
+  keygen="$(dpkg -L tang tang-common 2> /dev/null | grep -m1 '/tangd-keygen$' || true)"
+  [ -x "$tangd" ] || tangd=/usr/libexec/tangd
+  [ -x "$keygen" ] || keygen=/usr/libexec/tangd-keygen
+  if [ ! -x "$tangd" ] || [ ! -x "$keygen" ]; then echo "the tang package (tangd, tangd-keygen) isn't installed" >&2; dpkg -L tang tang-common >&2 || true; exit 1; fi
+  mkdir -p "$out/tang"; "$keygen" "$out/tang"
+  for k in "$out/tang"/*.jwk; do
+    [ "$(jose fmt -j "$k" -g alg -u-)" = ES512 ] && HALOS_TEST_TANG_THP="$(jose jwk thp -i "$k" -a S256)"
+  done
+  [ -n "${HALOS_TEST_TANG_THP:-}" ] || { echo "no signing key in the test tang server's keys" >&2; exit 1; }
+  export HALOS_TEST_TANG_THP
+  # QEMU's cmd: forward gives tangd the guest's socket as stdin, stdout and stderr, and tangd logs
+  # each request to stderr before its reply, which would turn every answer into garbage: a small
+  # wrapper sends the log to a file instead (printed when a tang step fails).
+  printf '#!/bin/sh\nexec %q %q 2>> %q\n' "$tangd" "$out/tang" "$out/tang.log" > "$out/tangd-run"
+  chmod +x "$out/tangd-run"
+  tang_nic="user,restrict=on,guestfwd=tcp:10.0.2.100:80-cmd:$out/tangd-run"
+fi
 # The test's long command lines, as scripts on a read-only disk for every boot from the installed
 # disk: vm-login.py types only "bash <script>" instead of each line key by key.
 python3 "$here/vm-login.py" --scripts "$out/probe"
@@ -269,11 +295,11 @@ if [ -n "$luks" ]; then
   if grep -q '^NMRUN .*/default_connection\.nmconnection' "$out/report.txt"; then echo "the early-boot network settings stayed" >&2; exit 1; fi
   echo "unlock over SSH verified"
 
-  echo "=== third boot: the TPM must unlock the disk ==="
+  echo "=== third boot: the TPM must unlock the disk; then bind it to the TPM and a tang server ==="
   timeout 180 tail --pid="$pid" -f /dev/null || { echo "the VM did not power off after re-enrolling" >&2; exit 1; }
-  vm "${probe[@]}" -nic none -serial "file:$out/thirdboot.log" &
+  vm "${probe[@]}" -nic "$tang_nic" -serial "file:$out/thirdboot.log" &
   pid=$!
-  python3 "$here/vm-login.py" "$out/monitor.sock" "$out/thirdboot.log" "$out" tpm
+  python3 "$here/vm-login.py" "$out/monitor.sock" "$out/thirdboot.log" "$out" tpm-tang
   cat "$out/report.txt"
   tokens="$(grep -cE '^[[:space:]]*[0-9]+: systemd-tpm2' "$out/report.txt" || true)"
   # One token means the re-enroll replaced the stale binding instead of adding a second.
@@ -289,4 +315,32 @@ if [ -n "$luks" ]; then
     echo "bootc-fstab-edit still rewrote fstab" >&2; exit 1
   fi
   grep -qi "skipped due to 'exec-condition'" "$out/report.txt" || echo "note: bootc-fstab-edit wasn't made at this boot; fstab unchanged"
+
+  # Unlock from a tang server (#44): bound with TPM and tang, bound again without a second binding,
+  # systemd's TPM-only token gone, and halogen-enroll-tpm refusing to add it back.
+  cat "$out/tang-bind.txt"
+  for l in 'TANGBIND-RC=0' 'RENEW-RC=0' 'TANGSLOTS 1 1 0' 'ENROLLGUARD 1'; do
+    grep -qx "$l" "$out/tang-bind.txt" || { echo "tang binding: expected '$l'" >&2; cat "$out/tang.log" >&2 || true; exit 1; }
+  done
+  grep -q "^On: .* when this machine's TPM agrees and a tang server answers" "$out/tang-bind.txt" || { echo "halosctl tang-unlock doesn't show TPM and tang" >&2; exit 1; }
+
+  echo "=== fourth boot: the TPM and the tang server unlock the disk, no passphrase typed ==="
+  timeout 180 tail --pid="$pid" -f /dev/null || { echo "the VM did not power off after binding to tang" >&2; exit 1; }
+  vm "${probe[@]}" -nic "$tang_nic" -serial "file:$out/fourthboot.log" &
+  pid=$!
+  python3 "$here/vm-login.py" "$out/monitor.sock" "$out/fourthboot.log" "$out" tang
+  cat "$out/tang.txt"
+  # The initramfs found the binding and started the network, clevis answered the prompt, the early
+  # network was dropped before the system started, and the selftest reached the server.
+  grep -qE '^TANGJ [1-9][0-9]* [1-9][0-9]* [1-9][0-9]*$' "$out/tang.txt" || { echo "the initramfs didn't unlock through tang as expected:" >&2; grep '^TANGJ' "$out/tang.txt" >&2; cat "$out/tang.log" >&2 || true; exit 1; }
+  grep -q '^PASS luks-tang: unlocks at boot when the TPM agrees and a tang server answers' "$out/tang.txt" || { echo "the selftest doesn't see the tang unlock" >&2; exit 1; }
+  if grep -q '^NMRUN .*/default_connection\.nmconnection' "$out/tang.txt"; then echo "the early-boot network settings stayed" >&2; exit 1; fi
+  echo "tang unlock verified"
+
+  echo "=== fifth boot: the tang server is gone, so the passphrase is asked for ==="
+  timeout 180 tail --pid="$pid" -f /dev/null || { echo "the VM did not power off after the tang boot" >&2; exit 1; }
+  vm "${probe[@]}" -nic "user,restrict=on" -serial "file:$out/fifthboot.log" &
+  pid=$!
+  python3 "$here/vm-login.py" "$out/monitor.sock" "$out/fifthboot.log" "$out" tang-down
+  echo "without the tang server the disk asked for its passphrase"
 fi

@@ -1288,6 +1288,82 @@ But a person who can remove the disk can copy the host key. That person can then
 machine and catch the passphrase when you unlock. Every method of network unlock has this weakness.
 The TPM section above tells how to make it more difficult to tamper with the machine.
 
+### Unlock from a tang server on your network
+
+A tang server is a small key server that you run on your own network, for example on a NAS or on
+a different machine. When halOS can get an answer from it at boot, the disk unlocks by itself. When
+the machine or its disk is away from your network, the boot asks for the passphrase. This is useful
+for a server where nobody types a passphrase, and where the TPM alone is not sufficient. halOS uses
+[clevis](https://github.com/latchset/clevis) for this. The server is
+[tang](https://github.com/latchset/tang).
+
+First, start a tang server on a different computer that is always on. On Fedora:
+
+```bash
+sudo dnf install tang
+sudo systemctl enable --now tangd.socket
+```
+
+This server uses port 80. To use a different port, change `ListenStream` in a drop-in file for
+`tangd.socket`. On the tang server, this command shows its key (put the port after it if it isn't
+80):
+
+```bash
+sudo tang-show-keys
+```
+
+Then, on the halOS machine:
+
+```bash
+sudo halosctl tang-unlock on http://192.168.1.5
+```
+
+The command shows the key of the server. Compare it with the output of `tang-show-keys`. Continue
+only if they are the same. Then type the passphrase of the disk. `--thp <key>` gives the key in the
+command. Then `--yes` asks no other questions, but you still type the passphrase.
+`sudo halosctl setup` also offers this.
+
+Use the IP address of the server. A name can fail at boot, and a `.local` name always fails, so
+halOS refuses it. The
+network at boot is wired, with DHCP, as for the SSH unlock. You can give more than one server. Then
+each of them can unlock the disk alone. The command replaces all servers from before.
+
+`--tpm` selects how tang and the TPM work together:
+
+- `--tpm and` (the default when the machine has a TPM): the disk unlocks only when the TPM of this
+  machine agrees (Secure Boot and the BIOS did not change) **and** a tang server answers. halOS
+  removes the TPM-only unlock. A disk that somebody copies stays locked, also when that person can
+  get to your network. A machine that somebody takes away from your network stays locked. But a
+  person who can boot the machine itself on your network can unlock it, as with the TPM alone (see
+  "What TPM unlock protects, and what it doesn't" above, and its BIOS and boot menu passwords).
+  After a BIOS or Secure Boot change, the boot asks for the passphrase. Type it, then run
+  `sudo halosctl tang-unlock renew`. Do this only after a change that you made yourself.
+  `--tpm and` and `--tpm off` remove all TPM unlocks of systemd, also one with a PIN that you
+  made yourself.
+- `--tpm off` (the default without a TPM): the tang server alone unlocks the disk. halOS removes the
+  TPM-only unlock. BIOS updates don't change this. But a person with a copy of the disk who can get
+  to your network can also unlock it.
+- `--tpm or`: the TPM unlocks the disk as before, and the tang server unlocks it when the TPM can't
+  (for example after a BIOS update). A machine that somebody takes away still unlocks with its TPM.
+
+With `and` and `off`, `halogen-enroll-tpm` refuses to add a TPM-only unlock, because the machine
+would then unlock away from your network.
+
+The passphrase always works too: at the keyboard, or over SSH (see above). halOS never removes the
+passphrase slot. `sudo halosctl tang-unlock` shows the current setup. `sudo halosctl tang-unlock
+renew` binds again to the same servers (for example after you change the keys of the tang server).
+`sudo halosctl tang-unlock off` removes it. The `luks-tang` line of the selftest tells if the
+servers answer now.
+
+At boot, halOS starts the network before the disk unlocks only on a machine with a tang binding (or
+with the SSH unlock). It stops this network before the system starts, so the network settings of
+the system apply. Other machines boot as before.
+
+Keep the tang server on your own network, never open to the internet. The exchange with tang never
+sends the key of the disk, so plain `http://` is correct here: a person who can see the network
+traffic can't get the key. The CI install test unlocks a disk in a VM with a tang server, and asks
+for the passphrase without the server. Nobody has tested this on real hardware yet.
+
 ### SSH logins with keys only
 
 After your account can log in over SSH with a key, you can turn off passwords for SSH logins. Then

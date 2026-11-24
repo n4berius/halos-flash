@@ -6,7 +6,9 @@ repo="$(cd "$(dirname "$0")/.." && pwd)"
 work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
 mkdir "$work/bin"
 printf '#!/bin/sh\necho "cryptenroll $*" >> "%s/log"\n' "$work" > "$work/bin/systemd-cryptenroll"; chmod +x "$work/bin/systemd-cryptenroll"
-run() { PATH="$work/bin:$PATH" HALOS_CRYPTTAB="$work/crypttab" "$repo/files/usr/bin/halogen-enroll-tpm" "$@" > "$work/out" 2>&1; }
+# No tang binding (#44): the helper reads none.
+printf '#!/bin/sh\nexit 0\n' > "$work/bin/tang-unlock"; chmod +x "$work/bin/tang-unlock"
+run() { PATH="$work/bin:$PATH" HALOS_CRYPTTAB="$work/crypttab" HALOS_TANG_UNLOCK="$work/bin/tang-unlock" "$repo/files/usr/bin/halogen-enroll-tpm" "$@" > "$work/out" 2>&1; }
 for tab in missing empty comments; do
   case "$tab" in missing) rm -f "$work/crypttab" ;; empty) : > "$work/crypttab" ;; comments) printf '# none\n\n' > "$work/crypttab" ;; esac
   if run; then echo "enrolled with a $tab crypttab" >&2; exit 1; fi

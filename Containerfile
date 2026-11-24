@@ -22,8 +22,10 @@ ARG HALOGEN_WEIGHTS_REVISION
 # nftables table (nft comes with firewalld; named here so it stays); its settings are in files/etc/fail2ban.
 # 50 MB, 20 files (1 GB, so it fits the 2 GiB a custom install may give /var/log/audit), and a full disk never stops the machine: logging pauses (SUSPEND), after
 # a note in the journal.
+# clevis (#44): unlocks the disk from a tang server on the network; its dracut and systemd parts put
+# the password agent into the initramfs, which halOS's own module starts only where it's set up.
 RUN dnf -y --setopt=install_weak_deps=False install \
-      amd-gpu-firmware firewalld linux-firmware tpm2-tss \
+      amd-gpu-firmware firewalld linux-firmware tpm2-tss tpm2-tools clevis clevis-luks clevis-dracut clevis-systemd \
       amdsmi nvtop htop pciutils usbutils tmux wireless-regdb nano bash-completion audit audit-rules fail2ban-server nftables && \
     dnf -y remove \
       nvidia-gpu-firmware intel-gpu-firmware intel-npu-firmware intel-audio-firmware \
@@ -35,10 +37,10 @@ RUN dnf -y --setopt=install_weak_deps=False install \
       fwupd-plugin-modem-manager ModemManager-glib libqmi libmbim && \
     dnf clean all && \
     rm -rf /var/log/dnf5.log /var/lib/dnf /var/cache/libdnf5 /run/dnf && \
-    rpm -q bash-completion fwupd udisks2 skopeo jq amd-ucode-firmware realtek-firmware mt7xxx-firmware atheros-firmware && \
+    rpm -q bash-completion fwupd udisks2 skopeo jq clevis-dracut clevis-systemd amd-ucode-firmware realtek-firmware mt7xxx-firmware atheros-firmware && \
     systemctl disable udisks2.service && ls /usr/share/dbus-1/system-services/org.freedesktop.UDisks2.service && \
     ls -d /usr/lib/firmware/amdgpu /usr/lib/firmware/amdnpu && \
-    for c in runuser setpriv prlimit nano auditctl augenrules ausearch aureport; do command -v "$c" > /dev/null || { echo "missing: $c" >&2; exit 1; }; done && \
+    for c in runuser setpriv prlimit nano auditctl augenrules ausearch aureport clevis jose curl; do command -v "$c" > /dev/null || { echo "missing: $c" >&2; exit 1; }; done && \
     rm -f /etc/audit/rules.d/audit.rules && \
     sed -i -E -e 's/^max_log_file *=.*/max_log_file = 50/' -e 's/^num_logs *=.*/num_logs = 20/' \
       -e 's/^max_log_file_action *=.*/max_log_file_action = ROTATE/' \
@@ -248,7 +250,8 @@ RUN set -eu; \
     systemctl mask bootc-fetch-apply-updates.timer; \
     systemctl disable systemd-homed.service systemd-homed-activate.service
 
-# Rebuild the initramfs with LUKS, TPM2 and LVM support, and fail the build without them.
+# Rebuild the initramfs with LUKS, TPM2 and LVM support, SSH and tang unlock, and fail the build
+# without them.
 RUN set -eu; \
     mkdir -p "$(realpath /root)"; \
     kver="$(ls /usr/lib/modules)"; \
@@ -257,9 +260,16 @@ RUN set -eu; \
     contents="$(lsinitrd "$img")"; \
     echo "$contents" | grep -E 'cryptsetup|bin/lvm|tpm2' | awk '{print $NF}' | sort -u; \
     for want in '/systemd-cryptsetup$' '/systemd-cryptsetup-generator$' 'libcryptsetup' 'bin/lvm$' \
-                '/halos-ssh-unlock$' 'bin/sshd$' '/sshd-session$' '/sshd-auth$' '/nm-initrd-generator$' 'fs/fat/vfat'; do \
+                '/halos-ssh-unlock$' 'bin/sshd$' '/sshd-session$' '/sshd-auth$' '/nm-initrd-generator$' 'fs/fat/vfat' \
+                '/halos-initrd-net$' '/halos-tang-unlock$' '/halos-tang-unlock.service$' '/clevis-luks-askpass$' \
+                '/clevis-luks-askpass.path$' '/clevis-decrypt-tang$' '/clevis-decrypt-sss$' '/clevis-decrypt-tpm2$' \
+                '/clevis-luks-list$' 'bin/jose$' 'bin/curl$' 'libtss2-tcti-device'; do \
       echo "$contents" | awk '{print $NF}' | grep -qE "$want" || { echo "initramfs is missing $want" >&2; exit 1; }; \
     done; \
+    echo "$contents" | awk '{print $NF}' | grep -qE '/(tpm2_unseal|clevis-pin-tpm2)$' \
+      || { echo "the initramfs has no TPM tool for clevis's tpm2 pin (TPM and tang)" >&2; exit 1; }; \
+    if echo "$contents" | grep -q 'cryptsetup.target.wants/clevis-luks-askpass.path'; then \
+      echo "clevis's password agent starts on every machine; halos-tang-unlock should start it" >&2; exit 1; fi; \
     case "$contents" in *'nm-wait-online-initrd.service -> /dev/null'*) ;; \
       *) echo "the initramfs could wait for the network at boot (halos-ssh-unlock)" >&2; exit 1 ;; esac; \
     lsinitrd -f etc/shadow "$img" | grep -q '^root:' \

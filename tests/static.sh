@@ -5,6 +5,8 @@ for f in "${scripts[@]}"; do
   bash -n "$f"
   [ -x "$f" ] || { echo "$f is not executable" >&2; exit 1; }
 done
+# The initramfs's own scripts (dracut modules) too; they are run, not sourced, but module-setup.sh.
+scripts+=(files/usr/lib/dracut/modules.d/*/*.sh)
 if command -v shellcheck >/dev/null; then shellcheck -x "${scripts[@]}"; else echo "shellcheck not installed, skipped"; fi
 # Tab completion files are sourced, not run, so they have no #! line and aren't executable.
 completions=(files/usr/share/bash-completion/completions/*)

@@ -213,15 +213,33 @@ if [ -z "$crypt" ]; then
   esac
 else
   say PASS luks "encrypted: $(printf '%s' "$crypt" | paste -sd' ' -)"
+  # Unlock from a tang server (#44): "off", or "on <and|or|off> <server>...".
+  tang="${HALOS_TANG_UNLOCK:-/usr/libexec/halogen/tang-unlock}"
+  read -ra ts <<< "$(run "$tang" status --short | head -n 1)"
   for d in $crypt; do
     out="$(run cryptsetup luksDump "$d")"
     tokens="$(printf '%s\n' "$out" | grep -cE '^[[:space:]]*[0-9]+: systemd-tpm2' || true)"
     case "$tokens" in
       1) say PASS luks-tpm "$d unlocks with the TPM (one binding)" ;;
-      0) say INFO luks-tpm "$d asks for its passphrase at boot. To unlock with the TPM: sudo halogen-enroll-tpm" ;;
+      0) case "${ts[0]:-} ${ts[1]:-}" in
+           "on and"|"on off") say INFO luks-tpm "$d has no TPM-only unlock: it unlocks from a tang server (below)" ;;
+           *) say INFO luks-tpm "$d asks for its passphrase at boot. To unlock with the TPM: sudo halogen-enroll-tpm" ;;
+         esac ;;
       *) say WARN luks-tpm "$d has $tokens TPM bindings; run sudo halogen-enroll-tpm to keep one" ;;
     esac
   done
+  case "${ts[0]:-}" in
+    on)
+      case "${ts[1]:-}" in and) how="when the TPM agrees and a tang server answers" ;; or) how="with the TPM, or else from a tang server" ;; *) how="when a tang server answers" ;; esac
+      down=()
+      for u in "${ts[@]:2}"; do run "$tang" thumbprints "$u" > /dev/null || down+=("$u"); done
+      if [ "${#down[@]}" = 0 ]; then say PASS luks-tang "unlocks at boot $how (${ts[*]:2}); every server answers now"
+      elif [ "${#down[@]}" -lt "$((${#ts[@]} - 2))" ]; then say WARN luks-tang "unlocks at boot $how; not answering now: ${down[*]}"
+      elif [ "${ts[1]:-}" = or ]; then say WARN luks-tang "unlocks at boot $how, but no tang server answers now (${down[*]}): only the TPM would unlock the next boot"
+      else say WARN luks-tang "unlocks at boot $how, but no tang server answers now (${down[*]}), so the next boot would ask for the passphrase"; fi ;;
+    off) say INFO luks-tang "not set up; to unlock at boot from a tang server on your network: sudo halosctl tang-unlock on <address>" ;;
+    *) say WARN luks-tang "its state couldn't be read: ${ts[*]:-}" ;;
+  esac
   # Unlock over SSH at boot (#13), the way when the TPM can't.
   st="$(run "${HALOS_SSH_UNLOCK:-/usr/libexec/halogen/ssh-unlock}" status --short | head -n 1)"
   case "$st" in

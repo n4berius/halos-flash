@@ -12,7 +12,7 @@ check() {
 }
 
 depends() {
-  echo systemd network-manager
+  echo systemd halos-initrd-net
 }
 
 installkernel() {
@@ -21,18 +21,11 @@ installkernel() {
 
 install() {
   inst_multiple sshd /usr/libexec/openssh/sshd-session /usr/libexec/openssh/sshd-auth \
-    lsblk mount umount cp chmod mkdir rm sleep ip timeout systemd-tty-ask-password-agent bash
-  inst_multiple -o /usr/libexec/nm-initrd-generator
+    lsblk mount umount cp chmod mkdir sleep systemd-tty-ask-password-agent bash
   inst_simple "$moddir/sshd_config" /etc/ssh/halos-unlock.conf
   inst_script "$moddir/halos-ssh-unlock.sh" /usr/libexec/halos-ssh-unlock
   inst_simple "$moddir/halos-ssh-unlock.service" "$systemdsystemunitdir/halos-ssh-unlock.service"
-  inst_simple "$moddir/halos-ssh-unlock-teardown.service" "$systemdsystemunitdir/halos-ssh-unlock-teardown.service"
   $SYSTEMCTL -q --root "$initdir" add-wants initrd.target halos-ssh-unlock.service
-  $SYSTEMCTL -q --root "$initdir" add-wants initrd-switch-root.target halos-ssh-unlock-teardown.service
-  # Never wait for the network: halos-ssh-unlock starts it late, and a machine without a cable
-  # must still boot (the TPM or a keyboard unlocks it). network-manager's own wait would block
-  # the initqueue for up to an hour once its condition file exists.
-  $SYSTEMCTL -q --root "$initdir" mask nm-wait-online-initrd.service
   # sshd's privilege-separated user and its empty chroot.
   grep -q '^sshd:' "$initdir/etc/passwd" 2> /dev/null || echo 'sshd:x:74:74:Privilege-separated SSH:/usr/share/empty.sshd:/sbin/nologin' >> "$initdir/etc/passwd"
   grep -q '^sshd:' "$initdir/etc/group" 2> /dev/null || echo 'sshd:x:74:' >> "$initdir/etc/group"

@@ -1,6 +1,6 @@
 """Log in at a VM console through the QEMU monitor and capture a report on serial.
 
-Usage: vm-login.py monitor.sock serial.log out-dir [plain|luks|luks-stale|luks-enroll|ssh-enroll|tpm]
+Usage: vm-login.py monitor.sock serial.log out-dir [plain|luks|luks-stale|luks-enroll|ssh-enroll|tpm|tpm-tang|tang|tang-down]
 With HALOS_TEST_SSH_UNLOCK=1, luks-stale also reports unlocking over SSH, which the installer set up.
   luks         type the disk passphrase, which must be asked for
   luks-stale   as luks, then enroll the TPM against a changed PCR 7 (as if the Secure Boot
@@ -8,6 +8,10 @@ With HALOS_TEST_SSH_UNLOCK=1, luks-stale also reports unlocking over SSH, which 
   luks-enroll  as luks, then bind the disk to the TPM with halogen-enroll-tpm and power off
   ssh-enroll   as luks-enroll, but the passphrase comes over SSH (tests/iso-install.sh), not typed
   tpm          fail if the passphrase is asked for: the TPM must unlock the disk by itself
+  tpm-tang     as tpm, then bind the disk to the TPM and a tang server (#44) and power off
+  tang         the passphrase is never typed, so reaching the login proves the TPM and the tang
+               server unlocked the disk; report on the unlock and power off
+  tang-down    as luks with the tang server gone: the passphrase must be asked for; stops at the login
 
 The long command lines (the report, the selftest, HTTPS and SSH unlock) aren't typed: typing goes
 one key at a time through the monitor, and the report alone took about ten minutes a boot.
@@ -156,7 +160,10 @@ REPORT = ("{ echo RESULT-START; cat /proc/cmdline; dmesg | grep -i secure; bootc
     "$(systemctl show serial-getty@ttyS0.service -p ExecCondition --value | grep -c stty); "
     # Unlock over SSH (#13): no early-boot network settings may stay in the running system.
     "for f in /run/NetworkManager/system-connections/*; do [ -e \"$f\" ] && echo NMRUN $f; done; "
-    "echo RESULT-END; } > /dev/ttyS0 2>&1\n")
+    # Written to a file first and printed at once: the report runs for minutes, and a getty
+    # reload on the serial port meanwhile can drop lines written straight to it (lost ESPRC
+    # and RECCONF lines in the test-kernel job).
+    "echo RESULT-END; } > /tmp/report.out 2>&1; cat /tmp/report.out > /dev/ttyS0\n")
 
 SELFTEST = ("halogenctl selftest > /tmp/st 2>&1; rc=$?; cat /tmp/st > /dev/ttyS0; "
     "grep -qF -f /srv/configs/api-key /tmp/st && echo SELFTEST-LEAK > /dev/ttyS0; "
@@ -205,7 +212,29 @@ SSHU = ("halosctl ssh-unlock > /tmp/sshu 2>&1; echo SSHU-RC=$? >> /tmp/sshu; "
     "grep -h halOS /var/log/anaconda/ks-script-*.log >> /tmp/sshu; "
     "cat /tmp/sshu > /dev/ttyS0; echo SSHU-END > /dev/ttyS0\n")
 
-SCRIPTS = {"report": REPORT, "selftest": SELFTEST, "https": HTTPS, "sshu": SSHU}
+# Unlock from a tang server (#44). The test's tang server answers at 10.0.2.100 (QEMU's guestfwd,
+# tests/iso-install.sh); its signing key's thumbprint comes in HALOS_TEST_TANG_THP. Bound with TPM
+# and tang (the default with a TPM), then bound again (renew), which must leave one binding; the
+# TPM-only unlock is gone and halogen-enroll-tpm refuses to add it back.
+THP = os.environ.get("HALOS_TEST_TANG_THP", "none")
+TANGBIND = (f"PASSWORD=halogentest halosctl tang-unlock on http://10.0.2.100 --thp {THP} --yes > /tmp/tb 2>&1; echo TANGBIND-RC=$? >> /tmp/tb; "
+    f"PASSWORD=halogentest halosctl tang-unlock renew --thp {THP} --yes >> /tmp/tb 2>&1; echo RENEW-RC=$? >> /tmp/tb; "
+    "halosctl tang-unlock >> /tmp/tb 2>&1; d=$(/usr/libexec/halogen/tang-unlock device); clevis luks list -d $d >> /tmp/tb 2>&1; "
+    "echo TANGSLOTS $(clevis luks list -d $d | grep -c -w tang) $(clevis luks list -d $d | grep -c -w tpm2) "
+    "$(cryptsetup luksDump $d | grep -c -E '^[[:space:]]*[0-9]+: systemd-tpm2') >> /tmp/tb; "
+    "PASSWORD=halogentest halogen-enroll-tpm >> /tmp/tb 2>&1; echo ENROLLGUARD $? >> /tmp/tb; "
+    "cat /tmp/tb > /dev/ttyS0; echo TANGBIND-END > /dev/ttyS0\n")
+# The boot the server unlocked: what the initramfs's units said, the selftest's lines, and no
+# early-boot network settings left in the running system.
+TANG = ("halosctl tang-unlock > /tmp/tg 2>&1; halogenctl selftest 2>&1 | grep -e luks >> /tmp/tg; "
+    "journalctl -b -o cat -u halos-tang-unlock -u clevis-luks-askpass -u halos-initrd-net-teardown >> /tmp/tg 2>&1; "
+    "echo TANGJ $(journalctl -b -o cat -u halos-tang-unlock | grep -c -e 'asking the tang server') "
+    "$(journalctl -b -o cat -u clevis-luks-askpass | grep -c -e 'Unlocked .* successfully') "
+    "$(journalctl -b -o cat -u halos-initrd-net-teardown | grep -c -i -e finished -e deactivated) >> /tmp/tg; "
+    "for f in /run/NetworkManager/system-connections/*; do [ -e \"$f\" ] && echo NMRUN $f; done >> /tmp/tg; "
+    "cat /tmp/tg > /dev/ttyS0; echo TANG-END > /dev/ttyS0\n")
+
+SCRIPTS = {"report": REPORT, "selftest": SELFTEST, "https": HTTPS, "sshu": SSHU, "tangbind": TANGBIND, "tang": TANG}
 PROBE = "/run/halos-probe"
 
 if len(sys.argv) == 3 and sys.argv[1] == "--scripts":
@@ -217,7 +246,7 @@ if len(sys.argv) == 3 and sys.argv[1] == "--scripts":
 
 sock_path, serial, out = sys.argv[1:4]
 mode = sys.argv[4] if len(sys.argv) > 4 and sys.argv[4] else "plain"
-luks = mode in ("luks", "luks-stale", "luks-enroll")
+luks = mode in ("luks", "luks-stale", "luks-enroll", "tang-down")
 asked = False
 serial, out = pathlib.Path(serial), pathlib.Path(out)
 KEYS = {" ": "spc", "-": "minus", "=": "equal", ".": "dot", "/": "slash", ";": "semicolon",
@@ -254,7 +283,8 @@ while time.time() < deadline:
     cmd(f"screendump {shot} -f png")
     time.sleep(2)
     text = subprocess.run(["tesseract", shot, "-"], capture_output=True, text=True).stdout
-    if mode == "tpm" and "passphrase" in text.lower():
+    # In tang mode the prompt is up until clevis answers it (no TPM-only unlock): never typed.
+    if mode in ("tpm", "tpm-tang") and "passphrase" in text.lower():
         print(text)
         sys.exit("the disk asked for its passphrase: the TPM did not unlock it")
     if luks and "passphrase" in text.lower():
@@ -267,8 +297,10 @@ while time.time() < deadline:
 else:
     print(text)
     sys.exit("no login prompt appeared")
-if mode in ("luks", "luks-stale", "luks-enroll") and not asked:
+if mode in ("luks", "luks-stale", "luks-enroll", "tang-down") and not asked:
     sys.exit("the disk was expected to ask for its passphrase, but it did not")
+if mode == "tang-down":
+    sys.exit(0)
 
 # The guided install's test answers (tests/iso-install.sh): the root password is not the disk's.
 typed("root\n"); time.sleep(3)
@@ -280,7 +312,6 @@ time.sleep(5)
 # The scripts' disk (see the top). Without it nothing below can run: say so at once.
 typed(f"mkdir -p {PROBE}; mount -o ro LABEL=HALOS_PROBE {PROBE} || echo PROBE-MOUNT-FAILED > /dev/ttyS0\n")
 time.sleep(3)
-run("report")
 
 def wait_serial(marker, seconds):
     deadline = time.time() + seconds
@@ -293,6 +324,14 @@ def wait_serial(marker, seconds):
             return log
     sys.exit(f"{marker} never reached the serial log")
 
+if mode == "tang":
+    run("tang")
+    log = wait_serial("TANG-END", 300)
+    (out / "tang.txt").write_text(re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", log.split("TANG-END")[0][-20000:]))
+    typed("systemctl poweroff\n")
+    sys.exit(0)
+
+run("report")
 log = wait_serial("RESULT-END", 300)
 report = log.split("RESULT-START")[-1].split("RESULT-END")[0]
 (out / "report.txt").write_text(re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", report))
@@ -321,6 +360,12 @@ if mode == "luks-stale" and os.environ.get("HALOS_TEST_SSH_UNLOCK"):
     run("sshu")
     log = wait_serial("SSHU-END", 120)
     (out / "ssh-unlock.txt").write_text(log.split("SELFTEST-RC=")[-1].split("SSHU-END")[0])
+
+if mode == "tpm-tang":
+    run("tangbind")
+    log = wait_serial("TANGBIND-END", 300)
+    (out / "tang-bind.txt").write_text(log.split("SELFTEST-RC=")[-1].split("TANGBIND-END")[0])
+    typed("systemctl poweroff\n")
 
 if mode in ("luks-stale", "luks-enroll", "ssh-enroll"):
     # Exactly what INSTALL.md tells people to run; PASSWORD answers the passphrase prompt.
