@@ -495,6 +495,29 @@ else
   elif [ "${running:-1}" = 1 ]; then say INFO flash "serving your own Flash checkpoint $flash${from:+ ($from)}"
   else say WARN flash "your own Flash checkpoint $flash is chosen and Halogen is not running. If it refused it (sudo halogenctl logs), go back: sudo halogenctl flash use official"; fi
 fi
+# Which draft head Halogen drafts with, as its start this time printed it (Halogen 0.20.7's
+# entrypoint: "draft head <file>" when it found one beside the official checkpoint, "draft head:
+# the checkpoint's own (...)" when not, "overlay <path>" when render-config named one for your own
+# checkpoint: the official one by default, or one its repository ships). Only lines since the
+# container's start, so an earlier start's line never stands in.
+if [ "${running:-0}" = 1 ] && have journalctl && have systemctl; then
+  since="$(run systemctl --user --machine=halogen@.host show --timestamp=unix -p ExecMainStartTimestamp --value halogen.service | head -n 1)"
+  dh=""
+  if [[ "$since" =~ ^@[0-9]+$ ]]; then
+    dh="$(run journalctl -q --no-pager -o cat --since "$since" --grep '^halogen: (draft head|overlay /models/)' _UID=970 _SYSTEMD_USER_UNIT=halogen.service \
+      | tail -n 1 | tr -cd '[:print:]' | cut -c1-200)"
+  fi
+  case "$dh" in
+    "halogen: draft head qwen38-flash-next-drafter-r2-ht4.hgn"*|"halogen: overlay /models/qwen38-flash-next-drafter-r2-ht4.hgn")
+      say PASS draft-head "Halogen drafts with the official draft head (qwen38-flash-next-drafter-r2-ht4.hgn)" ;;
+    "halogen: overlay /models/flash/"*)
+      say INFO draft-head "Halogen drafts with ${dh#halogen: overlay /models/flash/}, a draft head shipped with your checkpoint (sudo halogenctl flash drafter <name> official goes back)" ;;
+    *"is not in"*)
+      if [ -n "$flash" ] && [ "$flash" != official ]; then say INFO draft-head "${dh#halogen: }"; else say WARN draft-head "Halogen didn't find the official draft head beside the checkpoint, so the checkpoint's own drafts (slower): sudo halogenctl restart fetches it"; fi ;;
+    "") say INFO draft-head "the checkpoint's built-in draft head (Halogen names no draft head file at its start: sudo halogenctl config says why)" ;;
+    *) say INFO draft-head "${dh#halogen: }" ;;
+  esac
+fi
 # The newest official file's download record names the commit it came from: the draft head (its
 # -ht4 form since Halogen 0.20.7, else 0.20.6's) when there, which an upgraded machine fetches at the
 # new pin while the older files stay.

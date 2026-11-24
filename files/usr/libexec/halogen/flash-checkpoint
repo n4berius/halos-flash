@@ -42,12 +42,14 @@ lock_busy() {
   exit 75
 }
 flash_choice="${HALOGEN_FLASH_FILE:-${HALOGEN_CONFIGS_DIR:-/srv/configs}/flash-checkpoint}"
+# Your own checkpoints that use the official draft head (flash drafter <name> on), one name a line.
+drafter_choice="${HALOGEN_DRAFTER_CHOICE_FILE:-${HALOGEN_CONFIGS_DIR:-/srv/configs}/flash-drafter}"
 valid_name() {
   case "$1" in [A-Za-z0-9]*) ;; *) return 1 ;; esac
   case "$1" in *[!A-Za-z0-9._-]*|official) return 1 ;; esac
 }
 case "${1:-}" in
-  sandbox-check|use|remove) ;;
+  sandbox-check|use|remove|drafter) ;;
   *) podman image exists "$HALOGEN_IMAGE" || die "The Halogen image isn't downloaded yet. Let the first boot finish: sudo halogenctl fetch-logs" ;;
 esac
 
@@ -110,10 +112,10 @@ online() (
 # mount point on a read-only /models, so a missing folder is made first (this runs as halogen, as
 # prepare does at boot). A link in its place is refused: the tmpfs would land on whatever it points
 # to, and Halogen's start refuses it anyway (preflight).
-# Not for use, remove and sandbox-check, which start no container: going back to the official
+# Not for use, remove, drafter and sandbox-check, which start no container: going back to the official
 # checkpoint must work whatever stands there.
 case "${1:-}" in
-  sandbox-check|use|remove) ;;
+  sandbox-check|use|remove|drafter) ;;
   *)
     if [ -L "$models/.prompt-cache" ]; then
       echo "$models/.prompt-cache is a link, not a folder. Remove it, then start again: sudo halogenctl restart" >&2; exit 1
@@ -128,6 +130,25 @@ hide_cache=(--tmpfs "/models/.prompt-cache:ro,size=4k,notmpcopyup")
 # Writes a new file from stdin, never through a link a download container left under that name:
 # the name is removed, then created exclusively.
 write_new() { rm -f -- "$1" && ( set -C; cat > "$1" ); }
+# Sets a checkpoint's draft head choice in the list (name=official|off|<file>, one a line; a
+# checkpoint not listed uses the official one), or drops its line when the value is empty. Only
+# well-formed lines are kept, so a line someone added by hand can't pass anything odd along.
+# Written fresh and moved into place, as the checkpoint choice is.
+drafter_set() {
+  local list
+  # One list for every name, so two of these on different checkpoints take turns (each name's
+  # own lock doesn't cover the list). Held until this ends.
+  exec 7>> "$state/flash-drafter.lock" || die "Can't open the draft head lock in $state."
+  flock -w 30 7 || die "Another flash drafter or remove is saving the list. Try again."
+  list="$( { { grep -E '^[A-Za-z0-9][A-Za-z0-9._-]*=[A-Za-z0-9][A-Za-z0-9._-]*$' -- "$drafter_choice" 2> /dev/null || true; } \
+      | N="$1" awk -F= '$1 != ENVIRON["N"]'
+    [ -z "$2" ] || printf '%s=%s\n' "$1" "$2"; } | sort -u)"
+  if ! { [ -z "$list" ] || printf '%s\n' "$list"; } | ( umask 027; write_new "$drafter_choice.new" ) \
+    || ! mv -T -f -- "$drafter_choice.new" "$drafter_choice"; then
+    rm -f -- "$drafter_choice.new"
+    die "Couldn't save the choice in $drafter_choice (is something other than a file there?)."
+  fi
+}
 plain_dir() { [ -d "$1" ] && [ "$(realpath -e -- "$1" 2>/dev/null)" = "$(realpath -e -- "$models")/${1#"$models"/}" ]; }
 # mkdir -p under the models folder that never goes through a link: each step is looked at first.
 mk_plain() {
@@ -147,6 +168,9 @@ offline() {
     --network=none --cap-drop=all --security-opt no-new-privileges "$@"
 }
 info_get() { sed -n "s/^$2=//p" "$1" 2>/dev/null | tail -n 1; }
+info_get_all() { sed -n "s/^$2=//p" "$1" 2>/dev/null; }
+# The names a draft head file a repository ships may have (as the pull picks them).
+is_drafter_name() { [[ "$1" =~ ^[A-Za-z0-9._-]*drafter[A-Za-z0-9._-]*\.hgn$ ]]; }
 
 # verify every .hgn of a checkpoint folder with Halogen's verify, and record the answer.
 # Halogen reads tokenizer/tokenizer.json beside the checkpoint and won't start without it. Some
@@ -197,12 +221,29 @@ verify_dir() {
     # Halogen's verify takes the checkpoint and its sidecars, not the lookup table, which the
     # pull checks against the repository's hash instead (as the fetch does for the official one).
     [ "$(basename "$f")" != "$table" ] || continue
+    # So are draft head files the repository ships (flash drafter <name> <file>): Halogen's verify
+    # isn't run on the official draft head either. Only names a draft head can have, never the
+    # checkpoint: a drafter= line can't take a file out of the check.
+    if is_drafter_name "$(basename "$f")" && [ "$(basename "$f")" != "$(info_get "$info" checkpoint)" ] \
+       && info_get_all "$info" drafter | grep -qxF -- "$(basename "$f")"; then continue; fi
     checked=$((checked + 1))
     echo "Checking $(basename "$f") with Halogen's verify..."
     if ! offline "$HALOGEN_IMAGE" verify "/models/flash/$name/$(basename "$f")"; then result=fail; fi
   done
   [ "$checked" -gt 0 ] || { echo "$dir holds no checkpoint." >&2; result=fail; }
-  { grep -v -e '^verified=' -e '^verified_with=' -e '^verified_at=' "$info"
+  # Whether the checkpoint carries its own precision choices, as Halogen's server binary says (the
+  # third field of --resident-gib; its start script reads it the same way). Only then does
+  # HALOGEN_CK_OVERLAY name a draft head; otherwise it selects a precision sidecar, so render-config
+  # names the official draft head only with own_precision=1.
+  local ck own=unknown facts
+  ck="$(info_get "$info" checkpoint)"
+  if [[ "$ck" =~ ^[A-Za-z0-9._-]+\.hgn$ ]] && [ -f "$dir/$ck" ] && [ ! -L "$dir/$ck" ]; then
+    facts="$(offline --entrypoint /usr/local/bin/flash_serve "$HALOGEN_IMAGE" --resident-gib "/models/flash/$name/$ck" 2>/dev/null \
+      | grep -E '^[0-9]+\.[0-9] [01]( [01]){0,2}( [0-9]+\.[0-9])?$' | tail -n 1)"
+    if [ -n "$facts" ]; then own="$(awk '{ print ($3 == "" ? 0 : $3) }' <<< "$facts")"; fi
+  fi
+  { grep -v -e '^verified=' -e '^verified_with=' -e '^verified_at=' -e '^own_precision=' "$info"
+    echo "own_precision=$own"
     echo "verified=$result"
     echo "verified_with=$HALOGEN_VERSION"
     echo "verified_at=$(date -u '+%Y-%m-%d %H:%M UTC')"; } | write_new "$info.new" && mv -f "$info.new" "$info" || return 1
@@ -643,6 +684,29 @@ case "${1:-}" in
       die "Couldn't save the choice in $flash_choice (is something other than a file there?)."
     fi
     exit 0 ;;
+  drafter)
+    # flash drafter <name> official|off|<file>: which draft head your own checkpoint drafts with
+    # (render-config passes it to Halogen): the official one (the default), the checkpoint's
+    # built-in head, or a draft head file its repository ships (listed as drafter= in halos.info
+    # by the pull, which checked it against the repository's hash). Under the name's lock, so a
+    # removal or a new pull can't come between the check and the write.
+    name="${2:-}"; want="${3:-}"
+    if ! valid_name "$name" || ! [[ "$want" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then die "usage: halogenctl flash drafter <name> official|off|<file>"; fi
+    name_lock "$name"
+    d="$models/flash/$name"
+    if ! plain_dir "$d" || [ ! -f "$d/halos.info" ] || [ -L "$d/halos.info" ]; then
+      die "No checkpoint called $name (any more). See: sudo halogenctl flash list"
+    fi
+    case "$want" in
+      official|off) ;;
+      *) if ! is_drafter_name "$want" || [ "$want" = "$(info_get "$d/halos.info" checkpoint)" ] \
+            || ! info_get_all "$d/halos.info" drafter | grep -qxF -- "$want" || [ -L "$d/$want" ] || [ ! -f "$d/$want" ]; then
+           die "$name has no draft head called $want. Its own: $(info_get_all "$d/halos.info" drafter | tr '\n' ' ')(or official, off)"
+         fi ;;
+    esac
+    # The official one is the default, so it needs no line.
+    if [ "$want" = official ]; then drafter_set "$name" ""; else drafter_set "$name" "$want"; fi
+    exit 0 ;;
   remove)
     # Under the name's lock, after halogenctl asked: still there, still a plain folder, and not
     # the one chosen meanwhile (#119). As halogen, so a link can't steer the removal.
@@ -655,6 +719,8 @@ case "${1:-}" in
       die "$name is the active checkpoint (it was chosen meanwhile). Switch first: sudo halogenctl flash use official"
     fi
     rm -rf -- "$d" || die "Couldn't delete all of $d."
+    # A checkpoint pulled later under the same name starts with the official draft head.
+    if grep -q -- "^$name=" "$drafter_choice" 2> /dev/null; then drafter_set "$name" ""; fi
     echo "Deleted $name."
     exit 0 ;;
   convert-prepare) shift; convert_prepare "$@"; exit 0 ;;
@@ -714,11 +780,15 @@ wanted=("$checkpoint")
 overlay="${checkpoint%.hgn}.overlay.hgn"
 ! has "$overlay" || wanted+=("$overlay")
 ! has "$vision" || wanted+=("$vision")
+# Draft head files the repository ships beside the checkpoint (a third party's drafter). They are
+# downloaded and checked like the rest, but used only after sudo halogenctl flash drafter <name>
+# <file>: by default the official draft head drafts.
+mapfile -t drafters < <(cut -f1 <<< "$files" | grep -E '^[A-Za-z0-9._-]*drafter[A-Za-z0-9._-]*\.hgn$' || true)
 mapfile -t tokenizer < <(cut -f1 <<< "$files" | grep -E '^tokenizer/[A-Za-z0-9._-]+\.(json|jinja|txt|model|tiktoken)$' || true)
 wanted+=("${tokenizer[@]}")
 
-# Enough room for everything still missing, the lookup table included until we know.
-need=0; sized=("${wanted[@]}")
+# Enough room for everything still missing, the lookup table and draft heads included until we know.
+need=0; sized=("${wanted[@]}" "${drafters[@]}")
 ! has "$table" || sized+=("$table")
 for f in "${sized[@]}"; do
   s="$(size_of "$f")"; [ "${s:-0}" -gt 0 ] || continue
@@ -736,6 +806,12 @@ mk_plain "$dir" || die "$dir isn't a plain folder under $models (a link stands i
 # A table an earlier pull hard-linked to the official one goes before the download container
 # gets this folder: through it, the container could write the official file. A copy follows below.
 if [ -L "$dir/$table" ] || [ "$(stat -c %h "$dir/$table" 2>/dev/null || echo 1)" != 1 ]; then rm -f -- "$dir/$table"; fi
+# The same for draft head files (a copy of the official one is never a link, but one made by hand
+# could be), and anything at such a name that isn't a plain file (a FIFO would hang the hashing).
+for f in "$dir"/*drafter*.hgn; do
+  [ -e "$f" ] || [ -L "$f" ] || continue
+  if [ -L "$f" ] || [ ! -f "$f" ] || [ "$(stat -c %h "$f" 2>/dev/null || echo 2)" != 1 ]; then rm -rf -- "$f" || exit 1; fi
+done
 mounts=(-v "$dir:/models/flash/$name")
 # From the first byte until the checks pass, the folder counts as unchecked.
 # A new download also makes an earlier flash check's numbers stale.
@@ -755,6 +831,29 @@ fetch() {
   [ "${PIPESTATUS[0]}" = 0 ] || die "The download stopped. Run the same command again to resume it."
 }
 fetch "${wanted[@]}"
+
+# Draft head files. A copy of an official one (Peonist's layout ships the draft head beside the
+# checkpoint) is copied, not downloaded, as the lookup table below is: a reflink where the
+# filesystem can, never a link (the next pull's container gets this folder writable).
+for f in "${drafters[@]}"; do
+  # The download container had this folder: only a plain file of its own is hashed or kept.
+  if [ -L "$dir/$f" ] || { [ -e "$dir/$f" ] && { [ ! -f "$dir/$f" ] || [ "$(stat -c %h "$dir/$f")" != 1 ]; }; }; then rm -rf -- "${dir:?}/$f" || exit 1; fi
+  if [ -e "$dir/$f" ] && [ "$(sha256sum "$dir/$f" | cut -d' ' -f1)" != "$(sha_of "$f")" ]; then rm -f -- "$dir/$f"; fi
+  if [ ! -e "$dir/$f" ]; then
+    for o in qwen38-flash-next-drafter-r2-ht4.hgn qwen38-flash-next-drafter-r2.hgn; do
+      if [ -f "$models/$o" ] && [ ! -L "$models/$o" ] && [ "$(stat -c %s "$models/$o")" = "$(size_of "$f")" ] &&
+         [ "$(sha256sum "$models/$o" | cut -d' ' -f1)" = "$(sha_of "$f")" ]; then
+        if cp --reflink=auto -- "$models/$o" "$dir/$f"; then echo "Its draft head $f is the official $o, so that file is copied rather than downloaded."; break
+        else rm -f -- "$dir/$f"; fi
+      fi
+    done
+  fi
+  if [ ! -e "$dir/$f" ]; then
+    echo "Downloading its draft head, $f ($(gib "$(size_of "$f")"))."
+    fetch "$f"
+  fi
+  wanted+=("$f")
+done
 
 # Does the checkpoint carry the model's lookup table, or need it beside it? Halogen's server
 # binary says, the same way its start script asks.
@@ -829,6 +928,7 @@ fi
   echo "revision=$revision"
   echo "commit=$commit"
   echo "checkpoint=$checkpoint"
+  for f in "${drafters[@]}"; do echo "drafter=$f"; done
   echo "pulled_at=$(date -u '+%Y-%m-%d %H:%M UTC')"
   echo "verified=no"; } | write_new "$info.new" && mv -f "$info.new" "$info" || exit 1
 
@@ -836,4 +936,8 @@ if ! verify_dir "$name"; then
   die "$name failed Halogen's verify (above), so it can't be used. Remove it: sudo halogenctl flash remove $name"
 fi
 echo "$name is ready: $checkpoint from $repo at commit ${commit:0:12}, checked by Halogen's verify."
+if [ "${#drafters[@]}" -gt 0 ]; then
+  echo "$repo also ships its own draft head: ${drafters[*]}. Halogen's official draft head drafts by default;"
+  echo "to try the repository's instead: sudo halogenctl flash drafter $name ${drafters[0]}"
+fi
 echo "name=$name"

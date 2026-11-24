@@ -930,8 +930,9 @@ What `flash pull` does:
   (`qwen38-flash-next-ngram.hgn`, about 48 GB) only when the checkpoint doesn't have its own.
   Halogen's server tells which. If the table is the same file as the official one, the checkpoint
   shares the official file, with no extra disk space. (`flash list` still counts it in the size of
-  the checkpoint.) It downloads nothing else from the repository, so there's no Python pickle or
-  script to run.
+  the checkpoint.) If the repository has a draft head file (a name with `drafter` that ends in
+  `.hgn`), it gets that file too. It downloads nothing else from the repository, so there's no
+  Python pickle or script to run.
 - **Several checkpoints.** If the repository has more than one `.hgn` checkpoint, select one with
   `--file <name>.hgn`.
 - **No tokenizer.** If the repository has no tokenizer, `flash pull` copies in the official
@@ -941,10 +942,20 @@ What `flash pull` does:
   fails the check, and `flash use` refuses it. To correct a checkpoint that you pulled before
   halOS did this, run `sudo halogenctl flash verify <name>`. If Halogen serves it, then run
   `sudo halogenctl restart`.
+- **Draft head.** Your checkpoint uses Halogen's official draft head
+  (`qwen38-flash-next-drafter-r2-ht4.hgn`), the same as the official checkpoint. A draft head
+  proposes tokens, and the model checks each one, so the answers do not change. Only the speed
+  changes. To use the draft head file from the repository, run
+  `sudo halogenctl flash drafter <name> <file>`. To use the draft head inside the checkpoint, run
+  `sudo halogenctl flash drafter <name> off`. Compare the speed with `sudo halogenctl bench`. A
+  checkpoint with a quality sidecar keeps its sidecar and its own draft head. halOS uses the
+  official draft head only for a checkpoint that keeps its own precision. Halogen's server tells
+  this during the check. For a checkpoint that you pulled before this change, run
+  `sudo halogenctl flash verify <name>` one time.
 - **Room first.** It checks the free space before it downloads anything. A custom checkpoint
   usually needs 60 to 110 GB, in addition to the 110 GB of the official model.
 - **Checked twice.** Every file must agree with the hash that Hugging Face shows for it. The
-  checkpoint must also pass Halogen's own
+  checkpoint (not the lookup table or a draft head file) must also pass Halogen's own
   [`verify`](https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/checkpoint-tools.md).
   `flash use` refuses a checkpoint that failed or that halOS didn't check. After a Halogen update,
   the next start checks the selected checkpoint again with the new Halogen. If it fails, Halogen

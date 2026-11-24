@@ -236,7 +236,7 @@ ok "model list still works with no NPU folder and no readable settings"
 
 # flash: your own Flash checkpoints beside the official one, switched only to verified ones.
 f systemd-run 'case "$*" in
-  *flash-checkpoint\ use\ *|*flash-checkpoint\ remove\ *|*model-pull\ --remove\ *)
+  *flash-checkpoint\ use\ *|*flash-checkpoint\ drafter\ *|*flash-checkpoint\ remove\ *|*model-pull\ --remove\ *)
     # The real helper, as it runs under the lock; FAKE_BEFORE is what another terminal does
     # while halogenctl was asking.
     echo "systemd-run $*" >> "$FAKE/log"; [ -z "${FAKE_BEFORE:-}" ] || bash -c "$FAKE_BEFORE"
@@ -290,6 +290,42 @@ fi
 "$ctl" flash pull someone/Mine-HGN --as mine > "$work/out" 2>/dev/null; grep -q 'sudo halogenctl flash use mine' "$work/out" || { echo "pull doesn't say how to use it" >&2; exit 1; }
 "$ctl" flash verify mine > /dev/null; grep -q 'verify mine' "$work/log" || exit 1
 ok "flash lists, switches only to verified checkpoints after asking, never removes the active or official one, all as halogen"
+
+# flash drafter <name> [official|off|<file>]: official by default (no line); the choice is written
+# as halogen under the checkpoint's lock; a file only when its pull listed it; a restart only for the
+# checkpoint Halogen serves, after asking; remove drops the line.
+mkdir -p "$fm/flash/spare"; printf 'repo=someone/Spare\ncheckpoint=model.hgn\ndrafter=their-drafter.hgn\nverified=pass\n' > "$fm/flash/spare/halos.info"
+printf 'HGN1' > "$fm/flash/spare/their-drafter.hgn"; printf 'HGN1' > "$fm/flash/spare/stray.hgn"
+if "$ctl" flash drafter official off > "$work/out" 2>&1; then echo "drafter took official" >&2; exit 1; fi
+if "$ctl" flash drafter nothing off > "$work/out" 2>&1; then echo "drafter took a missing checkpoint" >&2; exit 1; fi
+if "$ctl" flash drafter spare ../x > "$work/out" 2>&1; then echo "drafter took a path" >&2; exit 1; fi
+if "$ctl" flash drafter spare stray.hgn > "$work/out" 2>&1; then echo "drafter took a file the pull didn't list" >&2; exit 1; fi
+"$ctl" flash drafter spare > "$work/out"
+{ grep -q "official draft head (the default)" "$work/out" && grep -q 'their-drafter.hgn' "$work/out"; } || { cat "$work/out" >&2; exit 1; }
+: > "$work/log"
+"$ctl" flash drafter spare their-drafter.hgn > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+if [ "$(cat "$work/configs/flash-drafter")" != spare=their-drafter.hgn ] || ! grep -q 'systemd-run .*flash-checkpoint drafter spare their-drafter.hgn' "$work/log" \
+   || grep -q 'restart halogen.service' "$work/log"; then
+  cat "$work/log" "$work/out" >&2; echo "drafter for a checkpoint not served didn't just save the choice as halogen" >&2; exit 1
+fi
+"$ctl" flash list > "$work/out"; grep -q 'official draft head, except: spare=their-drafter.hgn' "$work/out" || { cat "$work/out" >&2; echo "flash list doesn't show it" >&2; exit 1; }
+printf 'spare\n' > "$work/configs/flash-checkpoint"
+if "$ctl" flash drafter spare off < /dev/null > "$work/out" 2>&1; then echo "drafter for the served checkpoint didn't ask" >&2; exit 1; fi
+[ "$(cat "$work/configs/flash-drafter")" = spare=their-drafter.hgn ] || { echo "a declined change changed the list" >&2; exit 1; }
+: > "$work/log"
+"$ctl" flash drafter spare off --yes > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+if [ "$(cat "$work/configs/flash-drafter")" != spare=off ] || ! grep -q 'restart halogen.service' "$work/log"; then
+  echo "drafter for the served checkpoint didn't save and restart" >&2; exit 1
+fi
+"$ctl" flash drafter spare official --yes > /dev/null 2>&1
+[ ! -s "$work/configs/flash-drafter" ] || { echo "official (the default) left a line" >&2; exit 1; }
+printf 'official\n' > "$work/configs/flash-checkpoint"
+"$ctl" flash drafter spare off > /dev/null 2>&1
+printf 'mine=off\nbad line\n' >> "$work/configs/flash-drafter"
+"$ctl" flash remove spare --yes > /dev/null 2>&1 || exit 1
+[ "$(cat "$work/configs/flash-drafter")" = mine=off ] || { cat "$work/configs/flash-drafter" >&2; echo "remove didn't drop the line, or a bad line was kept" >&2; exit 1; }
+: > "$work/configs/flash-drafter"
+ok "flash drafter is official by default, saves a choice as halogen, takes only a listed file, asks and restarts only for the served checkpoint, and remove drops it"
 
 # What another terminal does while flash use or remove asks is checked again under the
 # checkpoint's lock (#119), and a checkpoint another command holds is a busy message.

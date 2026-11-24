@@ -10,6 +10,13 @@ it promotes.
 
 ## Unreleased
 
+- Your own Flash checkpoints now draft with Halogen's official draft head
+  (`qwen38-flash-next-drafter-r2-ht4.hgn`), as the official checkpoint does. Before, Halogen used
+  it only beside the official checkpoint, so yours drafted with their built-in head. If a
+  checkpoint's repository supplies its own draft head file, `flash pull` now downloads and checks
+  it, and `sudo halogenctl flash drafter <name> <file>` uses it; `off` goes back to the built-in
+  head. Answers stay the same, only the speed changes. The selftest's new `draft-head` line says
+  which one Halogen loaded. (#158)
 - Halogen's container can no longer open connections to the internet, your LAN or this machine.
   It is on its own Podman network with no route out and no DNS. Requests through Caddy, the
   dashboard and bench work as before, and the downloads still use the network. Three new
