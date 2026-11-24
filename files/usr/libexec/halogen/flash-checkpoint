@@ -677,14 +677,22 @@ gguf_fetch() { # repo commit dir-in-container file...
 
 # Halogen's convert in a container named like the pull's others, run as online() runs them: a
 # stopped pull removes it at once (bash holds its traps while a foreground command runs), and the
-# next pull of the name removes a leftover one.
+# next pull of the name removes a leftover one. It sees only this pull's work folder (the hashed
+# shards and draft head, read-only) at /models, which Halogen's image has, and writes only the new
+# checkpoint's folder (whose mount point already stands in the work folder, so nothing is made
+# under the read-only root); not the other models, the official files or the prompt cache. The
+# GPU devices and --ipc=host stay as Halogen's docs run convert (whether repack needs them is
+# for a run on the machine).
 gguf_convert() (
   local c=""
   c="$(ctr_for)" || exit 1
   trap 'podman rm -f -i -t 0 "$c" > /dev/null 2>&1; exit 143' TERM HUP
   trap 'podman rm -f -i -t 0 "$c" > /dev/null 2>&1; exit 130' INT
-  offline --name "$c" --replace --oom-score-adj=1000 -v "$out:/models/flash/.convert/$name/out/$name" \
-    -e "HALOGEN_MTP_HEAD=/models/flash/.convert/$name/head/$mtp_head" "$HALOGEN_IMAGE" convert "$1" "$2" < /dev/null &
+  podman run --rm --pull=never --name "$c" --replace --oom-score-adj=1000 \
+    --device /dev/kfd --device /dev/dri --group-add keep-groups --ipc=host --ulimit memlock=-1:-1 \
+    --read-only --tmpfs /tmp --network=none --cap-drop=all --security-opt no-new-privileges \
+    -v "$work:/models:ro" -v "$out:/models/out/$name" \
+    -e "HALOGEN_MTP_HEAD=/models/head/$mtp_head" "$HALOGEN_IMAGE" convert "$1" "$2" < /dev/null &
   wait "$!"
 )
 
@@ -790,7 +798,7 @@ Pick another build with --file, such as an IQ4_XS or IQ4_NL one. Halogen's list:
   open_up "$work/out"; rm -rf -- "$work/out" || die "Couldn't delete $work/out."
   mk_plain "$out" || die "$out isn't a plain folder under $models (a link stands in its path)."
   echo "Converting $key into Halogen's format (a few minutes to about ten on an NVMe disk)..."
-  gguf_convert "/models/flash/.convert/$name/gguf/${shards[0]}" "/models/flash/.convert/$name/out/$name/model.hgn"
+  gguf_convert "/models/gguf/${shards[0]}" "/models/out/$name/model.hgn"
   rc=$?
   if [ "$rc" = 137 ]; then
     die "The conversion ran out of memory. Stop Halogen for the few minutes it takes (sudo halogenctl stop), pull again (the download is kept), then: sudo halogenctl start"

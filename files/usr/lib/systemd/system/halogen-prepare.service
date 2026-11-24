@@ -19,6 +19,22 @@ NoNewPrivileges=yes
 RestrictAddressFamilies=AF_UNIX
 RestrictSUIDSGID=yes
 LockPersonality=yes
+# More of the same (security audit, after #165): no kernel settings, modules, log, clock, host
+# name, cgroups or new namespaces, no devices but the basic ones, and only the capabilities its
+# work takes: owners and modes in halogen's folders (chown, chmod, chcon on files halogen owns),
+# runuser to halogen (set ids, PAM's audit record and limits).
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+PrivateDevices=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_FOWNER CAP_FSETID CAP_SETUID CAP_SETGID CAP_AUDIT_WRITE CAP_SYS_RESOURCE
 
 [Install]
 WantedBy=multi-user.target

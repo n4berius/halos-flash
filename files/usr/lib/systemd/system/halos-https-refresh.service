@@ -22,3 +22,6 @@ RestrictNamespaces=yes
 LockPersonality=yes
 MemoryDenyWriteExecute=yes
 SystemCallArchitectures=native
+# No capabilities (security audit, after #165): it reads root's own files, and systemd lets
+# uid 0 restart a unit over D-Bus without any.
+CapabilityBoundingSet=

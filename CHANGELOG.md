@@ -10,6 +10,15 @@ it promotes.
 
 ## Unreleased
 
+- More hardening from the whole-image review, tried on a real machine before release (#NNN):
+  - The conversion of a GGUF download (`halogenctl flash pull`) sees only its own download, with
+    the rest of the system read-only, not every model.
+  - Halogen's container has no IPv6 on its network link (it keeps IPv6 inside, where it listens).
+  - The boot jobs that prepare Halogen's folders, hold the GPU clock, and renew HTTPS certificates
+    run with fewer rights.
+  - Four kernel settings: no terminal modules loaded on demand, stricter rules for files in shared
+    temporary folders, and no switching to another kernel without a reboot (kexec).
+
 - Fixes from a review of the whole image (#165):
   - A USB disk is now really left out when the machine looks at boot for SSH unlock keys or a
     tang binding. The check read the disk type from the partition, which never has one, so a USB
