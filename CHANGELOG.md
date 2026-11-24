@@ -10,7 +10,7 @@ it promotes.
 
 ## Unreleased
 
-- More hardening from the whole-image review, tried on a real machine before release (#NNN):
+- More hardening from the whole-image review, tried on a real machine before release (#167):
   - The conversion of a GGUF download (`halogenctl flash pull`) sees only its own download, with
     the rest of the system read-only, not every model.
   - Halogen's container has no IPv6 on its network link (it keeps IPv6 inside, where it listens).
