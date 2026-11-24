@@ -39,11 +39,11 @@ name, but allows saying halOS runs Halogen.
 |---|---|
 | `versions.env` | Every pinned input: Fedora base, kernel-next's test kernel, Halogen version, digest and source commit, upstream file hashes, weights repo and revision, ISO builder, bf16-to-hgn and halogen-dashboard commits |
 | `Containerfile` | The OS image. XRT is not in it: Halogen's image carries its own since 0.19.1 |
-| `Containerfile.helpers` | bf16-to-hgn, halogen-dashboard (+ `dashboard-nodump.so`) and Caddy, built from source (#122). `scripts/build-helpers.sh <dir>` builds it on the base by digest into `<dir>/tree` and records `<dir>/inputs` (base digest, both commits, a hash of its sources); `build.sh` takes `HALOS_HELPERS=<dir>` (else builds it first), refuses a folder whose inputs differ (`--check`), passes it as `--build-context helpers=` and builds the OS image on that same digest, so the libraries match. `build.yml`'s `helpers` job (beside `check`, also the change detection) builds it once and hands it to the four image jobs as a tar artifact of the run (a zip drops modes); no cache crosses runs. `release.yml`, `refresh.yml` and `iso.yml` still build it inside each job |
+| `Containerfile.helpers` | bf16-to-hgn, halogen-dashboard (+ `dashboard-nodump.so`) and Caddy, built from source (#122). `scripts/build-helpers.sh <dir>` builds it on the base by digest into `<dir>/tree` and records `<dir>/inputs` (the versions.env base, its digest and version label, both commits, a hash of its sources); each stage's `toolchain.txt` (#121) travels in the tree; `build.sh` takes `HALOS_HELPERS=<dir>` (else builds it first), refuses a folder whose inputs differ (`--check`), passes it as `--build-context helpers=` and builds the OS image on that same digest, so the libraries match. `build.yml`'s `helpers` job (beside `check`, also the change detection) builds it once and hands it to the four image jobs as a tar artifact of the run (a zip drops modes); no cache crosses runs. `release.yml`, `refresh.yml` and `iso.yml` still build it inside each job |
 | `Containerfile.installer`, `installer/` | The live installer image, Anaconda defaults (storage layout for custom partitioning), branding and boot menu. `installer/guided/`: the guided install's kickstart and `plan-install` (#42) |
 | `files/` | Copied into both editions: systemd units, `halosctl`, `halogenctl`, `halogen-enroll-tpm` (bash completion for all three in `usr/share/bash-completion/completions/`; `tests/completion.sh` fails when a tool gains a top-level command, or a `flash`/`model` subcommand, its completion doesn't offer; checkpoint folder names are written by halogen and its containers, so they are never passed to `compgen -W`, which expands `$(...)`: only plain names, matched by hand), `/usr/libexec/halogen/*` (`flash-checkpoint` and `model-pull` download your own checkpoints) |
 | `variants/npu`, `variants/no-npu` | Per-edition kernel arguments, Quadlet drop-ins, the allowed-options list and default `halogen.env` |
-| `scripts/` | `build.sh`, `build-helpers.sh`, `build-iso.sh`, `package-iso.sh` (single-file release ISO), `release-info.sh`, `gen-options.py` (options from upstream `FLAGS.md`), `halogen-update.sh` (pins a new Halogen release), `size-report.sh`, `channels.sh` (which channel tags a release moves), `next-tag.sh` (the next release tag), `push-image.sh`, `sign-image.sh` (cosign signing), `kernel-next-update.sh` (moves kernel-next's pin to Fedora's newest plain build), `go-test.sh` (the Go tests of `src/caddy` without an image build; needs network; CI's `check` job in `build.yml` runs it and `tests/run.sh` once, and both edition builds wait for it, #123) |
+| `scripts/` | `build.sh`, `build-helpers.sh`, `build-info.sh` (an image's build record, #121), `build-iso.sh`, `package-iso.sh` (single-file release ISO), `release-info.sh`, `gen-options.py` (options from upstream `FLAGS.md`), `halogen-update.sh` (pins a new Halogen release), `size-report.sh`, `channels.sh` (which channel tags a release moves), `next-tag.sh` (the next release tag), `push-image.sh`, `sign-image.sh` (cosign signing), `kernel-next-update.sh` (moves kernel-next's pin to Fedora's newest plain build), `go-test.sh` (the Go tests of `src/caddy` without an image build; needs network; CI's `check` job in `build.yml` runs it and `tests/run.sh` once, and both edition builds wait for it, #123) |
 | `docs/` | `CLI.md` (every command; update it with a command or option), `CLIENTS.md` (connecting apps and coding agents, and trusting the certificate per agent, from each project's docs and source) |
 | `CHANGELOG.md`, `ROADMAP.md` | What each release changed (PRs add to Unreleased), and the order of the work ahead |
 | `src/` | halOS's own source: `dashboard-nodump.c` (built in `Containerfile.helpers`' dashboard stage), `authenticode-check.py` (kernel-next's Secure Boot check at build time) and `caddy/` (`main.go`, `go.mod`, `go.sum`: Caddy with the DNS providers, built in the caddy stage; Dependabot `gomod`) |
@@ -62,7 +62,7 @@ name, but allows saying halOS runs Halogen.
 - First boot: `halogen-prepare` (root) creates `/srv/models`, `/srv/configs`, `halogen.env`
   and the API key. `halogen-fetch` (user) pulls the pinned image, downloads models with `hf`
   inside that image, and runs Halogen's `verify`. Then `halogen.service` starts with the models
-  read-only and never downloads (its container still has network: "offline" was wrong, audit F). Each restart of `halogen.service` reruns the fetch, which only downloads what's
+  read-only and never downloads (its container is on `halogen-internal`, see "Outbound network" below; before #120 it had network, audit F). Each restart of `halogen.service` reruns the fetch, which only downloads what's
   missing or changed.
 - `halos-status.timer` runs `login-status` (root, sandboxed, writes only under `/run`) every 30 s:
   one line in `/run/issue.d/50-halos.issue` for the console login screen (agetty's `\4` fills
@@ -152,6 +152,34 @@ name, but allows saying halOS runs Halogen.
   sha256 of the text Halogen's docs build from the parquet file, `bbf94c53…`), first `--ref-out`
   for the official checkpoint once per Halogen version, then `--ref --worst 5` for the custom one;
   results go to `halos.info` (`checked_*`) and `check.json`. GGUF conversion is a later step.
+- Draft heads for own Flash checkpoints (owner's choice: official by default, a third party's when
+  chosen): Halogen 0.20.7's entrypoint (`drafter_head`) uses `qwen38-flash-next-drafter-r2-ht4.hgn`
+  beside the checkpoint only when `HALOGEN_CK_OVERLAY` is unset and the checkpoint's basename is
+  `qwen38-flash-next-*.hgn`, and then also sets `HALOGEN_MTP_GATE_RULE=cost` and
+  `HALOGEN_SAMPLED_GATE=cost`; own checkpoints (`model.hgn` etc.) got nothing. `render-config` now
+  names `/models/<that file>` in `HALOGEN_CK_OVERLAY` for an own checkpoint, with both rules
+  (`SAMPLED_GATE` only if halogen.env doesn't set it), unless `/srv/configs/flash-drafter` has
+  `<name>=off` (built-in head) or `<name>=<file>`: a draft head file the pull listed as `drafter=` in
+  `halos.info` (repo files matching `*drafter*.hgn`, hash-checked, not given to verify; a copy of an
+  official draft head is reflink-copied, not downloaded), a plain file starting `HGN1`, else the
+  official one. Skipped (built-in head) with a quality sidecar `<ckpt>.overlay.hgn` (`CK_OVERLAY`
+  holds one file), a converted GGUF (header bytes 40..103 say gguf, as `check_sidecar` reads), a
+  missing/linked official file, or `HALOGEN_CK_OVERLAY=none` in halogen.env (wins). `flash drafter
+  <name> [official|off|<file>]` writes the line through `flash-checkpoint drafter` (name lock plus
+  `flash-drafter.lock` for the shared list; `official` drops the line); `flash remove` drops it.
+  With an explicit `CK_OVERLAY` path the entrypoint prints `overlay <path>`, not `draft head`; the
+  selftest's `draft-head` reads Halogen's journal since `ExecMainStartTimestamp` (`--timestamp=unix`).
+  Also skipped unless `halos.info` has `own_precision=1` (`verify_dir` records `flash_serve
+  --resident-gib`'s third field: with a w4b-style checkpoint `CK_OVERLAY` selects the precision
+  sidecar; pulls from before need `flash verify` once). `verify_dir` skips only `*drafter*.hgn`
+  names listed as `drafter=` and never the `checkpoint=` file. For a checkpoint named
+  `qwen38-flash-next-*.hgn` with a drafter under Halogen's names beside it (Peonist's layout),
+  render-config says `none` (or the sidecar's path) outright where it names no draft head, since
+  the entrypoint's `drafter_head` would pick the folder's file over off or a sidecar (code
+  review). Pull removes links, hard links and non-files at `*drafter*.hgn` before its container
+  gets the folder and before hashing (security audit). Left for the owner (audit P1, from before
+  this): a failed pull leaves `halos.info` that its container could have forged.
+  Whether the official head speeds up a fine-tune is unmeasured (bench on freyja).
 - `halosctl power [low-power|balanced|performance]` (#83) saves the firmware's ACPI platform profile in
   `/etc/halos/platform-profile` and sets it at once; `halos-platform-profile.service` (root, oneshot,
   at boot and after resume, skipped without `/sys/firmware/acpi/platform_profile`) runs
@@ -1022,7 +1050,7 @@ name, but allows saying halOS runs Halogen.
   `refresh.yml`, no credentials in its checkout) works the channels out then with main's
   `channels.sh` and copies the digest to the release's own tag and each channel tag with `skopeo
   copy --all --preserve-digests`, checking each digest and the signatures after; `publish` needs it
-  and uploads only `iso-*` artifacts. A run whose `publish` fails after `channels` has moved them
+  and uploads only `iso-*` and `info-*` (build record, #121) artifacts. A run whose `publish` fails after `channels` has moved them
   leaves a tag with no release (and `next-tag.sh` won't promote it). So a release whose install
   test fails moves no channel. The `info` job stops a release `channels.sh` gives no channel for
   (an alpha or rc of a version with a stable release: `next-tag.sh alpha` gives one until the next
@@ -1033,6 +1061,57 @@ name, but allows saying halOS runs Halogen.
   keys on the ESP of an unencrypted machine, and `halosctl npu` maps a pinned `X.Y.Z-rN` to the
   plain `X.Y.Z` tag (`release-info.sh` publishes -rN builds under it), which it then follows like a
   plain stable pin (later `-rN` and weekly rebuilds), not that exact build.
+
+- Outbound network (#120): `halogen.container` has `Network=halogen-internal.network`
+  (`Internal=true`, `DisableDNS=true`, netavark): the container gets only a link route on its
+  bridge (inside halogen's rootless network namespace, so no clash with a LAN 10.x), so any new
+  connection out fails at once with ENETUNREACH; without capabilities it can't add a route. The
+  published `127.0.0.1:18731` still works: rootlessport connects into the bridge from the rootless
+  namespace (checked with rootless podman 4.9.3, netavark 1.4, slirp4netns: port answered, 200 MB at
+  the same speed as the default network, outbound, DNS and the gateway refused). Halogen's docs:
+  no outbound connections with `HALOGEN_DOWNLOAD` unset (blocked here), no image URL fetching. The
+  fetch, pull, probe and bench containers keep their own networks. Quadlet's `network create
+  --ignore` keeps an existing network of that name as it is (a changed `.network` file never
+  reaches an upgraded machine until the network is removed), so the selftest's `network-config`
+  reads, from the host, the container's networks and `podman network inspect` (internal, no DNS,
+  IPv6, routes or gateway: podman 4.9.3 gives an internal network without DNS no gateway), and
+  `network-out` asks the running container (`python3 -I`, since its `/root` is writable: connects to
+  192.0.2.1 and 2001:db8::1, PASS only on no-route answers; an `AF_VSOCK` socket, which no network
+  namespace limits, only WARNs: Podman's seccomp profile should refuse it). The build checks
+  Quadlet's dry run, and the VM test the unit and the network (`HNET`). A published port on an
+  internal network is something upstream treats as a bug for its pasta port forwarder (container-libs
+  `firstIPsFromStatus`: "internal networks must not receive ports", podman#29792); the default
+  forwarder, rootlessport, has no such check. So `container-check` (image `:2`, `:1` removed) also
+  starts the tiny image on its own `halos-check-internal` network (`--internal --disable-dns`) with
+  `127.0.0.1:18739` published and the machine's python3 (real path under `/usr`, `/usr` mounted
+  read-only, `lib`/`lib64` links in the image) as a listener on `::`, which reports its own
+  connections out; the host must get the answer, with ENETUNREACH for IPv4. Exit 3 is the
+  selftest's FAIL `network-port`; the VM test needs PASS `network-port` (so Podman 6 on Fedora 45
+  is checked on every ISO run). Checked with rootless podman 4.9.3: PASS, and exit 3 without
+  `--internal`. Open (security audit): the
+  container's `eth0` keeps an `fe80::` address, so anything listening on `::` in halogen's rootless
+  network namespace is on-link (expected nothing: check `podman unshare --rootless-netns ss -tulpnH`
+  on freyja); `Sysctl=net.ipv6.conf.eth0.disable_ipv6=1` would close it once Halogen's start with it
+  is checked. Halogen sees a bridge address as the client (in
+  that check, the container's own: rootlessport connects from inside its namespace); Caddy logs the
+  real one. On freyja still: Halogen's start, a bench (the path is
+  rootlessport, not pasta's splice), and both editions.
+
+- Build record (#121): the base stays the moving tag `fedora-bootc:45` (Fedora's fixes, weekly
+  rebuild). `scripts/build-helpers.sh` (run by `build.sh`, or once per CI run, #122) resolves it once with `skopeo inspect` (a pinned `repo@sha256:` is checked
+  to answer with that digest; a tag+digest reference is asked for as `repo@digest`, since
+  containers/image refuses both), builds every stage `FROM` that digest, and labels the image
+  `io.github.n4berius.halos.base` and `org.opencontainers.image.revision`. release.env gains
+  `HALOS_BASE_IMAGE`, `HALOS_BASE_VERSION` (the base's version label) and `HALOS_SOURCE_COMMIT`
+  (`-modified` with a dirty tree); the image keeps `/usr/share/halogen/packages.txt` (`rpm -qa`,
+  written after the kernel swap) and `toolchains.txt` (each build stage's compilers). The
+  selftest prints a "Fedora base" line. `scripts/build-info.sh <image>` prints labels, release.env,
+  toolchains and packages (rpm inside the image for older images); `build.sh` writes it to
+  `output/build-info-<edition>-<kernel>.txt`, build.yml and refresh.yml keep it as an artifact
+  (refresh also puts the base lines in the run summary), and release.yml's image job runs main's
+  copy (`continue-on-error`: the tag is already pushed) and publishes
+  `halos-flash-<tag>-<edition>-build-info.txt`. `build-iso.sh` builds the installer on the OS
+  image's label, else the tag. Not reproducible: dnf still installs from Fedora's current repos.
 
 ## Lessons already learned
 

@@ -32,8 +32,12 @@ case "$HALOGEN_DIGEST" in
   *) echo "bad digest: $HALOGEN_DIGEST" >&2; exit 1 ;;
 esac
 
-# The helper programs, and the base they were built on: the OS image uses that same base by
-# digest, so their libraries match (Containerfile.helpers).
+# The helper programs (Containerfile.helpers, #122) and the Fedora base they were built on.
+# Fedora's base is a moving tag (#121): build-helpers.sh resolves it once to repository@digest
+# (a digest pinned in versions.env is checked to answer with that digest), and every stage here
+# is built FROM that same digest, so the helpers' libraries are the image's. The image records
+# it (release.env, a label), so two builds can say which base each had. Packages still come
+# from Fedora's current repositories.
 if [ -n "${HALOS_HELPERS:-}" ]; then
   HALOS_HELPERS="$(cd "$OLDPWD" && realpath -e "$HALOS_HELPERS")"
 else
@@ -43,7 +47,10 @@ else
 fi
 scripts/build-helpers.sh --check "$HALOS_HELPERS"
 BASE_IMAGE="$(sed -n 's/^base=//p' "$HALOS_HELPERS/inputs")"
-echo "Base: $FEDORA_BOOTC_IMAGE ($BASE_IMAGE)"
+BASE_VERSION="$(sed -n 's/^base_version=//p' "$HALOS_HELPERS/inputs")"
+echo "Fedora base: $BASE_IMAGE (version $BASE_VERSION)"
+SOURCE_COMMIT="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
+if [ "$SOURCE_COMMIT" != unknown ] && [ -n "$(git status --porcelain 2>/dev/null)" ]; then SOURCE_COMMIT="$SOURCE_COMMIT-modified"; fi
 
 podman build --pull=newer -t "$TAG" \
   --label "org.opencontainers.image.source=https://github.com/n4berius/halos-flash" \
@@ -51,7 +58,10 @@ podman build --pull=newer -t "$TAG" \
   --label "io.github.n4berius.halos.edition=$VARIANT" \
   --label "io.github.n4berius.halos.kernel=$KERNEL_TRACK" \
   --build-context "helpers=$HALOS_HELPERS/tree" \
-  --build-arg "FEDORA_BOOTC_IMAGE=$BASE_IMAGE" \
+  --label "io.github.n4berius.halos.base=$BASE_IMAGE" \
+  --label "org.opencontainers.image.revision=$SOURCE_COMMIT" \
+  --build-arg "FEDORA_BOOTC_IMAGE=$BASE_IMAGE" --build-arg "HALOS_BASE_VERSION=$BASE_VERSION" \
+  --build-arg "HALOS_SOURCE_COMMIT=$SOURCE_COMMIT" \
   --build-arg "HALOGEN_IMAGE=$SOURCE@$HALOGEN_DIGEST" \
   --build-arg "HALOGEN_VERSION=$HALOGEN_VERSION" \
   --build-arg "HALOGEN_VARIANT=$VARIANT" \
@@ -69,3 +79,8 @@ podman build --pull=newer -t "$TAG" \
   --build-arg "KERNEL_NEXT_URL=$KERNEL_NEXT_URL" --build-arg "KERNEL_NEXT_SHA256=$KERNEL_NEXT_SHA256" \
   .
 echo "Built $TAG (halOS $RELEASE, kernel $KERNEL_TRACK) with Halogen $HALOGEN_VERSION ($HALOGEN_DIGEST)"
+echo "on $BASE_IMAGE (Fedora base $BASE_VERSION)"
+# What went into it, from the image itself: release.env, toolchains and every package.
+mkdir -p output
+scripts/build-info.sh "$TAG" > "output/build-info-$VARIANT-$KERNEL_TRACK.txt"
+echo "Build record: output/build-info-$VARIANT-$KERNEL_TRACK.txt"

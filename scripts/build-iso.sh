@@ -11,8 +11,13 @@ INSTALLER="localhost/halos-flash-installer:$HALOGEN_VERSION-$VARIANT"
 mkdir -p output
 
 podman image exists "$TARGET" || { echo "build or pull $TARGET first" >&2; exit 1; }
+# The live installer starts from the same Fedora base as the OS image it carries (#121): the
+# digest the image records. Images built before that have no label, and take today's base.
+BASE="$(podman image inspect --format '{{index .Labels "io.github.n4berius.halos.base"}}' "$TARGET")"
+[[ "$BASE" =~ @sha256:[0-9a-f]{64}$ ]] || BASE="$FEDORA_BOOTC_IMAGE"
+echo "Installer base: $BASE"
 podman build --pull=newer -t "$INSTALLER" -f Containerfile.installer \
-  --build-arg "FEDORA_BOOTC_IMAGE=$FEDORA_BOOTC_IMAGE" \
+  --build-arg "FEDORA_BOOTC_IMAGE=$BASE" \
   --build-arg "TARGET_IMAGE=$TARGET" --build-arg "HALOGEN_VARIANT=$VARIANT" .
 
 # Upstream's build, because embedding the OS needs newer support than Fedora's package.

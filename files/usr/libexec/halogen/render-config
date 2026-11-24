@@ -9,12 +9,19 @@
 # unless sudo halogenctl cache off wrote "off" in /srv/configs/prompt-cache.
 # The API key (/srv/configs/api-key, mounted at /run/secrets/halogen-api-key) is required unless
 # sudo halogenctl api-key off made root's /etc/halos/api-key-off, which halogen can't write.
+# Halogen's own draft head file (qwen38-flash-next-drafter-r2-ht4.hgn) drafts beside the official
+# checkpoint on its own, and halOS names it for your own checkpoints too (HALOGEN_CK_OVERLAY, with
+# the two rules Halogen's entrypoint sets beside it), unless /srv/configs/flash-drafter (sudo
+# halogenctl flash drafter <name> ...) says off (the checkpoint's built-in head) or names a draft
+# head file the checkpoint's repository ships.
 # Prints the path of the result. With --show, prints its contents instead.
 set -uo pipefail
 config="${HALOGEN_CONFIG_FILE:-/srv/configs/halogen.env}"
 flash_choice="${HALOGEN_FLASH_FILE:-/srv/configs/flash-checkpoint}"
 models="${HALOGEN_MODELS_DIR:-/srv/models}"
 official=/models/qwen38-flash-next-v2.hgn
+drafter=qwen38-flash-next-drafter-r2-ht4.hgn
+drafter_choice="${HALOGEN_DRAFTER_CHOICE_FILE:-/srv/configs/flash-drafter}"
 allowed="${HALOGEN_ALLOWED_FILE:-/usr/share/halogen/options.allowed}"
 cache_choice="${HALOGEN_CACHE_CHOICE_FILE:-/srv/configs/prompt-cache}"
 # Root's drop-in that mounts the cache folder read-only while it is off (halogenctl cache off).
@@ -51,8 +58,9 @@ if [ -r "$config" ]; then
       ignore "$key" "the only supported value is 1"
       continue
     fi
-    # Halogen takes a file path here; halOS passes only none (0.20.6: the checkpoint's own draft head
-    # instead of the draft head file beside it), since a path would reach files the fetch doesn't check.
+    # Halogen takes a file path here; halOS passes only none from halogen.env (the checkpoint's own
+    # draft head), since a path would reach files nothing checked. The draft heads halOS names
+    # itself (below) are the fetch's official file or one a pull hash-checked.
     if [ "$key" = HALOGEN_CK_OVERLAY ] && [ -n "$value" ] && [ "$value" != none ]; then
       ignore "$key" "the only value halOS accepts is none (the checkpoint's own draft head)"
       continue
@@ -89,6 +97,7 @@ case "$choice" in
       echo "halogen-config: $choice holds links, not its own files; using the official one" >&2
     else
       checkpoint="/models/flash/$choice/$file"
+      own_dir="$models/flash/$choice"; own_file="$file"
       # HALOGEN_VISION_TOWER=1 looks beside the checkpoint, and a missing tower stops Halogen.
       if [ -n "${values[HALOGEN_VISION_TOWER]:-}" ] && [ ! -f "$models/flash/$choice/qwen38-flash-next-vision.hgn" ]; then
         ignore HALOGEN_VISION_TOWER "$choice has no vision tower, so images stay off"
@@ -97,6 +106,79 @@ case "$choice" in
     fi ;;
 esac
 values[HALOGEN_CHECKPOINT]="$checkpoint"
+
+# The draft head for your own checkpoint. Halogen's entrypoint picks the official one up only
+# beside a checkpoint named qwen38-flash-next-*.hgn, so for any other it is named here. A draft
+# head changes no answer (the model checks every drafted token), only the speed. The official one
+# by default; flash drafter <name> off keeps the checkpoint's built-in head, and flash drafter
+# <name> <file> picks a draft head file its repository ships (the pull listed it as drafter= in
+# halos.info after checking its hash). HALOGEN_CK_OVERLAY holds one file, so a checkpoint with a
+# quality sidecar (<checkpoint>.overlay.hgn) keeps the sidecar, and HALOGEN_CK_OVERLAY=none in
+# halogen.env wins.
+if [ -n "${own_dir:-}" ]; then
+  want="$(N="$choice" awk -F= '$1 == ENVIRON["N"] { v = substr($0, length($1) + 2) } END { print v }' "$drafter_choice" 2>/dev/null)"
+  [[ "$want" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || want=official
+  head_path=""
+  # A GGUF converted to .hgn (Halogen's convert mode) names it in its header, where Halogen's
+  # entrypoint reads it; such a file takes no sidecar. Read into a variable, not piped into grep -q.
+  mid="$(timeout 5 head -c 104 -- "$own_dir/$own_file" 2>/dev/null | tail -c 64 | tr -d '\0')"
+  if [ "$want" = off ]; then :
+  elif [ -n "${values[HALOGEN_CK_OVERLAY]:-}" ]; then
+    echo "halogen-config: $choice: halogen.env sets HALOGEN_CK_OVERLAY=${values[HALOGEN_CK_OVERLAY]}, which wins over the draft head choice ($want)" >&2
+  elif [ -e "$own_dir/${own_file%.hgn}.overlay.hgn" ] || [ -L "$own_dir/${own_file%.hgn}.overlay.hgn" ]; then
+    echo "halogen-config: $choice: it has a quality sidecar (${own_file%.hgn}.overlay.hgn), which takes the place a draft head would, so its built-in head drafts" >&2
+  elif [[ "${mid,,}" == *gguf* ]]; then
+    echo "halogen-config: $choice: a converted GGUF takes no draft head file, so its built-in head drafts" >&2
+  # HALOGEN_CK_OVERLAY names a draft head only for a checkpoint that carries its own precision
+  # (FLAGS.md: with a w4b-style one it selects the precision sidecar). Halogen's verify run by halOS
+  # records that (flash pull, flash verify).
+  elif [ "$(sed -n 's/^own_precision=//p' "$own_dir/halos.info" 2>/dev/null | tail -n 1)" != 1 ]; then
+    echo "halogen-config: $choice: halOS doesn't know yet whether it carries its own precision, so its built-in head drafts (sudo halogenctl flash verify $choice finds out)" >&2
+  else
+    if [ "$want" != official ]; then
+      # Only a file the pull listed and checked, a plain file in the checkpoint's own folder that
+      # starts as a draft head does (HGN1, as Halogen checks); else the official one.
+      if [[ "$want" =~ ^[A-Za-z0-9._-]*drafter[A-Za-z0-9._-]*\.hgn$ ]] && [ "$want" != "$own_file" ] \
+         && sed -n 's/^drafter=//p' "$own_dir/halos.info" 2>/dev/null | grep -qxF -- "$want" \
+         && [ ! -L "$own_dir/$want" ] && [ -f "$own_dir/$want" ] && [ "$(timeout 5 head -c 4 -- "$own_dir/$want" 2>/dev/null)" = HGN1 ]; then
+        head_path="/models/flash/$choice/$want"
+      else
+        echo "halogen-config: $choice: its draft head $want isn't there (or isn't one from its pull), so the official one drafts" >&2
+      fi
+    fi
+    if [ -z "$head_path" ]; then
+      if [ -L "$models/$drafter" ] || [ ! -f "$models/$drafter" ] || [ "$(timeout 5 head -c 4 -- "$models/$drafter" 2>/dev/null)" != HGN1 ]; then
+        echo "halogen-config: $choice: the official draft head isn't downloaded yet, so its built-in head drafts" >&2
+      else
+        head_path="/models/$drafter"
+      fi
+    fi
+    if [ -n "$head_path" ]; then
+      values[HALOGEN_CK_OVERLAY]="$head_path"
+      # What Halogen's entrypoint sets when it finds a draft head itself (drafter_head).
+      values[HALOGEN_MTP_GATE_RULE]=cost
+      values[HALOGEN_SAMPLED_GATE]="${values[HALOGEN_SAMPLED_GATE]:-cost}"
+    fi
+  fi
+  # Where halOS left HALOGEN_CK_OVERLAY unset, Halogen's entrypoint picks a draft head file by itself
+  # when the checkpoint is named qwen38-flash-next-*.hgn (not w4b) and one with Halogen's own names
+  # lies beside it, as a repository in Peonist's layout ships them. Then that would win over off and
+  # over a quality sidecar (drafter_head runs before check_sidecar), so say it outright: the sidecar
+  # by its path, else none (the built-in head).
+  if [ -z "${values[HALOGEN_CK_OVERLAY]:-}" ]; then
+    case "$own_file" in
+      qwen38-flash-next-w4b.hgn) ;;
+      qwen38-flash-next-*.hgn)
+        if [ -e "$own_dir/$drafter" ] || [ -L "$own_dir/$drafter" ] || [ -e "$own_dir/qwen38-flash-next-drafter-r2.hgn" ] || [ -L "$own_dir/qwen38-flash-next-drafter-r2.hgn" ]; then
+          if [ -f "$own_dir/${own_file%.hgn}.overlay.hgn" ] && [ ! -L "$own_dir/${own_file%.hgn}.overlay.hgn" ]; then
+            values[HALOGEN_CK_OVERLAY]="/models/flash/$choice/${own_file%.hgn}.overlay.hgn"
+          else
+            values[HALOGEN_CK_OVERLAY]=none
+          fi
+        fi ;;
+    esac
+  fi
+fi
 
 # Request records. Halogen refuses to start on a text field it doesn't know, so check them here.
 if [ -n "${values[HALOGEN_RECORD_GIB]:-}" ] && ! [[ "${values[HALOGEN_RECORD_GIB]}" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then

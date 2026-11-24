@@ -17,7 +17,8 @@ RUN set -eu; \
     [ "$(git rev-parse HEAD)" = "$BF16_TO_HGN_COMMIT" ]; \
     mkdir -p "$(realpath /root)"; \
     cargo build --release --locked; \
-    ./target/release/bf16-to-hgn --version
+    ./target/release/bf16-to-hgn --version; \
+    { echo "bf16-to-hgn stage:"; rpm -q cargo rust gcc-c++ | sed 's/^/  /'; } > /toolchain.txt
 
 # halogen-dashboard (Quaternion's live page of Halogen's load), built from its pinned commit: the
 # web page first (the binary embeds it), then the collector. Node and Rust stay in this stage.
@@ -60,7 +61,8 @@ RUN set -eu; \
     [ -z "$(LD_PRELOAD=/out/dashboard-nodump.so /usr/bin/true 2>&1)" ]; \
     chmod 0755 /out; \
     setpriv --reuid=65534 --regid=65534 --clear-groups cat /proc/self/environ > /dev/null; \
-    ! LD_PRELOAD=/out/dashboard-nodump.so setpriv --reuid=65534 --regid=65534 --clear-groups cat /proc/self/environ > /dev/null 2>&1
+    ! LD_PRELOAD=/out/dashboard-nodump.so setpriv --reuid=65534 --regid=65534 --clear-groups cat /proc/self/environ > /dev/null 2>&1; \
+    { echo "dashboard stage:"; rpm -q cargo rust gcc nodejs pnpm | sed 's/^/  /'; } > /toolchain.txt
 
 # Caddy, halOS's front door (halos-proxy.service): Halogen's API on 8731 and the dashboard on 8732,
 # over HTTP or HTTPS. Built from src/caddy, whose go.mod and go.sum pin every module by version and
@@ -99,7 +101,8 @@ RUN set -eu; \
     for m in github.com/caddyserver/caddy/v2 github.com/caddy-dns/cloudflare github.com/caddy-dns/porkbun \
       github.com/libdns/duckdns github.com/libdns/namecheap; do \
       ls "$lic/modules/$m/"* > /dev/null || { echo "no licence file for $m" >&2; exit 1; }; \
-    done
+    done; \
+    { echo "caddy stage:"; rpm -q golang | sed 's/^/  /'; echo "  $(go env GOVERSION)"; } > /toolchain.txt
 
 # What the OS image copies (Containerfile, COPY --from=helpers), one folder per program.
 FROM scratch AS helpers
@@ -112,3 +115,7 @@ COPY --from=dashboard /out/licenses/ /dashboard/licenses/
 COPY --from=dashboard /out/dashboard-nodump.so /dashboard/dashboard-nodump.so
 COPY --from=caddy /out/caddy /caddy/caddy
 COPY --from=caddy /out/licenses/ /caddy/licenses/
+# The compilers each stage used, for the build record (scripts/build-info.sh, #121).
+COPY --from=bf16-to-hgn /toolchain.txt /bf16-to-hgn/toolchain.txt
+COPY --from=dashboard /toolchain.txt /dashboard/toolchain.txt
+COPY --from=caddy /toolchain.txt /caddy/toolchain.txt

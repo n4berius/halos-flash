@@ -132,6 +132,7 @@ To edit the settings, run `sudo nano /srv/configs/halogen.env`. Then run `sudo h
 | `halogenctl flash pull <hf-repo> [--revision <rev>] [--as <name>] [--file <checkpoint.hgn>]` | Downloads a Flash checkpoint in Halogen's format. It checks the checkpoint against the hashes from Hugging Face and with Halogen's `verify`. |
 | `halogenctl flash list` | Shows the official checkpoint and yours, and which one Halogen serves. |
 | `halogenctl flash use <name>\|official [--yes]` | Asks, then switches Halogen to that checkpoint and restarts Halogen immediately (`--yes` skips the question). halOS always keeps the official checkpoint. |
+| `halogenctl flash drafter <name> [official\|off\|<file>] [--yes]` | Sets the draft head that your checkpoint uses. `official` (the default) is Halogen's official draft head (`qwen38-flash-next-drafter-r2-ht4.hgn`), which the official checkpoint always uses. `off` is the draft head inside the checkpoint. `<file>` is a draft head file that the checkpoint's repository supplies: `flash pull` downloads it, checks it against the repository's hash and shows its name. The answers do not change, because the model checks each token that a draft head proposes. Only the speed changes, so compare `halogenctl bench` with each setting. A checkpoint with a quality sidecar (`<checkpoint>.overlay.hgn`) keeps the sidecar. If Halogen serves the checkpoint, the command asks, then restarts Halogen. Without a setting, it shows the setting and the choices. |
 | `halogenctl flash verify <name>` | Runs Halogen's `verify` on the checkpoint again. |
 | `halogenctl flash check <name> [--yes]` | Compares the quality of the checkpoint with the official one (perplexity on a standard text). It stops Halogen during the check, then starts it again. |
 | `halogenctl flash convert <hf-repo> [--revision <rev>] [--as <name>] [--threads <n>] [--keep-source] [--yes]` | Converts full-precision weights to Halogen's format on this machine. This takes many hours, possibly a day or more, and about 480 GB of space. |
@@ -139,7 +140,7 @@ To edit the settings, run `sudo nano /srv/configs/halogen.env`. Then run `sudo h
 | `halogenctl flash remove <name> [--yes]` | Deletes one of your checkpoints (not the one in use). |
 
 Only one command at a time can work on a checkpoint. While one of `pull`, `convert`, `verify`,
-`check`, `use` and `remove` works on a name, a second command on the same name refuses with "Another
+`check`, `use`, `drafter` and `remove` works on a name, a second command on the same name refuses with "Another
 … is running". The same applies to `model pull`/`model remove` of the same model. After you
 answer, `use` and `remove` check again that nothing changed in the meantime.
 
@@ -174,6 +175,7 @@ passphrase: it is your recovery key.
 | `/etc/halos/https/` | Your certificate and key, and the credential of the DNS provider for Let's Encrypt (only root) |
 | `/srv/configs/hf-token` | Your Hugging Face token, if you saved one |
 | `/srv/configs/flash-checkpoint` | The Flash checkpoint that `flash use` chose |
+| `/srv/configs/flash-drafter` | The draft head of each of your Flash checkpoints that does not use the official one (`flash drafter`), as `<name>=off` or `<name>=<file>` |
 | `/etc/halos/proxy.env` | Optional: more networks that can see the dashboard (`HALOS_DASHBOARD_ALLOW`) |
 | `/var/lib/halos/history` | What `halosctl history` shows |
 | `/var/log/audit/` | The audit log (`sudo ausearch -i -k halos-config`; [the keys](../INSTALL.md#logs-and-the-audit-trail)) |

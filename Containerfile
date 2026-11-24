@@ -129,6 +129,10 @@ COPY --from=helpers dashboard/licenses/ /usr/share/licenses/halogen-dashboard/
 COPY --from=helpers dashboard/dashboard-nodump.so /usr/lib64/halos/dashboard-nodump.so
 COPY --from=helpers caddy/caddy /usr/libexec/halogen/caddy
 COPY --from=helpers caddy/licenses/ /usr/share/licenses/halos-caddy/
+# The compilers each helper stage used, for the build record (scripts/build-info.sh, #121).
+COPY --from=helpers bf16-to-hgn/toolchain.txt /tmp/toolchain-1.txt
+COPY --from=helpers dashboard/toolchain.txt /tmp/toolchain-2.txt
+COPY --from=helpers caddy/toolchain.txt /tmp/toolchain-3.txt
 
 # Upstream's clock script and terms, unmodified and checked by hash.
 RUN set -eu; \
@@ -145,6 +149,11 @@ RUN set -eu; \
 ARG HALOS_RELEASE
 ARG BF16_TO_HGN_COMMIT
 ARG HALOGEN_DASHBOARD_COMMIT
+# What this build was made from (#121): the Fedora base as build.sh resolved it (repository@digest,
+# used by every stage), the base's own version label and the halOS source commit.
+ARG FEDORA_BOOTC_IMAGE
+ARG HALOS_BASE_VERSION=unknown
+ARG HALOS_SOURCE_COMMIT=unknown
 RUN set -eu; \
     /usr/libexec/halogen/bf16-to-hgn --version; \
     /usr/libexec/halogen/halogen-dashboard --version; \
@@ -166,6 +175,17 @@ RUN set -eu; \
     find /etc/containers/systemd/users/970 -type f -exec sed -i \
       -e "s|@HALOGEN_IMAGE@|${HALOGEN_IMAGE}|g" -e "s|@HALOGEN_VERSION@|${HALOGEN_VERSION}|g" {} +; \
     if grep -rq '@HALOGEN_' /etc/containers/systemd/users/970; then exit 1; fi; \
+    # Halogen's container is on its own network with no route out and no DNS (#120): netavark makes it,
+    # and Quadlet must still turn the files into exactly that.
+    rpm -q netavark; \
+    QUADLET_UNIT_DIRS=/etc/containers/systemd/users/970 /usr/libexec/podman/quadlet -dryrun -user > /tmp/quadlet.txt 2>&1 || { cat /tmp/quadlet.txt; exit 1; }; \
+    netline="$(grep -E '^ExecStart=/usr/bin/podman network create ' /tmp/quadlet.txt)"; \
+    case "$netline" in *' --internal '*) ;; *) echo "Halogen's network isn't internal: $netline" >&2; exit 1 ;; esac; \
+    case "$netline" in *' --disable-dns '*) ;; *) echo "Halogen's network has DNS: $netline" >&2; exit 1 ;; esac; \
+    case "$netline" in *' halogen-internal') ;; *) echo "Halogen's network has another name: $netline" >&2; exit 1 ;; esac; \
+    grep -E '^ExecStart=/usr/bin/podman run ' /tmp/quadlet.txt | grep -qE ' --network[= ]halogen-internal( |$)' \
+      || { echo "Halogen's container isn't on halogen-internal" >&2; exit 1; }; \
+    rm -f /tmp/quadlet.txt; \
     { echo "HALOGEN_IMAGE=${HALOGEN_IMAGE}"; \
       echo "HALOGEN_VERSION=${HALOGEN_VERSION}"; \
       echo "HALOGEN_VARIANT=${HALOGEN_VARIANT}"; \
@@ -175,7 +195,15 @@ RUN set -eu; \
       echo "BF16_TO_HGN_COMMIT=${BF16_TO_HGN_COMMIT}"; \
       echo "HALOGEN_DASHBOARD_COMMIT=${HALOGEN_DASHBOARD_COMMIT}"; \
       echo "HALOS_KERNEL=${KERNEL_TRACK}"; \
-      echo "HALOS_KERNEL_BUILT=$(rpm -q --qf '%{BUILDTIME}' kernel-core)"; } > /usr/share/halogen/release.env; \
+      echo "HALOS_KERNEL_BUILT=$(rpm -q --qf '%{BUILDTIME}' kernel-core)"; \
+      echo "HALOS_BASE_IMAGE=${FEDORA_BOOTC_IMAGE}"; \
+      echo "HALOS_BASE_VERSION=${HALOS_BASE_VERSION}"; \
+      echo "HALOS_SOURCE_COMMIT=${HALOS_SOURCE_COMMIT}"; } > /usr/share/halogen/release.env; \
+    case "$FEDORA_BOOTC_IMAGE" in *@sha256:*) ;; *) echo "the base must come by digest (scripts/build.sh resolves it)" >&2; exit 1 ;; esac; \
+    cat /tmp/toolchain-1.txt /tmp/toolchain-2.txt /tmp/toolchain-3.txt > /usr/share/halogen/toolchains.txt; \
+    rm -f /tmp/toolchain-*.txt; \
+    rpm -qa --qf '%{NAME}-%{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort > /usr/share/halogen/packages.txt; \
+    grep -q '^kernel-core-' /usr/share/halogen/packages.txt; \
     echo 'halogen:524288:65536' >> /etc/subuid; \
     echo 'halogen:524288:65536' >> /etc/subgid; \
     firewall-offline-cmd --add-service=halogen; \

@@ -98,6 +98,30 @@ d="$work/models/flash/mine"
 { [ -f "$d/qwen38-flash-next-vision.hgn" ] && grep -q custom "$d/tokenizer/tokenizer.json"; } || fail "vision or tokenizer missing"
 { [ ! -e "$d/README.md" ] && [ ! -e "$d/model.safetensors.bin" ] && [ ! -e "$d/tokenizer/evil.py" ]; } || fail "files Halogen doesn't load were downloaded"
 grep -qx "hf $commit model.hgn qwen38-flash-next-vision.hgn tokenizer/chat_template.jinja tokenizer/tokenizer.json" "$work/hf.log" || fail "not fetched at the exact commit: $(cat "$work/hf.log")"
+# A draft head file the repository ships comes too (checked by its hash, not given to verify), and
+# is listed for flash drafter; the official one drafts until it is chosen.
+grep -qx "hf $commit qwen38-flash-next-drafter-r2.hgn" "$work/hf.log" || fail "the repository's draft head wasn't fetched: $(cat "$work/hf.log")"
+{ [ "$(cat "$d/qwen38-flash-next-drafter-r2.hgn")" = drafter ] && [ "$(info mine drafter)" = qwen38-flash-next-drafter-r2.hgn ]; } || fail "the draft head wasn't kept and listed"
+if grep -q drafter "$work/verify.log"; then fail "verify was given a draft head file"; fi
+[ "$(info mine own_precision)" = 1 ] || fail "whether it carries its own precision wasn't recorded"
+# A draft head hard-linked to another file (the official one, say) goes before the container gets
+# the folder; a FIFO at its name is removed, never hashed (which would hang).
+printf 'official' > "$work/models/qwen38-flash-next-drafter-r2-ht4.hgn"
+rm "$d/qwen38-flash-next-drafter-r2.hgn"; ln "$work/models/qwen38-flash-next-drafter-r2-ht4.hgn" "$d/qwen38-flash-next-drafter-r2.hgn"
+mkfifo "$d/old-drafter.hgn"
+timeout 60 "$tool" pull someone/My-Flash-HGN --as mine > "$work/out" 2>&1 || fail "the pull with a hard-linked draft head failed"
+{ [ "$(stat -c %h "$work/models/qwen38-flash-next-drafter-r2-ht4.hgn")" = 1 ] && [ "$(cat "$work/models/qwen38-flash-next-drafter-r2-ht4.hgn")" = official ] &&
+  [ ! -e "$d/old-drafter.hgn" ] && [ "$(cat "$d/qwen38-flash-next-drafter-r2.hgn")" = drafter ]; } || fail "a hard link or FIFO at a draft head's name survived"
+rm "$work/models/qwen38-flash-next-drafter-r2-ht4.hgn"
+grep -q 'sudo halogenctl flash drafter mine qwen38-flash-next-drafter-r2.hgn' "$work/out" || fail "the pull doesn't say how to use its draft head"
+# A copy of the official draft head is copied (its own file, no link), not downloaded.
+printf 'drafter' > "$work/models/qwen38-flash-next-drafter-r2-ht4.hgn"
+pull someone/My-Flash-HGN --as mine2 || fail "a pull with the official draft head failed"
+if grep -q 'drafter' "$work/hf.log"; then fail "a copy of the official draft head was downloaded"; fi
+{ [ "$(cat "$work/models/flash/mine2/qwen38-flash-next-drafter-r2.hgn")" = drafter ] && [ ! -L "$work/models/flash/mine2/qwen38-flash-next-drafter-r2.hgn" ] &&
+  [ "$(stat -c %h "$work/models/flash/mine2/qwen38-flash-next-drafter-r2.hgn")" = 1 ]; } || fail "the official draft head wasn't copied as a file of its own"
+rm -rf "$work/models/flash/mine2" "$work/models/qwen38-flash-next-drafter-r2-ht4.hgn"
+: > "$work/podman.log"; pull someone/My-Flash-HGN --as mine || fail "the pull again failed"   # the checks below read its logs
 { [ "$(info mine repo)" = someone/My-Flash-HGN ] && [ "$(info mine commit)" = "$commit" ] && [ "$(info mine checkpoint)" = model.hgn ]; } || fail "info wrong"
 { [ "$(info mine verified)" = pass ] && [ "$(info mine verified_with)" = 9.9.9 ]; } || fail "verify not recorded"
 grep -qx "verify /models/flash/mine/model.hgn" "$work/verify.log" || fail "the checkpoint was not verified"

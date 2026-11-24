@@ -3,7 +3,7 @@
 # halogen-dashboard with dashboard-nodump, Caddy) into <dir>/tree, for scripts/build.sh (#122).
 # CI builds them once per run and hands the folder to all four image jobs; a local build.sh
 # without HALOS_HELPERS runs this itself, so nothing changes for it.
-# <dir>/inputs records what the tree was built from: the base image by digest (the OS image is
+# <dir>/inputs records what the tree was built from: the base image by digest and its version label (the OS image is
 # built on that same base, so the helpers' libstdc++, libgomp and glibc are the image's), the two
 # pinned upstream commits and a hash of halOS's own sources for them. build.sh refuses a folder
 # whose inputs differ from its checkout's.
@@ -18,31 +18,41 @@ cd "$(dirname "$0")/.."
 TREE_FILES="bf16-to-hgn/bf16-to-hgn bf16-to-hgn/licenses/LICENSE-MIT bf16-to-hgn/licenses/LICENSE-APACHE
 bf16-to-hgn/licenses/native/LICENSE bf16-to-hgn/licenses/native/NOTICE dashboard/halogen-dashboard
 dashboard/dashboard-nodump.so dashboard/licenses/crates.txt caddy/caddy caddy/licenses/modules.txt
-caddy/licenses/go-LICENSE"
+caddy/licenses/go-LICENSE bf16-to-hgn/toolchain.txt dashboard/toolchain.txt caddy/toolchain.txt"
 
-inputs() { # $1: the base image by digest
+inputs() { # $1: the base image by digest, $2: its version label
   local sums
   sums="$(find Containerfile.helpers src/caddy src/dashboard-nodump.c -type f -print0 | LC_ALL=C sort -z \
     | xargs -0 sha256sum | sha256sum)"
   echo "image=$FEDORA_BOOTC_IMAGE"
   echo "base=$1"
+  echo "base_version=$2"
   echo "bf16_to_hgn=$BF16_TO_HGN_COMMIT"
   echo "halogen_dashboard=$HALOGEN_DASHBOARD_COMMIT"
   echo "sources=${sums%% *}"
 }
 
-# The base's repository without its tag: quay.io/fedora/fedora-bootc:45 -> quay.io/fedora/fedora-bootc.
-BASE_REPO="${FEDORA_BOOTC_IMAGE%:*}"
+# The base's repository without tag or digest (a registry's :port stays). containers/image
+# refuses a reference with both a tag and a digest, so a pinned digest is asked for as
+# repository@digest (#121).
+BASE_REPO="${FEDORA_BOOTC_IMAGE%@*}"
+case "${BASE_REPO##*/}" in *:*) BASE_REPO="${BASE_REPO%:*}" ;; esac
+BASE_ASK="$FEDORA_BOOTC_IMAGE"
+case "$FEDORA_BOOTC_IMAGE" in *@*) BASE_ASK="$BASE_REPO@${FEDORA_BOOTC_IMAGE##*@}" ;; esac
 
 check() { # $1: dir
-  local dir="$1" base f
+  local dir="$1" base version f
   [ -f "$dir/inputs" ] || { echo "$dir has no inputs file: build it with scripts/build-helpers.sh" >&2; return 1; }
   base="$(sed -n 's/^base=//p' "$dir/inputs")"
-  case "$base" in
-    "$BASE_REPO@sha256:"*) [ "${#base}" = $(( ${#BASE_REPO} + 72 )) ] ;;
-    *) false ;;
-  esac || { echo "$dir/inputs names an unexpected base: $base" >&2; return 1; }
-  if ! diff <(inputs "$base") "$dir/inputs" >&2; then
+  version="$(sed -n 's/^base_version=//p' "$dir/inputs")"
+  if ! [[ "$base" =~ ^.+@sha256:[0-9a-f]{64}$ ]] || [ "${base%@*}" != "$BASE_REPO" ]; then
+    echo "$dir/inputs names an unexpected base: $base" >&2; return 1
+  fi
+  case "$BASE_ASK" in
+    *@*) [ "$base" = "$BASE_ASK" ] || { echo "$dir was built on $base, not the pinned $BASE_ASK" >&2; return 1; } ;;
+  esac
+  [[ "$version" =~ ^[A-Za-z0-9._+-]+$ ]] || { echo "$dir/inputs has a bad base_version: $version" >&2; return 1; }
+  if ! diff <(inputs "$base" "$version") "$dir/inputs" >&2; then
     echo "$dir was built from other inputs than this checkout's (above: < this checkout, > the folder)" >&2
     return 1
   fi
@@ -63,15 +73,18 @@ DIR="$1"
 mkdir -p "$DIR"
 [ -z "$(ls -A "$DIR")" ] || { echo "$DIR is not empty" >&2; exit 1; }
 
-# The base by digest, so the helpers and every image built from them share one base even if the
-# tag moves during the run.
-digest="$(skopeo inspect --retry-times 3 --format '{{.Digest}}' "docker://$FEDORA_BOOTC_IMAGE")"
-case "$digest" in
-  sha256:*) [ "${#digest}" = 71 ] || { echo "bad digest: $digest" >&2; exit 1; } ;;
-  *) echo "bad digest: $digest" >&2; exit 1 ;;
+# Fedora's base is a moving tag (#121): it is resolved once, here, to the digest the helpers and
+# every image built from them use, so they share one base even if the tag moves during the run.
+# A digest in versions.env (repository@sha256:…) rebuilds on that exact base.
+read -r digest version < <(skopeo inspect --retry-times 3 \
+  --format '{{.Digest}} {{index .Labels "org.opencontainers.image.version"}}' "docker://$BASE_ASK") || true
+[[ "${digest:-}" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "no digest for $BASE_ASK: ${digest:-}" >&2; exit 1; }
+case "$BASE_ASK" in
+  *@*) [ "${BASE_ASK##*@}" = "$digest" ] || { echo "$BASE_ASK answered with $digest" >&2; exit 1; } ;;
 esac
+[[ "${version:-}" =~ ^[A-Za-z0-9._+-]+$ ]] || version=unknown
 base="$BASE_REPO@$digest"
-echo "Building the helpers on $FEDORA_BOOTC_IMAGE ($base)"
+echo "Building the helpers on $FEDORA_BOOTC_IMAGE ($base, version $version)"
 
 # --jobs 3: the three helper stages don't depend on each other, so they build side by side.
 podman build --pull=newer --jobs 3 -f Containerfile.helpers \
@@ -80,7 +93,7 @@ podman build --pull=newer --jobs 3 -f Containerfile.helpers \
   --build-arg "HALOGEN_DASHBOARD_COMMIT=$HALOGEN_DASHBOARD_COMMIT" \
   --output "type=local,dest=$DIR/tree" \
   .
-inputs "$base" > "$DIR/inputs"
+inputs "$base" "$version" > "$DIR/inputs"
 check "$DIR"
 echo "Built the helpers into $DIR"
 cat "$DIR/inputs"

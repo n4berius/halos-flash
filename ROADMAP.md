@@ -56,9 +56,8 @@ Simplified Technical English (#152).
 4. Unlock the disk from a tang server on the network (#44).
 5. Let `flash pull` use GGUF repositories (#61).
 
-Also open, not yet in order: an outbound network policy for Halogen's container (#120), a record
-of the exact Fedora build inputs (#121), and faster image builds (#122:
-the helper programs are built once per CI run since #156; reusing Caddy's layers between runs is open).
+Also open, not yet in order: faster image builds (#122: the helper programs are built once per CI
+run since #159; reusing Caddy's layers between runs is open).
 
 Later: a first real `flash convert` on the test machine (time and quality). Then its GPU (HIP)
 build and the Qwen4 models.

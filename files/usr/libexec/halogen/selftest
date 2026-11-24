@@ -46,6 +46,7 @@ echo "halOS self-check, $(date -u '+%Y-%m-%d %H:%M UTC')"
 echo "Edition: ${HALOGEN_VARIANT:-unknown}, Halogen ${HALOGEN_VERSION:-unknown}"
 echo "Board: $(cat "$sys/class/dmi/id/board_vendor" "$sys/class/dmi/id/board_name" 2>/dev/null | paste -sd' ' -), BIOS $(cat "$sys/class/dmi/id/bios_version" 2>/dev/null)"
 echo "Kernel: $(uname -r)"
+[ -z "${HALOS_BASE_IMAGE:-}" ] || echo "Fedora base: ${HALOS_BASE_VERSION:-unknown} (${HALOS_BASE_IMAGE})"
 [ "${HALOS_KERNEL:-fedora}" != next ] || echo "Kernel track: kernel-next, a test kernel (not Fedora 45's own)"
 images=""
 if have bootc; then
@@ -494,6 +495,29 @@ else
   elif [ "${running:-1}" = 1 ]; then say INFO flash "serving your own Flash checkpoint $flash${from:+ ($from)}"
   else say WARN flash "your own Flash checkpoint $flash is chosen and Halogen is not running. If it refused it (sudo halogenctl logs), go back: sudo halogenctl flash use official"; fi
 fi
+# Which draft head Halogen drafts with, as its start this time printed it (Halogen 0.20.7's
+# entrypoint: "draft head <file>" when it found one beside the official checkpoint, "draft head:
+# the checkpoint's own (...)" when not, "overlay <path>" when render-config named one for your own
+# checkpoint: the official one by default, or one its repository ships). Only lines since the
+# container's start, so an earlier start's line never stands in.
+if [ "${running:-0}" = 1 ] && have journalctl && have systemctl; then
+  since="$(run systemctl --user --machine=halogen@.host show --timestamp=unix -p ExecMainStartTimestamp --value halogen.service | head -n 1)"
+  dh=""
+  if [[ "$since" =~ ^@[0-9]+$ ]]; then
+    dh="$(run journalctl -q --no-pager -o cat --since "$since" --grep '^halogen: (draft head|overlay /models/)' _UID=970 _SYSTEMD_USER_UNIT=halogen.service \
+      | tail -n 1 | tr -cd '[:print:]' | cut -c1-200)"
+  fi
+  case "$dh" in
+    "halogen: draft head qwen38-flash-next-drafter-r2-ht4.hgn"*|"halogen: overlay /models/qwen38-flash-next-drafter-r2-ht4.hgn")
+      say PASS draft-head "Halogen drafts with the official draft head (qwen38-flash-next-drafter-r2-ht4.hgn)" ;;
+    "halogen: overlay /models/flash/"*)
+      say INFO draft-head "Halogen drafts with ${dh#halogen: overlay /models/flash/}, a draft head shipped with your checkpoint (sudo halogenctl flash drafter <name> official goes back)" ;;
+    *"is not in"*)
+      if [ -n "$flash" ] && [ "$flash" != official ]; then say INFO draft-head "${dh#halogen: }"; else say WARN draft-head "Halogen didn't find the official draft head beside the checkpoint, so the checkpoint's own drafts (slower): sudo halogenctl restart fetches it"; fi ;;
+    "") say INFO draft-head "the checkpoint's built-in draft head (Halogen names no draft head file at its start: sudo halogenctl config says why)" ;;
+    *) say INFO draft-head "${dh#halogen: }" ;;
+  esac
+fi
 # The newest official file's download record names the commit it came from: the draft head (its
 # -ht4 form since Halogen 0.20.7, else 0.20.6's) when there, which an upgraded machine fetches at the
 # new pin while the older files stay.
@@ -519,17 +543,69 @@ if [ "${running:-0}" = 1 ]; then
   if [ "$(grep -c -E '^/(tmp|var/tmp|root) ' <<< "$fstypes")" != 3 ]; then say WARN scratch "couldn't see where Halogen's /tmp, /var/tmp and /root are: ${fstypes:-no answer}"
   elif grep -q tmpfs <<< "$fstypes"; then say FAIL scratch "Halogen's scratch folders are in memory, not on disk: $(tr '\n' ' ' <<< "$fstypes")"
   else say PASS scratch "Halogen's /tmp, /var/tmp and /root are on disk"; fi
+  # Halogen's network has no route out (#120): a connection from inside its container to a
+  # documentation address (192.0.2.1, 2001:db8::1: no real host) must fail at once, never wait.
+  probe='import socket, errno
+r = []
+for fam, addr in ((socket.AF_INET, ("192.0.2.1", 443)), (socket.AF_INET6, ("2001:db8::1", 443))):
+    try:
+        s = socket.socket(fam, socket.SOCK_STREAM)
+    except OSError as e:
+        r.append(errno.errorcode.get(e.errno, "error")); continue
+    s.settimeout(3)
+    try:
+        s.connect(addr); r.append("open")
+    except socket.timeout:
+        r.append("timeout")
+    except OSError as e:
+        r.append(errno.errorcode.get(e.errno, "error"))
+    finally:
+        s.close()
+# vsock is not bound by the network namespace; Podman default seccomp profile refuses the socket.
+try:
+    socket.socket(40, socket.SOCK_STREAM).close(); r.append("vsock")
+except OSError as e:
+    r.append(errno.errorcode.get(e.errno, "error"))
+print(" ".join(r))'
+  netout="$(run_alone prlimit --memlock=unlimited:unlimited -- setpriv --reuid="$huid" --regid="$huid" --clear-groups env -C / HOME=/var/lib/halogen XDG_RUNTIME_DIR="/run/user/$huid" \
+    podman exec halogen python3 -I -c "$probe" | tr -cd '[:print:]\n' | tail -n 1)"
+  # IPv4 must say ENETUNREACH: on halogen-internal there is only a link route. A router's ICMP answer
+  # (EHOSTUNREACH) would mean a route exists. IPv6 may also be off (EAFNOSUPPORT, EADDRNOTAVAIL).
+  read -r n4 n6 nv <<< "$netout"
+  route=""; [ "$n4" = ENETUNREACH ] || route=1
+  case "$n6" in ENETUNREACH|EAFNOSUPPORT|EADDRNOTAVAIL) ;; *) route=1 ;; esac
+  # Three answers expected (IPv4, IPv6, vsock). Any other IPv4 or IPv6 answer (open, timeout,
+  # refused) means a route out. A vsock socket is only a warning: no vsock service may listen.
+  if [ "$(wc -w <<< "$netout")" != 3 ]; then say WARN network-out "couldn't check Halogen's outbound network: ${netout:-no answer}"
+  elif [ -n "$route" ]; then say FAIL network-out "Halogen's container has a route out (IPv4 IPv6 vsock: $netout); its network should be halogen-internal (#120)"
+  elif ! case "$nv" in EPERM|EACCES|EAFNOSUPPORT) true ;; *) false ;; esac; then say WARN network-out "Halogen's container has no route out, but may open vsock sockets, which no network namespace limits (Podman's seccomp profile normally refuses them)"
+  else say PASS network-out "Halogen's container has no route out (IPv4, IPv6) and no vsock"; fi
+  # The same from outside, where a break-in through Halogen can't change the answer: the container is
+  # on halogen-internal alone, and that network (kept as first made: Quadlet creates it with --ignore)
+  # is internal, without DNS, IPv6, routes or a gateway.
+  # shellcheck disable=SC2016 # Go templates, not shell.
+  netcfg="$(run_alone setpriv --reuid="$huid" --regid="$huid" --clear-groups env -C / HOME=/var/lib/halogen XDG_RUNTIME_DIR="/run/user/$huid" \
+    podman inspect halogen --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' | tr -cd '[:print:]\n' | tail -n 1)
+$(run_alone setpriv --reuid="$huid" --regid="$huid" --clear-groups env -C / HOME=/var/lib/halogen XDG_RUNTIME_DIR="/run/user/$huid" \
+    podman network inspect halogen-internal --format '{{.Internal}} {{.DNSEnabled}} {{.IPv6Enabled}} {{len .Routes}} gw:{{range .Subnets}}{{.Gateway}}{{end}}' | tr -cd '[:print:]\n' | tail -n 1)"
+  if [ "$netcfg" = $'halogen-internal \ntrue false false 0 gw:<nil>' ] || [ "$netcfg" = $'halogen-internal \ntrue false false 0 gw:' ]; then
+    say PASS network-config "Halogen's container is on halogen-internal alone: internal, no DNS, IPv6, routes or gateway"
+  else say FAIL network-config "Halogen's network isn't as halOS makes it: $(tr '\n' '|' <<< "$netcfg"); expected halogen-internal|true false false 0 gw:<nil>. Stop Halogen, then as halogen: podman network rm halogen-internal, and start it again"; fi
 fi
 # A tiny container set up like Halogen's (read-only, the key mounted into /run/secrets) starts as
 # halogen: a podman or crun update can break that setup for every start of Halogen (crun 1.31 did).
 # In a session of its own (run_alone): what halogen's podman runs can't reach the terminal root uses.
 if have podman && [ -x "${HALOS_CONTAINER_CHECK:-/usr/libexec/halogen/container-check}" ]; then
   huid="$(id -u halogen 2> /dev/null || echo 970)"
-  ccout="$(run_alone setpriv --reuid="$huid" --regid="$huid" --clear-groups env -C / HOME=/var/lib/halogen XDG_RUNTIME_DIR="/run/user/$huid" \
+  # Two containers and a test network: more time than the other checks get.
+  ccout="$(HALOGEN_SELFTEST_TIMEOUT="${HALOGEN_SELFTEST_TIMEOUT:-90}" run_alone setpriv --reuid="$huid" --regid="$huid" --clear-groups env -C / HOME=/var/lib/halogen XDG_RUNTIME_DIR="/run/user/$huid" \
     "${HALOS_CONTAINER_CHECK:-/usr/libexec/halogen/container-check}")"; ccrc=$?
   ccout="$(printf '%s\n' "$ccout" | tr -cd '[:print:]\n' | tail -n 2 | tr '\n' ' ')"
   case "$ccrc" in
-    0) say PASS container-start "a container set up like Halogen's starts" ;;
+    0) say PASS container-start "a container set up like Halogen's starts"
+       say PASS network-port "a port published from a network like halogen-internal answers, and that network has no route out" ;;
+    3) say PASS container-start "a container set up like Halogen's starts"
+       say FAIL network-port "Halogen's network setup doesn't work with this podman: ${ccout:-no answer}" ;;
     1) say FAIL container-start "a container set up like Halogen's doesn't start, so Halogen won't either: ${ccout:-no answer}" ;;
     *) say WARN container-start "couldn't check that Halogen's kind of container starts: ${ccout:-no answer}" ;;
   esac

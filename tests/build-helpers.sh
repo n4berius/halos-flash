@@ -18,7 +18,7 @@ for a in "$@"; do case "$a" in type=local,dest=*) dest="${a#type=local,dest=}" ;
 for f in bf16-to-hgn/bf16-to-hgn bf16-to-hgn/licenses/LICENSE-MIT bf16-to-hgn/licenses/LICENSE-APACHE \
   bf16-to-hgn/licenses/native/LICENSE bf16-to-hgn/licenses/native/NOTICE dashboard/halogen-dashboard \
   dashboard/dashboard-nodump.so dashboard/licenses/crates.txt caddy/caddy caddy/licenses/modules.txt \
-  caddy/licenses/go-LICENSE; do mkdir -p "$dest/$(dirname "$f")"; echo x > "$dest/$f"; done
+  caddy/licenses/go-LICENSE bf16-to-hgn/toolchain.txt dashboard/toolchain.txt caddy/toolchain.txt; do mkdir -p "$dest/$(dirname "$f")"; echo x > "$dest/$f"; done
 FAKE
 chmod +x "$t/bin/"*
 export PATH="$t/bin:$PATH" FAKE_LOG="$t/podman.log"
@@ -48,5 +48,6 @@ reset; sed -i "s|^base=.*|base=${FEDORA_BOOTC_IMAGE%:*}@sha256:1|" "$t/c/inputs"
 reset; rm "$t/c/tree/caddy/caddy"; refused "no Caddy"
 reset; rm "$t/c/tree/dashboard/dashboard-nodump.so"; ln -s /bin/true "$t/c/tree/dashboard/dashboard-nodump.so"; refused "a link"
 reset; rm "$t/c/inputs"; refused "no inputs file"
+reset; sed -i "s|^base_version=.*|base_version=a b|" "$t/c/inputs"; refused "a bad base version"
 reset; sed -i "s|^image=.*|image=${FEDORA_BOOTC_IMAGE%:*}:other|" "$t/c/inputs"; refused "another base tag"
 echo "ok: the helpers record their inputs, and build.sh's check refuses other ones"

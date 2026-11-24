@@ -27,7 +27,7 @@ class Multi(dict):
         if isinstance(v, list) and k in self: self[k].extend(v)
         else: super().__setitem__(k, v)
 units = glob.glob("variants/npu/usr/lib/systemd/system/*.d/*.conf") + glob.glob("variants/npu/etc/containers/systemd/users/970/*.d/*") + glob.glob("files/usr/lib/systemd/system/*.service") + glob.glob("files/usr/lib/systemd/user/*.service") \
-      + glob.glob("files/usr/lib/systemd/system/*.d/*.conf") + glob.glob("files/etc/containers/systemd/users/970/*.container") + glob.glob("files/etc/containers/systemd/users/970/*.d/*.conf")
+      + glob.glob("files/usr/lib/systemd/system/*.d/*.conf") + glob.glob("files/etc/containers/systemd/users/970/*.container") + glob.glob("files/etc/containers/systemd/users/970/*.network") + glob.glob("files/etc/containers/systemd/users/970/*.d/*.conf")
 for path in units:
     c = configparser.RawConfigParser(dict_type=Multi, strict=False, interpolation=None)
     c.optionxform = str
@@ -109,6 +109,15 @@ for line in ("ReadOnly=true", "ReadOnlyTmpfs=false", "Tmpfs=/run", "Volume=/dev/
              "Volume=/var/tmp", "Volume=/root", "ExecStartPre=-/usr/bin/podman rm -v -f -i halogen"):
     assert "\n" + line + "\n" in quadlet, f"halogen.container lacks {line}"
 assert not re.search(r"^Tmpfs=/(var/)?tmp", quadlet, re.M), "Halogen's scratch folders must stay on disk, not in memory"
+# Halogen's network has no route out and no DNS (#120); the download containers don't use it.
+assert "\nNetwork=halogen-internal.network\n" in quadlet and len(re.findall(r"^Network=", quadlet, re.M)) == 1, "Halogen's container isn't on halogen-internal alone"
+hnet = open("files/etc/containers/systemd/users/970/halogen-internal.network").read()
+for line in ("[Network]", "NetworkName=halogen-internal", "Internal=true", "DisableDNS=true"):
+    assert "\n" + line + "\n" in "\n" + hnet, f"halogen-internal.network lacks {line}"
+assert not re.search(r"^(IPv6|Gateway|Options|Subnet|IPRange)=", hnet, re.M), "halogen-internal.network sets more than it needs"
+for f in glob.glob("variants/*/etc/containers/systemd/users/970/halogen.container.d/*.conf") + glob.glob("files/etc/containers/systemd/users/970/halogen.container.d/*.conf"):
+    assert not re.search(r"^Network=|^PodmanArgs=.*--net", open(f).read(), re.M), f"{f} changes Halogen's network"
+assert not re.search(r"^PodmanArgs=.*--net", quadlet, re.M), "halogen.container's PodmanArgs change its network"
 # The https helper lets through exactly the Cloudflare token shapes the plugin accepts (it prints a
 # token it refuses), and the build checks the plugin still uses those two (H1).
 helper = open("files/usr/libexec/halogen/https").read()
@@ -176,6 +185,20 @@ assert '*-beta.*) echo "$tag: beta releases are no longer made.' in open(".githu
 assert "rpmkeys --delete f577861e" in cf, "Fedora 45's key must leave the image's rpm keyring after crun's check"
 assert "RUN --mount=type=bind,source=src/authenticode-check.py,target=/tmp/authenticode-check.py" in cf, "the kernel-next step must check the kernel's Secure Boot signature"
 assert "HALOS_KERNEL_BUILT=" in cf, "release.env must record when the kernel was built (the selftest's kernel-next age check)"
+# The Fedora base is a tag, resolved once per build to the digest every stage and the installer
+# use, and recorded with the packages and toolchains (#121).
+b = open("scripts/build.sh").read()
+bh = open("scripts/build-helpers.sh").read()
+assert "--format '{{.Digest}} " in bh and 'FEDORA_BOOTC_IMAGE=$base"' in bh, "build-helpers.sh must resolve the base to a digest and build on it"
+assert '--build-arg "FEDORA_BOOTC_IMAGE=$BASE_IMAGE"' in b and '--label "io.github.n4berius.halos.base=$BASE_IMAGE"' in b, "build.sh must resolve the base to a digest, build on it and label it"
+assert "scripts/build-info.sh" in b, "build.sh must write the build record"
+froms = re.findall(r"^FROM\s+(\S+)", cf + hf, re.M)
+assert all(f in ("${FEDORA_BOOTC_IMAGE}", "scratch") for f in froms) and froms.count("${FEDORA_BOOTC_IMAGE}") >= 4, f"every stage must start from the resolved base: {froms}"
+for want in ('echo "HALOS_BASE_IMAGE=${FEDORA_BOOTC_IMAGE}"', "/usr/share/halogen/packages.txt", "/usr/share/halogen/toolchains.txt", "*@sha256:*) ;;"):
+    assert want in cf, f"the image's build record is gone from the Containerfile: {want}"
+assert 'io.github.n4berius.halos.base' in open("scripts/build-iso.sh").read(), "the installer must use the OS image's base"
+rel = open(".github/workflows/release.yml").read()
+assert "git show origin/main:scripts/build-info.sh" in rel and "pattern: info-*" in rel, "releases must attach each edition's build record"
 # kernel-next: exact Fedora packages, each with a sha256, from Koji's signed copies, checked in the
 # build (sha256, signature, one kernel left, not a debug build, signed for Secure Boot); only
 # builds asked for with KERNEL_TRACK=next get it, and only main pushes them, as kernel-next.

@@ -1,0 +1,15 @@
+# Halogen's own network (#120): no route out and no DNS. Halogen's docs say the server opens no
+# outbound connections while HALOGEN_DOWNLOAD is unset (halOS blocks it), so nothing it serves
+# needs one: https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/configuration.md
+# The published port (halogen.container's PublishPort) still works: Podman's port forwarder
+# reaches the container inside halogen's network namespace, so Caddy, the dashboard, bench and the
+# status line reach Halogen on 127.0.0.1:18731 as before (container-check tests this setup at every
+# selftest and VM test). The container has no capabilities, so it can't add a route. The download
+# containers don't use this network.
+# Quadlet creates the network with --ignore: a network of this name that already exists is kept as
+# it is. So a change here reaches installed machines only with a new NetworkName (or a step that
+# removes the old network while Halogen is stopped). The selftest's network-config line checks it.
+[Network]
+NetworkName=halogen-internal
+Internal=true
+DisableDNS=true

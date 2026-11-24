@@ -45,6 +45,7 @@ jobs:
           # main's channel script, kept aside: the release checked out next may predate it.
           cp scripts/channels.sh "$RUNNER_TEMP/channels.sh"
           cp scripts/sign-image.sh "$RUNNER_TEMP/sign-image.sh"
+          cp scripts/build-info.sh "$RUNNER_TEMP/build-info.sh"
       - if: steps.stable.outputs.tag != ''
         env:
           TAG: ${{ steps.stable.outputs.tag }}
@@ -61,6 +62,20 @@ jobs:
           # The push step below needs the same names; it alone gets the signing key.
           { echo "IMAGE_TAG=$image_tag"; echo "HALOS_RELEASE=${TAG#v}"; } >> "$GITHUB_ENV"
           IMAGE_TAG="$image_tag" HALOS_RELEASE="${TAG#v}" scripts/build.sh
+      - name: Build record
+        if: steps.stable.outputs.tag != ''
+        run: |
+          # What this rebuild took from Fedora (#121): diff two weeks' records to see what changed.
+          mkdir -p "$RUNNER_TEMP/info"
+          out="$RUNNER_TEMP/info/build-info-$HALOGEN_VARIANT.txt"
+          bash "$RUNNER_TEMP/build-info.sh" "$(scripts/image-ref.sh)" > "$out"
+          { echo "### $HALOGEN_VARIANT"; echo '```'; grep -E '^HALOS_BASE_|^HALOS_RELEASE=|^# Image ID|^## Installed|^\(no base' "$out" || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: steps.stable.outputs.tag != ''
+        with:
+          name: build-info-${{ matrix.variant }}
+          path: ${{ runner.temp }}/info/*
+          retention-days: 90
       - name: Push the exact tag
         if: steps.stable.outputs.tag != ''
         env:

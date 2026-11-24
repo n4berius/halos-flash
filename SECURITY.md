@@ -42,8 +42,12 @@ can reach:
   pull never replaces the checkpoint that Halogen serves. If the chosen checkpoint is missing,
   unchecked or holds links, the server uses the official checkpoint.
 - **Serving.** Halogen serves with read-only models and no capabilities, and it never downloads
-  files. Its container can still reach the network. So if a checkpoint can take control of
-  Halogen, it can also send data out.
+  files. Its container is on its own network, `halogen-internal`, which has no route out and no
+  DNS (#120). Halogen can answer the requests that come in through Caddy, but it can't open a
+  new connection to the internet, to your LAN or to this machine. So if a checkpoint can take
+  control of Halogen, it can't send data to a server of its own. It can still put data in its
+  replies to the clients that ask it. The selftest's `network-out` line checks this. The
+  downloads use other containers, which can reach the network.
 
 `verify` checks that a `.hgn` file has a correct structure. It doesn't read the tokenizer or its
 chat template, which Halogen applies to each request. Halogen checks only that the thinking
