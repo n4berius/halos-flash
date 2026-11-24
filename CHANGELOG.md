@@ -14,7 +14,8 @@ it promotes.
   - A USB disk is now really left out when the machine looks at boot for SSH unlock keys or a
     tang binding. The check read the disk type from the partition, which never has one, so a USB
     stick with keys on it could start the network and SSH before the disk unlocked. A disk that
-    can't be asked now counts as USB.
+    can't be asked now counts as USB. A machine installed on a USB disk therefore gets no SSH or
+    tang unlock, and `halosctl tang-unlock on` says so.
   - `halosctl switch`, `rollback --to` and `npu on|off` refuse an image whose label says it has
     the other kernel (the test kernel on a normal channel, or the reverse), as they already do
     for the other edition.

@@ -655,6 +655,9 @@ case "$cmd" in
         else
           tang_urls=("${args[@]:1}")
           [ "$("$tang" status --short)" != unknown ] || die "the disk has a clevis binding halOS can't read (made by hand?), which would stay beside the new one; see: sudo clevis luks list -d $("$tang" device)"
+          # The initramfs asks a tang server only for the machine's own disks (#165).
+          tdev="$("$tang" device)"; ttran="$(lsblk -rsno TRAN "$tdev" 2> /dev/null || true)"
+          [[ $'\n'"$ttran"$'\n' != *$'\n'usb$'\n'* ]] || die "the encrypted disk is on USB, and unlocking at boot looks only at the machine's own disks (so a USB stick can't start the network); nothing changed"
           [ "${#tang_urls[@]}" -gt 0 ] || die "name the tang server, such as: sudo halosctl tang-unlock on http://192.168.1.5:7500"
           [ "${#thps[@]}" -le "${#tang_urls[@]}" ] || die "more --thp than servers"
           if [ -z "$tpm_mode" ]; then if has_tpm; then tpm_mode=and; else tpm_mode=off; fi; fi
@@ -1064,7 +1067,10 @@ case "$cmd" in
       echo "   Unlocking from a tang server: a small key server on your own network (on a NAS or another"
       echo "   machine) gives the disk its key at boot, so the disk unlocks by itself only while it can"
       echo "   reach that server. A disk or a machine taken away asks for the passphrase."
-      if [ "$("$tang" status --short 2> /dev/null || echo off)" != off ]; then
+      tst="$("$tang" status --short 2> /dev/null || echo off)"
+      if [ "$tst" = unknown ]; then
+        "$tang" status | sed 's/^/   /'
+      elif [ "$tst" != off ]; then
         echo "   It's set up already (sudo halosctl tang-unlock changes it):"
         "$tang" status | sed 's/^/   /'
       elif ask "   Set up unlocking from a tang server? [y/N]" n; then
