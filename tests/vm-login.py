@@ -160,7 +160,10 @@ REPORT = ("{ echo RESULT-START; cat /proc/cmdline; dmesg | grep -i secure; bootc
     "$(systemctl show serial-getty@ttyS0.service -p ExecCondition --value | grep -c stty); "
     # Unlock over SSH (#13): no early-boot network settings may stay in the running system.
     "for f in /run/NetworkManager/system-connections/*; do [ -e \"$f\" ] && echo NMRUN $f; done; "
-    "echo RESULT-END; } > /dev/ttyS0 2>&1\n")
+    # Written to a file first and printed at once: the report runs for minutes, and a getty
+    # reload on the serial port meanwhile can drop lines written straight to it (lost ESPRC
+    # and RECCONF lines in the test-kernel job).
+    "echo RESULT-END; } > /tmp/report.out 2>&1; cat /tmp/report.out > /dev/ttyS0\n")
 
 SELFTEST = ("halogenctl selftest > /tmp/st 2>&1; rc=$?; cat /tmp/st > /dev/ttyS0; "
     "grep -qF -f /srv/configs/api-key /tmp/st && echo SELFTEST-LEAK > /dev/ttyS0; "
