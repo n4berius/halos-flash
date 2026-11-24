@@ -10,10 +10,14 @@ set -u
 # The disk's volumes appear within seconds; give them up to 60. A machine without encryption
 # just finds none.
 # The machine's own disks only, as halos-ssh-unlock: a USB stick with a tang binding must not start
-# the network.
+# the network. lsblk gives a partition no transport, so the devices under it (-s) are asked too.
+on_usb() { [[ $'\n'"$(lsblk -rsno TRAN "$1" 2> /dev/null)"$'\n' == *$'\n'usb$'\n'* ]]; }
 devs=""
 for _ in {1..60}; do
-  devs="$(lsblk -rno PATH,FSTYPE,RM,TRAN 2> /dev/null | awk '$2 == "crypto_LUKS" && $3 == "0" && $4 != "usb" { print $1 }')"
+  devs=""
+  for d in $(lsblk -rno PATH,FSTYPE,RM 2> /dev/null | awk '$2 == "crypto_LUKS" && $3 == "0" { print $1 }'); do
+    on_usb "$d" || devs="$devs $d"
+  done
   [ -z "$devs" ] || break
   sleep 1
 done

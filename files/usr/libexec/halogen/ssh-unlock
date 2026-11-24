@@ -78,12 +78,15 @@ trap cleanup EXIT
 find_esp() { # [ro]: only to read (status), so nothing is remounted or written
   local ro="${1:-}"
   if [ -n "${HALOS_ESP:-}" ]; then esp="$HALOS_ESP"; return; fi
-  local p t rm tran m devs=() mnt=()
-  # The machine's own disks, as the initramfs looks (not a USB stick's EFI partition).
-  while read -r p t rm tran m; do
-    if [ "$t" != "$esp_type" ] || [ "$rm" != 0 ] || [ "$tran" = usb ]; then continue; fi
+  local p t rm m tr devs=() mnt=()
+  # The machine's own disks, as the initramfs looks (not a USB stick's EFI partition). lsblk
+  # gives a partition no transport, so the devices under it (-s) are asked too.
+  while read -r p t rm m; do
+    if [ "$t" != "$esp_type" ] || [ "$rm" != 0 ]; then continue; fi
+    tr="$(lsblk -rsno TRAN "$p" 2> /dev/null || true)"
+    if [[ $'\n'"$tr"$'\n' == *$'\n'usb$'\n'* ]]; then continue; fi
     devs+=("$p"); mnt+=("${m:-}")
-  done < <(lsblk -rno PATH,PARTTYPE,RM,TRAN,MOUNTPOINT)
+  done < <(lsblk -rno PATH,PARTTYPE,RM,MOUNTPOINT)
   [ "${#devs[@]}" -gt 0 ] || die "no EFI system partition found"
   local i pick=""
   for i in "${!devs[@]}"; do [ "${mnt[$i]}" = /boot/efi ] && pick="$i"; done

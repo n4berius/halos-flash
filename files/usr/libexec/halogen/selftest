@@ -164,7 +164,7 @@ if have getenforce; then
   else say WARN selinux "SELinux is $mode"; fi
 fi
 if have journalctl; then
-  # The image has no audit daemon: journald keeps the audit records, and the kernel log may hold
+  # journald keeps the audit records too (besides auditd's log), and the kernel log may hold
   # copies. Only the denial, the program and the SELinux types are shown, never paths or
   # addresses, and a denial logged twice counts once.
   out="$(run journalctl -b --no-pager -o cat _TRANSPORT=audit + _TRANSPORT=kernel)"

@@ -145,4 +145,13 @@ rc=0; "$tang" mode > "$work/out" || rc=$?; [ "$rc" = 3 ] && has '^unknown$' "$wo
 : > "$work/log"
 if PASSWORD=halogentest "$repo/files/usr/bin/halogen-enroll-tpm" > "$work/out" 2>&1; then echo "enrolled beside unreadable clevis tokens" >&2; exit 1; fi
 hasnt cryptenroll "$work/log"; has "Couldn't read whether a tang server" "$work/out"
-ok "halogen-enroll-tpm refuses a TPM-only unlock beside TPM and tang or tang alone, and re-enrolls beside 'or'; a leftover TPM token reads 'or', and unreadable clevis tokens fail closed"
+# status and halosctl say so too, and off removes nothing (before, both stopped with no word).
+"$tang" status > "$work/out"; has "^Unknown: $dev has a clevis binding halOS can't read" "$work/out"
+[ "$("$tang" status --short)" = unknown ] || { echo "status --short isn't 'unknown'" >&2; exit 1; }
+"$ctl" tang-unlock > "$work/out"; has '^Unknown:' "$work/out"
+: > "$work/log"
+if "$ctl" tang-unlock off --yes > "$work/out" 2>&1; then echo "off went on past an unreadable binding" >&2; exit 1; fi
+has "can't read, so nothing was removed" "$work/out"; hasnt unbind "$work/log"
+if "$ctl" tang-unlock renew --yes > "$work/out" 2>&1; then echo "renew went on past an unreadable binding" >&2; exit 1; fi
+has "can't renew it" "$work/out"
+ok "halogen-enroll-tpm refuses a TPM-only unlock beside TPM and tang or tang alone, and re-enrolls beside 'or'; a leftover TPM token reads 'or', unreadable clevis tokens fail closed, and status, off and renew say so"

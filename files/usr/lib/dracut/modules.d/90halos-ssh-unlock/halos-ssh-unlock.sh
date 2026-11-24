@@ -9,9 +9,12 @@ run=/run/halos-ssh-unlock mnt=/run/halos-esp
 
 mkdir -p "$run" "$mnt" && chmod 0700 "$run" "$mnt"
 # The machine's own disks only: an EFI partition on a USB stick could otherwise turn this on.
+# lsblk gives a partition no transport (TRAN is read from the disk's "device" link, which a
+# partition lacks), so ask for the device and every device under it (-s) and refuse any on USB.
+on_usb() { [[ $'\n'"$(lsblk -rsno TRAN "$1" 2> /dev/null)"$'\n' == *$'\n'usb$'\n'* ]]; }
 internal_esps() {
-  lsblk -rno PATH,PARTTYPE,RM,TRAN 2> /dev/null | while read -r p t rm tran; do
-    [ "$t" = "$esp_type" ] && [ "$rm" = 0 ] && [ "$tran" != usb ] && echo "$p"
+  lsblk -rno PATH,PARTTYPE,RM 2> /dev/null | while read -r p t rm; do
+    [ "$t" = "$esp_type" ] && [ "$rm" = 0 ] && ! on_usb "$p" && echo "$p"
   done
 }
 # The disk's partitions appear within seconds; give them up to 30.

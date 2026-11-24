@@ -21,7 +21,7 @@ usage: halosctl version
        halosctl history
        halosctl setup [--skip]
        halosctl ssh-unlock [on [--github|--gitlab|--codeberg <user>]... [--key '<public key>'] | off | record] [--yes]
-       halosctl tang-unlock [on <server>... [--tpm and|or|off] [--thp <thumbprint>]... | renew | off] [--yes]
+       halosctl tang-unlock [on <server>... [--tpm and|or|off] [--thp <thumbprint>]... | renew [--thp <thumbprint>]... | off] [--yes]
        halosctl ssh-passwords [on|off] [--yes]
        halosctl dashboard [on|off]
        halosctl fail2ban [on | off | unban <address>]
@@ -135,6 +135,7 @@ next_suffix() {
     *:*-no-npu) echo "-no-npu" ;; *:*) echo "" ;; *) echo "?" ;; esac
 }
 edition_label='{{index .Labels "io.github.n4berius.halos.edition"}}'
+kernel_label='{{index .Labels "io.github.n4berius.halos.kernel"}}'
 auth_args() { [ ! -r /etc/ostree/auth.json ] || echo --authfile /etc/ostree/auth.json; }
 # The edition label of the staged image (its ref is bound to one digest), nothing when it has
 # none, or "error" when the registry can't be asked.
@@ -195,7 +196,7 @@ finish() {
 remote() {
   local auth out; read -ra auth <<< "$(auth_args)"
   if ! out="$(skopeo inspect "${auth[@]}" --no-tags \
-      --format "{{.Digest}} $edition_label {{index .Labels \"org.opencontainers.image.version\"}}" "docker://$1" 2>&1)"; then
+      --format "{{.Digest}} $edition_label $kernel_label {{index .Labels \"org.opencontainers.image.version\"}}" "docker://$1" 2>&1)"; then
     printf '%s\n' "$out" | tr -cd '[:print:]\n' | tail -n 3 >&2
     die "could not read $1 from the registry. Is there a release for it yet, and is the network up?"
   fi
@@ -204,15 +205,21 @@ remote() {
 # Switch to another image, after showing from -> to and asking. With "pin", switch to its
 # exact digest, so the machine stays on that build even if the tag is ever pushed again.
 switch_to() {
-  local what="$1" target="$2" pin="${3:-}" info digest from staged rest edition release want=npu
+  local what="$1" target="$2" pin="${3:-}" info digest from staged rest edition kernel release want=npu want_kernel=fedora
   info="$(remote "$target")"; digest="${info%% *}"; rest="${info#* }"
-  edition="${rest%% *}"; release="${rest#* }"
+  edition="${rest%% *}"; rest="${rest#* }"; kernel="${rest%% *}"; release="${rest#* }"
   [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || die "the registry gave no usable digest for $target"
   # The tag names an edition; the image's label must agree, when it has one.
   # A digest names one exact build already chosen (upgrade's first signed switch): it keeps its edition.
   case "$target" in *@sha256:*) want="$edition" ;; *-no-npu) want=no-npu ;; esac
   case "$edition" in
     npu|no-npu) [ "$edition" = "$want" ] || die "$target is the $edition edition in the registry, not $want; nothing changed" ;;
+  esac
+  # The same for the kernel: only the kernel-next tags carry the test kernel (the same key signs
+  # both, so a channel tag moved onto a kernel-next build would otherwise pass unnoticed).
+  case "$target" in *@sha256:*) want_kernel="$kernel" ;; *:kernel-next|*:kernel-next-no-npu) want_kernel=next ;; esac
+  case "$kernel" in
+    fedora|next) [ "$kernel" = "$want_kernel" ] || die "$target has the $kernel kernel in the registry, not $want_kernel; nothing changed" ;;
   esac
   from="$(describe booted)"
   echo "Now:   $from"
@@ -386,7 +393,9 @@ set_passwords() { # on|off; fails (without stopping setup) when sshd won't take 
     printf '%s\n' "# halOS: SSH logins with keys only; sudo halosctl ssh-passwords on allows passwords again." \
       "PasswordAuthentication no" "KbdInteractiveAuthentication no" > "$keys_only.new" && mv -f "$keys_only.new" "$keys_only" || return 1
     # The setting sshd will use: an earlier file could say yes, and the first value wins.
-    if ! sshd -t > /dev/null 2>&1 || ! sshd -T 2> /dev/null | grep -qx 'passwordauthentication no'; then
+    # Read whole first: grep -q stops at its match, and sshd dying of SIGPIPE fails the pipe.
+    local eff
+    if ! sshd -t > /dev/null 2>&1 || ! eff="$(sshd -T 2> /dev/null)" || ! grep -qx 'passwordauthentication no' <<< "$eff"; then
       rm -f "$keys_only"; echo "sshd didn't take the change (another setting comes first?); nothing changed" >&2; return 1
     fi
   else rm -f "$keys_only"; fi
@@ -635,8 +644,10 @@ case "$cmd" in
         if [ "${args[0]}" = renew ]; then
           [ "${#args[@]}" = 1 ] || die "renew takes no servers: it binds again to those set up"
           read -ra cur <<< "$("$tang" status --short)"
+          [ "${cur[0]:-}" != unknown ] || die "the disk has a clevis binding halOS can't read, so it can't renew it; see: sudo halosctl tang-unlock"
           [ "${cur[0]:-off}" = on ] || die "unlocking from a tang server isn't set up: sudo halosctl tang-unlock on <server>"
           tpm_mode="${cur[1]}"; tang_urls=("${cur[@]:2}")
+          [ "${#thps[@]}" -le "${#tang_urls[@]}" ] || die "more --thp than servers"
         else
           tang_urls=("${args[@]:1}")
           [ "${#tang_urls[@]}" -gt 0 ] || die "name the tang server, such as: sudo halosctl tang-unlock on http://192.168.1.5:7500"
@@ -653,8 +664,10 @@ case "$cmd" in
         ;;
       off)
         [ "${#args[@]}" = 1 ] || die "tang-unlock off takes nothing more"
-        [ "$("$tang" status --short)" != off ] || { echo "Unlocking from a tang server is already off."; exit 0; }
-        before="$("$tang" status --short | cut -d' ' -f1-2)"
+        before="$("$tang" status --short)"
+        [ "$before" != off ] || { echo "Unlocking from a tang server is already off."; exit 0; }
+        [ "$before" != unknown ] || die "the disk has a clevis binding halOS can't read, so nothing was removed; see: sudo clevis luks list -d $("$tang" device)"
+        before="$(cut -d' ' -f1-2 <<< "$before")"
         confirm "Remove the tang bindings? The disk then asks for its passphrase at boot (or uses the TPM, if enrolled)."
         "$tang" remove
         record tang-unlock "$before" off

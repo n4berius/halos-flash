@@ -100,7 +100,7 @@ after a change, halOS puts back the previous setting automatically.
 | `halogenctl cache on\|off [--yes]` | Turns the cache on (the default) or off. If Halogen runs, it restarts Halogen. `off` keeps the saved data, and then Halogen can only read the folder. |
 | `halogenctl cache clear [--yes]` | Asks, then deletes all saved conversation states. It stops Halogen for a short time and starts it again. |
 | `halogenctl records [on\|off] [--yes]` | Controls Halogen's [request records](../INSTALL.md#request-records): one line for each request in `/srv/logs/halogen`. They contain only counts, unless `HALOGEN_RECORD_TEXT` sets a different value. `on` and `off` restart Halogen. Without `on` or `off`, it shows the state and the space used. |
-| `halogenctl records stats` | Shows counts by API, client and finish, the part that the cache supplied, and tool errors. It uses Halogen's own tool (Halogen must run). |
+| `halogenctl records stats` | Shows counts by API, client and finish, the part that the cache supplied, and tool errors. It uses Halogen's own tool: inside Halogen's container while it runs, else in a short-lived copy of the pinned image with only the records folder. |
 | `halogenctl records prune --days <n>\|--gib <g>\|--session <hash>\|--unit <hash>\|--all [--yes]` | Asks, then deletes records. |
 | `halogenctl hf-token [--remove]` | Asks for your Hugging Face read token and saves it, for gated models. It does not show the token. `--remove` deletes it. |
 

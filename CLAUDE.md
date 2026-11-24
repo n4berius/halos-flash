@@ -237,7 +237,9 @@ name, but allows saying halOS runs Halogen.
   any systemd-tpm2 token beside a tang binding reads `or`; `mode` exits 3 (`unknown`) on clevis tokens
   it can't read and halogen-enroll-tpm then refuses (fails closed); `PASSWORD` is unset after reading
   and not documented for users (sudo argv); the initramfs counts only non-removable, non-USB LUKS
-  devices. Left for the owner (audit): a Secure Boot state check before `on`/`renew`/enroll, `renew`
+  devices (USB asked with `lsblk -rsno TRAN`, the device and every device under it: lsblk reads TRAN
+  through a `device` link a partition lacks, so a partition's own was always empty and USB
+  partitions passed; whole-image audit, #165; SSH unlock's module and helper the same). Left for the owner (audit): a Secure Boot state check before `on`/`renew`/enroll, `renew`
   reusing the bound thumbprints, the selftest's `/adv` fetch as nobody and checking the bound key,
   a trap in `bind`, S256-only thumbprints.
 - `halosctl power [low-power|balanced|performance]` (#83) saves the firmware's ACPI platform profile in
@@ -269,7 +271,8 @@ name, but allows saying halOS runs Halogen.
   next, so a staged edition change survives; a staged digest's edition is read from the image label
   `io.github.n4berius.halos.edition` (set by `build.sh`), and they refuse when it has none, as
   images built before the label; `switch_to` refuses a tag whose image's label names the other
-  edition; NPU presence is read from PCI, 1022:1502/17f0, since
+  edition, or the other kernel (`io.github.n4berius.halos.kernel`: `next` only for the kernel-next
+  tags; the same key signs both, #165); NPU presence is read from PCI, 1022:1502/17f0, since
   the no-NPU edition's `amd_iommu=off` hides `/dev/accel`; bootc applies the kargs.d difference,
   to confirm on freyja). `halogenctl` handles the engine and models. Exact release tags
   never move. Channel tags (`alpha`, `beta`, `rc`, `stable`, `edge`) do, and each one points to

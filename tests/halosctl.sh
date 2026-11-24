@@ -24,13 +24,14 @@ case "$1" in
             version: \"0.19.0-beta.1\", imageDigest: \$d, timestamp: \"${FAKE_STAGED_TS:-2026-11-06T00:00:00Z}\"}}" \
             "$FAKE/status.json" | jq ".spec.image.signature = \"containerPolicy\"" > "$FAKE/s.tmp" && mv "$FAKE/s.tmp" "$FAKE/status.json" ;;
 esac'
-# skopeo inspect: "<digest> <edition label> <release>" for a tag; for a digest (the staged image)
-# just its edition label, FAKE_STAGED_EDITION, or an error when that is unset.
+# skopeo inspect: "<digest> <edition label> <kernel label> <release>" for a tag; for a digest (the
+# staged image) just its edition label, FAKE_STAGED_EDITION, or an error when that is unset.
 f skopeo 'echo "skopeo $*" >> "$FAKE/log"; ref="${*: -1}"; ed=npu; case "$ref" in *-no-npu) ed=no-npu ;; esac
+kl=fedora; case "$ref" in *:kernel-next*) kl=next ;; esac
 case "$ref" in
   *@sha256:*) [ -z "${FAKE_STAGED_FAILS:-}" ] || { echo "Error: network unreachable" >&2; exit 1; }
-    case "$*" in *"{{.Digest}}"*) printf "%s %s 0.19.0-beta.1\n" "${ref#*@}" "${FAKE_STAGED_EDITION:-}" ;; *) echo "${FAKE_STAGED_EDITION:-}" ;; esac ;;
-  *:beta|*:kernel-next|*:kernel-next-no-npu|*:stable-no-npu|*:0.19.0-alpha.1|*:beta-no-npu|*:0.19.0-alpha.1-no-npu|*:0.19.0-no-npu|*:0.19.0-beta.1) printf "%s %s 0.19.0-beta.1%s\n" "sha256:fefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefe" "${FAKE_EDITION-$ed}" "${FAKE_LABEL_TAIL:-}" ;;
+    case "$*" in *"{{.Digest}}"*) printf "%s %s %s 0.19.0-beta.1\n" "${ref#*@}" "${FAKE_STAGED_EDITION:-}" "${FAKE_STAGED_KERNEL:-}" ;; *) echo "${FAKE_STAGED_EDITION:-}" ;; esac ;;
+  *:beta|*:kernel-next|*:kernel-next-no-npu|*:stable-no-npu|*:0.19.0-alpha.1|*:beta-no-npu|*:0.19.0-alpha.1-no-npu|*:0.19.0-no-npu|*:0.19.0-beta.1) printf "%s %s %s 0.19.0-beta.1%s\n" "sha256:fefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefe" "${FAKE_EDITION-$ed}" "${FAKE_KERNEL-$kl}" "${FAKE_LABEL_TAIL:-}" ;;
   *:edge) echo "Error: reading manifest edge: 403 Forbidden" >&2; exit 1 ;;
   *) echo "Error: manifest unknown" >&2; exit 1 ;; esac'
 f systemctl 'echo "systemctl $*" >> "$FAKE/log"; case "$*" in *is-active*) echo "${FAKE_FETCH:-inactive}" ;; esac'
@@ -294,6 +295,15 @@ if FAKE_EDITION=npu "$ctl" npu off --yes > "$work/out" 2>&1; then echo "switched
 has 'is the npu edition in the registry, not no-npu' "$work/out"; hasnt 'bootc switch' "$work/log"
 FAKE_EDITION='' "$ctl" npu off --yes > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
 has '^bootc switch --enforce-container-sigpolicy ghcr.io/n4berius/halos-flash:beta-no-npu$' "$work/log"; has 'After: .*\(0\.19\.0-beta\.1\)' "$work/out"
+# A channel tag whose image has the test kernel (same key) is refused; kernel-next itself and an
+# image without the label are taken.
+host "$(dep ghcr.io/n4berius/halos-flash:0.19.0-alpha.1 0.19.0 sha256:aaa)" > "$work/status.json"; : > "$work/log"
+if FAKE_KERNEL=next "$ctl" switch beta --yes > "$work/out" 2>&1; then echo "switched a channel to a test-kernel image" >&2; exit 1; fi
+has 'has the next kernel in the registry, not fedora' "$work/out"; hasnt 'bootc switch' "$work/log"
+if FAKE_KERNEL=fedora "$ctl" switch kernel-next --yes > "$work/out" 2>&1; then echo "took Fedora's kernel for kernel-next" >&2; exit 1; fi
+hasnt 'bootc switch' "$work/log"
+FAKE_KERNEL='' "$ctl" switch beta --yes > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+has '^bootc switch --enforce-container-sigpolicy ghcr.io/n4berius/halos-flash:beta$' "$work/log"
 cp "$work/pinned.json" "$work/status.json"
 host "$(dep ghcr.io/n4berius/halos-flash:beta 0.19.0-beta.1 sha256:bbb)" "$(dep ghcr.io/n4berius/halos-flash:beta 0.19.0-beta.2 sha256:ccc)" > "$work/status.json"
 "$ctl" npu off --yes > "$work/out"; has 'Staged for the next boot, and replaced by this: ghcr.io/n4berius/halos-flash:beta \(0.19.0-beta.2\)' "$work/out"

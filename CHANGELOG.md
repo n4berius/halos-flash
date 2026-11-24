@@ -10,6 +10,20 @@ it promotes.
 
 ## Unreleased
 
+- Fixes from a review of the whole image (#165):
+  - A USB disk is now really left out when the machine looks at boot for SSH unlock keys or a
+    tang binding. The check read the disk type from the partition, which never has one, so a USB
+    stick with keys on it could start the network and SSH before the disk unlocked.
+  - `halosctl switch`, `rollback --to` and `npu on|off` refuse an image whose label says it has
+    the other kernel (the test kernel on a normal channel, or the reverse), as they already do
+    for the other edition.
+  - `halosctl tang-unlock`, `off` and `renew` now say so when the disk has a clevis binding halOS
+    can't read, instead of stopping without a word. `renew` refuses more `--thp` than servers.
+  - `halosctl ssh-passwords off` could fail at random while checking sshd's settings; fixed.
+  - Release and refresh builds no longer keep the GitHub token on disk while they build.
+  - CI: changes only to tests skip the image builds (the checks still run), and a change to the
+    VM test's boot-menu picker runs the install test.
+
 - The encrypted disk can now unlock from a tang server on your own network (clevis):
   `sudo halosctl tang-unlock on http://<server>`, also offered by `halosctl setup`. By default the
   machine's TPM must agree too, so a copied disk or a machine taken away stays locked; `--tpm off`
