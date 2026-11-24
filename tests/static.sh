@@ -105,6 +105,7 @@ for m in ("github.com/caddyserver/caddy/v2", "github.com/caddy-dns/cloudflare", 
 assert "caddy-dns/duckdns" not in gomod and "caddy-dns/namecheap" not in gomod, "an unlicensed caddy-dns plugin is back"
 for mod in ("duckdns", "namecheap"):
     assert f'ID:  "dns.providers.{mod}"' in gosrc, f"halOS's {mod} module is missing"
+assert "export GOPROXY=off GOCACHE=/go-build" in hf and "go test -c -o" in hf and "COPY src/caddy/go.mod src/caddy/go.sum /src/caddy/" in hf, "the caddy stage must build offline from the checked modules and always run its tests (#122)"
 assert "GOFLAGS=-mod=readonly" in hf and "COPY --from=helpers caddy/caddy /usr/libexec/halogen/caddy" in cf \
   and "COPY --from=helpers caddy/licenses/ /usr/share/licenses/halos-caddy/" in cf and "-iname 'notice*'" in hf \
   and 'cp "$goli" "$lic/go-LICENSE"' in hf, "Caddy isn't built from src/caddy or its licences don't ship"
