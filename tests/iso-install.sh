@@ -46,8 +46,12 @@ genisoimage -quiet -V HALOS_ANSWERS -o "$out/answers.iso" "$out/answers/answers"
 # halosctl is given, as a person would read it with tang-show-keys.
 tang_nic=""
 if [ -n "$luks" ]; then
-  tangd="$(dpkg -L tang | grep -m1 '/tangd$' || true)"; keygen="$(dpkg -L tang | grep -m1 '/tangd-keygen$' || true)"
-  if [ ! -x "$tangd" ] || [ ! -x "$keygen" ]; then echo "the tang package (tangd, tangd-keygen) isn't installed" >&2; exit 1; fi
+  # Debian and Ubuntu put the programs in tang-common (tang itself holds the systemd units).
+  tangd="$(dpkg -L tang tang-common 2> /dev/null | grep -m1 '/tangd$' || true)"
+  keygen="$(dpkg -L tang tang-common 2> /dev/null | grep -m1 '/tangd-keygen$' || true)"
+  [ -x "$tangd" ] || tangd=/usr/libexec/tangd
+  [ -x "$keygen" ] || keygen=/usr/libexec/tangd-keygen
+  if [ ! -x "$tangd" ] || [ ! -x "$keygen" ]; then echo "the tang package (tangd, tangd-keygen) isn't installed" >&2; dpkg -L tang tang-common >&2 || true; exit 1; fi
   mkdir -p "$out/tang"; "$keygen" "$out/tang"
   for k in "$out/tang"/*.jwk; do
     [ "$(jose fmt -j "$k" -g alg -u-)" = ES512 ] && HALOS_TEST_TANG_THP="$(jose jwk thp -i "$k" -a S256)"
