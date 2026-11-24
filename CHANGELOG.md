@@ -10,7 +10,7 @@ it promotes.
 
 ## Unreleased
 
-- New release names (#166): `v<Halogen version>-<halOS number>-<stage>`, such as `v0.20.7-1-stable`
+- New release names (#168): `v<Halogen version>-<halOS number>-<stage>`, such as `v0.20.7-1-stable`
   and `v0.20.7-2-alpha`. The halOS number counts halOS's own changes on one Halogen version, so a
   new halOS feature can go out as an alpha, RC and stable release without a new Halogen version.
   Before, an alpha after a stable release reached no machine. Machines need to do nothing: the
@@ -18,7 +18,7 @@ it promotes.
   names. `halosctl rollback --to` takes the new names. Each stable release now also has its own
   exact image tag (`0.20.7-1-stable`) beside the plain version tag (`0.20.7`).
 - The release checks no longer fail in the no-NPU build job: one check read the job's edition
-  setting and looked for the wrong file, which stopped the `v0.20.7-r2` release (#166).
+  setting and looked for the wrong file, which stopped the `v0.20.7-r2` release (#168).
 - Fixes from a review of the whole image (#165):
   - A USB disk is now really left out when the machine looks at boot for SSH unlock keys or a
     tang binding. The check read the disk type from the partition, which never has one, so a USB

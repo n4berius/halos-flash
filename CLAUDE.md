@@ -29,7 +29,7 @@ name, but allows saying halOS runs Halogen.
   November 2026 (owner's decision, #141); old beta tags stay and the `beta` channel tag moves with
   every rc and stable, so `halosctl switch beta` still works (with a note) but isn't offered).
   Tags are `v<Halogen version>-<halOS number>-<stage>` (`v0.20.7-1-stable`, `v0.20.7-2-alpha`;
-  owner's decision, #166): an alpha takes the next halOS number of versions.env's Halogen version
+  owner's decision, #168): an alpha takes the next halOS number of versions.env's Halogen version
   (over every stage, published or not; restarts at 1 per Halogen version), rc/stable keep the
   number they promote (from main: the next number). Order (`channels.sh`, also `--sort [stage]`,
   which next-tag.sh and refresh.yml use): version, number, stage; old-style tags (`-alpha.N`,
