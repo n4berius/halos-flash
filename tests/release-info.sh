@@ -26,7 +26,7 @@ check "v$v" prerelease false
 check "v$v" image_tag "$v"
 check "v$v-r2" image_tag "$v"
 check "v$v-r2" stable_tag "$v"
-for bad in "$v" "v$v-gamma.1" "v$v-alpha" "v0.0.1" "v$v-0-alpha" "v$v-1-beta" "v$v-01-rc" "v$v-1-stable.1" "v$v-1"; do
+for bad in "$v" "v$v-gamma.1" "v$v-alpha" "v0.0.1" "v$v-0-alpha" "v$v-1-beta" "v$v-01-rc" "v$v-1-stable.1" "v$v-1" "v$v-10000-alpha"; do
   if scripts/release-info.sh "$bad" >/dev/null 2>&1; then echo "accepted bad tag $bad" >&2; exit 1; fi
 done
 echo "ok: release tags are parsed, and bad or mismatched tags are refused"

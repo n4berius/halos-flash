@@ -5,7 +5,7 @@
 #   --sort prints the release tags in the file oldest first, only those at least that stable
 #   (default: all). next-tag.sh and refresh.yml use it, so every script orders tags one way.
 #
-# Tags are v<Halogen version>-<halOS number>-<stage> since November 2026 (v0.20.7-1-stable,
+# Tags are v<Halogen version>-<halOS number (1 to 9999)>-<stage> since November 2026 (v0.20.7-1-stable,
 # v0.20.7-2-alpha). The halOS number counts up per Halogen version across every stage, so a new
 # halOS feature can ship as an alpha after a stable release of the same Halogen version.
 # Order: Halogen version, then halOS number, then stage (alpha < beta < rc < stable). Old-style
@@ -31,6 +31,8 @@ printf '%s\n%s\n' "$tag" "$tags" | awk -v tag="$tag" -v sortmode="$sort_mode" -v
     s = 3; n = 0; h = 0
     if (match(t, /^v[0-9]+\.[0-9]+\.[0-9]+-[1-9][0-9]*-(alpha|rc|stable)$/)) {
       split(substr(t, 2), m, /[.-]/)
+      # At most 4 digits: the key is compared as text, so wider numbers would sort wrong.
+      if (length(m[4]) > 4) return ""
       h = m[4]
       if (m[5] == "alpha") s = 0; else if (m[5] == "rc") s = 2
     } else if (match(t, /^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+|-r[0-9]+)?$/)) {

@@ -14,6 +14,12 @@ on:
         type: boolean
         default: false
 
+# One release run at a time: a second run of the same promotion waits, then finds it released
+# (or, if the first failed, runs it again) instead of building beside it on the same tag.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 # Each job gets only what it needs (below); this is the default for any other.
 permissions:
   contents: read
@@ -36,6 +42,7 @@ jobs:
       image_tag: ${{ steps.info.outputs.image_tag }}
       stable_tag: ${{ steps.info.outputs.stable_tag }}
       prerelease: ${{ steps.info.outputs.prerelease }}
+      create: ${{ steps.pick.outputs.create }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -67,7 +74,7 @@ jobs:
             # Only the current names (v0.20.7-2-alpha, -rc, -stable): an old-style tag pushed by hand
             # would sort below every new-style release of its Halogen version, and a beta one would
             # move the beta and alpha channels past what rc machines get (no beta since #141).
-            [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-[1-9][0-9]*-(alpha|rc|stable)$ ]] || {
+            [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-[1-9][0-9]{0,3}-(alpha|rc|stable)$ ]] || {
               echo "$tag: use <Halogen version>-<halOS number>-<stage>, such as v0.20.7-2-alpha (RELEASING.md), or Actions > Release, which names it for you. Delete this tag." >&2; exit 1; }
           fi
           echo "Release $tag from $source ($ref)"
@@ -101,7 +108,7 @@ jobs:
           REF: ${{ steps.pick.outputs.ref }}
         run: |
           if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
-            echo "$TAG already exists; run the release again to take the next number." >&2
+            echo "$TAG was created meanwhile, likely by another run of this workflow: wait for it, then run the release again." >&2
             exit 1
           fi
           git tag "$TAG" "$REF"
@@ -132,13 +139,39 @@ jobs:
           persist-credentials: false
           ref: ${{ needs.info.outputs.tag }}
           fetch-depth: 0
+      - name: Reuse an earlier push of this release
+        # A promotion run again after a failure (its tag existed without a release) may have pushed
+        # its exact tag already. Exact tags are pushed once: take that signed digest instead of
+        # building a new one under the same name (security audit).
+        if: needs.info.outputs.create != '1'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          image="$(scripts/image-ref.sh)"
+          echo "$GH_TOKEN" | skopeo login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          if ! digest="$(skopeo inspect --format '{{.Digest}}' "docker://$image" 2> "$RUNNER_TEMP/inspect.err")"; then
+            # Only a clear "not there" builds; any other error (network, 403) stops the run.
+            grep -qi 'manifest unknown' "$RUNNER_TEMP/inspect.err" || { cat "$RUNNER_TEMP/inspect.err" >&2; exit 1; }
+            echo "$image isn't pushed yet: building it."; exit 0
+          fi
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "no digest for $image: $digest" >&2; exit 1; }
+          git fetch -q origin main
+          git show origin/main:scripts/sign-image.sh > "$RUNNER_TEMP/sign-image.sh"
+          bash "$RUNNER_TEMP/sign-image.sh" --fetch
+          GITHUB_TOKEN="$GH_TOKEN" bash "$RUNNER_TEMP/sign-image.sh" --verify "${image%:*}@$digest"
+          echo "$image was pushed by an earlier run: reusing $digest, not building again."
+          mkdir -p "$RUNNER_TEMP/out"; echo "$digest" > "$RUNNER_TEMP/out/digest"
+          echo "REUSED=1" >> "$GITHUB_ENV"
       - run: tests/run.sh
+        if: env.REUSED != '1'
       - name: Build
+        if: env.REUSED != '1'
         # Only the build gets the release name; tests read what the image says, not the job.
         env:
           HALOS_RELEASE: ${{ needs.info.outputs.tag }}
         run: scripts/build.sh
       - name: Push the exact tag
+        if: env.REUSED != '1'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -158,6 +191,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/out"; echo "$digest" > "$RUNNER_TEMP/out/digest"
           echo "IMAGE=${image%:*}@$digest" >> "$GITHUB_ENV"
       - name: Sign
+        if: env.REUSED != '1'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # halOS's own signing key (#46): only this step gets it, and it runs only main's script.
@@ -165,6 +199,7 @@ jobs:
           COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
         run: GITHUB_TOKEN="$GH_TOKEN" bash "$RUNNER_TEMP/sign-image.sh" "$IMAGE"
       - name: Build record
+        if: env.REUSED != '1'
         # A failed record must not stop a release whose image is already pushed and signed (the
         # tag would be used up): the release then ships without this file.
         continue-on-error: true

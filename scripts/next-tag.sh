@@ -37,12 +37,13 @@ if [ "$from_main" = 1 ]; then
   # shellcheck source=versions.env
   version="$(. ./versions.env; echo "$HALOGEN_VERSION")"
   # Highest halOS number of this Halogen version in any tag so far, then one more.
-  n="$(printf '%s\n' "$tags" | sed -nE "s/^v${version//./\\.}-([1-9][0-9]*)-(alpha|rc|stable)$/\\1/p" | sort -n | tail -n 1)"
+  n="$(printf '%s\n' "$tags" | sed -nE "s/^v${version//./\\.}-([1-9][0-9]{0,3})-(alpha|rc|stable)$/\\1/p" | sort -n | tail -n 1)"
   number=$(( ${n:-0} + 1 ))
+  [ "$number" -le 9999 ] || { echo "the halOS number for Halogen $version is used up (9999)" >&2; exit 1; }
   source=main
 else
   # The newest published new-style release of the stage below, in the one order channels.sh uses.
-  source="$("$here/channels.sh" --sort "$lower" "$work/released" | grep -E "^v[0-9]+\.[0-9]+\.[0-9]+-[1-9][0-9]*-$lower$" | tail -n 1 || true)"
+  source="$("$here/channels.sh" --sort "$lower" "$work/released" | grep -E "^v[0-9]+\.[0-9]+\.[0-9]+-[1-9][0-9]{0,3}-$lower$" | tail -n 1 || true)"
   [ -n "$source" ] || { echo "there is no published $lower release in the current numbering (such as v0.20.7-1-$lower) to promote to $release yet; release $([ "$lower" = alpha ] && echo "an alpha" || echo "an rc") first, or build it from main" >&2; exit 1; }
   rest="${source#v}"; version="${rest%%-*}"; rest="${rest#*-}"; number="${rest%%-*}"
 fi

@@ -9,7 +9,7 @@ tag="${1:?usage: release-info.sh <tag>}"
 # New-style tags (since November 2026): v<Halogen version>-<halOS number>-<stage>. Old-style tags
 # (v1.2.3-alpha.1, -beta.1, -rc.1, v1.2.3, v1.2.3-r2) are still read, for the weekly rebuild of an
 # old stable release.
-if [[ "$tag" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)-([1-9][0-9]*)-(alpha|rc|stable)$ ]]; then
+if [[ "$tag" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)-([1-9][0-9]{0,3})-(alpha|rc|stable)$ ]]; then
   version="${BASH_REMATCH[1]}"; pre="${BASH_REMATCH[3]}"; [ "$pre" != stable ] || pre=""
   # Every new-style release has its own image tag that never moves, stable ones too.
   image_tag="${tag#v}"

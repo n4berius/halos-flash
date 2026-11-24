@@ -36,13 +36,14 @@ check v0.20.8-1-alpha "alpha"                        v0.20.7-5-stable v0.20.7-6-
 check v0.20.7-6-alpha ""                             v0.20.8-1-alpha
 check v0.20.7-r2      ""                             v0.20.7-1-stable
 check v0.20.7-r2      "stable rc beta"               v0.20.7-1-alpha
+check v0.20.7-9999-alpha "alpha"                    v0.20.7-999-alpha v0.20.7-100000-alpha   # 5 digits: not a release tag
 # --sort: oldest first, only those at least the stage asked.
 printf '%s\n' v0.20.7-2-alpha v0.20.7 junk v0.20.7-1-stable v0.20.6 v0.20.7-r2 v0.20.7-10-alpha v0.20.7-1-rc > "$work/tags"
 got="$(scripts/channels.sh --sort stable "$work/tags" | tr '\n' ' ')"
 [ "$got" = "v0.20.6 v0.20.7 v0.20.7-r2 v0.20.7-1-stable " ] || { echo "sorted stable: $got" >&2; exit 1; }
 got="$(scripts/channels.sh --sort "$work/tags" | tr '\n' ' ')"
 [ "$got" = "v0.20.6 v0.20.7 v0.20.7-r2 v0.20.7-1-rc v0.20.7-1-stable v0.20.7-2-alpha v0.20.7-10-alpha " ] || { echo "sorted: $got" >&2; exit 1; }
-for bad in v0.19 v0.20.7-0-alpha v0.20.7-1-beta; do
+for bad in v0.19 v0.20.7-0-alpha v0.20.7-1-beta v0.20.7-10000-alpha; do
   if scripts/channels.sh "$bad" "$work/tags" >/dev/null 2>&1; then echo "accepted a bad tag: $bad" >&2; exit 1; fi
 done
 if scripts/channels.sh v0.19 "$work/tags" >/dev/null 2>&1; then echo "accepted a bad tag" >&2; exit 1; fi
