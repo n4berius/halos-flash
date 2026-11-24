@@ -10,7 +10,7 @@ mkdir -p "$work/bin" "$work/dev"
 export FAKE="$work"
 f() { printf '#!/bin/bash\n%s\n' "$2" > "$work/bin/$1"; chmod +x "$work/bin/$1"; }
 f id 'echo 0'
-f lsblk 'echo "/dev/vda3 crypto_LUKS"; echo "crypto_LUKS"'
+f lsblk 'case "${FAKE_USB:-}:$*" in 1:*-rsno*) printf "\nusb\n"; exit 0 ;; esac; echo "/dev/vda3 crypto_LUKS"; echo "crypto_LUKS"'
 # cryptsetup: the passphrase is halogentest; the header's tokens are in $FAKE/meta.json.
 f cryptsetup 'echo "cryptsetup $*" >> "$FAKE/log"
 case "$1" in
@@ -114,6 +114,10 @@ PASSWORD=halogentest "$ctl" tang-unlock renew --thp "$K" --yes > "$work/out" 2>&
 [ "$("$tang" status --short)" = "on or http://10.0.0.6" ] || { "$tang" status --short >&2; echo "renew changed the servers or the mode" >&2; exit 1; }
 has "^3: tang " "$work/bindings"
 if "$ctl" tang-unlock renew --tpm and --yes > "$work/out" 2>&1; then echo "renew changed the mode" >&2; exit 1; fi
+if PASSWORD=halogentest "$ctl" tang-unlock renew --thp "$K" --thp "$K" --yes > "$work/out" 2>&1; then echo "renew took more --thp than servers" >&2; exit 1; fi
+has 'more --thp than servers' "$work/out"
+if FAKE_USB=1 PASSWORD=halogentest "$ctl" tang-unlock on http://10.0.0.5 --thp "$K" --yes > "$work/out" 2>&1; then echo "bound a disk on USB" >&2; exit 1; fi
+has 'the encrypted disk is on USB' "$work/out"
 if "$ctl" tang-unlock on http://10.0.0.5 --tpm maybe --thp "$K" --yes > "$work/out" 2>&1; then echo "took --tpm maybe" >&2; exit 1; fi
 if "$ctl" ssh-unlock on --thp "$K" --yes > "$work/out" 2>&1; then echo "--thp went with another command" >&2; exit 1; fi
 has 'go with tang-unlock on' "$work/out"
@@ -145,4 +149,35 @@ rc=0; "$tang" mode > "$work/out" || rc=$?; [ "$rc" = 3 ] && has '^unknown$' "$wo
 : > "$work/log"
 if PASSWORD=halogentest "$repo/files/usr/bin/halogen-enroll-tpm" > "$work/out" 2>&1; then echo "enrolled beside unreadable clevis tokens" >&2; exit 1; fi
 hasnt cryptenroll "$work/log"; has "Couldn't read whether a tang server" "$work/out"
-ok "halogen-enroll-tpm refuses a TPM-only unlock beside TPM and tang or tang alone, and re-enrolls beside 'or'; a leftover TPM token reads 'or', and unreadable clevis tokens fail closed"
+# status and halosctl say so too, and off removes nothing (before, both stopped with no word).
+"$tang" status > "$work/out"; has "^Unknown: $dev has a clevis binding halOS can't read" "$work/out"
+[ "$("$tang" status --short)" = unknown ] || { echo "status --short isn't 'unknown'" >&2; exit 1; }
+"$ctl" tang-unlock > "$work/out"; has '^Unknown:' "$work/out"
+: > "$work/log"
+if "$ctl" tang-unlock off --yes > "$work/out" 2>&1; then echo "off went on past an unreadable binding" >&2; exit 1; fi
+has "can't read, so nothing was removed" "$work/out"; hasnt unbind "$work/log"
+if "$ctl" tang-unlock renew --yes > "$work/out" 2>&1; then echo "renew went on past an unreadable binding" >&2; exit 1; fi
+has "can't renew it" "$work/out"
+if "$ctl" tang-unlock on http://10.0.0.5 --thp "$K" --yes > "$work/out" 2>&1; then echo "on went on past an unreadable binding" >&2; exit 1; fi
+has "would stay beside the new one" "$work/out"; hasnt 'luks bind' "$work/log"
+ok "halogen-enroll-tpm refuses a TPM-only unlock beside TPM and tang or tang alone, and re-enrolls beside 'or'; a leftover TPM token reads 'or', unreadable clevis tokens fail closed, and status, on, off and renew say so"
+
+# The initramfs (90halos-tang-unlock) starts the network and clevis's agent only for a tang binding
+# on the machine's own disks: a USB disk's LUKS partition (lsblk gives a partition no transport;
+# only `lsblk -s`, through the disk, says usb) and one lsblk can't answer for are skipped.
+ib="$work/initrd-bin"; mkdir -p "$ib"
+fi_() { printf '#!/bin/bash\n%s\n' "$2" > "$ib/$1"; chmod +x "$ib/$1"; }
+fi_ lsblk 'case "$*" in
+  "-rno PATH,FSTYPE,RM") printf "%s\n" "/dev/sda" "/dev/sda2 crypto_LUKS 0" ${FAKE_OWN:+"/dev/nvme0n1p3 crypto_LUKS 0"} ;;
+  "-rsno TRAN /dev/sda2") printf "\nusb\n" ;;
+  "-rsno TRAN /dev/nvme0n1p3") [ -z "${FAKE_TRAN_FAILS:-}" ] || exit 1; printf "nvme\nnvme\n" ;;
+  *) echo "lsblk $*" >&2; exit 9 ;; esac'
+fi_ clevis 'echo "clevis $*" >> "$FAKE/initrd.log"; echo "1: tang '"'"'{\"url\":\"http://10.0.0.5\"}'"'"'"'
+fi_ systemctl 'echo "systemctl $*" >> "$FAKE/initrd.log"'
+fi_ sleep ':'
+initrd() { : > "$work/initrd.log"; PATH="$ib:$PATH" bash "$repo/files/usr/lib/dracut/modules.d/90halos-tang-unlock/halos-tang-unlock.sh" > "$work/out" 2>&1; }
+initrd; hasnt 'sda2' "$work/initrd.log"; hasnt 'systemctl start' "$work/initrd.log"; has 'not set up' "$work/out"
+FAKE_OWN=1 initrd; has 'clevis luks list -d /dev/nvme0n1p3' "$work/initrd.log"; hasnt 'sda2' "$work/initrd.log"
+has 'systemctl start --no-block clevis-luks-askpass.path' "$work/initrd.log"
+FAKE_OWN=1 FAKE_TRAN_FAILS=1 initrd; hasnt 'systemctl start' "$work/initrd.log"
+ok "the initramfs asks a tang server only for the machine's own disks: a USB disk's volume, or one lsblk can't answer for, is skipped"

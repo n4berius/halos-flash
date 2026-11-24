@@ -141,3 +141,22 @@ has 'ssh-unlock +off -> on +\(by owner\)' "$work/history"
 if "$ctl" history --github alice > "$work/out" 2>&1; then echo "took --github outside ssh-unlock" >&2; exit 1; fi
 has 'go with ssh-unlock on' "$work/out"
 ok "halosctl ssh-unlock asks first, needs encryption and keys, merges sources, records changes and turns off"
+
+# The EFI partition is found only on the machine's own disks: a USB disk's is skipped, though lsblk
+# gives a partition no transport (only `lsblk -s`, through the disk, says usb), and one lsblk can't
+# answer for is skipped too.
+esp_t=c12a7328-f81f-11d2-ba4b-00a0c93ec93b
+mkdir -p "$work/usb-esp/halos" "$work/own-esp/halos"
+echo ssh > "$work/usb-esp/halos/unlock-choice"; echo tpm > "$work/own-esp/halos/unlock-choice"
+f lsblk 'case "$*" in
+  "-rno PATH,PARTTYPE,RM,MOUNTPOINT") printf "%s\n" "/dev/sda $FAKE_ESP_T" "/dev/sda1 $FAKE_ESP_T 0 $FAKE/usb-esp" ${FAKE_OWN:+"/dev/nvme0n1p1 $FAKE_ESP_T 0 $FAKE/own-esp"} ;;
+  "-rsno TRAN /dev/sda1") printf "\nusb\n" ;;
+  "-rsno TRAN /dev/nvme0n1p1") [ -z "${FAKE_TRAN_FAILS:-}" ] || exit 1; printf "nvme\nnvme\n" ;;
+  *) echo "lsblk $*" >&2; exit 9 ;; esac'
+export FAKE_ESP_T="$esp_t"
+if env -u HALOS_ESP "$h" choice > "$work/out" 2>&1; then echo "took a USB disk's EFI partition" >&2; exit 1; fi
+has 'no EFI system partition found' "$work/out"
+[ "$(FAKE_OWN=1 env -u HALOS_ESP "$h" choice)" = tpm ] || { echo "didn't pick the machine's own EFI partition" >&2; exit 1; }
+if FAKE_OWN=1 FAKE_TRAN_FAILS=1 env -u HALOS_ESP "$h" choice > "$work/out" 2>&1; then echo "took a partition lsblk couldn't answer for" >&2; exit 1; fi
+ok "the EFI partition is looked for on the machine's own disks only: a USB disk's partition, or one lsblk can't answer for, is skipped"
+

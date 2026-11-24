@@ -159,7 +159,14 @@ remove() {
 status() {
   local dev mode slots
   dev="$(device 2> /dev/null)" || { [ "${1:-}" = --short ] && echo off || echo "Off: the disk isn't encrypted."; return 0; }
-  mode="$(mode_of "$dev")"
+  # mode_of exits 3 on a clevis binding it can't read (made by hand or another tool): say so,
+  # rather than stop here with nothing printed (set -e).
+  mode="$(mode_of "$dev")" || mode=unknown
+  if [ "$mode" = unknown ]; then
+    if [ "${1:-}" = --short ]; then echo unknown
+    else echo "Unknown: $dev has a clevis binding halOS can't read. See: sudo clevis luks list -d $dev"; fi
+    return 0
+  fi
   slots="$(tang_slots "$dev")"
   if [ "${1:-}" = --short ]; then
     if [ -z "$mode" ]; then echo off; else echo "on $mode $(cut -d' ' -f3 <<< "$slots" | sort -u | paste -sd' ' -)"; fi

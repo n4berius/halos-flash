@@ -74,7 +74,7 @@ py="$(readlink -f "${HALOS_CHECK_PYTHON:-/usr/bin/python3}")"
 case "$py" in /usr/*) [ -x "$py" ] || { echo "container-check: no python3 for the network check" >&2; exit 2; } ;;
   *) echo "container-check: python3 isn't under /usr: $py" >&2; exit 2 ;; esac
 podman network rm -f "$net" > /dev/null 2>&1 || true
-# shellcheck disable=SC2317 # Called by the EXIT trap.
+# shellcheck disable=SC2317,SC2329 # Called by the EXIT trap.
 cleanup() { podman rm -v -f -i -t 0 halos-container-check-net > /dev/null 2>&1; podman network rm -f "$net" > /dev/null 2>&1; rm -rf "$work"; }
 trap cleanup EXIT
 podman network create --internal --disable-dns "$net" > /dev/null 2>&1 || { echo "container-check: couldn't make a test network" >&2; exit 2; }

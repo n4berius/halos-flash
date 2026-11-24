@@ -15,6 +15,7 @@ on:
       - tests/iso-*.sh
       - tests/guided.sh
       - tests/vm-login.py
+      - tests/grub-pick.py
       - .github/workflows/iso.yml
   pull_request:
     paths: *paths

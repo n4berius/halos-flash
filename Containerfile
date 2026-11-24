@@ -18,10 +18,10 @@ ARG HALOGEN_WEIGHTS_REVISION
 # lists), so without it the Secure Boot revocation list (dbx) can't be updated. It starts on demand.
 # auditd (#107): Fedora's default rules file turns syscall auditing, and file watches with it, off,
 # so it goes and halOS's rules (files/etc/audit/rules.d) take its place. The audit log rotates at
-# fail2ban (#92): shuts out addresses that keep failing SSH logins or API keys, through its own
-# nftables table (nft comes with firewalld; named here so it stays); its settings are in files/etc/fail2ban.
 # 50 MB, 20 files (1 GB, so it fits the 2 GiB a custom install may give /var/log/audit), and a full disk never stops the machine: logging pauses (SUSPEND), after
 # a note in the journal.
+# fail2ban (#92): shuts out addresses that keep failing SSH logins or API keys, through its own
+# nftables table (nft comes with firewalld; named here so it stays); its settings are in files/etc/fail2ban.
 # clevis (#44): unlocks the disk from a tang server on the network; its dracut and systemd parts put
 # the password agent into the initramfs, which halOS's own module starts only where it's set up.
 RUN dnf -y --setopt=install_weak_deps=False install \
