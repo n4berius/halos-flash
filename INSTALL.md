@@ -971,6 +971,48 @@ What `flash pull` does:
 Downloads and checks read from the disk while Halogen continues to serve. Until they finish, long
 prompts can be a little slower.
 
+#### Pulling a GGUF
+
+Many people publish Qwen3.8 Flash Next as a llama.cpp **GGUF**, not as a Halogen `.hgn`.
+Halogen can read a GGUF, and its image can convert one into a `.hgn` one time
+([Halogen's GGUF page](https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/gguf.md)).
+`flash pull` does this for you:
+
+```bash
+sudo halogenctl flash pull someone/Some-Flash-GGUF --file UD-IQ4_XS/Some-Flash-UD-IQ4_XS-00001-of-00003.gguf --as iq4
+sudo halogenctl flash check iq4          # then judge it, before serving it
+```
+
+- **Which build.** A GGUF repository often has many builds (quantizations), in folders or side
+  by side. If it has more than one, `flash pull` lists them, and you pick one with `--file`. Give
+  the name of the build, or the name of any of its files. A build in parts (`-00001-of-00003`)
+  must have all its parts. halOS ignores projector files (`mmproj`), llama.cpp draft heads and
+  importance matrices.
+- **Builds that Halogen can't read.** Halogen refuses `Q4_1`, `Q2_K`, `Q3_K`, the `IQ1` and
+  `IQ2` builds, and a plain `Q5_0` build. `flash pull` refuses these names before it downloads.
+  Good choices are `IQ4_XS`, `IQ4_NL`, `Q4_K_M` and `Q8_0`. Halogen's page compares some of them.
+- **What it downloads.** It downloads the parts of the build at an exact commit, and Halogen's
+  draft head (`qwen38-flash-next-mtp.hgn`, 1.4 GiB) from the official weights repository. A GGUF
+  has no draft head that Halogen can use. It checks each file against the hash from Hugging Face.
+  If the download stops, run the same command again to continue it.
+- **The conversion.** Halogen's own `convert` then writes `model.hgn`, with the lookup table and
+  the draft head in it. It runs in the pinned Halogen image with no network, and it can write only
+  to the new checkpoint's folder. Halogen's docs give about ten minutes on an NVMe disk. Then
+  Halogen's `verify` checks the result, as for any `flash pull`.
+- **Space.** During the conversion, the GGUF and the result are both on the disk. The result is
+  a little larger than the GGUF (about 106 GB for a 91 GB `IQ4_XS`). `flash pull` checks the free
+  space first.
+- **Memory.** Halogen continues to serve during the conversion. If the memory isn't sufficient,
+  the kernel stops the conversion, not Halogen. Then `flash pull` tells you to stop Halogen and
+  pull again. Nobody has measured the memory that a conversion uses.
+- **The GGUF is deleted** after the conversion. `--keep-gguf` keeps it in
+  `/srv/models/flash/.convert/<name>/gguf`. If the conversion fails, the GGUF stays, so the next
+  pull doesn't download it again. `sudo halogenctl flash convert-stop <name>` deletes it.
+- **Text only.** The result has no vision tower, so images stay off with it. It has no tokenizer
+  of its own, so it gets the official one.
+- **Not tested on real hardware yet.** Halogen's docs describe each step, but halOS has not
+  converted a real GGUF yet. Run `flash check` before you serve it.
+
 #### Converting full-precision weights
 
 Many models are available only in full precision (BF16 `.safetensors`), the format of their
@@ -1039,7 +1081,7 @@ Things to know:
 - **Images.** With `HALOGEN_VISION_TOWER=1`, images work only if the repository of the checkpoint
   has a vision tower (`qwen38-flash-next-vision.hgn`). Without one, images stay off, and
   `halogenctl config` tells why.
-- **Not yet:** GGUF repositories. Halogen can convert them, but `flash pull` can't do this yet.
+- **GGUF repositories** are converted one time into a `.hgn`. See [Pulling a GGUF](#pulling-a-gguf).
 - **Where things live.** Checkpoints are in `/srv/models/flash/<name>/`. The choice is in
   `/srv/configs/flash-checkpoint`, which only `halogenctl flash use` writes. You can't set
   `HALOGEN_CHECKPOINT` in `halogen.env`.

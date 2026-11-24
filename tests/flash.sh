@@ -17,7 +17,7 @@ listing() {
   (cd "$work/repo" && find . -type f | sed 's|^\./||' | sort) | while read -r f; do
     size="$(stat -c %s "$work/repo/$f")"
     blob="$({ printf 'blob %d\0' "$size"; cat "$work/repo/$f"; } | sha1sum | cut -d' ' -f1)"
-    case "$f" in *.hgn|*.safetensors) sha="$(sha256sum "$work/repo/$f" | cut -d' ' -f1)" ;; *) sha=- ;; esac
+    case "$f" in *.hgn|*.safetensors|*.gguf) sha="$(sha256sum "$work/repo/$f" | cut -d' ' -f1)" ;; *) sha=- ;; esac
     printf 'file\t%s\t%s\t%s\t%s\n' "$f" "$size" "$sha" "$blob"
   done
 }
@@ -50,19 +50,28 @@ done
 # FAKE_HANG=<entrypoint>: that step's "container" ignores SIGTERM until it is removed.
 if [ -n "${FAKE_HANG:-}" ] && [ "$FAKE_HANG" = "$entry" ]; then trap '' TERM INT HUP; sleep 30 & echo "$!" > "$FAKE/hang.pid"; wait; exit 1; fi
 case "$entry" in
-  python3) cat > /dev/null; if [ -n "${FAKE_HUB_ERROR:-}" ]; then echo "error $FAKE_HUB_ERROR"; else cat "$FAKE/listing"; fi ;;
-  hf) shift; shift; files=(); dir=""; rev=""
+  python3) cat > /dev/null
+           if [ -n "${FAKE_HUB_ERROR:-}" ]; then echo "error $FAKE_HUB_ERROR"
+           elif [ -f "$FAKE/listing-${2//\//_}" ]; then cat "$FAKE/listing-${2//\//_}"; else cat "$FAKE/listing"; fi ;;
+  hf) shift; from="$FAKE/repo"; [ "$1" != weights/repo ] || from="$FAKE/weights"; shift; files=(); dir=""; rev=""
       while [ $# -gt 0 ]; do case "$1" in
         --local-dir) dir="${2/\/models/$FAKE/models}"; shift 2 ;; --revision) rev="$2"; shift 2 ;;
         *) files+=("$1"); shift ;; esac; done
       echo "hf $rev ${files[*]}" >> "$FAKE/hf.log"
       echo "Hint: update hf"
-      for f in "${files[@]}"; do mkdir -p "$(dirname "$dir/$f")"; cp "$FAKE/repo/$f" "$dir/$f"; done
+      for f in "${files[@]}"; do mkdir -p "$(dirname "$dir/$f")"; cp "$from/$f" "$dir/$f"; done
       [ -z "${FAKE_CORRUPT:-}" ] || printf 'x' >> "$dir/$FAKE_CORRUPT"
       # What a hostile download could leave behind it (a test plants it here).
       [ ! -f "$FAKE/plant" ] || { bash "$FAKE/plant" "$dir"; rm -f "$FAKE/plant"; } ;;
   /usr/local/bin/flash_serve) echo "loading"; echo "${FAKE_FACTS-61.2 0 1}" ;;
-  "") if [ "$1" = ppl ]; then
+  "") if [ "$1" = convert ]; then
+        echo "convert $2 $3" >> "$FAKE/convert.log"
+        [ -f "${2/\/models/$FAKE/models}" ] || exit 1
+        [ -z "${FAKE_CONVERT_RC:-}" ] || exit "$FAKE_CONVERT_RC"
+        o="${3/\/models/$FAKE/models}"; printf 'HGN1converted' > "$o"; echo junk > "$(dirname "$o")/stray.txt"
+        exit 0
+      fi
+      if [ "$1" = ppl ]; then
         echo "ppl ${*:2}" >> "$FAKE/ppl.log"; echo "halogen ppl: prose" >&2
         [ "$2" != "${FAKE_PPL_FAIL:-none}" ] || exit 1
         out=""; prev=""; for a in "$@"; do [ "$prev" != --ref-out ] || out="$a"; prev="$a"; done
@@ -80,7 +89,7 @@ cat > "$work/bin/df" <<'S'
 printf 'Avail\n%s\n' "${FAKE_FREE:-999999999999}"
 S
 chmod +x "$work/bin/podman" "$work/bin/df"
-printf 'HALOGEN_IMAGE=img@sha256:1\nHALOGEN_VERSION=9.9.9\nHALOGEN_VARIANT=no-npu\n' > "$work/release.env"
+printf 'HALOGEN_IMAGE=img@sha256:1\nHALOGEN_VERSION=9.9.9\nHALOGEN_VARIANT=no-npu\nHALOGEN_WEIGHTS_REPO=weights/repo\nHALOGEN_WEIGHTS_REVISION=wrev\n' > "$work/release.env"
 export HALOGEN_FLASH_FILE="$work/flash-checkpoint"
 mkdir -p "$work/state"
 export HALOGEN_STATE_DIR="$work/state" PATH="$work/bin:$PATH" HALOGEN_RELEASE_FILE="$work/release.env" HALOGEN_MODELS_DIR="$work/models" \
@@ -202,9 +211,81 @@ grep -q 'several checkpoints.*model.hgn.*other.hgn' "$work/out" || fail "the cho
 pull someone/Two --file other.hgn --as two || fail "--file was refused"
 { [ "$(info two checkpoint)" = other.hgn ] && [ ! -e "$work/models/flash/two/model.hgn" ]; } || fail "the wrong checkpoint was fetched"
 rm -rf "$work/repo"; mkdir -p "$work/repo"; put Model-Q4-00001-of-00002.gguf g
-if pull someone/Gguf; then fail "a GGUF repository was accepted"; fi
-grep -q "GGUF" "$work/out" || fail "no GGUF explanation"
-ok "several checkpoints need --file, and GGUF repositories are explained"
+if pull someone/Gguf; then fail "an incomplete GGUF build was accepted"; fi
+grep -q "no complete model build" "$work/out" || fail "no GGUF explanation"
+ok "several checkpoints need --file, and an incomplete GGUF build is explained"
+
+# GGUF repositories (#61): the shards at the exact commit, the official draft head from the
+# weights repository, Halogen's convert offline into model.hgn, then verify.
+wcommit=fedcba9876543210fedcba9876543210fedcba98
+mkdir -p "$work/weights"; printf 'mtphead' > "$work/weights/qwen38-flash-next-mtp.hgn"
+{ echo "commit $wcommit"; printf 'file\tqwen38-flash-next-mtp.hgn\t7\t%s\t-\n' "$(printf mtphead | sha256sum | cut -d' ' -f1)"; } > "$work/listing-weights_repo"
+gguf_repo() {
+  rm -rf "$work/repo"; mkdir -p "$work/repo"
+  put UD-IQ4_XS/Flash-UD-IQ4_XS-00001-of-00002.gguf shard1; put UD-IQ4_XS/Flash-UD-IQ4_XS-00002-of-00002.gguf shard2
+  put mmproj-F16.gguf proj; put Flash-MTP-draft.gguf draft; put README.md hello
+}
+gguf_repo; : > "$work/podman.log"; : > "$work/convert.log"
+pull someone/Flash-GGUF --as gg || fail "a GGUF pull failed"
+g="$work/models/flash/gg"
+{ [ "$(cat "$g/model.hgn")" = HGN1converted ] && [ "$(info gg checkpoint)" = model.hgn ] && [ "$(info gg gguf)" = UD-IQ4_XS/Flash-UD-IQ4_XS ] \
+  && [ "$(info gg verified)" = pass ] && [ "$(info gg commit)" = "$commit" ]; } || fail "the converted checkpoint isn't in place and recorded"
+grep -qx "hf $commit UD-IQ4_XS/Flash-UD-IQ4_XS-00001-of-00002.gguf UD-IQ4_XS/Flash-UD-IQ4_XS-00002-of-00002.gguf" "$work/hf.log" || fail "the shards weren't fetched at the commit: $(cat "$work/hf.log")"
+grep -qx "hf $wcommit qwen38-flash-next-mtp.hgn" "$work/hf.log" || fail "the draft head wasn't fetched from the weights repository: $(cat "$work/hf.log")"
+if grep -qE 'mmproj|MTP-draft' "$work/hf.log"; then fail "a projector or llama.cpp draft head was downloaded"; fi
+grep -qx "convert /models/flash/.convert/gg/gguf/UD-IQ4_XS/Flash-UD-IQ4_XS-00001-of-00002.gguf /models/flash/.convert/gg/out/gg/model.hgn" "$work/convert.log" || fail "convert wasn't given the first shard: $(cat "$work/convert.log")"
+grep ' convert ' "$work/podman.log" > "$work/conv.line"
+{ grep -q -- '--network=none' "$work/conv.line" && grep -q -- '--cap-drop=all' "$work/conv.line" && grep -q -- '--oom-score-adj=1000' "$work/conv.line" \
+  && grep -q -- '-e HALOGEN_MTP_HEAD=/models/flash/.convert/gg/head/qwen38-flash-next-mtp.hgn' "$work/conv.line" \
+  && grep -q -- "-v $work/models:/models:ro" "$work/conv.line"; } || fail "convert didn't run offline, unprivileged, with the head: $(cat "$work/conv.line")"
+{ [ ! -e "$g/stray.txt" ] && [ ! -e "$work/models/flash/.convert/gg" ] && grep -q official "$g/tokenizer/tokenizer.json"; } || fail "strays, the download or a missing tokenizer"
+grep -qx "verify /models/flash/gg/model.hgn" "$work/verify.log" || fail "verify didn't check the result"
+grep -qx 'name=gg' "$work/out" || fail "no name= line for halogenctl"
+ok "a GGUF repository is downloaded, converted with the official draft head, verified, and the download removed"
+
+if pull someone/Flash-GGUF --as gg; then fail "a pull over an existing checkpoint was accepted"; fi
+put Q8_0/Flash-Q8_0.gguf q8
+if pull someone/Flash-GGUF --as g2; then fail "several builds were accepted without --file"; fi
+grep -q 'several GGUF builds.*Q8_0/Flash-Q8_0.*UD-IQ4_XS/Flash-UD-IQ4_XS' "$work/out" || fail "the builds weren't listed: $(cat "$work/out")"
+pull someone/Flash-GGUF --as g2 --file Q8_0/Flash-Q8_0.gguf --keep-gguf || fail "--file of a GGUF build failed"
+{ [ "$(info g2 gguf)" = Q8_0/Flash-Q8_0 ] && [ -f "$work/models/flash/.convert/g2/gguf/Q8_0/Flash-Q8_0.gguf" ] \
+  && [ ! -e "$work/models/flash/.convert/g2/head" ] && [ ! -e "$work/models/flash/.convert/g2/out" ]; } || fail "--keep-gguf didn't keep only the GGUF"
+if grep -q UD-IQ4_XS "$work/hf.log"; then fail "another build was downloaded"; fi
+pull someone/Flash-GGUF --as g2b --file UD-IQ4_XS/Flash-UD-IQ4_XS-00002-of-00002.gguf || fail "--file naming the second shard failed"
+[ "$(info g2b gguf)" = UD-IQ4_XS/Flash-UD-IQ4_XS ] || fail "a shard name didn't pick its build"
+ok "several builds need --file (a build's name or any of its files), and --keep-gguf keeps the download"
+
+put Q3_K_M/Flash-Q3_K_M.gguf q3
+if pull someone/Flash-GGUF --as g3 --file Q3_K_M/Flash-Q3_K_M.gguf; then fail "a quantization Halogen refuses was pulled"; fi
+{ grep -q "can't read" "$work/out" && [ ! -s "$work/hf.log" ]; } || fail "the refusal came after a download"
+ok "quantizations Halogen refuses are refused before downloading"
+
+# A conversion that fails keeps the download; the next pull doesn't download the shards again.
+gguf_repo
+if FAKE_CONVERT_RC=1 pull someone/Flash-GGUF --as g4; then fail "a failed conversion was accepted"; fi
+{ grep -q 'convert-stop g4' "$work/out" && [ -f "$work/models/flash/.convert/g4/gguf/UD-IQ4_XS/Flash-UD-IQ4_XS-00001-of-00002.gguf" ] \
+  && [ ! -e "$work/models/flash/g4" ]; } || fail "a failed conversion lost the download or left a checkpoint"
+if FAKE_CONVERT_RC=137 pull someone/Flash-GGUF --as g4; then fail "a conversion out of memory was accepted"; fi
+grep -q 'ran out of memory' "$work/out" || fail "running out of memory wasn't explained"
+if [ -s "$work/hf.log" ]; then fail "the retry downloaded again: $(cat "$work/hf.log")"; fi
+pull someone/Flash-GGUF --as g4 || fail "the retry failed"
+ok "a failed conversion keeps the download for the retry"
+
+# What a hostile download could leave: a link to the keys among the shards, a stray file.
+gguf_repo; mkdir -p "$work/configs"; echo secret > "$work/configs/api-key"
+printf 'ln -s %q "$1/UD-IQ4_XS/evil.gguf"; echo x > "$1/stray.bin"\n' "$work/configs/api-key" > "$work/plant"
+pull someone/Flash-GGUF --as g5 --keep-gguf || fail "a pull with a planted link failed"
+{ [ ! -L "$work/models/flash/.convert/g5/gguf/UD-IQ4_XS/evil.gguf" ] && [ ! -e "$work/models/flash/.convert/g5/gguf/stray.bin" ] \
+  && [ "$(cat "$work/configs/api-key")" = secret ]; } || fail "a planted link or stray file survived"
+if FAKE_CORRUPT=UD-IQ4_XS/Flash-UD-IQ4_XS-00002-of-00002.gguf pull someone/Flash-GGUF --as g6; then fail "a shard that differs from its hash was converted"; fi
+grep -q 'does not match' "$work/out" || fail "the hash mismatch wasn't said"
+if FAKE_FREE=1000 pull someone/Flash-GGUF --as g7; then fail "a GGUF pull without room was accepted"; fi
+grep -q 'free' "$work/out" || fail "no space message"
+# flash convert's weights and a GGUF pull's never share a name.
+mkdir -p "$work/models/flash/.convert/g8"; echo repo=x > "$work/models/flash/.convert/g8/convert.info"
+if pull someone/Flash-GGUF --as g8; then fail "a GGUF pull went over flash convert's download"; fi
+grep -q 'convert-stop g8' "$work/out" || fail "the clash wasn't explained"
+ok "a GGUF pull removes planted links, checks hashes and space, and keeps clear of flash convert"
 
 reset_repo
 for bad in '--as ../x' '--as official' '--as .hidden' '--revision -x' "--as a;b"; do

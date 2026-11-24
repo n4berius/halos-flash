@@ -54,7 +54,8 @@ Simplified Technical English (#152).
 3. Keep `kernel-next` on the newest plain Linux 7.4 build: a weekly workflow proposes each one
    (#146). When Fedora 45 ships 7.4 itself, end the channel.
 4. Unlock the disk from a tang server on the network (#44).
-5. Let `flash pull` use GGUF repositories (#61).
+5. Try `flash pull` of a GGUF on the test machine (#61): the conversion's time and memory while
+   Halogen serves, and `flash check` of the result.
 
 Also open, not yet in order: faster image builds (#122: the helper programs are built once per CI
 run since #159; reusing Caddy's layers between runs is open).

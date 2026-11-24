@@ -10,6 +10,12 @@ it promotes.
 
 ## Unreleased
 
+- `flash pull` now takes GGUF repositories of Qwen3.8 Flash Next (llama.cpp's format). It
+  downloads one build (pick it with `--file` when there are several), adds Halogen's draft head
+  from the official weights, converts it one time into a `.hgn` with Halogen's own `convert`
+  (offline), checks it with Halogen's `verify`, and deletes the GGUF (`--keep-gguf` keeps it).
+  Builds that Halogen can't read are refused before the download. Not yet tried on the test
+  machine. (#61)
 - Your own Flash checkpoints now draft with Halogen's official draft head
   (`qwen38-flash-next-drafter-r2-ht4.hgn`), as the official checkpoint does. Before, Halogen used
   it only beside the official checkpoint, so yours drafted with their built-in head. If a
