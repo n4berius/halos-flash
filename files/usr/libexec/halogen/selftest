@@ -240,7 +240,7 @@ else
         k="$(awk -v u="$u" '$1 == u { print $2; exit }' <<< "$bound_keys")"
         [ -z "$k" ] || grep -qxF -- "$k" <<< "$now" || rekeyed+=("$u")
       done
-      if [ "${#rekeyed[@]}" -gt 0 ]; then say WARN luks-tang "unlocks at boot $how, but ${rekeyed[*]} no longer signs with the key bound to it, so it can't unlock the disk; if the key was changed on purpose: sudo halosctl tang-unlock on <server> --thp <new key>"
+      if [ "${#rekeyed[@]}" -gt 0 ]; then say WARN luks-tang "unlocks at boot $how, but ${rekeyed[*]} no longer signs with the key bound to it, so it can't unlock the disk; if the key was changed on purpose: sudo halosctl tang-unlock on <server> --tpm ${ts[1]} --thp <new key>"
       elif [ "${#down[@]}" = 0 ]; then say PASS luks-tang "unlocks at boot $how (${ts[*]:2}); every server answers now"
       elif [ "${#down[@]}" -lt "$((${#ts[@]} - 2))" ]; then say WARN luks-tang "unlocks at boot $how; not answering now: ${down[*]}"
       elif [ "${ts[1]:-}" = or ]; then say WARN luks-tang "unlocks at boot $how, but no tang server answers now (${down[*]}): only the TPM would unlock the next boot"

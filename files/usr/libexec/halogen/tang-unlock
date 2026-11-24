@@ -56,11 +56,14 @@ secure_boot() {
 }
 
 # What anyone on the network can send (a tang server answers over plain HTTP) is fetched and
-# parsed by nobody, never root: curl and jose run without privileges.
+# parsed for the thumbprints by nobody: curl and jose run without privileges, in a session of
+# their own (setsid: no controlling terminal), and the callers give them no terminal on any of
+# stdin, stdout or stderr, so a hijacked one can't read the passphrase typed later. clevis itself
+# still fetches and parses the advertisement as root at bind time.
 as_nobody() {
   if [ "$(id -u)" = 0 ] && [ -z "${HALOS_FETCH_AS_ROOT:-}" ]; then
-    setpriv --reuid=65534 --regid=65534 --clear-groups --no-new-privs -- env -C / "$@"
-  else "$@"; fi
+    setsid -w setpriv --reuid=65534 --regid=65534 --clear-groups --no-new-privs -- env -C / "$@"
+  else setsid -w "$@"; fi
 }
 
 # The signing keys of the server's advertisement. Its signatures are checked by clevis at bind
@@ -68,12 +71,12 @@ as_nobody() {
 thumbprints() {
   local url="$1" adv ver
   url_ok "$url" || die "not a tang server address: use http://<address>[:port], such as http://192.168.1.5:7500 (a .local name can't be found at boot)"
-  adv="$(as_nobody curl -q -fsS --max-time 15 --max-filesize 65536 --proto =http,https --proto-redir =http,https \
-    "${url%/}/adv")" || die "no answer from $url/adv: is the tang server running, and the address right?"
+  adv="$(as_nobody curl -q -fs --max-time 15 --max-filesize 65536 --proto =http,https --proto-redir =http,https \
+    "${url%/}/adv" < /dev/null 2> /dev/null)" || die "no answer from $url/adv: is the tang server running, and the address right?"
   ver="$(as_nobody jose fmt -j- -Og payload -SyOg keys -AUo- <<< "$adv" 2> /dev/null | as_nobody jose jwk use -i- -r -u verify -o- 2> /dev/null)" \
     || die "$url answered, but not with a tang advertisement"
   local s256 t
-  s256="$(as_nobody jose jwk thp -i- -a S256 <<< "$ver")" || die "$url's advertisement has no signing key"
+  s256="$(as_nobody jose jwk thp -i- -a S256 <<< "$ver" 2> /dev/null)" || die "$url's advertisement has no signing key"
   [ -n "$s256" ] || die "$url's advertisement has no signing key"
   while IFS= read -r t; do thp_ok "$t" || die "$url's advertisement gave a key thumbprint that isn't one"; done <<< "$s256"
   printf '%s\n' "$s256"
@@ -133,16 +136,30 @@ undo_new() {
   done
 }
 
+# One bind or remove at a time (two admins at once): each one's undo and old-slot removal work by
+# slot number, and would remove the other's. Beside the record, in root's own folder.
+take_lock() {
+  mkdir -p "$(dirname "$record")"
+  exec 6>> "$record.lock" || die "can't open $record.lock"
+  flock -n 6 || die "another tang-unlock change is running; wait for it to end, then try again"
+}
+
 bind() {
   local mode="$1"; shift
   case "$mode" in and|or|off) ;; *) die "bind and|or|off <url> <thumbprint>..." ;; esac
   if [ $# -lt 2 ] || [ $(($# % 2)) != 0 ]; then die "give each server's address and thumbprint"; fi
-  local dev old cfg url thp pt rc=0 s pairs=()
+  local dev old oldtpm cfg url thp pt rc=0 s i pairs=()
+  # Every pair is checked before anything is bound, so a bad one leaves nothing half done.
+  for ((i = 1; i <= $#; i += 2)); do
+    url_ok "${!i}" || die "not a tang server address: ${!i}"
+    s=$((i + 1)); thp_ok "${!s}" || die "not a SHA-256 key thumbprint (43 characters, as tang-show-keys prints it): ${!s}"
+  done
+  take_lock
   if [ "$mode" != off ] && ! secure_boot; then
     die "Secure Boot is off, so the TPM's part (PCR 7, the Secure Boot state) would vouch for nothing. Turn Secure Boot on in the firmware settings, or use --tpm off (the server alone); nothing changed"
   fi
   dev="$(device)"
-  old="$(tang_slots "$dev" | cut -d' ' -f1 | sort -un)"
+  old="$(tang_slots "$dev" | cut -d' ' -f1 | sort -un)"; oldtpm="$(tpm_tokens "$dev")"
   # The existing passphrase once, for every binding (clevis would ask for each).
   if [ -n "${PASSWORD+x}" ]; then pt="$PASSWORD"
   else
@@ -153,11 +170,9 @@ bind() {
   unset PASSWORD
   printf '%s' "$pt" | cryptsetup open --test-passphrase --key-file - "$dev" 2> /dev/null || die "that isn't the disk's passphrase; nothing changed"
   # Stopped part way (Ctrl-C, a dropped SSH session): the bindings this run made go again.
-  trap 'pt=""; undo_new "$dev" "$old"; die "stopped; the bindings made before stay as they were"' INT TERM HUP
+  trap 'pt=""; undo_new "$dev" "$old"; [ -n "$oldtpm" ] || remove_tpm "$dev" || true; die "stopped; the bindings made before stay as they were"' INT TERM HUP
   while [ $# -gt 0 ]; do
     url="$1" thp="$2"; shift 2
-    url_ok "$url" || die "not a tang server address: $url"
-    thp_ok "$thp" || die "not a SHA-256 key thumbprint (43 characters, as tang-show-keys prints it): $thp"
     pairs+=("$url $thp")
     cfg="$(jq -cn --arg u "$url" --arg t "$thp" '{url: $u, thp: $t}')"
     if [ "$mode" = and ]; then
@@ -176,23 +191,28 @@ bind() {
   fi
   pt=""
   if [ "$rc" != 0 ]; then
-    undo_new "$dev" "$old"
+    undo_new "$dev" "$old"; [ -n "$oldtpm" ] || remove_tpm "$dev" || true
     die "binding to ${url} failed (above); nothing changed"
   fi
-  trap - INT TERM HUP
+  # From here the new bindings stay: a stop now could leave the old ones, or the TPM-only unlock
+  # an and/off binding removes, so it is held off until the end.
+  trap '' INT TERM HUP
   # The keys bound, for renew and the selftest (written whole, then moved in).
-  mkdir -p "$(dirname "$record")"
-  ( umask 077; printf '%s\n' "${pairs[@]}" > "$record.new" ) && mv -f "$record.new" "$record" \
-    || echo "couldn't record the servers' keys in $record; renew will ask for them again" >&2
+  # A failed write leaves no record at all: an old one would make renew refuse the new keys.
+  if ! { ( umask 077; printf '%s\n' "${pairs[@]}" > "$record.new" ) && mv -f "$record.new" "$record"; }; then
+    rm -f "$record" "$record.new"; echo "couldn't record the servers' keys in $record; renew will ask for them again" >&2
+  fi
   # The new bindings work; then the old ones go, as halogen-enroll-tpm replaces its binding.
   for s in $old; do clevis luks unbind -f -d "$dev" -s "$s" > /dev/null || echo "couldn't remove the old binding in slot $s" >&2; done
   if [ "$mode" != or ]; then
     remove_tpm "$dev" || die "the tang binding is made, but the TPM-only unlock couldn't be removed, so the TPM alone still unlocks the disk. Run it again, or see: sudo halosctl tang-unlock"
   fi
+  trap - INT TERM HUP
 }
 
 remove() {
   local dev s
+  take_lock
   dev="$(device)"
   for s in $(tang_slots "$dev" | cut -d' ' -f1 | sort -un); do clevis luks unbind -f -d "$dev" -s "$s" > /dev/null; done
   rm -f "$record"

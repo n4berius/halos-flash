@@ -97,6 +97,19 @@ for _ in $(seq 100); do [ ! -e "$work/hanging" ] || break; sleep 0.1; done
 kill -TERM -- "-$pid"; wait "$pid" || true
 cmp -s "$work/before" "$work/bindings" || { diff "$work/before" "$work/bindings" >&2; echo "a stopped bind left its new bindings" >&2; exit 1; }
 has 'stopped; the bindings made before stay' "$work/out"
+# A bad second pair is refused before the first is bound; a change already running stops another.
+: > "$work/log"
+if PASSWORD=halogentest "$tang" bind off http://10.0.0.8 "$K" http://10.0.0.9 short > "$work/out" 2>&1; then echo "bound with a bad second key" >&2; exit 1; fi
+cmp -s "$work/before" "$work/bindings" || { echo "a bad second pair left the first one bound" >&2; exit 1; }
+hasnt 'luks bind' "$work/log"
+exec 6>> "$work/tang.keys.lock"; flock -n 6
+for c in "bind off http://10.0.0.8 $K" remove; do
+  # shellcheck disable=SC2086 # split on purpose
+  if PASSWORD=halogentest "$tang" $c > "$work/out" 2>&1; then echo "$c ran beside another change" >&2; exit 1; fi
+  has 'another tang-unlock change is running' "$work/out"
+done
+exec 6>&-
+cmp -s "$work/before" "$work/bindings" || { echo "a refused change touched the bindings" >&2; exit 1; }
 ok "binding again replaces the old bindings only once the new ones are made; a failure or a stop leaves everything as it was"
 
 # The TPM's part is PCR 7, the Secure Boot state: with Secure Boot off, TPM modes are refused.
@@ -110,6 +123,10 @@ if "$tang" secure-boot; then echo "secure-boot said on" >&2; exit 1; fi
 PASSWORD=halogentest "$tang" bind off http://10.0.0.8 "$K" > /dev/null
 printf '\x06\x00\x00\x00\x01' > "$work/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c"
 "$tang" secure-boot
+# Under sudo the test hooks are ignored: the efivars folder the test made is never read.
+if [ ! -e /sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c ]; then
+  if SUDO_COMMAND=/usr/bin/halosctl "$tang" secure-boot; then echo "tang-unlock took a test hook under sudo" >&2; exit 1; fi
+fi
 ok "with Secure Boot off only tang alone can be bound"
 
 PASSWORD=halogentest "$tang" bind off http://10.0.0.8 "$K"

@@ -44,6 +44,7 @@ f tang-unlock 'case "$1" in
   status) if [ -s "$FAKE/tang" ]; then if [ "${2:-}" = --short ]; then cat "$FAKE/tang"; else echo "On: from a tang server"; fi; else echo off; fi ;;
   thumbprints) [ -z "${FAKE_MULTI:-}" ] || echo evilS256; echo thpS256 ;;
   bind) echo "tang-unlock $*" >> "$FAKE/log"; echo "on $2 $3" > "$FAKE/tang" ;;
+  secure-boot) [ -z "${FAKE_SB_OFF:-}" ] || exit 1 ;;
 esac'
 f systemctl 'case "$1" in is-active) echo active ;; esac'
 f curl 'echo 200'
@@ -150,8 +151,15 @@ if grep -q 'tang-unlock bind' "$work/log"; then cat "$work/log" >&2; echo "a key
 touch "$work/state/setup-pending"
 FAKE_MULTI=1 answer n y http://10.0.0.5:7500 thpS256 '' n n n
 grep -qx 'tang-unlock bind and http://10.0.0.5:7500 thpS256' "$work/log" || { cat "$work/out" "$work/log" >&2; echo "the pasted key wasn't the one pinned" >&2; exit 1; }
+rm -f "$work/tang"; : > "$work/log"
+# Secure Boot off: no TPM unlock is offered, and tang is bound alone.
+touch "$work/state/setup-pending"
+FAKE_SB_OFF=1 answer y http://10.0.0.5:7500 y '' n n n
+grep -q 'Secure Boot is off, so a TPM unlock would protect nothing' "$work/out" || { cat "$work/out" >&2; exit 1; }
+if grep -q enroll-tpm "$work/log"; then echo "a TPM unlock was offered with Secure Boot off" >&2; exit 1; fi
+grep -qx 'tang-unlock bind off http://10.0.0.5:7500 thpS256' "$work/log" || { cat "$work/out" "$work/log" >&2; echo "setup didn't bind tang alone with Secure Boot off" >&2; exit 1; }
 rm -f "$work/tang"
-ok "setup offers unlocking from a tang server, trusts only a key the person confirms, binds TPM and tang, and then offers no TPM-only unlock"
+ok "setup offers unlocking from a tang server, trusts only a key the person confirms, binds TPM and tang (tang alone with Secure Boot off), and then offers no TPM-only unlock"
 
 # HTTPS: a new install (root's own marker, which prepare leaves) is offered it with Enter for yes,
 # and setup runs halosctl's own https self-signed; a failure doesn't stop setup; on when it is on

@@ -160,6 +160,8 @@ for w in ("/etc/environment", "/etc/fstab", "/etc/nsswitch.conf", "/etc/authsele
 assert rules.index("-w /etc/containers/policy.json") < rules.index("-w /etc/containers/systemd") < rules.index("-w /etc/containers -p"), "the wider /etc/containers watch must come last"
 assert "\n-a always,exit -F path=/usr/bin/kmod -F perm=x -k modules\n" in rules, "runs of modprobe/insmod aren't recorded"
 ctl = open("files/usr/bin/halogenctl").read()
+for tool in ("files/usr/bin/halosctl", "files/usr/bin/halogen-enroll-tpm"):
+    assert open(tool).read().startswith("#!/bin/bash -p\n"), f"{tool} reads BASH_ENV or imported functions (needs #!/bin/bash -p)"
 assert ctl.startswith("#!/bin/bash -p\n") and "exec /usr/bin/env -i PATH=/usr/sbin:/usr/bin LANG=C.UTF-8 /usr/libexec/halogen/selftest" in ctl, "the selftest's test variables work for root in production"
 # Cache hardening: the cache mount lives in a drop-in (so cache off can replace it), and every
 # container that mounts all of /srv/models hides the cache folder behind an empty tmpfs.

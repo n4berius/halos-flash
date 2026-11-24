@@ -252,7 +252,15 @@ name, but allows saying halOS runs Halogen.
   server whose `/adv` no longer lists one (hint: `on` with the new key); the selftest's
   `luks-tang` WARNs on such a server; `/adv` is fetched and read by curl and jose as nobody
   (`setpriv --reuid=65534 … --no-new-privs`, skipped with `HALOS_FETCH_AS_ROOT=1` for the tests);
-  an INT/TERM/HUP during `bind` unbinds what this run made (`undo_new`) and keeps the old.
+  an INT/TERM/HUP during `bind` unbinds what this run made (`undo_new`, plus a TPM token an `or`
+  bind added) and keeps the old; after the new bindings are made, signals are ignored until the
+  old slots and the TPM-only unlock are gone. Review fixes: every pair is checked before the first
+  bind; `bind`/`remove` take `flock -n` on `<record>.lock` (two admins at once would remove each
+  other's slots); the nobody fetch runs under `setsid -w` with no terminal on any fd (a hijacked
+  curl/jose could otherwise take root's tty and read the passphrase typed next); clevis itself
+  still fetches `/adv` as root at bind; a failed record write deletes the record; setup skips the
+  TPM offer and binds tang alone while Secure Boot is off; every "key changed" hint names the
+  current `--tpm` mode.
   Test hooks under sudo: `tang-unlock` and `halogen-enroll-tpm` unset theirs, and `halosctl` and
   `halogenctl` unset every `HALOS_*`/`HALOGEN_*` variable, when `SUDO_COMMAND` is set (sudo's
   env_reset already drops them; this covers a sudoers `env_keep`); `halosctl` and

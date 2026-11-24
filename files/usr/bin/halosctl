@@ -314,7 +314,7 @@ tang_trust() {
     url="${tang_urls[i]}"; given="${thps[i]:-}"
     tp="$("$tang" thumbprints "$url")" || return 1
     if [ -n "$given" ]; then
-      grep -qxF -- "$given" <<< "$tp" || { echo "halosctl: $url doesn't sign with the key $given; it signs with: $(paste -sd' ' - <<< "$tp"). If its key was changed on purpose, set it up again with the new one: sudo halosctl tang-unlock on <server>... --thp <key>" >&2; return 1; }
+      grep -qxF -- "$given" <<< "$tp" || { echo "halosctl: $url doesn't sign with the key $given; it signs with: $(paste -sd' ' - <<< "$tp"). If its key was changed on purpose, set it up again with the new one: sudo halosctl tang-unlock on <server>... --tpm ${tpm_mode:-and} --thp <key>" >&2; return 1; }
       tang_pairs+=("$url" "$given")
     else
       if [ "$yes" = 1 ] || [ ! -t 0 ]; then echo "halosctl: give each server's key with --thp (sudo tang-show-keys <port> on the server prints it)" >&2; return 1; fi
@@ -659,6 +659,7 @@ case "$cmd" in
             while read -r ru rt; do
               for ((i = 0; i < ${#tang_urls[@]}; i++)); do [ "${tang_urls[i]}" != "$ru" ] || thps[i]="$rt"; done
             done < <("$tang" bound)
+            [ -n "${thps[0]:-}" ] || echo "No recorded keys match the servers bound now (a binding from before the record, or one changed since): compare each key below with tang-show-keys on the server."
           fi
         else
           tang_urls=("${args[@]:1}")
@@ -1060,6 +1061,8 @@ case "$cmd" in
     read -r ton tmode _ <<< "$("$tang" status --short 2> /dev/null || true)"
     [ "${ton:-}" = on ] || tmode=""
     if [ -z "$crypt" ]; then echo "   The disk isn't encrypted, so there is nothing to unlock."
+    elif ! "$tang" secure-boot; then
+      echo "   Secure Boot is off, so a TPM unlock would protect nothing (the TPM checks the Secure Boot state). Turn it on in the firmware settings, then: sudo halogen-enroll-tpm"
     elif [ "$tmode" = and ] || [ "$tmode" = off ]; then
       # A TPM-only unlock would bypass the network the tang binding was made to need.
       echo "   It unlocks from a tang server (sudo halosctl tang-unlock shows how), so no TPM-only unlock is added."
@@ -1084,7 +1087,8 @@ case "$cmd" in
       elif ask "   Set up unlocking from a tang server? [y/N]" n; then
         read -rp "   The tang server's address (such as http://192.168.1.5:7500): " tsrv || tsrv=""
         tang_urls=("$tsrv"); thps=()
-        if has_tpm; then tsel=and; else tsel=off; fi
+        # With Secure Boot off the TPM's part would vouch for nothing (and is refused): tang alone.
+        if has_tpm && "$tang" secure-boot; then tsel=and; else tsel=off; fi
         if [ -n "$tsrv" ] && tang_on "$tsel" setup; then :
         else echo "   Skipped. Later: sudo halosctl tang-unlock on <address>"; fi
       else echo "   Skipped. Later: sudo halosctl tang-unlock on <address>"; fi
