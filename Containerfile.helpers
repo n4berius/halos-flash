@@ -72,15 +72,17 @@ RUN set -eu; \
 # caddy-dns plugins carry no licence. Also gathers the licence files of every module linked in.
 # Three layers, so a local rebuild after a change to halOS's own Go source reuses the first two
 # (#122): Go itself, then the modules go.mod and go.sum name (downloaded and checked against
-# go.sum and Go's checksum database), then the source, built with the network to Go's proxy
-# turned off (GOPROXY=off), so it uses only the modules checked in the layer before. A change to
-# go.mod or go.sum (Dependabot) downloads the modules again; a new base digest redoes all three.
-# The last step keeps Go's compile cache in a podman cache mount (on the building machine only,
-# never in the image or the tree), so a source-only rebuild compiles only what changed: about
-# 6 s instead of 98 s, measured with Go 1.27's image standing in for the base. The tests always
-# run (-count=1): Go would otherwise reuse a passing result from that cache. CI starts each run
-# on a fresh runner with no layers and no cache mount, so it gains nothing there, and no cache
-# crosses runs.
+# go.sum), then the source, built with the network to Go's proxy turned off (GOPROXY=off), so it
+# uses only the modules checked in the layer before. A change to go.mod or go.sum (Dependabot)
+# downloads the modules again; a new base digest redoes all three. The last step keeps Go's compile
+# cache in a podman cache mount (on the building machine only, never in the image or the tree), so a
+# source-only rebuild compiles only what changed: about 5 s instead of 98 s, measured with Go 1.27's
+# image standing in for the base. The tests are compiled (go test -c) and run directly, so they
+# always run: plain go test reused a cached pass. Go trusts a cache entry by its key, so nothing
+# built here runs as root while the cache is writable: the test binary and Caddy run as nobody, who
+# can't write to the cache, so a branch built on the same machine can't plant an entry a later build
+# of main reuses. CI starts each run on a fresh runner with no layers and no cache mount, so it
+# gains nothing there, and no cache crosses runs.
 FROM ${FEDORA_BOOTC_IMAGE} AS caddy
 ENV GOTOOLCHAIN=local GOFLAGS=-mod=readonly CGO_ENABLED=0 GOSUMDB=sum.golang.org
 RUN set -eu; \
@@ -97,10 +99,14 @@ COPY src/caddy/ /src/caddy/
 RUN --mount=type=cache,id=halos-caddy-go-build,target=/go-build set -eu; \
     cd /src/caddy; \
     export GOPROXY=off GOCACHE=/go-build; \
-    go test -count=1 ./dnsproviders/; \
+    nobody() { setpriv --reuid=65534 --regid=65534 --clear-groups "$@"; }; \
+    t="$(mktemp -d)"; \
+    go test -c -o "$t/dnsproviders.test" ./dnsproviders/; \
+    chmod 0755 "$t"; (cd dnsproviders && nobody "$t/dnsproviders.test"); \
     go build -trimpath -ldflags='-s -w' -o /out/caddy .; \
-    /out/caddy version; \
-    for p in cloudflare duckdns namecheap porkbun; do /out/caddy list-modules | grep -qx "dns.providers.$p"; done; \
+    nobody /out/caddy version; \
+    nobody /out/caddy list-modules > "$t/modules"; \
+    for p in cloudflare duckdns namecheap porkbun; do grep -qx "dns.providers.$p" "$t/modules"; done; \
     cf="$(go list -m -f '{{.Dir}}' github.com/caddy-dns/cloudflare)/cloudflare.go"; \
     if ! grep -qF 'regexp.MustCompile(`^[A-Za-z0-9_-]{35,50}$`)' "$cf" \
       || ! grep -qF 'regexp.MustCompile(`^cf(ut|at)_[A-Za-z0-9_-]{32,256}$`)' "$cf" \
