@@ -5,12 +5,12 @@ on:
   workflow_dispatch:
     inputs:
       release:
-        description: "alpha builds main; rc promotes the newest alpha, stable the newest rc. The number is worked out for you."
+        description: "alpha builds main under the next halOS number; rc promotes the newest alpha, stable the newest rc. The tag (such as v0.20.7-2-alpha) is worked out for you."
         required: true
         type: choice
         options: [alpha, rc, stable]
       from_main:
-        description: "rc or stable only: build from main instead of promoting (for example a stable fix)"
+        description: "rc or stable only: build main under the next halOS number instead of promoting (for example a stable fix)"
         type: boolean
         default: false
 
@@ -34,6 +34,7 @@ jobs:
     outputs:
       tag: ${{ steps.info.outputs.tag }}
       image_tag: ${{ steps.info.outputs.image_tag }}
+      stable_tag: ${{ steps.info.outputs.stable_tag }}
       prerelease: ${{ steps.info.outputs.prerelease }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -52,14 +53,22 @@ jobs:
             gh release list --exclude-drafts --limit 1000 --json tagName -q '.[].tagName' > "$RUNNER_TEMP/released"
             out="$(scripts/next-tag.sh "$RELEASE" "$FROM_MAIN" "$RUNNER_TEMP/tags" "$RUNNER_TEMP/released")"
             tag="$(sed -n 's/^tag=//p' <<< "$out")"; source="$(sed -n 's/^source=//p' <<< "$out")"
+            retry="$(sed -n 's/^retry=//p' <<< "$out")"
             if [ "$source" = main ]; then ref="$GITHUB_SHA"; else ref="$(git rev-list -n 1 "$source")"; fi
+            # A promotion whose earlier run failed before publishing left its tag without a
+            # release: run it again on that tag, which must be the same code.
+            if [ "$retry" = 1 ]; then
+              have="$(git rev-list -n 1 "$tag")"
+              [ "$have" = "$ref" ] || { echo "::error::$tag exists without a release, but at $have, not $source ($ref). Ask for help: tags are never moved." >&2; exit 1; }
+              echo "$tag exists without a release (its earlier run failed): running it again."
+            fi
           else
-            tag="$GITHUB_REF_NAME"; source="tag pushed by hand"; ref="$GITHUB_SHA"
-            # No beta releases since #141: an rc promotes the newest alpha. A beta tag pushed by
-            # hand would move the beta and alpha channels past what rc machines get.
-            case "$tag" in
-              *-beta.*) echo "$tag: beta releases are no longer made. Release an rc instead (Actions > Release > rc), and delete the tag." >&2; exit 1 ;;
-            esac
+            tag="$GITHUB_REF_NAME"; source="tag pushed by hand"; ref="$GITHUB_SHA"; retry=1
+            # Only the current names (v0.20.7-2-alpha, -rc, -stable): an old-style tag pushed by hand
+            # would sort below every new-style release of its Halogen version, and a beta one would
+            # move the beta and alpha channels past what rc machines get (no beta since #141).
+            [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-[1-9][0-9]*-(alpha|rc|stable)$ ]] || {
+              echo "$tag: use <Halogen version>-<halOS number>-<stage>, such as v0.20.7-2-alpha (RELEASING.md), or Actions > Release, which names it for you. Delete this tag." >&2; exit 1; }
           fi
           echo "Release $tag from $source ($ref)"
           # A release no channel would take reaches no machine: an alpha or rc of a version that
@@ -67,11 +76,11 @@ jobs:
           git tag -l 'v*' > "$RUNNER_TEMP/tags"
           channels="$(scripts/channels.sh "$tag" "$RUNNER_TEMP/tags")"
           if [ -z "$channels" ]; then
-            echo "::error::$tag would move no channel (alpha, rc, stable): a newer tag of the same or a later stage already exists (published or not), so no machine would get it. For a halOS-only fix after a stable release, release stable with \"from main\" (it becomes the next -rN); otherwise wait for the next Halogen version." >&2
+            echo "::error::$tag would move no channel (alpha, rc, stable): a newer release of the same or a later stage already exists (published or not), so no machine would get it. Release an alpha first: it takes the next halOS number, which is newer than every release so far." >&2
             exit 1
           fi
           echo "Channels it would move now: $channels"
-          { echo "tag=$tag"; echo "ref=$ref"; } >> "$GITHUB_OUTPUT"
+          { echo "tag=$tag"; echo "ref=$ref"; echo "create=$([ "$retry" = 1 ] && echo 0 || echo 1)"; } >> "$GITHUB_OUTPUT"
       - name: Check the code is on main
         env:
           REF: ${{ steps.pick.outputs.ref }}
@@ -86,7 +95,7 @@ jobs:
           scripts/release-info.sh "$TAG" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
       - name: Create the tag
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && steps.pick.outputs.create == '1'
         env:
           TAG: ${{ steps.pick.outputs.tag }}
           REF: ${{ steps.pick.outputs.ref }}
@@ -261,6 +270,7 @@ jobs:
     env:
       HALOGEN_VARIANT: ${{ matrix.variant }}
       IMAGE_TAG: ${{ needs.info.outputs.image_tag }}
+      STABLE_TAG: ${{ needs.info.outputs.stable_tag }}
       TAG: ${{ needs.info.outputs.tag }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -295,12 +305,20 @@ jobs:
           [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "bad digest: $digest" >&2; exit 1; }
           bash "$RUNNER_TEMP/sign-image.sh" --fetch
           GITHUB_TOKEN="$GH_TOKEN" bash "$RUNNER_TEMP/sign-image.sh" --verify "$base@$digest"
-          # The release's own tag too: a stable one (0.20.6) may have been pushed by the weekly
-          # refresh since; this release owns it now.
+          # The release's own tag too: an old-style stable one (0.20.6) may have been pushed by the
+          # weekly refresh since; this release owns it now. A stable release that leads the stable
+          # channel also takes the plain Halogen version tag (0.20.7), which the weekly refresh and
+          # machines pinned to that version follow.
           refs=()
           for channel in "" $channels; do
             if [ -z "$channel" ]; then targets=("$image")
-            else targets=("$base:$channel$suffix"); [ "$channel" != stable ] || targets+=("$base:latest$suffix"); fi
+            else
+              targets=("$base:$channel$suffix")
+              if [ "$channel" = stable ]; then
+                targets+=("$base:latest$suffix")
+                [ -z "$STABLE_TAG" ] || [ "$base:$STABLE_TAG$suffix" = "$image" ] || targets+=("$base:$STABLE_TAG$suffix")
+              fi
+            fi
             for t in "${targets[@]}"; do
               skopeo copy --all --preserve-digests "docker://$base@$digest" "docker://$t"
               got="$(skopeo inspect --format '{{.Digest}}' "docker://$t")"

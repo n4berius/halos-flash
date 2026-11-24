@@ -36,7 +36,7 @@ Common options:
 | `halosctl version` | Shows the release that runs, its edition, the channel that it follows, what starts at the next boot, the rollback image, and if updates must have halOS's key signature. This is the default when you give no command. |
 | `halosctl upgrade [--check] [--reboot] [--yes]` | Downloads the newest release on your channel and stages it for the next boot. `--check` only tells if there is a newer release. |
 | `halosctl switch alpha\|rc\|release\|edge\|kernel-next [--reboot] [--yes]` | Follows a different channel. `release` is the stable channel. `alpha` and `rc` are test releases. `beta` still works and gets the same releases as `rc`. There are no more beta releases. `edge` is every change to `main`. `kernel-next` is `edge` with a test kernel (a Linux 7.4 release candidate) in place of the Fedora 45 kernel. Each channel also gets the newer releases of the more stable channels. |
-| `halosctl rollback [--to <version>] [--reboot] [--yes]` | Starts the previous image at the next boot. With `--to`, it starts an exact release, for example `0.20.0`. |
+| `halosctl rollback [--to <release>] [--reboot] [--yes]` | Starts the previous image at the next boot. With `--to`, it starts an exact release, for example `0.20.7-1-stable` or an older name such as `0.20.0`. |
 | `halosctl npu on\|off [--reboot] [--yes]` | Moves to the NPU edition (`on`) or to the no-NPU edition (`off`: the IOMMU is off for faster prefill). It keeps the channel and `/srv`. |
 | `halosctl history` | Shows each change that halosctl made: when, what, from what to what, and who. |
 

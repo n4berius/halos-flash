@@ -48,7 +48,8 @@ jobs:
           # The newest published stable release, not the newest tag: a release whose install
           # test failed has a tag but no release, and must never reach the stable channel.
           gh release list --exclude-drafts --exclude-pre-releases --limit 1000 --json tagName -q '.[].tagName' > "$RUNNER_TEMP/released"
-          tag="$(grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-r[0-9]+)?$' "$RUNNER_TEMP/released" | sort -V | tail -n 1 || true)"
+          # channels.sh orders old-style (v0.20.7, -r2) and new-style (v0.20.7-1-stable) tags.
+          tag="$(scripts/channels.sh --sort stable "$RUNNER_TEMP/released" | tail -n 1 || true)"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           # main's channel script, kept aside: the release checked out next may predate it.
           cp scripts/channels.sh "$RUNNER_TEMP/channels.sh"
@@ -66,7 +67,12 @@ jobs:
         env:
           TAG: ${{ steps.stable.outputs.tag }}
         run: |
-          eval "$(scripts/release-info.sh "$TAG" | grep '^image_tag=')"
+          # The plain Halogen version tag (0.20.7): what a weekly rebuild pushes. A release's own
+          # tag (0.20.7-1-stable) never moves. Old releases' scripts print image_tag only, which
+          # was that same plain version for a stable release.
+          stable_tag=""
+          eval "$(scripts/release-info.sh "$TAG" | grep -E '^(image_tag|stable_tag)=')"
+          image_tag="${stable_tag:-$image_tag}"
           # The push step below needs the same names; it alone gets the signing key.
           { echo "IMAGE_TAG=$image_tag"; echo "HALOS_RELEASE=${TAG#v}"; } >> "$GITHUB_ENV"
           IMAGE_TAG="$image_tag" HALOS_RELEASE="${TAG#v}" scripts/build.sh
@@ -84,7 +90,7 @@ jobs:
           name: build-info-${{ matrix.variant }}
           path: ${{ runner.temp }}/info/*
           retention-days: 90
-      - name: Push the exact tag
+      - name: Push the Halogen version tag
         if: steps.stable.outputs.tag != ''
         env:
           TAG: ${{ steps.stable.outputs.tag }}
@@ -101,7 +107,7 @@ jobs:
           # (from main) to resume the weekly rebuilds.
           # Every tag counts, published or not: a release between its channel move and its
           # publish step is newer, and its channels must not move back.
-          newest="$(grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-r[0-9]+)?$' "$RUNNER_TEMP/tags" | sort -V | tail -n 1 || true)"
+          newest="$("$RUNNER_TEMP/channels.sh" --sort stable "$RUNNER_TEMP/tags" | tail -n 1 || true)"
           [ -n "$channels" ] || { echo "::error::$TAG leads no channel: the newer stable tag $newest has no published release yet (still running, or it failed). Nothing was pushed. If it failed, release stable from main to resume the weekly rebuilds." >&2; exit 1; }
           echo "Moving the channels: $channels"
           # Push the exact tag and sign it first (main's script, #46), so a channel never points

@@ -27,7 +27,18 @@ name, but allows saying halOS runs Halogen.
   stable; `scripts/next-tag.sh` numbers it, and rc/stable promote the newest published
   release one step below: rc the newest alpha, stable the newest rc. No beta step since
   November 2026 (owner's decision, #141); old beta tags stay and the `beta` channel tag moves with
-  every rc and stable, so `halosctl switch beta` still works (with a note) but isn't offered). Don't create tags or releases yourself.
+  every rc and stable, so `halosctl switch beta` still works (with a note) but isn't offered).
+  Tags are `v<Halogen version>-<halOS number>-<stage>` (`v0.20.7-1-stable`, `v0.20.7-2-alpha`;
+  owner's decision, #166): an alpha takes the next halOS number of versions.env's Halogen version
+  (over every stage, published or not; restarts at 1 per Halogen version), rc/stable keep the
+  number they promote (from main: the next number). Order (`channels.sh`, also `--sort [stage]`,
+  which next-tag.sh and refresh.yml use): version, number, stage; old-style tags (`-alpha.N`,
+  `-rc.N`, bare, `-rN`) count as number 0, so the first new-style tag passes them. An existing
+  promotion tag with no release, on the same commit, is run again (`retry=1`), never renumbered.
+  New-style stables push their own exact tag; the plain version tag (`0.20.7`) moves in the
+  channels job only with the stable channel, and is what refresh.yml rebuilds. A hand-pushed tag
+  must be new-style. Nothing on a machine compares versions: bootc follows tags by digest, and
+  halosctl only checks the shape (`rollback --to`, `npu`). Don't create tags or releases yourself.
 - If GitHub or a registry refuses an action (403 from the session proxy), stop and tell the
   owner. Don't work around it.
 - Run `tests/run.sh` before every push. CI also runs shellcheck, which may not be installed
