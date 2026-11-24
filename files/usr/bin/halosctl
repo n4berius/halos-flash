@@ -1,7 +1,12 @@
-#!/bin/bash
+#!/bin/bash -p
 # halOS admin tool for the OS: which release you run, updates, release channels and rollback.
 # halogenctl handles the Halogen server and its models. Run with sudo.
 set -euo pipefail
+# Test hooks (HALOS_*, HALOGEN_* paths and helpers) are for the tests only: under sudo (sudo -E,
+# an env_keep) none is taken from outside.
+if [ -n "${SUDO_COMMAND:-}" ]; then
+  while read -r v; do unset "$v"; done < <(compgen -v | grep -E '^HALO(S|GEN)_' || true)
+fi
 # The image's own release file is the only source of these; never take them from outside.
 unset HALOS_RELEASE HALOGEN_VERSION HALOGEN_VARIANT HALOGEN_IMAGE
 # shellcheck source=/dev/null
@@ -303,31 +308,27 @@ has_tpm() { [ -e "${HALOGEN_DEV:-/dev}/tpmrm0" ] || [ -e "${HALOGEN_DEV:-/dev}/t
 # Each server in tang_urls with its key's thumbprint: the --thp given for it (in the same order),
 # else shown to the person to compare with tang-show-keys on the server. Fills tang_pairs.
 tang_trust() {
-  local i url given tp a b ok
+  local i url given tp a
   tang_pairs=()
   for ((i = 0; i < ${#tang_urls[@]}; i++)); do
     url="${tang_urls[i]}"; given="${thps[i]:-}"
     tp="$("$tang" thumbprints "$url")" || return 1
     if [ -n "$given" ]; then
-      ok=""
-      while read -r a b; do if [ "$given" = "$a" ] || [ "$given" = "$b" ]; then ok=1; fi; done <<< "$tp"
-      [ -n "$ok" ] || { echo "halosctl: $url doesn't sign with the key $given; it signs with: $(cut -d' ' -f1 <<< "$tp" | paste -sd' ' -)" >&2; return 1; }
+      grep -qxF -- "$given" <<< "$tp" || { echo "halosctl: $url doesn't sign with the key $given; it signs with: $(paste -sd' ' - <<< "$tp"). If its key was changed on purpose, set it up again with the new one: sudo halosctl tang-unlock on <server>... --thp <key>" >&2; return 1; }
       tang_pairs+=("$url" "$given")
     else
       if [ "$yes" = 1 ] || [ ! -t 0 ]; then echo "halosctl: give each server's key with --thp (sudo tang-show-keys <port> on the server prints it)" >&2; return 1; fi
       if [ "$(wc -l <<< "$tp")" = 1 ]; then
-        echo "   $url signs with the key:"; cut -d' ' -f1 <<< "$tp" | sed 's/^/     /'
+        echo "   $url signs with the key:"; printf '     %s\n' "$tp"
         echo "   On the tang server, sudo tang-show-keys <port> prints its key. Only trust a match."
         ask "   Do they match? [y/N]" n || { echo "   Not trusted."; return 1; }
-        tang_pairs+=("$url" "$(cut -d' ' -f1 <<< "$tp")")
+        tang_pairs+=("$url" "$tp")
       else
         # Several signing keys: pin exactly the one the person reads from the server, never one
         # picked here (another on the network could have added its own to the list).
-        echo "   $url signs with more than one key:"; cut -d' ' -f1 <<< "$tp" | sed 's/^/     /'
+        echo "   $url signs with more than one key:"; while IFS= read -r a; do printf '     %s\n' "$a"; done <<< "$tp"
         read -rp "   Paste the key that sudo tang-show-keys <port> prints on the tang server: " given || given=""
-        ok=""
-        while read -r a b; do if [ -n "$given" ] && { [ "$given" = "$a" ] || [ "$given" = "$b" ]; }; then ok=1; fi; done <<< "$tp"
-        [ -n "$ok" ] || { echo "   That isn't one of the keys above. Not trusted."; return 1; }
+        if [ -z "$given" ] || ! grep -qxF -- "$given" <<< "$tp"; then echo "   That isn't one of the keys above. Not trusted."; return 1; fi
         tang_pairs+=("$url" "$given")
       fi
     fi
@@ -652,6 +653,13 @@ case "$cmd" in
           [ "${cur[0]:-off}" = on ] || die "unlocking from a tang server isn't set up: sudo halosctl tang-unlock on <server>"
           tpm_mode="${cur[1]}"; tang_urls=("${cur[@]:2}")
           [ "${#thps[@]}" -le "${#tang_urls[@]}" ] || die "more --thp than servers"
+          # The keys bound before, as recorded: renew trusts the same keys again without asking
+          # (a server whose key changed is refused). A binding from before the record asks.
+          if [ "${#thps[@]}" = 0 ]; then
+            while read -r ru rt; do
+              for ((i = 0; i < ${#tang_urls[@]}; i++)); do [ "${tang_urls[i]}" != "$ru" ] || thps[i]="$rt"; done
+            done < <("$tang" bound)
+          fi
         else
           tang_urls=("${args[@]:1}")
           [ "$("$tang" status --short)" != unknown ] || die "the disk has a clevis binding halOS can't read (made by hand?), which would stay beside the new one; see: sudo clevis luks list -d $("$tang" device)"

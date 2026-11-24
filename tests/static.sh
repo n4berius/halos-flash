@@ -327,6 +327,12 @@ assert "check" in bj["build"]["needs"] and "environment" not in bj["check"] and 
 # The helper programs are built once per run, by a job that can only read and never signs (#122).
 assert "helpers" in bj["build"]["needs"] and "environment" not in bj["helpers"] and bj["helpers"]["permissions"] == {"contents": "read"}, "build.yml's helpers job must feed the builds and hold no rights"
 assert 'HALOS_HELPERS="$RUNNER_TEMP/helpers" scripts/build.sh' in str(bj["build"]["steps"]), "build.yml's image jobs don't use the helpers job's programs"
+# Pull requests and other branches build with read-only rights; only main's publish job may push,
+# sign and use the signing environment, and it builds with the same steps.
+bw = yaml.safe_load(open(".github/workflows/build.yml").read())
+assert bw.get("permissions") == {"contents": "read"} and bj["build"]["permissions"] == {"contents": "read"} and "environment" not in bj["build"], "build.yml's branch builds hold write rights"
+assert "refs/heads/main" in bj["publish"]["if"] and "pull_request" in bj["publish"]["if"] and bj["build"]["steps"] == bj["publish"]["steps"][:len(bj["build"]["steps"])], "build.yml's publish job isn't main's own, or builds differently"
+assert not any("podman push" in st.get("run", "") or "sign-image" in st.get("run", "") for st in bj["build"]["steps"]), "build.yml's branch build pushes or signs"
 assert '{"context": "check"}' in open(".github/rulesets/protect-main.json").read(), "the check job isn't a required check in the ruleset"
 # udisks2 (kept for fwupd, #106) is root's alone: a polkit rule refuses everyone else, and halogen
 # can't reach it on the bus.

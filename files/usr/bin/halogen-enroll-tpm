@@ -1,7 +1,10 @@
-#!/bin/bash
+#!/bin/bash -p
 # Bind the LUKS volume to this machine's TPM. Usage: sudo halogen-enroll-tpm [device]
 # The kernel already carries rd.luks.options=tpm2-device=auto, so enrolling is the only step.
 set -euo pipefail
+# Test hooks are for the tests only: under sudo (sudo -E, an env_keep) they are ignored.
+[ -z "${SUDO_COMMAND:-}" ] || unset HALOS_CRYPTTAB HALOS_TANG_UNLOCK HALOS_EFIVARS
+tang="${HALOS_TANG_UNLOCK:-/usr/libexec/halogen/tang-unlock}"
 crypttab="${HALOS_CRYPTTAB:-/etc/crypttab}"
 # Unreadable is not the same as empty: without sudo it would otherwise say "not encrypted".
 [ ! -e "$crypttab" ] || [ -r "$crypttab" ] || { echo "can't read $crypttab: run it with sudo" >&2; exit 1; }
@@ -15,12 +18,18 @@ device="${1:-$(awk '/^[[:space:]]*(#|$)/ { next } { if ($2 ~ /^UUID=/) print "/d
 # A disk set to unlock from a tang server only with the network (halosctl tang-unlock, --tpm and or
 # off) must not get a TPM-only unlock beside it: the machine would unlock away from the network.
 # Fails closed: a header whose tang bindings can't be read gets no TPM-only unlock either.
-trc=0; tmode="$("${HALOS_TANG_UNLOCK:-/usr/libexec/halogen/tang-unlock}" mode "$device" 2> /dev/null)" || trc=$?
+trc=0; tmode="$("$tang" mode "$device" 2> /dev/null)" || trc=$?
 [ "$trc" = 0 ] || { echo "Couldn't read whether a tang server unlocks this disk (sudo halosctl tang-unlock), so no TPM-only unlock is added." >&2; exit 1; }
 case "$tmode" in
   and) echo "This disk unlocks from a tang server together with the TPM (sudo halosctl tang-unlock). A TPM-only unlock beside it would unlock away from your network, so none is added. After a BIOS or Secure Boot change: sudo halosctl tang-unlock renew" >&2; exit 1 ;;
   off) echo "This disk unlocks from a tang server without the TPM (sudo halosctl tang-unlock). A TPM-only unlock beside it would unlock away from your network, so none is added. To allow both: sudo halosctl tang-unlock on <server> --tpm or" >&2; exit 1 ;;
 esac
+# The binding is to PCR 7, the Secure Boot state: with Secure Boot off it vouches for nothing, and
+# anyone could boot something else and get the key.
+if ! "$tang" secure-boot; then
+  echo "Secure Boot is off, so a TPM unlock (bound to PCR 7, the Secure Boot state) would protect nothing: turn Secure Boot on in the firmware settings, then run this again. Nothing changed." >&2
+  exit 1
+fi
 # Running this again, after a BIOS or Secure Boot change, replaces the old TPM binding:
 # cryptenroll enrolls the new one first, then wipes the others, so a failure leaves the
 # old binding in place. The passphrase slot is never touched.

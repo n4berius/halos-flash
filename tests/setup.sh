@@ -42,7 +42,7 @@ esac'
 # Unlock from a tang server (#44): off until bound; the server's key is thpS256.
 f tang-unlock 'case "$1" in
   status) if [ -s "$FAKE/tang" ]; then if [ "${2:-}" = --short ]; then cat "$FAKE/tang"; else echo "On: from a tang server"; fi; else echo off; fi ;;
-  thumbprints) [ -z "${FAKE_MULTI:-}" ] || echo "evilS256 evilS1"; echo "thpS256 thpS1" ;;
+  thumbprints) [ -z "${FAKE_MULTI:-}" ] || echo evilS256; echo thpS256 ;;
   bind) echo "tang-unlock $*" >> "$FAKE/log"; echo "on $2 $3" > "$FAKE/tang" ;;
 esac'
 f systemctl 'case "$1" in is-active) echo active ;; esac'

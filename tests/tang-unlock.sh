@@ -28,6 +28,7 @@ case "$2" in
         [ "$(cat)" = halogentest ] || { echo "no passphrase" >&2; exit 1; }
         pin="${*: -2:1}" cfg="${*: -1}"
         case "$cfg" in *"${FAKE_BIND_FAIL:-none}"*) echo "Unable to fetch advertisement" >&2; exit 1 ;; esac
+        case "$cfg" in *"${FAKE_BIND_HANG:-none}"*) touch "$FAKE/hanging"; sleep 30; exit 1 ;; esac
         n=$(( $(cut -d: -f1 "$FAKE/bindings" 2> /dev/null | sort -n | tail -n 1) + 1 ))
         echo "$n: $pin '"'"'$cfg'"'"'" >> "$FAKE/bindings" ;;
   unbind) s="${*: -1}"; grep -v "^$s: " "$FAKE/bindings" > "$FAKE/b" || true; mv "$FAKE/b" "$FAKE/bindings" ;;
@@ -35,9 +36,12 @@ esac'
 f systemd-cryptenroll 'echo "cryptenroll $*" >> "$FAKE/log"; [ "$PASSWORD" = halogentest ] || exit 1
 jq ".tokens[\"5\"] = {type: \"systemd-tpm2\", keyslots: [\"6\"]}" "$FAKE/meta.json" > "$FAKE/m" && mv "$FAKE/m" "$FAKE/meta.json"'
 f curl 'case "$*" in *down*) exit 7 ;; esac; echo "{\"payload\":\"x\"}"'
-f jose 'cat > /dev/null; case "$*" in *"thp -i- -a S256"*) echo "S256key0123456789abcdefABCDEF" ;; *"thp -i- -a S1"*) echo "S1key0123456789abcdefABC" ;; *) echo "{}" ;; esac'
+f jose 'cat > /dev/null; case "$*" in *"thp -i- -a S256"*) echo "${FAKE_THP:-S256key0123456789abcdefABCDEF0123456789abcd}" ;; *) echo "{}" ;; esac'
 printf 'HALOGEN_VARIANT=npu\n' > "$work/release.env"
 printf 'luks-1 UUID=1234 none discard\n' > "$work/crypttab"
+# Secure Boot on (the firmware variable: 4 attribute bytes, then 1).
+mkdir -p "$work/efivars"; printf '\x06\x00\x00\x00\x01' > "$work/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c"
+export HALOS_EFIVARS="$work/efivars" HALOS_TANG_RECORD="$work/tang.keys" HALOS_FETCH_AS_ROOT=1
 export PATH="$work/bin:$PATH" HALOS_CRYPTTAB="$work/crypttab" HALOS_TANG_UNLOCK="$repo/files/usr/libexec/halogen/tang-unlock" \
   HALOS_HISTORY="$work/history" HALOGEN_RELEASE_FILE="$work/release.env" HALOGEN_DEV="$work/dev" SUDO_USER=owner
 tang="$HALOS_TANG_UNLOCK" ctl="$repo/files/usr/bin/halosctl" dev=/dev/disk/by-uuid/1234
@@ -46,10 +50,12 @@ has() { grep -qE -- "$1" "$2" || { echo "expected '$1' in $2:" >&2; cat "$2" >&2
 hasnt() { if grep -qE -- "$1" "$2"; then echo "did not expect '$1' in $2:" >&2; cat "$2" >&2; exit 1; fi; }
 # A header with systemd's TPM token (token 0, key slot 1) beside the passphrase (slot 0).
 fresh() { : > "$work/log"; rm -f "$work/bindings"; echo '{"tokens":{"0":{"type":"systemd-tpm2","keyslots":["1"]}}}' > "$work/meta.json"; }
-K=S256key0123456789abcdefABCDEF
+K=S256key0123456789abcdefABCDEF0123456789abcd
+K2=S256new0123456789abcdefABCDEF0123456789abcd
 
 fresh
-"$tang" thumbprints http://10.0.0.5:7500 > "$work/out"; has "^$K S1key0123456789abcdefABC$" "$work/out"
+"$tang" thumbprints http://10.0.0.5:7500 > "$work/out"; has "^$K$" "$work/out"
+if FAKE_THP='not;a-key' "$tang" thumbprints http://10.0.0.5:7500 > "$work/out" 2>&1; then echo "took a thumbprint that isn't one" >&2; exit 1; fi
 for bad in 'http://a;b' 'ftp://x' 'http://x/$(id)' 'http://x y' 'file:///etc/passwd' 'http://-x'; do
   if "$tang" thumbprints "$bad" > "$work/out" 2>&1; then echo "took $bad as a server address" >&2; exit 1; fi
   has 'not a tang server address' "$work/out"
@@ -82,7 +88,29 @@ cp "$work/bindings" "$work/before"
 if FAKE_BIND_FAIL=10.0.0.9 PASSWORD=halogentest "$tang" bind off http://10.0.0.8 "$K" http://10.0.0.9 "$K" > "$work/out" 2>&1; then echo "a failed bind succeeded" >&2; exit 1; fi
 cmp -s "$work/before" "$work/bindings" || { diff "$work/before" "$work/bindings" >&2; echo "a failed bind changed the bindings" >&2; exit 1; }
 hasnt 'luksKillSlot' "$work/log"; has 'nothing changed' "$work/out"
-ok "binding again replaces the old bindings only once the new ones are made; a failure leaves everything as it was"
+# Stopped part way (Ctrl-C reaches the whole group): the bindings this run made go again.
+rm -f "$work/hanging"
+setsid bash -c 'FAKE_BIND_HANG=10.0.0.9 PASSWORD=halogentest "$0" bind off http://10.0.0.8 "$1" http://10.0.0.9 "$1"' "$tang" "$K" > "$work/out" 2>&1 &
+pid=$!
+for _ in $(seq 100); do [ ! -e "$work/hanging" ] || break; sleep 0.1; done
+[ -e "$work/hanging" ] || { cat "$work/out" >&2; echo "the bind never reached the second server" >&2; exit 1; }
+kill -TERM -- "-$pid"; wait "$pid" || true
+cmp -s "$work/before" "$work/bindings" || { diff "$work/before" "$work/bindings" >&2; echo "a stopped bind left its new bindings" >&2; exit 1; }
+has 'stopped; the bindings made before stay' "$work/out"
+ok "binding again replaces the old bindings only once the new ones are made; a failure or a stop leaves everything as it was"
+
+# The TPM's part is PCR 7, the Secure Boot state: with Secure Boot off, TPM modes are refused.
+printf '\x06\x00\x00\x00\x00' > "$work/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c"
+for m in and or; do
+  if PASSWORD=halogentest "$tang" bind "$m" http://10.0.0.8 "$K" > "$work/out" 2>&1; then echo "bound '$m' with Secure Boot off" >&2; exit 1; fi
+  has 'Secure Boot is off' "$work/out"
+done
+cmp -s "$work/before" "$work/bindings" || { echo "a refused bind changed the bindings" >&2; exit 1; }
+if "$tang" secure-boot; then echo "secure-boot said on" >&2; exit 1; fi
+PASSWORD=halogentest "$tang" bind off http://10.0.0.8 "$K" > /dev/null
+printf '\x06\x00\x00\x00\x01' > "$work/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c"
+"$tang" secure-boot
+ok "with Secure Boot off only tang alone can be bound"
 
 PASSWORD=halogentest "$tang" bind off http://10.0.0.8 "$K"
 [ "$("$tang" status --short)" = "on off http://10.0.0.8" ] || { "$tang" status --short >&2; exit 1; }
@@ -90,7 +118,11 @@ for bad in "http://x;y $K" "http://10.0.0.8 short" "http://10.0.0.8"; do
   # shellcheck disable=SC2086 # split on purpose
   if PASSWORD=halogentest "$tang" bind and $bad > "$work/out" 2>&1; then echo "bound with: $bad" >&2; exit 1; fi
 done
+[ "$("$tang" bound)" = "http://10.0.0.8 $K" ] || { echo "bound doesn't give the recorded key" >&2; exit 1; }
+# A record that names other servers than those bound is stale, and given as nothing.
+echo "http://10.0.0.99 $K" > "$work/tang.keys"; [ -z "$("$tang" bound)" ] || { echo "a stale record was given" >&2; exit 1; }
 "$tang" remove; [ "$("$tang" status --short)" = off ] || { echo "remove left a binding" >&2; exit 1; }
+[ ! -e "$work/tang.keys" ] || { echo "remove left the record" >&2; exit 1; }
 : > "$work/crypttab"; [ "$("$tang" status --short)" = off ]
 if "$tang" bind and http://10.0.0.8 "$K" > "$work/out" 2>&1; then echo "bound without an encrypted volume" >&2; exit 1; fi
 printf 'luks-1 UUID=1234 none discard\n' > "$work/crypttab"
@@ -106,13 +138,20 @@ has "doesn't sign with the key otherkey" "$work/out"; [ ! -s "$work/bindings" ]
 PASSWORD=halogentest "$ctl" tang-unlock on http://10.0.0.5:7500 --thp "$K" --yes > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
 has "TPM agrees" "$work/out"; [ "$("$tang" mode)" = and ]
 has 'tang-unlock +off -> on and' "$work/history"
-# The S1 thumbprint (older tang servers print it) is taken too.
-PASSWORD=halogentest "$ctl" tang-unlock on http://10.0.0.6 --tpm or --thp S1key0123456789abcdefABC --yes > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+# Only SHA-256 thumbprints: the older SHA-1 form (27 characters) is refused.
+if PASSWORD=halogentest "$tang" bind or http://10.0.0.6 S1key0123456789abcdefABCDEF > "$work/out" 2>&1; then echo "took a SHA-1 thumbprint" >&2; exit 1; fi
+has 'not a SHA-256 key thumbprint' "$work/out"
+PASSWORD=halogentest "$ctl" tang-unlock on http://10.0.0.6 --tpm or --thp "$K" --yes > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+[ "$(cat "$work/tang.keys")" = "http://10.0.0.6 $K" ] || { echo "the bound key wasn't recorded" >&2; exit 1; }
 [ "$("$tang" status --short)" = "on or http://10.0.0.6" ] || { "$tang" status --short >&2; exit 1; }
 has 'cryptenroll --wipe-slot=tpm2 --tpm2-device=auto --tpm2-pcrs=7' "$work/log"
-PASSWORD=halogentest "$ctl" tang-unlock renew --thp "$K" --yes > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+# renew trusts the recorded key again without asking (no --thp, --yes), and refuses a server
+# whose key changed since.
+PASSWORD=halogentest "$ctl" tang-unlock renew --yes > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
 [ "$("$tang" status --short)" = "on or http://10.0.0.6" ] || { "$tang" status --short >&2; echo "renew changed the servers or the mode" >&2; exit 1; }
 has "^3: tang " "$work/bindings"
+if FAKE_THP="$K2" PASSWORD=halogentest "$ctl" tang-unlock renew --yes > "$work/out" 2>&1; then echo "renew trusted a changed key" >&2; exit 1; fi
+has "doesn't sign with the key $K" "$work/out"; has "^3: tang " "$work/bindings"
 if "$ctl" tang-unlock renew --tpm and --yes > "$work/out" 2>&1; then echo "renew changed the mode" >&2; exit 1; fi
 if PASSWORD=halogentest "$ctl" tang-unlock renew --thp "$K" --thp "$K" --yes > "$work/out" 2>&1; then echo "renew took more --thp than servers" >&2; exit 1; fi
 has 'more --thp than servers' "$work/out"
