@@ -57,9 +57,6 @@ Simplified Technical English (#152).
 5. Try `flash pull` of a GGUF on the test machine (#61): the conversion's time and memory while
    Halogen serves, and `flash check` of the result.
 
-Also open, not yet in order: faster image builds (#122: the helper programs are built once per CI
-run since #159; reusing Caddy's layers between runs is open).
-
 Later: a first real `flash convert` on the test machine (time and quality). Then its GPU (HIP)
 build and the Qwen4 models.
 
