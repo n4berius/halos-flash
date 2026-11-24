@@ -18,6 +18,13 @@ on:
 permissions:
   contents: read
 
+env:
+  # podman build commits a layer after every step, and on GitHub's runners overlay's native diff is
+  # off (their kernel has CONFIG_OVERLAY_FS_REDIRECT_DIR), so each commit walks the whole tree:
+  # about 8 s per step for the OS image, about 3 s for the installer. CI keeps nothing between
+  # runs, so it gains nothing from layers; this commits each stage once. Local builds keep them.
+  BUILDAH_LAYERS: "false"
+
 jobs:
   info:
     runs-on: ubuntu-24.04

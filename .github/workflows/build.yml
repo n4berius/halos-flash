@@ -18,6 +18,13 @@ permissions:
   contents: read
   packages: write
 
+env:
+  # podman build commits a layer after every step, and on GitHub's runners overlay's native diff is
+  # off (their kernel has CONFIG_OVERLAY_FS_REDIRECT_DIR), so each commit walks the whole tree:
+  # about 8 s per step for the OS image, about 3 s for the installer. CI keeps nothing between
+  # runs, so it gains nothing from layers; this commits each stage once. Local builds keep them.
+  BUILDAH_LAYERS: "false"
+
 jobs:
   # The quick checks, once, before either edition's image is built (#123): the script suite and
   # the Go tests of halOS's Caddy modules. Read-only, no environment, so no signing key.

@@ -1208,6 +1208,10 @@ name, but allows saying halOS runs Halogen.
   the writer dies of SIGPIPE, and the pipe fails. In tests, write to a file and grep that.
 - ISO install tests take about 25 to 40 minutes, and a new push cancels the previous run.
   Don't push mid-run unless you mean to.
+- GitHub's runners have no native overlay diff (their kernel has `CONFIG_OVERLAY_FS_REDIRECT_DIR`),
+  so every committed build step walks the whole tree: about 8 s per step for the OS image, 3 s for
+  the installer. The four workflows set `BUILDAH_LAYERS=false` (one commit per stage); local builds
+  keep layers, which #161's Caddy caching relies on.
 - The OS image is flattened (`FROM scratch` + `COPY --from=os / /`) after its `dnf remove`
   step, with `/sysroot/ostree` deleted first, as Fedora's rechunker does. Otherwise the removed
   files still ship in the base image's layers inside the ISO. File capabilities survive the copy.
