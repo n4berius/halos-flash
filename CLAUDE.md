@@ -151,7 +151,34 @@ name, but allows saying halOS runs Halogen.
   (`/srv/models/flash/.check/`, fetched from HF's dataset viewer rows API and checked against the
   sha256 of the text Halogen's docs build from the parquet file, `bbf94c53…`), first `--ref-out`
   for the official checkpoint once per Halogen version, then `--ref --worst 5` for the custom one;
-  results go to `halos.info` (`checked_*`) and `check.json`. GGUF conversion is a later step.
+  results go to `halos.info` (`checked_*`) and `check.json`.
+- GGUF repositories (#61): `flash pull` turns to `gguf_pull` when the repository has no `.hgn`
+  candidate and has `*.gguf`, or `--file` names a non-`.hgn`. `gguf_builds` groups files (any
+  folder depth) into builds, a split `<base>-NNNNN-of-MMMMM.gguf` only when complete, skipping
+  `mmproj`/`draft`/`imatrix`; `--file` takes a build name or any of its files. Names matching
+  `gguf_refused_re` (Q4_1, plain Q5_0 and Q6_K, Q2_K, Q3_K, IQ1, IQ2, TQ, BF16/F16/F32: Halogen's
+  gguf.md, or larger than RAM) are refused before any download; `.gguf` is matched case-sensitively. Work folder `flash/.convert/<name>` (shared with `flash convert`, so
+  `convert-stop <name>` deletes it; each refuses the other's `convert.info`/`gguf.info`):
+  `gguf/` (shards at the exact commit, only those not already there at their size), `head/`
+  (`qwen38-flash-next-mtp.hgn` from `HALOGEN_WEIGHTS_REPO` at the pinned revision, sha256 from
+  the same HfApi listing; halOS's fetch doesn't otherwise download it), each a mount of its own
+  for the download container, then links, FIFOs, hard links and strays swept, each shard hashed
+  (a mismatch is deleted). Space: download + GGUF size + 32 GiB. Convert: Halogen's
+  `convert IN OUT` through `offline` in `gguf_convert` (named `halogen-pull-flash-<name>`, `--replace`,
+  client in the background with traps that remove it, as `online`; GPU devices as Halogen's docs run it, no network, models
+  read-only) with `--oom-score-adj=1000` (Halogen keeps serving; 137 says stop Halogen and pull
+  again), `HALOGEN_MTP_HEAD` set, writing `out/<name>/model.hgn` (the only writable mount; anything
+  else it leaves is removed, `HGN1` checked), `mv -T -n` to `flash/<name>` (refused if it exists),
+  `halos.info` with `gguf=` and `converted_with=`, then `verify_dir` (which copies the official
+  tokenizer). No vision tower. Only after verify passes is the GGUF deleted (unless `--keep-gguf`);
+  a failed convert or verify keeps it. Folders a container owned are opened up (`open_up`, `chmod -R
+  u+rwX`) before a sweep or `rm -rf`. `halogenctl flash convert-stop <name>` deletes through
+  `flash-checkpoint convert-clear` under the name's lock (it used to `rm -rf` as halogen unlocked).
+  Not run on freyja yet: the conversion's memory and GPU use beside a serving Halogen, its time.
+  Left for the owner (security audit of #160): a narrower convert container (only the shards,
+  head and output mounted, `--read-only`, no GPU or `--ipc=host` if repack doesn't need them:
+  check on freyja), the draft head's sha256 in `weights.sha256`, and the GPU lock against an
+  overlapping `flash check`.
 - Draft heads for own Flash checkpoints (owner's choice: official by default, a third party's when
   chosen): Halogen 0.20.7's entrypoint (`drafter_head`) uses `qwen38-flash-next-drafter-r2-ht4.hgn`
   beside the checkpoint only when `HALOGEN_CK_OVERLAY` is unset and the checkpoint's basename is
@@ -1196,7 +1223,7 @@ and tracked on the owner's project board. [ROADMAP.md](ROADMAP.md) holds the ord
   On edge since: the tokenizer fill-in for checkpoints that ship none (#88). The issues for #14, #15,
   #40 and #56 are closed. Freyja serves the official checkpoint or its own (Signal-3.8-Flash-Next-HGN-v2),
   swapped as needed, at the `performance` profile.
-- Next: clevis/tang (#44), GGUF in `flash pull` (#61).
+- Next: clevis/tang (#44); GGUF in `flash pull` (#61) awaits a run on freyja.
 - **Halogen 0.20.0** (stable since `v0.20.0`): 0.20.0 (ROCm 10.1 in its image, OvisOCR3 document parsing on the NPU as your
   own checkpoint, faster prefill, a strict-tool-call crash fixed; the Flash checkpoints and weights
   revision unchanged) is pinned by #78. Between source commits 47ceb43 and 8242b15, FLAGS.md,

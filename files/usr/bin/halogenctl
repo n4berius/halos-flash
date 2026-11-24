@@ -441,7 +441,7 @@ case "${1:-status}" in
             read -rp "Delete the downloaded weights for $name ($(as_owner du -sh "$dir" | cut -f1))? [y/N] " answer
             [ "$answer" = y ] || [ "$answer" = Y ] || exit 0
           fi
-          as_owner rm -rf -- "$dir" && echo "Deleted the downloaded weights for $name."
+          as_halogen /usr/libexec/halogen/flash-checkpoint convert-clear "$name" || exit 1
           as_owner find "$models/flash" -maxdepth 1 -name '.bf16-to-hgn-*' -exec rm -rf -- {} + 2> /dev/null || true
         fi
         ;;
@@ -462,7 +462,7 @@ case "${1:-status}" in
         # were asked (#119).
         as_halogen /usr/libexec/halogen/flash-checkpoint remove "$name" || exit 1
         ;;
-      *) echo "usage: halogenctl flash pull <hf-repo> [--revision <rev>] [--as <name>] [--file <checkpoint.hgn>] | convert <hf-repo> [--revision <rev>] [--as <name>] [--threads <n>] [--keep-source] [--yes] | convert-logs [lines] | convert-stop [<name>] [--yes] | list | use <name>|official [--yes] | drafter <name> [official|off|<file>] [--yes] | verify <name> | check <name> [--yes] | remove <name> [--yes]" >&2; exit 2 ;;
+      *) echo "usage: halogenctl flash pull <hf-repo> [--revision <rev>] [--as <name>] [--file <checkpoint.hgn|build.gguf>] [--keep-gguf] | convert <hf-repo> [--revision <rev>] [--as <name>] [--threads <n>] [--keep-source] [--yes] | convert-logs [lines] | convert-stop [<name>] [--yes] | list | use <name>|official [--yes] | drafter <name> [official|off|<file>] [--yes] | verify <name> | check <name> [--yes] | remove <name> [--yes]" >&2; exit 2 ;;
     esac
     ;;
   model)
