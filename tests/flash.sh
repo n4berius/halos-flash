@@ -243,9 +243,9 @@ grep -qx "convert /models/gguf/UD-IQ4_XS/Flash-UD-IQ4_XS-00001-of-00002.gguf /mo
 grep ' convert ' "$work/podman.log" > "$work/conv.line"
 { grep -q -- '--network=none' "$work/conv.line" && grep -q -- '--cap-drop=all' "$work/conv.line" && grep -q -- '--oom-score-adj=1000' "$work/conv.line" \
   && grep -q -- '-e HALOGEN_MTP_HEAD=/models/head/qwen38-flash-next-mtp.hgn' "$work/conv.line" \
-  && grep -q -- '--read-only' "$work/conv.line" \
-  && grep -q -- "-v $work/models/flash/.convert/gg:/models:ro -v $work/models/flash/.convert/gg/out/gg:/models/out/gg " "$work/conv.line" \
-  && [ "$(grep -o -- ' -v ' "$work/conv.line" | wc -l)" = 2 ]; } || fail "convert didn't run offline, unprivileged, read-only, seeing only its own work folder, with the head: $(cat "$work/conv.line")"
+  && grep -q -- '--read-only --read-only-tmpfs=false --tmpfs /run -v /tmp -v /var/tmp -v /root -v /dev/shm:/dev/shm ' "$work/conv.line" \
+  && grep -q -- "-v $work/models/flash/.convert/gg:/models:ro,noexec,nosuid,nodev -v $work/models/flash/.convert/gg/out/gg:/models/out/gg:noexec,nosuid,nodev " "$work/conv.line" \
+  && [ "$(grep -o -- ' -v ' "$work/conv.line" | wc -l)" = 6 ] && [ "$(stat -c %a "$g/model.hgn")" = 640 ]; } || fail "convert didn't run offline, unprivileged, read-only, seeing only its own work folder, with the head: $(cat "$work/conv.line")"
 { [ ! -e "$g/stray.txt" ] && [ ! -e "$work/models/flash/.convert/gg" ] && grep -q official "$g/tokenizer/tokenizer.json"; } || fail "strays, the download or a missing tokenizer"
 grep -qx "verify /models/flash/gg/model.hgn" "$work/verify.log" || fail "verify didn't check the result"
 grep -qx 'name=gg' "$work/out" || fail "no name= line for halogenctl"

@@ -680,9 +680,11 @@ gguf_fetch() { # repo commit dir-in-container file...
 # next pull of the name removes a leftover one. It sees only this pull's work folder (the hashed
 # shards and draft head, read-only) at /models, which Halogen's image has, and writes only the new
 # checkpoint's folder (whose mount point already stands in the work folder, so nothing is made
-# under the read-only root); not the other models, the official files or the prompt cache. The
-# GPU devices and --ipc=host stay as Halogen's docs run convert (whether repack needs them is
-# for a run on the machine).
+# under the read-only root); not the other models, the official files or the prompt cache. Its
+# scratch places are as in halogen.container: /tmp, /var/tmp and /root on disk (anonymous volumes,
+# removed with the container; podman's read-only tmpfs off, or it may mount one beside them),
+# /run a tmpfs, the host's /dev/shm writable again. The GPU devices and --ipc=host stay as
+# Halogen's docs run convert (whether repack needs them is for a run on the machine).
 gguf_convert() (
   local c=""
   c="$(ctr_for)" || exit 1
@@ -690,8 +692,9 @@ gguf_convert() (
   trap 'podman rm -f -i -t 0 "$c" > /dev/null 2>&1; exit 130' INT
   podman run --rm --pull=never --name "$c" --replace --oom-score-adj=1000 \
     --device /dev/kfd --device /dev/dri --group-add keep-groups --ipc=host --ulimit memlock=-1:-1 \
-    --read-only --tmpfs /tmp --network=none --cap-drop=all --security-opt no-new-privileges \
-    -v "$work:/models:ro" -v "$out:/models/out/$name" \
+    --read-only --read-only-tmpfs=false --tmpfs /run -v /tmp -v /var/tmp -v /root -v /dev/shm:/dev/shm \
+    --network=none --cap-drop=all --security-opt no-new-privileges \
+    -v "$work:/models:ro,noexec,nosuid,nodev" -v "$out:/models/out/$name:noexec,nosuid,nodev" \
     -e "HALOGEN_MTP_HEAD=/models/head/$mtp_head" "$HALOGEN_IMAGE" convert "$1" "$2" < /dev/null &
   wait "$!"
 )
@@ -811,6 +814,8 @@ Pick another build with --file, such as an IQ4_XS or IQ4_NL one. Halogen's list:
   if [ -L "$out/model.hgn" ] || [ ! -f "$out/model.hgn" ] || [ "$(head -c 4 "$out/model.hgn")" != HGN1 ]; then
     die "Halogen's convert wrote no checkpoint. The download stays in $src: pull again to retry, or delete it: sudo halogenctl flash convert-stop $name"
   fi
+  # Whatever mode the container gave it (a setuid or executable bit), it is plain data.
+  chmod 0640 -- "$out/model.hgn" || die "Couldn't set $out/model.hgn's mode."
   { echo "repo=$repo"
     echo "revision=$revision"
     echo "commit=$commit"

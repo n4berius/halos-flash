@@ -187,6 +187,8 @@ RUN set -eu; \
     case "$netline" in *' halogen-internal') ;; *) echo "Halogen's network has another name: $netline" >&2; exit 1 ;; esac; \
     grep -E '^ExecStart=/usr/bin/podman run ' /tmp/quadlet.txt | grep -qE ' --network[= ]halogen-internal( |$)' \
       || { echo "Halogen's container isn't on halogen-internal" >&2; exit 1; }; \
+    grep -E '^ExecStart=/usr/bin/podman run ' /tmp/quadlet.txt | grep -qF -- ' --sysctl net.ipv6.conf.eth0.disable_ipv6=1' \
+      || { echo "Halogen's container keeps IPv6 on its network link" >&2; exit 1; }; \
     rm -f /tmp/quadlet.txt; \
     { echo "HALOGEN_IMAGE=${HALOGEN_IMAGE}"; \
       echo "HALOGEN_VERSION=${HALOGEN_VERSION}"; \

@@ -179,8 +179,11 @@ name, but allows saying halOS runs Halogen.
   its own `podman run` (not `offline`): the work folder `flash/.convert/<name>` read-only at
   `/models` (Halogen's image has `/models`, so nothing is made under `--read-only`'s root),
   `out/<name>` writable at `/models/out/<name>` (its mount point stands in the work folder),
-  `--read-only --tmpfs /tmp`, paths `/models/gguf/…` and `HALOGEN_MTP_HEAD=/models/head/…`; GPU
-  devices and `--ipc=host` stay (whether repack needs them: freyja). `tests/static.sh` exempts that
+  scratch as in `halogen.container` (`--read-only --read-only-tmpfs=false --tmpfs /run`, anonymous
+  volumes `/tmp`, `/var/tmp`, `/root` on disk, `-v /dev/shm:/dev/shm`), both mounts
+  `noexec,nosuid,nodev`, `model.hgn` chmod 0640 after the HGN1 check, paths `/models/gguf/…` and
+  `HALOGEN_MTP_HEAD=/models/head/…`; GPU devices and `--ipc=host` stay (whether repack needs them:
+  freyja). `tests/static.sh` exempts that
   one line from the prompt-cache mount rule. Left for the owner (security audit of #160): the draft
   head's sha256 in `weights.sha256`, and the GPU lock against an overlapping `flash check`.
 - Draft heads for own Flash checkpoints (owner's choice: official by default, a third party's when
@@ -298,7 +301,8 @@ name, but allows saying halOS runs Halogen.
   on `halogen-prepare` (Protect*, `PrivateDevices`, `RestrictNamespaces`, a capability set of
   CHOWN, DAC_OVERRIDE, DAC_READ_SEARCH, FOWNER, FSETID, SETUID, SETGID, AUDIT_WRITE, SYS_RESOURCE
   for its chown/chcon and runuser), `halogen-fabric-clock` (no `ProtectKernelTunables`,
-  `PrivateDevices` or capability set: it writes the clock in /sys) and `halos-https-refresh`
+  `PrivateDevices`: it writes the clock in /sys; `CapabilityBoundingSet=`, as root owns those
+  files) and `halos-https-refresh`
   (`CapabilityBoundingSet=`)). The ISO builder is pinned by digest (`IMAGE_BUILDER` in `versions.env`).
 - Every pushed image is signed with cosign by `scripts/sign-image.sh` (from main's copy, also when
   promoting old code), twice: keyless (public audit) and with halOS's key (`COSIGN_PRIVATE_KEY`
@@ -1167,7 +1171,7 @@ name, but allows saying halOS runs Halogen.
   network namespace is on-link (expected nothing: check `podman unshare --rootless-netns ss -tulpnH`
   on freyja); `Sysctl=net.ipv6.conf.eth0.disable_ipv6=1` would close it once Halogen's start with it
   is checked. Now set (owner agreed, merged only after a freyja try): `halogen.container` has
-  `Sysctl=net.ipv6.conf.eth0.disable_ipv6=1` (eth0 only: Halogen listens on `::`). Halogen sees a bridge address as the client (in
+  `Sysctl=net.ipv6.conf.eth0.disable_ipv6=1` (eth0 only: Halogen listens on `::`). The Containerfile's Quadlet dry run checks the `--sysctl`. Halogen sees a bridge address as the client (in
   that check, the container's own: rootlessport connects from inside its namespace); Caddy logs the
   real one. On freyja still: Halogen's start, a bench (the path is
   rootlessport, not pasta's splice), and both editions.
