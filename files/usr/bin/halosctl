@@ -658,7 +658,8 @@ case "$cmd" in
         confirm "Remove the tang bindings? The disk then asks for its passphrase at boot (or uses the TPM, if enrolled)."
         "$tang" remove
         record tang-unlock "$before" off
-        echo "Off. To unlock with the TPM alone again: sudo halogen-enroll-tpm"
+        if [ "$before" = "on or" ]; then echo "Off. The TPM still unlocks the disk at boot."
+        else echo "Off. To unlock with the TPM alone again: sudo halogen-enroll-tpm"; fi
         ;;
       *) die "tang-unlock on, renew, off, or nothing for its state" ;;
     esac

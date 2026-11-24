@@ -217,7 +217,7 @@ name, but allows saying halOS runs Halogen.
   then remove systemd's TPM token (`luksKillSlot -q` + `token remove`, no passphrase needed), `or`
   enrolls it when missing. The mode is read back from the header: `sss` with tpm2 = and, else a
   systemd-tpm2 token = or, else off. halosctl fetches `<url>/adv` (curl, `--proto =http,https`) and
-  shows the S256 thumbprints to compare with `tang-show-keys`, or takes `--thp` (S256 or S1); `--yes`
+  refuses `.local` names (no mDNS at boot) and shows the S256 thumbprints to compare with `tang-show-keys`, or takes `--thp` (S256 or S1); `--yes`
   needs `--thp`. `renew` rebinds the same servers and mode (after a PCR 7 change in `and`).
   `halogen-enroll-tpm` refuses beside `and`/`off`; setup's step 1 then skips the TPM offer and
   offers tang (default no) before SSH. Selftest `luks-tang` (PASS when every server answers `/adv`
@@ -230,7 +230,8 @@ name, but allows saying halOS runs Halogen.
   every 0.5 s while the prompt waits). No kernel arguments. The Containerfile installs clevis,
   clevis-luks, clevis-dracut, clevis-systemd and tpm2-tools and checks the initramfs. VM test
   (NPU, LUKS): Debian's tangd as QEMU `guestfwd=tcp:10.0.2.100:80-cmd:tangd <keys>`, keys made by
-  `tangd-keygen` on the runner; third boot binds (and renews), fourth unlocks with no passphrase
+  `tangd-keygen` on the runner, through a wrapper that sends tangd's stderr to `tang.log` (QEMU's `cmd:`
+  gives the child the guest's socket as stderr too, and tangd logs each request before replying); third boot binds (and renews), fourth unlocks with no passphrase
   typed (`TANGJ`), fifth (no guestfwd) must ask. Not run on freyja yet. Security audit fixes: with
   several signing keys the person pastes the one `tang-show-keys` prints (never the first listed);
   any systemd-tpm2 token beside a tang binding reads `or`; `mode` exits 3 (`unknown`) on clevis tokens

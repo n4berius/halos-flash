@@ -33,6 +33,8 @@ device() {
 # http(s)://host[:port][/path]: a host name, an IPv4 address or a bracketed IPv6 one. Nothing that
 # a shell, curl's globbing or JSON could read as more than a URL.
 url_ok() {
+  # The initramfs has no mDNS, so a .local name never answers at boot (it would at bind time).
+  case "$1" in *.local|*.local:*|*.local/*) return 1 ;; esac
   [[ "$1" =~ ^https?://([A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?|\[[0-9A-Fa-f:.]{2,45}\])(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]{0,200})?$ ]]
 }
 thp_ok() { [[ "$1" =~ ^[A-Za-z0-9_-]{20,90}$ ]]; }
@@ -41,7 +43,7 @@ thp_ok() { [[ "$1" =~ ^[A-Za-z0-9_-]{20,90}$ ]]; }
 # time against the thumbprint given; this is what a person compares with tang-show-keys.
 thumbprints() {
   local url="$1" adv ver
-  url_ok "$url" || die "not a tang server address: use http://<host>[:port], such as http://192.168.1.5:7500"
+  url_ok "$url" || die "not a tang server address: use http://<address>[:port], such as http://192.168.1.5:7500 (a .local name can't be found at boot)"
   adv="$(curl -fsS --max-time 15 --max-filesize 65536 --proto =http,https --proto-redir =http,https \
     "${url%/}/adv")" || die "no answer from $url/adv: is the tang server running, and the address right?"
   ver="$(jose fmt -j- -Og payload -SyOg keys -AUo- <<< "$adv" 2> /dev/null | jose jwk use -i- -r -u verify -o- 2> /dev/null)" \

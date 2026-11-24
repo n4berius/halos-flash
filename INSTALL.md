@@ -1323,7 +1323,8 @@ only if they are the same. Then type the passphrase of the disk. `--thp <key>` g
 command. Then `--yes` asks no other questions, but you still type the passphrase.
 `sudo halosctl setup` also offers this.
 
-Use the IP address of the server, or a name that the DNS server of your DHCP server knows. The
+Use the IP address of the server. A name can fail at boot, and a `.local` name always fails, so
+halOS refuses it. The
 network at boot is wired, with DHCP, as for the SSH unlock. You can give more than one server. Then
 each of them can unlock the disk alone. The command replaces all servers from before.
 
@@ -1337,6 +1338,8 @@ each of them can unlock the disk alone. The command replaces all servers from be
   "What TPM unlock protects, and what it doesn't" above, and its BIOS and boot menu passwords).
   After a BIOS or Secure Boot change, the boot asks for the passphrase. Type it, then run
   `sudo halosctl tang-unlock renew`. Do this only after a change that you made yourself.
+  `--tpm and` and `--tpm off` remove all TPM unlocks of systemd, also one with a PIN that you
+  made yourself.
 - `--tpm off` (the default without a TPM): the tang server alone unlocks the disk. halOS removes the
   TPM-only unlock. BIOS updates don't change this. But a person with a copy of the disk who can get
   to your network can also unlock it.

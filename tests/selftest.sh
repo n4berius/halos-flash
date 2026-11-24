@@ -387,6 +387,8 @@ FAKE_TANG='on or http://10.0.0.5:7500 http://down.lan' "$selftest" > "$work/out"
 expect '^WARN luks-tang: unlocks at boot with the TPM, or else from a tang server; not answering now: http://down.lan$'
 FAKE_TANG='on off http://down.lan' "$selftest" > "$work/out" 2>&1 || true
 expect '^WARN luks-tang: unlocks at boot when a tang server answers, but no tang server answers now \(http://down.lan\), so the next boot'
+FAKE_TANG='on or http://down.lan' "$selftest" > "$work/out" 2>&1 || true
+expect '^WARN luks-tang: unlocks at boot with the TPM, or else from a tang server, but no tang server answers now \(http://down.lan\): only the TPM would unlock'
 FAKE_TANG='tang-unlock: broken' "$selftest" > "$work/out" 2>&1 || true; expect "^WARN luks-tang: its state couldn't be read"
 ok "unlocking from a tang server is shown with whether its servers answer now, offered when not, and a warning when unreadable"
 # Without encryption: no ssh-unlock line, unless keys were left on the EFI partition.

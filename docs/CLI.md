@@ -60,7 +60,7 @@ The `Signatures:` line of `version` shows this.
 | `halosctl ssh-unlock record [--yes]` | Records the fingerprints of the unlock keys, so that the selftest finds a change. |
 | `halosctl tang-unlock` | Shows if a tang server on your network unlocks the encrypted disk at boot, which servers, and if the TPM must agree too. |
 | `halosctl tang-unlock on <server>... [--tpm and\|or\|off] [--thp <key>]... [--yes]` | Lets these tang servers (`http://<address>[:port]`) unlock the disk at boot. It shows the key of each server to compare with `tang-show-keys` on the server, or takes it from `--thp` (one for each server, in the same order). `--tpm and` (the default with a TPM): the TPM must agree too. `off`: the server alone. `or`: the TPM alone also unlocks. It asks for the disk passphrase. It replaces all servers from before. |
-| `halosctl tang-unlock renew [--thp <key>]... [--yes]` | Binds again to the same servers, in the same way. Use it after a BIOS or Secure Boot change (with `--tpm and`), or after the keys of the tang server change. |
+| `halosctl tang-unlock renew [--thp <key>]... [--yes]` | Binds again to the same servers, in the same way. `--thp` gives one key for each server, in the order that `sudo halosctl tang-unlock` shows them. Use it after a BIOS or Secure Boot change (with `--tpm and`), or after the keys of the tang server change. |
 | `halosctl tang-unlock off [--yes]` | Removes the tang unlock. Then `halogen-enroll-tpm` can add the TPM unlock again. |
 | `halosctl ssh-passwords [on\|off] [--yes]` | `off`: SSH logins with keys only (first, your account needs a key). `on`: passwords are possible again. Without `on` or `off`, it shows the current state. The console always accepts the password. |
 

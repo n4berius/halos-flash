@@ -54,7 +54,12 @@ if [ -n "$luks" ]; then
   done
   [ -n "${HALOS_TEST_TANG_THP:-}" ] || { echo "no signing key in the test tang server's keys" >&2; exit 1; }
   export HALOS_TEST_TANG_THP
-  tang_nic="user,restrict=on,guestfwd=tcp:10.0.2.100:80-cmd:$tangd $out/tang"
+  # QEMU's cmd: forward gives tangd the guest's socket as stdin, stdout and stderr, and tangd logs
+  # each request to stderr before its reply, which would turn every answer into garbage: a small
+  # wrapper sends the log to a file instead (printed when a tang step fails).
+  printf '#!/bin/sh\nexec %q %q 2>> %q\n' "$tangd" "$out/tang" "$out/tang.log" > "$out/tangd-run"
+  chmod +x "$out/tangd-run"
+  tang_nic="user,restrict=on,guestfwd=tcp:10.0.2.100:80-cmd:$out/tangd-run"
 fi
 # The test's long command lines, as scripts on a read-only disk for every boot from the installed
 # disk: vm-login.py types only "bash <script>" instead of each line key by key.
@@ -311,7 +316,7 @@ if [ -n "$luks" ]; then
   # systemd's TPM-only token gone, and halogen-enroll-tpm refusing to add it back.
   cat "$out/tang-bind.txt"
   for l in 'TANGBIND-RC=0' 'RENEW-RC=0' 'TANGSLOTS 1 1 0' 'ENROLLGUARD 1'; do
-    grep -qx "$l" "$out/tang-bind.txt" || { echo "tang binding: expected '$l'" >&2; exit 1; }
+    grep -qx "$l" "$out/tang-bind.txt" || { echo "tang binding: expected '$l'" >&2; cat "$out/tang.log" >&2 || true; exit 1; }
   done
   grep -q "^On: .* when this machine's TPM agrees and a tang server answers" "$out/tang-bind.txt" || { echo "halosctl tang-unlock doesn't show TPM and tang" >&2; exit 1; }
 
@@ -323,7 +328,7 @@ if [ -n "$luks" ]; then
   cat "$out/tang.txt"
   # The initramfs found the binding and started the network, clevis answered the prompt, the early
   # network was dropped before the system started, and the selftest reached the server.
-  grep -qE '^TANGJ [1-9][0-9]* [1-9][0-9]* [1-9][0-9]*$' "$out/tang.txt" || { echo "the initramfs didn't unlock through tang as expected:" >&2; grep '^TANGJ' "$out/tang.txt" >&2; exit 1; }
+  grep -qE '^TANGJ [1-9][0-9]* [1-9][0-9]* [1-9][0-9]*$' "$out/tang.txt" || { echo "the initramfs didn't unlock through tang as expected:" >&2; grep '^TANGJ' "$out/tang.txt" >&2; cat "$out/tang.log" >&2 || true; exit 1; }
   grep -q '^PASS luks-tang: unlocks at boot when the TPM agrees and a tang server answers' "$out/tang.txt" || { echo "the selftest doesn't see the tang unlock" >&2; exit 1; }
   if grep -q '^NMRUN .*/default_connection\.nmconnection' "$out/tang.txt"; then echo "the early-boot network settings stayed" >&2; exit 1; fi
   echo "tang unlock verified"

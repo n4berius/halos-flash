@@ -235,6 +235,7 @@ else
       for u in "${ts[@]:2}"; do run "$tang" thumbprints "$u" > /dev/null || down+=("$u"); done
       if [ "${#down[@]}" = 0 ]; then say PASS luks-tang "unlocks at boot $how (${ts[*]:2}); every server answers now"
       elif [ "${#down[@]}" -lt "$((${#ts[@]} - 2))" ]; then say WARN luks-tang "unlocks at boot $how; not answering now: ${down[*]}"
+      elif [ "${ts[1]:-}" = or ]; then say WARN luks-tang "unlocks at boot $how, but no tang server answers now (${down[*]}): only the TPM would unlock the next boot"
       else say WARN luks-tang "unlocks at boot $how, but no tang server answers now (${down[*]}), so the next boot would ask for the passphrase"; fi ;;
     off) say INFO luks-tang "not set up; to unlock at boot from a tang server on your network: sudo halosctl tang-unlock on <address>" ;;
     *) say WARN luks-tang "its state couldn't be read: ${ts[*]:-}" ;;

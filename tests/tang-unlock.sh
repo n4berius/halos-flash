@@ -56,6 +56,8 @@ for bad in 'http://a;b' 'ftp://x' 'http://x/$(id)' 'http://x y' 'file:///etc/pas
 done
 if "$tang" thumbprints http://down.lan > "$work/out" 2>&1; then echo "a silent server answered" >&2; exit 1; fi
 has 'no answer from http://down.lan' "$work/out"
+if "$tang" thumbprints http://nas.local:7500 > "$work/out" 2>&1; then echo "a .local name passed" >&2; exit 1; fi
+has "a .local name can't be found at boot" "$work/out"
 ok "thumbprints shows a server's signing key, and refuses an address that isn't a plain URL or a server that doesn't answer"
 
 [ "$("$tang" status --short)" = off ] || { echo "status isn't off before binding" >&2; exit 1; }
