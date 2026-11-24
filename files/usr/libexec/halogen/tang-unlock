@@ -93,7 +93,7 @@ remove_tpm() {
 bind() {
   local mode="$1"; shift
   case "$mode" in and|or|off) ;; *) die "bind and|or|off <url> <thumbprint>..." ;; esac
-  [ $# -ge 2 ] && [ $(($# % 2)) = 0 ] || die "give each server's address and thumbprint"
+  if [ $# -lt 2 ] || [ $(($# % 2)) != 0 ]; then die "give each server's address and thumbprint"; fi
   local dev old cfg url thp pt rc=0 s
   dev="$(device)"
   old="$(tang_slots "$dev" | cut -d' ' -f1 | sort -un)"

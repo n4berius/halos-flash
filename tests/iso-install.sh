@@ -47,7 +47,7 @@ genisoimage -quiet -V HALOS_ANSWERS -o "$out/answers.iso" "$out/answers/answers"
 tang_nic=""
 if [ -n "$luks" ]; then
   tangd="$(dpkg -L tang | grep -m1 '/tangd$' || true)"; keygen="$(dpkg -L tang | grep -m1 '/tangd-keygen$' || true)"
-  [ -x "$tangd" ] && [ -x "$keygen" ] || { echo "the tang package (tangd, tangd-keygen) isn't installed" >&2; exit 1; }
+  if [ ! -x "$tangd" ] || [ ! -x "$keygen" ]; then echo "the tang package (tangd, tangd-keygen) isn't installed" >&2; exit 1; fi
   mkdir -p "$out/tang"; "$keygen" "$out/tang"
   for k in "$out/tang"/*.jwk; do
     [ "$(jose fmt -j "$k" -g alg -u-)" = ES512 ] && HALOS_TEST_TANG_THP="$(jose jwk thp -i "$k" -a S256)"

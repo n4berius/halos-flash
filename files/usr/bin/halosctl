@@ -303,7 +303,7 @@ tang_trust() {
       [ -n "$ok" ] || { echo "halosctl: $url doesn't sign with the key $given; it signs with: $(cut -d' ' -f1 <<< "$tp" | paste -sd' ' -)" >&2; return 1; }
       tang_pairs+=("$url" "$given")
     else
-      [ "$yes" = 0 ] && [ -t 0 ] || { echo "halosctl: give each server's key with --thp (sudo tang-show-keys <port> on the server prints it)" >&2; return 1; }
+      if [ "$yes" = 1 ] || [ ! -t 0 ]; then echo "halosctl: give each server's key with --thp (sudo tang-show-keys <port> on the server prints it)" >&2; return 1; fi
       echo "   $url signs with the key:"; cut -d' ' -f1 <<< "$tp" | sed 's/^/     /'
       echo "   On the tang server, sudo tang-show-keys <port> prints its key. Only trust a match."
       ask "   Do they match? [y/N]" n || { echo "   Not trusted."; return 1; }
