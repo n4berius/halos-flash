@@ -110,7 +110,7 @@ jobs:
           newest="$("$RUNNER_TEMP/channels.sh" --sort stable "$RUNNER_TEMP/tags" | tail -n 1 || true)"
           [ -n "$channels" ] || { echo "::error::$TAG leads no channel: the newer stable tag $newest has no published release yet (still running, or it failed). Nothing was pushed. If it failed, release stable from main to resume the weekly rebuilds." >&2; exit 1; }
           echo "Moving the channels: $channels"
-          # Push the exact tag and sign it first (main's script, #46), so a channel never points
+          # Push the version tag and sign it first (main's script, #46), so a channel never points
           # to an unsigned image; the signature is per digest, so it covers the channel tags too.
           image="$(scripts/image-ref.sh)"; base="${image%:*}"
           suffix=""; [ "$HALOGEN_VARIANT" = npu ] || suffix="-no-npu"

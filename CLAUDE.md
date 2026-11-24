@@ -38,7 +38,7 @@ name, but allows saying halOS runs Halogen.
   New-style stables push their own exact tag; the plain version tag (`0.20.7`) moves in the
   channels job only with the stable channel, and is what refresh.yml rebuilds. A hand-pushed tag
   must be new-style. Nothing on a machine compares versions: bootc follows tags by digest, and
-  halosctl only checks the shape (`rollback --to`, `npu`). Don't create tags or releases yourself.
+  halosctl only checks the shape (`rollback --to`, `npu`). `rollback --to <X.Y.Z>` follows the plain tag (no digest pin), like `npu` does; every other `--to` pins by digest, and `npu on|off` keeps that exact release. Don't create tags or releases yourself.
 - If GitHub or a registry refuses an action (403 from the session proxy), stop and tell the
   owner. Don't work around it.
 - Run `tests/run.sh` before every push. CI also runs shellcheck, which may not be installed

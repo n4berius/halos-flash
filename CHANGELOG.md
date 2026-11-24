@@ -15,7 +15,7 @@ it promotes.
   new halOS feature can go out as an alpha, RC and stable release without a new Halogen version.
   Before, an alpha after a stable release reached no machine. Machines need to do nothing: the
   channels (`alpha`, `rc`, `stable`) stay, and every new release counts as newer than the old
-  names. `halosctl rollback --to` takes the new names. Each stable release now also has its own
+  names. `halosctl rollback --to` takes the new names. `rollback --to 0.20.7` (a plain version) now follows that version's stable releases and weekly rebuilds instead of pinning one build. Each stable release now also has its own
   exact image tag (`0.20.7-1-stable`) beside the plain version tag (`0.20.7`).
 - The release checks no longer fail in the no-NPU build job: one check read the job's edition
   setting and looked for the wrong file, which stopped the `v0.20.7-r2` release (#168).

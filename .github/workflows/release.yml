@@ -158,7 +158,8 @@ jobs:
           git fetch -q origin main
           git show origin/main:scripts/sign-image.sh > "$RUNNER_TEMP/sign-image.sh"
           bash "$RUNNER_TEMP/sign-image.sh" --fetch
-          GITHUB_TOKEN="$GH_TOKEN" bash "$RUNNER_TEMP/sign-image.sh" --verify "${image%:*}@$digest"
+          GITHUB_TOKEN="$GH_TOKEN" bash "$RUNNER_TEMP/sign-image.sh" --verify "${image%:*}@$digest" || {
+            echo "::error::$image was pushed by an earlier run but isn't signed, so this release can't go on. Release a new alpha (or this stage from main) instead." >&2; exit 1; }
           echo "$image was pushed by an earlier run: reusing $digest, not building again."
           mkdir -p "$RUNNER_TEMP/out"; echo "$digest" > "$RUNNER_TEMP/out/digest"
           echo "REUSED=1" >> "$GITHUB_ENV"
