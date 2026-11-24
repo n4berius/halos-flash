@@ -55,7 +55,9 @@ case "${FAKE_AUDIT:-halos}" in
   few) printf "%s\n" "$ex" "$w" ;; esac'
 f firewall-cmd 'case "$1" in --state) echo "${FAKE_FIREWALL:-running}" ;; --get-default-zone) echo FedoraServer ;; *) cat "$FAKE/services" ;; esac'
 f lsblk 'echo "${FAKE_LSBLK-/dev/nvme0n1p3 crypto_LUKS}"'
-f cryptsetup 'printf "Tokens:\n  0: systemd-tpm2\n"'
+f cryptsetup '[ -n "${FAKE_NO_TPM:-}" ] || printf "Tokens:\n  0: systemd-tpm2\n"'
+# Unlock from a tang server (#44): FAKE_TANG is its short state; a server named down... doesn't answer.
+f tang-unlock 'case "$1" in status) echo "${FAKE_TANG:-off}" ;; thumbprints) case "$2" in *down*) echo "tang-unlock: no answer" >&2; exit 1 ;; esac; echo "abc def" ;; *) exit 1 ;; esac'
 f amd-smi 'if [ -n "${FAKE_NOGPU:-}" ]; then echo "ERROR:root:Unable to detect any GPU devices"; exit 255; fi; printf "GPU: 0\n    BDF: 0000:c3:00.0\n"'
 f systemd-run 'case "$*" in *render-config*) printf "%s\n" "${FAKE_RENDER:-HALOGEN_CHECKPOINT=/models/qwen38-flash-next-v2.hgn}" ;; *) echo "preflight: ok" ;; esac'
 f bootc 'case "$*" in *json*) echo "{\"spec\":{\"image\":{\"image\":\"${FAKE_FOLLOWS:-ghcr.io/n4berius/halos-flash:stable}\",\"signature\":\"${FAKE_SIG:-containerPolicy}\"}}}" ;; *) echo "Booted image: ghcr.io/n4berius/halos-flash:9.9.9" ;; esac'
@@ -93,7 +95,7 @@ export HALOGEN_STATE_DIR="$work/hstate" PATH="$fake:$sysbin" HALOGEN_RELEASE_FIL
   HALOGEN_MODELS_DIR="$work/models" HALOGEN_CONFIGS_DIR="$work/configs" HALOGEN_CLOCK="$fake/fabric-clock" \
   HALOGEN_LOGS_DIR="$work/logs" HALOGEN_RECORDS_DROPIN="$work/20-records.conf" HALOS_LOG_DIR="$work" \
   HALOS_AUDIT_RULES="$work/halos.rules" HALOGEN_PROC="$work/proc" HALOGEN_HOME="$work/home" HALOGEN_RUNTIME_DIR="$work/run-user" \
-  HALOS_POLICY="$repo/files/etc/containers/policy.json" HALOS_SSH_UNLOCK="$fake/ssh-unlock" \
+  HALOS_POLICY="$repo/files/etc/containers/policy.json" HALOS_SSH_UNLOCK="$fake/ssh-unlock" HALOS_TANG_UNLOCK="$fake/tang-unlock" \
   HALOS_ETC="$work/etc" HALOS_USR_ETC="$work/usretc" HALOS_ROOT_POLICY="$work/root-policy.json" \
   HALOS_HTTPS_HELPER="$fake/https" HALOS_HTTPS_RUN="$work/run-halos" HALOS_API_KEY_OFF_FILE="$work/api-key-off"
 # The https helper: off unless FAKE_HTTPS says otherwise.
@@ -377,6 +379,16 @@ FAKE_SSHU='ssh-unlock: no EFI system partition found' "$selftest" > "$work/out" 
 expect '^WARN ssh-unlock:.*no EFI system partition'
 FAKE_VERIFY=1 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN ssh-unlock:.*differ from the record'
 FAKE_VERIFY=2 "$selftest" > "$work/out" 2>&1 || true; expect '^INFO ssh-unlock:.*ssh-unlock record'
+expect '^INFO luks-tang: not set up.*tang-unlock on'
+FAKE_NO_TPM=1 FAKE_TANG='on and http://10.0.0.5:7500' "$selftest" > "$work/out" 2>&1 || true
+expect '^PASS luks-tang: unlocks at boot when the TPM agrees and a tang server answers \(http://10.0.0.5:7500\); every server answers now'
+expect '^INFO luks-tpm: .* no TPM-only unlock: it unlocks from a tang server'; refuse 'halogen-enroll-tpm'
+FAKE_TANG='on or http://10.0.0.5:7500 http://down.lan' "$selftest" > "$work/out" 2>&1 || true
+expect '^WARN luks-tang: unlocks at boot with the TPM, or else from a tang server; not answering now: http://down.lan$'
+FAKE_TANG='on off http://down.lan' "$selftest" > "$work/out" 2>&1 || true
+expect '^WARN luks-tang: unlocks at boot when a tang server answers, but no tang server answers now \(http://down.lan\), so the next boot'
+FAKE_TANG='tang-unlock: broken' "$selftest" > "$work/out" 2>&1 || true; expect "^WARN luks-tang: its state couldn't be read"
+ok "unlocking from a tang server is shown with whether its servers answer now, offered when not, and a warning when unreadable"
 # Without encryption: no ssh-unlock line, unless keys were left on the EFI partition.
 FAKE_LSBLK='/dev/nvme0n1p2 xfs' FAKE_SSHU=off "$selftest" > "$work/out" 2>&1 || true
 expect '^INFO luks: no encrypted volume'; refuse '^[A-Z]+ ssh-unlock:'

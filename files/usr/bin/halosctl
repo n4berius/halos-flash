@@ -21,6 +21,7 @@ usage: halosctl version
        halosctl history
        halosctl setup [--skip]
        halosctl ssh-unlock [on [--github|--gitlab|--codeberg <user>]... [--key '<public key>'] | off | record] [--yes]
+       halosctl tang-unlock [on <server>... [--tpm and|or|off] [--thp <thumbprint>]... | renew | off] [--yes]
        halosctl ssh-passwords [on|off] [--yes]
        halosctl dashboard [on|off]
        halosctl fail2ban [on | off | unban <address>]
@@ -40,6 +41,12 @@ default) lets the chip draw the most power, so Halogen runs fastest; balanced an
 less, run cooler and quieter, and serve slower. Without a name it shows the profile.
 ssh-unlock on lets the keys of your GitHub, GitLab or Codeberg account (or a key you give) unlock
 an encrypted disk over SSH at boot, when the TPM can't; off turns it off; alone it shows the state.
+tang-unlock on lets a tang server on your network (http://<address>:<port>) unlock the encrypted
+disk at boot, so it unlocks by itself only while it can reach that server. --tpm and (the default
+with a TPM) also needs this machine's TPM; off: the server alone; or: the TPM alone still unlocks
+too. It shows each server's key to compare with tang-show-keys on the server (or give --thp).
+renew binds again to the same servers (after a BIOS or Secure Boot change with --tpm and); off
+removes it. The passphrase always works too.
 ssh-passwords off allows SSH logins only with keys (your account needs one first); on allows
 passwords again. The console login always takes the password.
 dashboard is a live web page of Halogen's load and health on port 8732 (Quaternion's
@@ -279,6 +286,57 @@ ssh_unlock_on() {
   "$unlock" status | sed 's/^/   /'
   ssh_unlock_howto
 }
+# Unlock from a tang server (#44): /usr/libexec/halogen/tang-unlock keeps the binding in the LUKS header.
+tang="${HALOS_TANG_UNLOCK:-/usr/libexec/halogen/tang-unlock}"
+has_tpm() { [ -e "${HALOGEN_DEV:-/dev}/tpmrm0" ] || [ -e "${HALOGEN_DEV:-/dev}/tpm0" ]; }
+# Each server in tang_urls with its key's thumbprint: the --thp given for it (in the same order),
+# else shown to the person to compare with tang-show-keys on the server. Fills tang_pairs.
+tang_trust() {
+  local i url given tp a b ok
+  tang_pairs=()
+  for ((i = 0; i < ${#tang_urls[@]}; i++)); do
+    url="${tang_urls[i]}"; given="${thps[i]:-}"
+    tp="$("$tang" thumbprints "$url")" || return 1
+    if [ -n "$given" ]; then
+      ok=""
+      while read -r a b; do if [ "$given" = "$a" ] || [ "$given" = "$b" ]; then ok=1; fi; done <<< "$tp"
+      [ -n "$ok" ] || { echo "halosctl: $url doesn't sign with the key $given; it signs with: $(cut -d' ' -f1 <<< "$tp" | paste -sd' ' -)" >&2; return 1; }
+      tang_pairs+=("$url" "$given")
+    else
+      [ "$yes" = 0 ] && [ -t 0 ] || { echo "halosctl: give each server's key with --thp (sudo tang-show-keys <port> on the server prints it)" >&2; return 1; }
+      echo "   $url signs with the key:"; cut -d' ' -f1 <<< "$tp" | sed 's/^/     /'
+      echo "   On the tang server, sudo tang-show-keys <port> prints its key. Only trust a match."
+      ask "   Do they match? [y/N]" n || { echo "   Not trusted."; return 1; }
+      tang_pairs+=("$url" "$(head -n 1 <<< "$tp" | cut -d' ' -f1)")
+    fi
+  done
+}
+tang_explain() { # and|or|off
+  case "$1" in
+    and) echo "   From the next boot the disk unlocks by itself only when this machine's TPM agrees (Secure Boot"
+         echo "   and the BIOS unchanged) and a tang server answers. The TPM-only unlock is removed. Away from"
+         echo "   your network, or after a BIOS or Secure Boot change, it asks for the passphrase (then:"
+         echo "   sudo halosctl tang-unlock renew)." ;;
+    off) echo "   From the next boot the disk unlocks by itself whenever a tang server answers. The TPM-only"
+         echo "   unlock is removed. Away from your network it asks for the passphrase." ;;
+    or) echo "   From the next boot the disk unlocks with the TPM as before or, when the TPM can't, from a tang"
+        echo "   server. Taken away whole, the machine still unlocks with its TPM." ;;
+  esac
+}
+# Binds to the servers in tang_urls with the mode in $1; fails without stopping setup (where $2 is
+# "setup": a no there skips the step instead of ending the command).
+tang_on() {
+  local before
+  before="$("$tang" status --short 2> /dev/null | cut -d' ' -f1-2 || true)"
+  tang_trust || return 1
+  tang_explain "$1"
+  if [ "${2:-}" = setup ]; then ask "   Unlock from $(printf '%s ' "${tang_urls[@]}")this way? [Y/n]" y || return 1
+  else confirm "Unlock from $(printf '%s ' "${tang_urls[@]}")this way?"; fi
+  "$tang" bind "$1" "${tang_pairs[@]}" || return 1
+  record tang-unlock "${before:-off}" "on $1"
+  "$tang" status | sed 's/^/   /'
+}
+
 ssh_unlock_howto() {
   echo "   On the computer you unlock from, add the entry above to ~/.ssh/config and the known_hosts"
   echo "   line to ~/.ssh/known_hosts, once. The early-boot server has a host key of its own, and"
@@ -325,8 +383,8 @@ set_passwords() { # on|off; fails (without stopping setup) when sshd won't take 
 }
 
 cmd="${1:-version}"; [ $# = 0 ] || shift
-case "$cmd" in history|setup|power|ssh-unlock|ssh-passwords|dashboard|fail2ban|https) ;; *) load ;; esac
-args=(); src=()
+case "$cmd" in history|setup|power|ssh-unlock|tang-unlock|ssh-passwords|dashboard|fail2ban|https) ;; *) load ;; esac
+args=(); src=(); thps=(); tpm_mode=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --yes|-y) yes=1 ;;
@@ -339,6 +397,8 @@ while [ $# -gt 0 ]; do
     --to) [ $# -ge 2 ] || die "--to needs a version, such as 0.19.0-alpha.1"; to="$2"; shift ;;
     --email) [ $# -ge 2 ] || die "--email needs an address"; email="$2"; shift ;;
     --staging) staging=1 ;;
+    --thp) [ $# -ge 2 ] || die "--thp needs a key thumbprint"; thps+=("$2"); shift ;;
+    --tpm) [ $# -ge 2 ] || die "--tpm needs and, or or off"; tpm_mode="$2"; shift ;;
     -h|--help) usage; exit 0 ;;
     -*) usage >&2; exit 2 ;;
     *) args+=("$1") ;;
@@ -347,10 +407,14 @@ while [ $# -gt 0 ]; do
 done
 
 [ "${#src[@]}" = 0 ] || [ "$cmd" = ssh-unlock ] || die "--github, --gitlab, --codeberg and --key go with ssh-unlock on"
+if [ "${#thps[@]}" -gt 0 ] || [ -n "$tpm_mode" ]; then
+  case "$cmd ${args[0]:-}" in "tang-unlock on") ;; "tang-unlock renew") [ -z "$tpm_mode" ] || die "renew keeps the mode set up; to change it: tang-unlock on <server>... --tpm $tpm_mode" ;;
+    *) die "--thp and --tpm go with tang-unlock on" ;; esac
+fi
 if [ -n "$email" ] || [ "$staging" = 1 ]; then
   if [ "$cmd" != https ] || [ "${args[0]:-}" != letsencrypt ]; then die "--email and --staging go with https letsencrypt"; fi
 fi
-case "$cmd" in switch|npu|power|ssh-unlock|ssh-passwords|dashboard|fail2ban|https) ;; *) [ "${#args[@]}" = 0 ] ;; esac || die "unexpected ${args[0]} (for an older release: halosctl rollback --to <version>)"
+case "$cmd" in switch|npu|power|ssh-unlock|tang-unlock|ssh-passwords|dashboard|fail2ban|https) ;; *) [ "${#args[@]}" = 0 ] ;; esac || die "unexpected ${args[0]} (for an older release: halosctl rollback --to <version>)"
 
 case "$cmd" in
   version)
@@ -550,6 +614,41 @@ case "$cmd" in
         echo "Off: from the next boot, no SSH server runs before the disk is unlocked."
         ;;
       *) die "ssh-unlock on, off, record, or nothing for its state" ;;
+    esac
+    ;;
+  tang-unlock)
+    case "${args[0]:-}" in
+      ''|status) [ "${#args[@]}" -le 1 ] || die "tang-unlock on, renew, off, or nothing for its state"; "$tang" status ;;
+      on|renew)
+        encrypted || die "the disk isn't encrypted, so there is nothing to unlock"
+        if [ "${args[0]}" = renew ]; then
+          [ "${#args[@]}" = 1 ] || die "renew takes no servers: it binds again to those set up"
+          read -ra cur <<< "$("$tang" status --short)"
+          [ "${cur[0]:-off}" = on ] || die "unlocking from a tang server isn't set up: sudo halosctl tang-unlock on <server>"
+          tpm_mode="${cur[1]}"; tang_urls=("${cur[@]:2}")
+        else
+          tang_urls=("${args[@]:1}")
+          [ "${#tang_urls[@]}" -gt 0 ] || die "name the tang server, such as: sudo halosctl tang-unlock on http://192.168.1.5:7500"
+          [ "${#thps[@]}" -le "${#tang_urls[@]}" ] || die "more --thp than servers"
+          if [ -z "$tpm_mode" ]; then if has_tpm; then tpm_mode=and; else tpm_mode=off; fi; fi
+        fi
+        case "$tpm_mode" in
+          and|or) has_tpm || die "no TPM found, so --tpm $tpm_mode can't work: use --tpm off (the server alone)" ;;
+          off) ;;
+          *) die "--tpm takes and, or or off" ;;
+        esac
+        tang_on "$tpm_mode" || die "nothing changed"
+        ;;
+      off)
+        [ "${#args[@]}" = 1 ] || die "tang-unlock off takes nothing more"
+        [ "$("$tang" status --short)" != off ] || { echo "Unlocking from a tang server is already off."; exit 0; }
+        before="$("$tang" status --short | cut -d' ' -f1-2)"
+        confirm "Remove the tang bindings? The disk then asks for its passphrase at boot (or uses the TPM, if enrolled)."
+        "$tang" remove
+        record tang-unlock "$before" off
+        echo "Off. To unlock with the TPM alone again: sudo halogen-enroll-tpm"
+        ;;
+      *) die "tang-unlock on, renew, off, or nothing for its state" ;;
     esac
     ;;
   ssh-passwords)
@@ -916,7 +1015,12 @@ case "$cmd" in
       ssh) echo "   At install you chose: SSH, not the TPM." ;;
       none) echo "   At install you chose: the passphrase at the keyboard." ;;
     esac
+    read -r ton tmode _ <<< "$("$tang" status --short 2> /dev/null || true)"
+    [ "${ton:-}" = on ] || tmode=""
     if [ -z "$crypt" ]; then echo "   The disk isn't encrypted, so there is nothing to unlock."
+    elif [ "$tmode" = and ] || [ "$tmode" = off ]; then
+      # A TPM-only unlock would bypass the network the tang binding was made to need.
+      echo "   It unlocks from a tang server (sudo halosctl tang-unlock shows how), so no TPM-only unlock is added."
     elif [ ! -e "${HALOGEN_DEV:-/dev}/tpmrm0" ] && [ ! -e "${HALOGEN_DEV:-/dev}/tpm0" ]; then echo "   No TPM found: you type the passphrase at each boot."
     elif [ "$(cryptsetup luksDump "$(head -n 1 <<< "$crypt")" 2>/dev/null | grep -cE '^[[:space:]]*[0-9]+: systemd-tpm2')" -gt 0 ]; then
       echo "   It unlocks with the TPM already. After a BIOS or Secure Boot change: sudo halogen-enroll-tpm"
@@ -926,6 +1030,19 @@ case "$cmd" in
       halogen-enroll-tpm || echo "   That didn't work; the passphrase still unlocks the disk. Try again later: sudo halogen-enroll-tpm"
     else echo "   Kept: you type the passphrase at each boot."; fi
     if [ -n "$crypt" ]; then
+      echo "   Unlocking from a tang server: a small key server on your own network (on a NAS or another"
+      echo "   machine) gives the disk its key at boot, so the disk unlocks by itself only while it can"
+      echo "   reach that server. A disk or a machine taken away asks for the passphrase."
+      if [ "$("$tang" status --short 2> /dev/null || echo off)" != off ]; then
+        echo "   It's set up already (sudo halosctl tang-unlock changes it):"
+        "$tang" status | sed 's/^/   /'
+      elif ask "   Set up unlocking from a tang server? [y/N]" n; then
+        read -rp "   The tang server's address (such as http://192.168.1.5:7500): " tsrv || tsrv=""
+        tang_urls=("$tsrv"); thps=()
+        if has_tpm; then tsel=and; else tsel=off; fi
+        if [ -n "$tsrv" ] && tang_on "$tsel" setup; then :
+        else echo "   Skipped. Later: sudo halosctl tang-unlock on <address>"; fi
+      else echo "   Skipped. Later: sudo halosctl tang-unlock on <address>"; fi
       echo "   Unlocking over SSH: when the TPM can't unlock the disk (after a BIOS update, say), or on a"
       echo "   machine without one, you type the passphrase from another computer instead of at a keyboard."
       if [ "$("$unlock" status --short 2> /dev/null || echo off)" != off ]; then

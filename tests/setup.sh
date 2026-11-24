@@ -39,11 +39,17 @@ case "$1" in
   ca) echo cert ;;
   describe) printf "mode %s\nca AA:BB\nca_until 2036\nnames localhost\n" "$m" ;;
 esac'
+# Unlock from a tang server (#44): off until bound; the server's key is thpS256.
+f tang-unlock 'case "$1" in
+  status) if [ -s "$FAKE/tang" ]; then if [ "${2:-}" = --short ]; then cat "$FAKE/tang"; else echo "On: from a tang server"; fi; else echo off; fi ;;
+  thumbprints) echo "thpS256 thpS1" ;;
+  bind) echo "tang-unlock $*" >> "$FAKE/log"; echo "on $2 $3" > "$FAKE/tang" ;;
+esac'
 f systemctl 'case "$1" in is-active) echo active ;; esac'
 f curl 'echo 200'
 f hostname 'echo 192.0.2.7'
 printf 'HALOGEN_VARIANT=no-npu\n' > "$work/release.env"
-export PATH="$work/bin:$PATH" HALOS_SSH_UNLOCK="$work/bin/ssh-unlock" HALOS_HISTORY="$work/history" \
+export PATH="$work/bin:$PATH" HALOS_SSH_UNLOCK="$work/bin/ssh-unlock" HALOS_TANG_UNLOCK="$work/bin/tang-unlock" HALOS_HISTORY="$work/history" \
   HALOS_HTTPS_HELPER="$work/bin/https" HALOS_HTTPS_ETC="$work/etc" \
   SUDO_USER=owner HALOS_SSHD_DROPIN="$work/sshd.d/20-halos-keys-only.conf" HALOGEN_RELEASE_FILE="$work/release.env" HALOGEN_STATE_DIR="$work/state" HALOGEN_CONFIGS_DIR="$work/configs" HALOGEN_DEV="$work/dev"
 ctl="$repo/files/usr/bin/halosctl"
@@ -55,13 +61,13 @@ answer() { printf '%s\n' "$@" n n > "$work/answers"; : > "$work/log"; rm -f "$wo
   { sleep 1; cat "$work/answers"; } | script -qec "$ctl setup" /dev/null > "$work/out" 2>&1 || true; }
 
 touch "$work/state/setup-pending" "$work/dev/tpmrm0"
-answer No n n n
+answer No n n n n
 if grep -q enroll-tpm "$work/log"; then echo "'No' enrolled the TPM" >&2; exit 1; fi
 touch "$work/state/setup-pending"
-answer maybe Y n n n
+answer maybe Y n n n n
 grep -q 'Please answer y or n' "$work/out" || { cat "$work/out" >&2; echo "a wrong answer was not asked again" >&2; exit 1; }
 touch "$work/state/setup-pending"
-answer y n n n
+answer y n n n n
 grep -qx 'enroll-tpm' "$work/log" || { cat "$work/out" >&2; echo "TPM not enrolled" >&2; exit 1; }
 if grep -q 'halogenctl hf-token\|nano' "$work/log"; then echo "a declined step ran" >&2; exit 1; fi
 [ ! -e "$work/state/setup-pending" ] || { echo "setup didn't release the download" >&2; exit 1; }
@@ -70,13 +76,13 @@ grep -q 'first download' "$work/out" || exit 1
 ok "setup enrolls the TPM when asked, skips declined steps, and releases the first download as halogen"
 
 touch "$work/state/setup-pending"
-FAKE_TOKENS='  0: systemd-tpm2' answer n y y
+FAKE_TOKENS='  0: systemd-tpm2' answer n n y y
 grep -q 'unlocks with the TPM already' "$work/out" || { cat "$work/out" >&2; exit 1; }
 if grep -q enroll-tpm "$work/log"; then echo "enrolled again" >&2; exit 1; fi
 grep -qx 'halogenctl hf-token' "$work/log" || { echo "no token step" >&2; exit 1; }
 echo 'HALOGEN_FLASH_CTX=1' > "$work/configs/halogen.env"
 touch "$work/state/setup-pending"; : > "$work/log"
-FAKE_TOKENS='  0: systemd-tpm2' answer n n y
+FAKE_TOKENS='  0: systemd-tpm2' answer n n n y
 if ! grep -qE '^nano /tmp/.*/halogen.env as=root$' "$work/log"; then cat "$work/log" >&2; echo "the editor didn't run as root on a private copy" >&2; exit 1; fi
 if grep -q "nano $work/configs" "$work/log"; then echo "the editor opened halogen's file directly" >&2; exit 1; fi
 grep -qx 'HALOGEN_KV_SLOTS=2' "$work/configs/halogen.env" || { echo "the edit was not saved" >&2; exit 1; }
@@ -87,70 +93,90 @@ ok "setup knows an existing TPM binding and an unencrypted disk, and edits setti
 
 # Unlock over SSH: a user with no keys asks again; a found key is shown, confirmed and installed.
 touch "$work/state/setup-pending"
-answer n y 3 bob 3 alice y n n
+answer n n y 3 bob 3 alice y n n
 grep -q 'no keys for bob' "$work/out" || { cat "$work/out" >&2; echo "a user without keys wasn't reported" >&2; exit 1; }
 grep -q 'SHA256:test alice' "$work/out" || { cat "$work/out" >&2; echo "the keys weren't shown" >&2; exit 1; }
 if ! grep -qx 'ssh-unlock install' "$work/log" || ! grep -qx 'ssh-ed25519 AAAAtest alice' "$work/installed"; then
   cat "$work/out" >&2; echo "the keys weren't installed" >&2; exit 1
 fi
 touch "$work/state/setup-pending"; rm -f "$work/recorded"
-answer n n n
+answer n n n n
 grep -q 'set up already' "$work/out" || { cat "$work/out" >&2; echo "an existing SSH unlock wasn't named" >&2; exit 1; }
 grep -qx 'ssh-unlock record' "$work/log" || { echo "setup didn't record the installer's keys" >&2; exit 1; }
 rm "$work/installed"
 # The installer's choice sets the defaults: SSH only means Enter declines the TPM.
 touch "$work/state/setup-pending"
-FAKE_CHOICE=ssh answer '' n n n
+FAKE_CHOICE=ssh answer '' n n n n
 grep -q 'At install you chose: SSH' "$work/out" || { cat "$work/out" >&2; exit 1; }
 if grep -q enroll-tpm "$work/log"; then echo "Enter enrolled the TPM after choosing SSH only" >&2; exit 1; fi
 touch "$work/state/setup-pending"
-FAKE_CHOICE=both answer '' n n n
+FAKE_CHOICE=both answer '' n n n n
 grep -qx enroll-tpm "$work/log" || { cat "$work/out" >&2; echo "Enter didn't enroll the TPM after choosing it" >&2; exit 1; }
 FAKE_CHOICE=none FAKE_LSBLK='' answer n n
 if grep -q 'At install you chose' "$work/out"; then echo "an unencrypted disk got an unlock choice line" >&2; exit 1; fi
 # With a key, the admin is offered keys-only SSH logins: Enter keeps passwords, y turns them off.
 echo "ssh-ed25519 AAAAkey owner@laptop" > "$work/home/owner/.ssh/authorized_keys"
-FAKE_TOKENS='  0: systemd-tpm2' answer n '' n n
+FAKE_TOKENS='  0: systemd-tpm2' answer n n '' n n
 grep -q 'Allow only keys for SSH logins' "$work/out" || { cat "$work/out" >&2; echo "keys-only wasn't offered" >&2; exit 1; }
 [ ! -e "$work/sshd.d/20-halos-keys-only.conf" ] || { echo "Enter turned passwords off" >&2; exit 1; }
 grep -qx 'halogenctl hf-token' "$work/log" && { echo "an answer shifted onto the token step" >&2; exit 1; }
-FAKE_TOKENS='  0: systemd-tpm2' answer n y n n
+FAKE_TOKENS='  0: systemd-tpm2' answer n n y n n
 grep -qx 'PasswordAuthentication no' "$work/sshd.d/20-halos-keys-only.conf" || { cat "$work/out" >&2; echo "y didn't turn passwords off" >&2; exit 1; }
 rm -f "$work/home/owner/.ssh/authorized_keys" "$work/sshd.d/20-halos-keys-only.conf"
 ok "setup offers unlocking over SSH, asks again when an account has no keys, installs the confirmed ones, defaults to the installer's choice, and offers keys-only logins to an admin with a key"
+
+# Unlock from a tang server: the key is shown and must be confirmed; with a TPM, "and" is the
+# default; once bound that way, no TPM-only unlock is offered beside it.
+touch "$work/state/setup-pending"
+answer n y http://10.0.0.5:7500 n n n n
+grep -q 'thpS256' "$work/out" || { cat "$work/out" >&2; echo "the server's key wasn't shown" >&2; exit 1; }
+if grep -q 'tang-unlock bind' "$work/log"; then echo "a key not confirmed was trusted" >&2; exit 1; fi
+grep -q 'Skipped. Later: sudo halosctl tang-unlock on' "$work/out" || { cat "$work/out" >&2; exit 1; }
+touch "$work/state/setup-pending"
+answer n y http://10.0.0.5:7500 y '' n n n
+grep -qx 'tang-unlock bind and http://10.0.0.5:7500 thpS256' "$work/log" || { cat "$work/out" "$work/log" >&2; echo "setup didn't bind with TPM and tang" >&2; exit 1; }
+grep -q 'tang-unlock  *off -> on and' "$work/history" || { cat "$work/history" >&2; echo "the change wasn't recorded" >&2; exit 1; }
+grep -q 'first download' "$work/out" || { cat "$work/out" >&2; echo "setup stopped after the tang step" >&2; exit 1; }
+touch "$work/state/setup-pending"
+answer n n n
+grep -q 'no TPM-only unlock is added' "$work/out" || { cat "$work/out" >&2; exit 1; }
+grep -q 'set up already (sudo halosctl tang-unlock' "$work/out" || { cat "$work/out" >&2; exit 1; }
+if grep -q enroll-tpm "$work/log"; then echo "a TPM-only unlock was offered beside TPM and tang" >&2; exit 1; fi
+rm -f "$work/tang"
+ok "setup offers unlocking from a tang server, trusts only a key the person confirms, binds TPM and tang, and then offers no TPM-only unlock"
 
 # HTTPS: a new install (root's own marker, which prepare leaves) is offered it with Enter for yes,
 # and setup runs halosctl's own https self-signed; a failure doesn't stop setup; on when it is on
 # already, never asked. The marker goes once the step is answered.
 touch "$work/state/setup-pending" "$work/new-install"
-FAKE_TOKENS='  0: systemd-tpm2' answer n n n ''
+FAKE_TOKENS='  0: systemd-tpm2' answer n n n n ''
 grep -qx 'https set self-signed' "$work/log" || { cat "$work/out" >&2; echo "Enter didn't turn HTTPS on for a new install" >&2; exit 1; }
 grep -q 'sudo halosctl https ca' "$work/out" || { cat "$work/out" >&2; echo "no word on trusting the authority" >&2; exit 1; }
 grep -q 'https  *off -> self-signed' "$work/history" || { cat "$work/history" >&2; echo "the switch wasn't recorded" >&2; exit 1; }
 [ ! -e "$work/new-install" ] || { echo "the new-install marker outlived the answer" >&2; exit 1; }
 # The default follows root's marker, not halogen's setup-pending (gone after 30 minutes or --skip).
 touch "$work/new-install"
-FAKE_TOKENS='  0: systemd-tpm2' answer n n n ''
+FAKE_TOKENS='  0: systemd-tpm2' answer n n n n ''
 grep -qx 'https set self-signed' "$work/log" || { cat "$work/out" >&2; echo "a new install whose setup-pending had gone lost its HTTPS default" >&2; exit 1; }
 touch "$work/state/setup-pending" "$work/new-install"
-FAKE_SET_FAIL=1 FAKE_TOKENS='  0: systemd-tpm2' answer n n n y
+FAKE_SET_FAIL=1 FAKE_TOKENS='  0: systemd-tpm2' answer n n n n y
 { grep -q "That didn't work, so it's still plain HTTP" "$work/out" && grep -q 'first download' "$work/out"; } \
   || { cat "$work/out" >&2; echo "a failed HTTPS switch stopped setup, or said the wrong thing" >&2; exit 1; }
-FAKE_HTTPS=invalid FAKE_TOKENS='  0: systemd-tpm2' answer n n n y
+FAKE_HTTPS=invalid FAKE_TOKENS='  0: systemd-tpm2' answer n n n n y
 grep -q 'holds an unknown setting' "$work/out" || { cat "$work/out" >&2; echo "a broken https.env wasn't named" >&2; exit 1; }
 touch "$work/state/setup-pending"
-FAKE_HTTPS=custom FAKE_TOKENS='  0: systemd-tpm2' answer n n n y
+FAKE_HTTPS=custom FAKE_TOKENS='  0: systemd-tpm2' answer n n n n y
 grep -q 'HTTPS is on already (custom)' "$work/out" || { cat "$work/out" >&2; exit 1; }
 if grep -q '^https set' "$work/log"; then echo "HTTPS was switched though it was on" >&2; exit 1; fi
 touch "$work/state/setup-pending"
-FAKE_TOKENS='  0: systemd-tpm2' answer n n n n
+FAKE_TOKENS='  0: systemd-tpm2' answer n n n n n
 if grep -q '^https set' "$work/log"; then echo "'n' turned HTTPS on" >&2; exit 1; fi
 grep -q 'Kept plain HTTP' "$work/out" || exit 1
 ok "setup offers HTTPS to a new install (Enter for yes), goes on when it fails, and leaves an HTTPS setting alone"
 
 # Run again later: nothing pending, so Enter keeps plain HTTP (an upgrade stays on HTTP until
 # its owner says so), and it offers a restart instead.
-answer n n n n '' y
+answer n n n n n '' y
 if grep -q '^https set' "$work/log"; then echo "Enter turned HTTPS on for a machine that isn't new" >&2; exit 1; fi
 grep -qx 'halogenctl restart' "$work/log" || { cat "$work/out" >&2; echo "no restart offered" >&2; exit 1; }
 touch "$work/state/setup-pending"; : > "$work/log"

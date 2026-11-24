@@ -12,6 +12,13 @@ fi
 # The first volume crypttab names (comments and blank lines skipped).
 device="${1:-$(awk '/^[[:space:]]*(#|$)/ { next } { if ($2 ~ /^UUID=/) print "/dev/disk/by-uuid/" substr($2, 6); exit }' "$crypttab")}"
 [ -n "$device" ] || { echo "the first volume in $crypttab isn't named by UUID; name the LUKS device as an argument" >&2; exit 1; }
+# A disk set to unlock from a tang server only with the network (halosctl tang-unlock, --tpm and or
+# off) must not get a TPM-only unlock beside it: the machine would unlock away from the network.
+tmode="$("${HALOS_TANG_UNLOCK:-/usr/libexec/halogen/tang-unlock}" mode "$device" 2> /dev/null || true)"
+case "$tmode" in
+  and) echo "This disk unlocks from a tang server together with the TPM (sudo halosctl tang-unlock). A TPM-only unlock beside it would unlock away from your network, so none is added. After a BIOS or Secure Boot change: sudo halosctl tang-unlock renew" >&2; exit 1 ;;
+  off) echo "This disk unlocks from a tang server without the TPM (sudo halosctl tang-unlock). A TPM-only unlock beside it would unlock away from your network, so none is added. To allow both: sudo halosctl tang-unlock on <server> --tpm or" >&2; exit 1 ;;
+esac
 # Running this again, after a BIOS or Secure Boot change, replaces the old TPM binding:
 # cryptenroll enrolls the new one first, then wipes the others, so a failure leaves the
 # old binding in place. The passphrase slot is never touched.

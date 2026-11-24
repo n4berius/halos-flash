@@ -205,7 +205,7 @@ jobs:
       - name: Install tools
         run: |
           sudo apt-get update -q
-          sudo apt-get install -yq qemu-system-x86 qemu-utils ovmf tesseract-ocr genisoimage swtpm swtpm-tools
+          sudo apt-get install -yq qemu-system-x86 qemu-utils ovmf tesseract-ocr genisoimage swtpm swtpm-tools tang jose
           # Ubuntu's AppArmor profile for swtpm only allows libvirt's paths.
           if [ -e /etc/apparmor.d/usr.bin.swtpm ]; then sudo apparmor_parser -R /etc/apparmor.d/usr.bin.swtpm || true; fi
           sudo chmod 666 /dev/kvm
