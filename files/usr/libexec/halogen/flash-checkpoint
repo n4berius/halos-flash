@@ -1,7 +1,7 @@
 #!/bin/bash
 # Your own Flash checkpoints in /srv/models/flash/<name>, beside the official one. Runs as
 # the halogen user; halogenctl flash pull and flash verify start it.
-#   flash-checkpoint pull <hf-repo> [--revision <rev>] [--as <name>] [--file <checkpoint.hgn>]
+#   flash-checkpoint pull <hf-repo> [--revision <rev>] [--as <name>] [--file <checkpoint.hgn|build.gguf>] [--keep-gguf]
 #   flash-checkpoint verify <name>
 #   flash-checkpoint use <name>|official    (halogenctl flash use, after it asked; writes the choice)
 #   flash-checkpoint remove <name>          (halogenctl flash remove, after it asked)
@@ -49,7 +49,7 @@ valid_name() {
   case "$1" in *[!A-Za-z0-9._-]*|official) return 1 ;; esac
 }
 case "${1:-}" in
-  sandbox-check|use|remove|drafter) ;;
+  sandbox-check|use|remove|drafter|convert-clear) ;;
   *) podman image exists "$HALOGEN_IMAGE" || die "The Halogen image isn't downloaded yet. Let the first boot finish: sudo halogenctl fetch-logs" ;;
 esac
 
@@ -115,7 +115,7 @@ online() (
 # Not for use, remove, drafter and sandbox-check, which start no container: going back to the official
 # checkpoint must work whatever stands there.
 case "${1:-}" in
-  sandbox-check|use|remove|drafter) ;;
+  sandbox-check|use|remove|drafter|convert-clear) ;;
   *)
     if [ -L "$models/.prompt-cache" ]; then
       echo "$models/.prompt-cache is a link, not a folder. Remove it, then start again: sudo halogenctl restart" >&2; exit 1
@@ -493,6 +493,9 @@ convert_prepare() {
   # Files left by another repository or commit under this name would end up in the result
   # (the converter copies every optional tokenizer file it finds), so they go first.
   if [ -e "$convert_dir" ] && ! plain_dir "$convert_dir"; then die "$convert_dir isn't a plain folder under $models (a link stands in its path)."; fi
+  if [ -e "$convert_dir/$name/gguf.info" ]; then
+    die "A GGUF pull's download is stored under the name $name. Pick another name with --as, or delete it: sudo halogenctl flash convert-stop $name"
+  fi
   if [ -f "$convert_dir/$name/convert.info" ] && { [ "$(info_get "$convert_dir/$name/convert.info" repo)" != "$repo" ] \
       || [ "$(info_get "$convert_dir/$name/convert.info" commit)" != "$commit" ]; }; then
     rm -rf "${convert_dir:?}/$name"
@@ -618,6 +621,216 @@ convert_run() {
   echo "A converted model hasn't been measured for quality yet: run sudo halogenctl flash check $name before serving it."
 }
 
+# --- GGUF repositories (flash pull of a llama.cpp GGUF, #61) -------------------------------------
+# Halogen reads a GGUF of Qwen3.8 Flash Next itself, and its image's convert mode writes the same
+# lossless repack out once as a complete .hgn, with the lookup table and the draft head folded in
+# (Halogen's docs/gguf.md, "Convert a GGUF once"). So a GGUF repository is pulled as: its shards at
+# an exact commit into flash/.convert/<name>/gguf, checked against Hugging Face's hashes; the
+# engine's draft head from Halogen's weights repository at the pinned revision, checked the same
+# way (a GGUF carries none Halogen can run); then convert, offline, into a new folder that becomes
+# flash/<name>/model.hgn, and Halogen's verify, as for any .hgn. The shards go afterwards, unless
+# --keep-gguf. The work folder is the one flash convert uses, so flash convert-stop <name> deletes
+# what a failed pull left.
+mtp_head=qwen38-flash-next-mtp.hgn
+# Quantizations Halogen refuses by name at start (gguf.md: Q4_1, Q2_K, Q3_K and the IQ2/IQ1
+# families), a plain Q5_0 (stops at its first gate/up expert) and a plain Q6_K (refused on
+# ssm_out), and full precision (BF16/F16/F32: not among the types gguf.md lists, and larger than
+# the machine's memory): refused before a download of 50 GB or more that would only fail later.
+gguf_refused_re='(^|[-_.])(Q4_1|Q5_0|Q6_K|Q2_K(_[A-Z]+)?|Q3_K(_[A-Z]+)?|IQ1_[A-Z]+|IQ2_[A-Z]+|TQ[12]_0|BF16|F16|F32)([-_.]|$)'
+# The output is the repack (about the size of the GGUF: nothing is requantized) plus the lookup
+# table at Halogen's own precision (27 GB): an IQ4_XS of 91 GB gives about 106 GB. GGUF size plus
+# this, to be safe.
+gguf_out_extra="${HALOS_GGUF_OUT_EXTRA:-34359738368}"
+
+# The repository's GGUF builds, one a line: the build's name, a tab, then its files in order. A
+# split build (<base>-00001-of-00003.gguf) is listed only when every shard is there. A projector
+# (mmproj), a llama.cpp draft head (…-MTP-draft.gguf) and an importance matrix are not models.
+gguf_builds() {
+  cut -f1 <<< "$files" | grep -E '^([A-Za-z0-9][A-Za-z0-9._-]*/)*[A-Za-z0-9][A-Za-z0-9._-]*\.gguf$' | grep -viE 'mmproj|draft|imatrix' | sort | awk '
+    { f = $0
+      if (match(f, /-[0-9][0-9][0-9][0-9][0-9]-of-[0-9][0-9][0-9][0-9][0-9]\.gguf$/)) {
+        key = substr(f, 1, RSTART - 1); idx = substr(f, RSTART + 1, 5) + 0; tot = substr(f, RSTART + 10, 5) + 0
+      } else { key = substr(f, 1, length(f) - 5); idx = 1; tot = 1 }
+      if (!(key in t)) { t[key] = tot; order[++n] = key } else if (t[key] != tot) bad[key] = 1
+      if (idx < 1 || idx > tot || seen[key SUBSEP idx]++) bad[key] = 1
+      c[key]++; fl[key] = fl[key] (fl[key] == "" ? "" : " ") f }
+    END { for (i = 1; i <= n; i++) { k = order[i]; if (!(k in bad) && c[k] == t[k]) print k "\t" fl[k] } }'
+}
+# Removes anything in a folder a download container could write that isn't a plain file of its
+# own: a link, a FIFO (hashing it would hang), a hard link to a file elsewhere.
+# A container owns the folder it had as its mount root, and could have made it or a folder in it
+# unreadable or unwritable: opened up first (chmod doesn't follow links).
+open_up() { [ ! -e "$1" ] || [ -L "$1" ] || chmod -R u+rwX -- "$1"; }
+gguf_sweep() {
+  [ -d "$1" ] || return 0
+  open_up "$1" || return 1
+  find "$1" -mindepth 1 \( -type l -o \( ! -type f ! -type d \) -o \( -type f -links +1 \) \) -exec rm -f -- {} + || return 1
+  [ -z "$(find "$1" -mindepth 1 \( -type l -o \( ! -type f ! -type d \) -o \( -type f -links +1 \) \) -print -quit)" ]
+}
+gguf_fetch() { # repo commit dir-in-container file...
+  local r="$1" c="$2" d="$3"; shift 3
+  online hf download "$r" "$@" --revision "$c" --local-dir "$d" < /dev/null \
+    2>&1 | grep --line-buffered -v -e '^Hint: ' -e 'hf update' -e 'Still waiting to acquire lock' \
+      -e 'sending unauthenticated requests' -e "^$d\$"
+  [ "${PIPESTATUS[0]}" = 0 ] || die "The download stopped. Run the same command again to resume it."
+}
+
+# Halogen's convert in a container named like the pull's others, run as online() runs them: a
+# stopped pull removes it at once (bash holds its traps while a foreground command runs), and the
+# next pull of the name removes a leftover one.
+gguf_convert() (
+  local c=""
+  c="$(ctr_for)" || exit 1
+  trap 'podman rm -f -i -t 0 "$c" > /dev/null 2>&1; exit 143' TERM HUP
+  trap 'podman rm -f -i -t 0 "$c" > /dev/null 2>&1; exit 130' INT
+  offline --name "$c" --replace --oom-score-adj=1000 -v "$out:/models/flash/.convert/$name/out/$name" \
+    -e "HALOGEN_MTP_HEAD=/models/flash/.convert/$name/head/$mtp_head" "$HALOGEN_IMAGE" convert "$1" "$2" < /dev/null &
+  wait "$!"
+)
+
+gguf_pull() {
+  local builds key="" shards=() f s total=0 dl=0 need free work src hd out base ufiles ucommit hsha hsize wcommit rc
+  local -A keep=()
+  local get=()
+  builds="$(gguf_builds)"
+  [ -n "$builds" ] || die "$repo has GGUF files, but no complete model build among them (a split build needs every shard)."
+  if [ -n "$want_file" ]; then
+    # The build's name, or any one of its files.
+    while IFS=$'\t' read -r k fl; do
+      if [ "$k" = "$want_file" ] || [ "$k.gguf" = "$want_file" ] || [[ " $fl " == *" $want_file "* ]]; then key="$k"; read -ra shards <<< "$fl"; break; fi
+    done <<< "$builds"
+    [ -n "$key" ] || die "$repo has no GGUF build called $want_file. Its builds: $(cut -f1 <<< "$builds" | tr '\n' ' ')"
+  elif [ "$(grep -c . <<< "$builds")" = 1 ]; then
+    key="$(cut -f1 <<< "$builds")"; read -ra shards <<< "$(cut -f2 <<< "$builds")"
+  else
+    die "$repo holds several GGUF builds. Pick one with --file (its name, or any of its files): $(cut -f1 <<< "$builds" | tr '\n' ' ')"
+  fi
+  base="${key##*/}"
+  if [[ "${base^^}" =~ $gguf_refused_re ]]; then
+    die "$base is a quantization Halogen can't read (it refuses Q4_1, Q2_K, Q3_K, IQ1, IQ2, plain Q5_0 and Q6_K builds, and full precision).
+Pick another build with --file, such as an IQ4_XS or IQ4_NL one. Halogen's list: https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/gguf.md"
+  fi
+  [ ! -e "$dir" ] || die "$dir already exists. Pick another name with --as, or remove it first: sudo halogenctl flash remove $name"
+
+  # The engine's draft head, from Halogen's weights repository at the revision this release pins.
+  ufiles="$files"; ucommit="$commit"
+  list_repo "$HALOGEN_WEIGHTS_REPO" "$HALOGEN_WEIGHTS_REVISION"
+  hsha="$(sha_of "$mtp_head")"; hsize="$(size_of "$mtp_head")"; wcommit="$commit"
+  files="$ufiles"; commit="$ucommit"
+  if ! [[ "$hsha" =~ ^[0-9a-f]{64}$ ]] || [ -z "$hsize" ]; then
+    die "Halogen's weights repository has no $mtp_head at the pinned revision, and a GGUF needs it to convert."
+  fi
+
+  work="$convert_dir/$name"; src="$work/gguf"; hd="$work/head"; out="$work/out/$name"
+  if [ -e "$convert_dir" ] && ! plain_dir "$convert_dir"; then die "$convert_dir isn't a plain folder under $models (a link stands in its path)."; fi
+  if [ -e "$work/convert.info" ]; then
+    die "The full-precision weights of a flash convert are stored under the name $name. Pick another name with --as, or delete them: sudo halogenctl flash convert-stop $name"
+  fi
+  # Shards an earlier pull of another repository, commit or build left under this name go first;
+  # those of the same build are kept, so a pull that failed resumes without a new download.
+  if [ -e "$work" ] && { [ "$(info_get "$work/gguf.info" repo)" != "$repo" ] || [ "$(info_get "$work/gguf.info" commit)" != "$commit" ] \
+      || [ "$(info_get "$work/gguf.info" build)" != "$key" ]; }; then
+    plain_dir "$work" || die "$work isn't a plain folder under $models (a link stands in its path)."
+    open_up "$work"; rm -rf -- "$work" || die "Couldn't delete $work."
+  fi
+  for f in "$src" "$hd"; do mk_plain "$f" || die "$f isn't a plain folder under $models (a link stands in its path)."; done
+  if ! { echo "repo=$repo"; echo "revision=$revision"; echo "commit=$commit"; echo "build=$key"; } | write_new "$work/gguf.info.new" \
+     || ! mv -f "$work/gguf.info.new" "$work/gguf.info"; then die "Couldn't write $work/gguf.info."; fi
+  if ! gguf_sweep "$src" || ! gguf_sweep "$hd"; then die "Couldn't clean $work."; fi
+
+  for f in "${shards[@]}"; do
+    s="$(size_of "$f")"; [[ "$s" =~ ^[0-9]+$ ]] || die "$repo lists no size for $f."
+    [[ "$(sha_of "$f")" =~ ^[0-9a-f]{64}$ ]] || die "$repo lists no sha256 for $f, so it can't be checked."
+    total=$((total + s)); keep["$f"]=1
+    # A shard already there at its size (a pull that failed later) isn't downloaded again; every
+    # one is hashed below, and one that doesn't match is removed, so the next pull fetches it.
+    [ "$(stat -c %s "$src/$f" 2>/dev/null)" = "$s" ] || { dl=$((dl + s)); get+=("$f"); }
+  done
+  [ "$(stat -c %s "$hd/$mtp_head" 2>/dev/null)" = "$hsize" ] || dl=$((dl + hsize))
+  need=$((dl + total + gguf_out_extra))
+  free="$(df --output=avail --block-size=1 "$models" | tail -n 1 | tr -d ' ')"
+  if [ "$need" -gt "$(( ${free:-0} - 1073741824 ))" ]; then
+    die "$key needs $(gib "$need") ($(gib "$dl") to download, about $(gib "$((total + gguf_out_extra))") for the converted checkpoint) and $models has $(gib "${free:-0}") free."
+  fi
+
+  echo "Downloading the GGUF build $key (${#shards[@]} file(s), $(gib "$dl") to fetch) from $repo at commit ${commit:0:12} into $src. An interrupted download resumes."
+  if [ "$progress_s" -gt 0 ]; then
+    while sleep "$progress_s" > /dev/null 2>&1; do echo "  $(du -sh "$work" 2>/dev/null | cut -f1) so far"; done 9>&- &
+    reporter=$!
+  fi
+  mounts=(-v "$src:/models/flash/.convert/$name/gguf")
+  [ "${#get[@]}" = 0 ] || gguf_fetch "$repo" "$commit" "/models/flash/.convert/$name/gguf" "${get[@]}"
+  if [ "$(stat -c %s "$hd/$mtp_head" 2>/dev/null)" != "$hsize" ]; then
+    echo "Downloading Halogen's draft head, $mtp_head ($(gib "$hsize")), which the conversion folds in."
+    mounts=(-v "$hd:/models/flash/.convert/$name/head")
+    gguf_fetch "$HALOGEN_WEIGHTS_REPO" "$wcommit" "/models/flash/.convert/$name/head" "$mtp_head"
+  fi
+  [ -z "${reporter:-}" ] || kill "$reporter" 2>/dev/null
+  mounts=()
+
+  # The download containers had these folders writable: only plain files of their own are hashed
+  # or given to the conversion, and nothing else is left beside the shards.
+  rm -rf -- "$src/.cache" "$hd/.cache"
+  if ! gguf_sweep "$src" || ! gguf_sweep "$hd"; then die "Couldn't clean $work."; fi
+  while IFS= read -r -d '' f; do
+    [ -n "${keep["${f#"$src"/}"]:-}" ] || rm -f -- "$f"
+  done < <(find "$src" -mindepth 1 -type f -print0)
+  echo "Checking the files against the repositories' hashes..."
+  for f in "${shards[@]}"; do
+    if [ "$(sha256sum "$src/$f" | cut -d' ' -f1)" != "$(sha_of "$f")" ]; then
+      rm -f -- "$src/$f"; die "$f does not match $repo's hash. Run it again to download it afresh."
+    fi
+  done
+  [ "$(sha256sum "$hd/$mtp_head" | cut -d' ' -f1)" = "$hsha" ] \
+    || { rm -f -- "$hd/$mtp_head"; die "$mtp_head does not match the weights repository's hash. Run it again to download it afresh."; }
+
+  # The conversion: Halogen's own convert mode in the pinned image, offline and without
+  # capabilities, the models read-only, writable only the new checkpoint's folder. Halogen keeps
+  # serving meanwhile; should memory run short, the kernel ends the conversion, not Halogen.
+  open_up "$work/out"; rm -rf -- "$work/out" || die "Couldn't delete $work/out."
+  mk_plain "$out" || die "$out isn't a plain folder under $models (a link stands in its path)."
+  echo "Converting $key into Halogen's format (a few minutes to about ten on an NVMe disk)..."
+  gguf_convert "/models/flash/.convert/$name/gguf/${shards[0]}" "/models/flash/.convert/$name/out/$name/model.hgn"
+  rc=$?
+  if [ "$rc" = 137 ]; then
+    die "The conversion ran out of memory. Stop Halogen for the few minutes it takes (sudo halogenctl stop), pull again (the download is kept), then: sudo halogenctl start"
+  elif [ "$rc" != 0 ]; then
+    die "Halogen's convert failed (above). The download stays in $src: pull again to retry, or delete it: sudo halogenctl flash convert-stop $name"
+  fi
+  # Only the checkpoint goes into place.
+  open_up "$out" || exit 1
+  find "$out" -mindepth 1 -maxdepth 1 ! -name model.hgn -exec rm -rf -- {} + || exit 1
+  if [ -L "$out/model.hgn" ] || [ ! -f "$out/model.hgn" ] || [ "$(head -c 4 "$out/model.hgn")" != HGN1 ]; then
+    die "Halogen's convert wrote no checkpoint. The download stays in $src: pull again to retry, or delete it: sudo halogenctl flash convert-stop $name"
+  fi
+  { echo "repo=$repo"
+    echo "revision=$revision"
+    echo "commit=$commit"
+    echo "checkpoint=model.hgn"
+    echo "gguf=$key"
+    echo "converted_with=Halogen $HALOGEN_VERSION convert, draft head $HALOGEN_WEIGHTS_REPO@${wcommit:0:12}"
+    echo "pulled_at=$(date -u '+%Y-%m-%d %H:%M UTC')"
+    echo "verified=no"; } | write_new "$out/halos.info.new" && mv -f "$out/halos.info.new" "$out/halos.info" || exit 1
+  # Into place only now, and never over anything.
+  if ! mv -T -n "$out" "$dir" || [ -e "$out" ]; then die "Could not move the result to $dir."; fi
+  # The download goes only once the result passed: a verify that fails for another reason (the
+  # official tokenizer missing, say) must not cost the next pull a new download.
+  if ! verify_dir "$name"; then
+    die "$name failed Halogen's verify (above), so it can't be used. Remove it: sudo halogenctl flash remove $name
+The download stays in $src; delete it with: sudo halogenctl flash convert-stop $name"
+  fi
+  if [ "$keep_gguf" = 1 ]; then
+    open_up "$hd"; open_up "$work/out"; rm -rf -- "$hd" "$work/out"
+    echo "The GGUF stays in $src (--keep-gguf). Delete it with: sudo halogenctl flash convert-stop $name"
+  else
+    open_up "$work"; rm -rf -- "$work"
+  fi
+  echo "$name is ready: $key from $repo at commit ${commit:0:12}, converted by Halogen and checked by its verify."
+  echo "Halogen's draft head is folded in, and it has no vision tower (it answers text only)."
+  echo "To compare its quality with the official checkpoint: sudo halogenctl flash check $name"
+  echo "name=$name"
+}
+
 case "${1:-}" in
   check|check-prepare)
     name="${2:-}"
@@ -723,15 +936,29 @@ case "${1:-}" in
     if grep -q -- "^$name=" "$drafter_choice" 2> /dev/null; then drafter_set "$name" ""; fi
     echo "Deleted $name."
     exit 0 ;;
+  convert-clear)
+    # halogenctl flash convert-stop <name>, after it asked: what flash convert or a GGUF pull left
+    # in flash/.convert/<name>, deleted under the name's lock, so never under a running one.
+    name="${2:-}"
+    valid_name "$name" || die "usage: halogenctl flash convert-stop [<name>]"
+    name_lock "$name"
+    d="$convert_dir/$name"
+    { [ -e "$convert_dir" ] || [ -L "$convert_dir" ]; } || die "Nothing downloaded for $name."
+    plain_dir "$convert_dir" || die "$convert_dir isn't a plain folder under $models (a link stands in its path)."
+    { [ -e "$d" ] || [ -L "$d" ]; } || die "Nothing downloaded for $name."
+    if [ -L "$d" ]; then rm -f -- "$d"; else open_up "$d"; rm -rf -- "$d" || die "Couldn't delete all of $d."; fi
+    echo "Deleted the downloaded weights for $name."
+    exit 0 ;;
   convert-prepare) shift; convert_prepare "$@"; exit 0 ;;
   convert-run) shift; convert_run "$@"; exit 0 ;;
   pull) shift ;;
-  *) die "usage: flash-checkpoint pull <hf-repo> [--revision <rev>] [--as <name>] [--file <checkpoint.hgn>] | verify <name> | check-prepare <name> | check <name>" ;;
+  *) die "usage: flash-checkpoint pull <hf-repo> [--revision <rev>] [--as <name>] [--file <checkpoint.hgn|build.gguf>] [--keep-gguf] | verify <name> | check-prepare <name> | check <name>" ;;
 esac
 
-repo=""; revision=main; name=""; want_file=""
+repo=""; revision=main; name=""; want_file=""; keep_gguf=0
 while [ $# -gt 0 ]; do
   case "$1" in
+    --keep-gguf) keep_gguf=1; shift ;;
     --revision|--as|--file)
       [ $# -ge 2 ] || die "$1 needs a value"
       case "$1" in --revision) revision="$2" ;; --as) name="$2" ;; --file) want_file="$2" ;; esac
@@ -742,7 +969,7 @@ while [ $# -gt 0 ]; do
 done
 case "$repo" in
   */*) ;;
-  *) die "usage: halogenctl flash pull <hf-repo, such as someone/My-Flash-HGN> [--revision <rev>] [--as <name>] [--file <checkpoint.hgn>]" ;;
+  *) die "usage: halogenctl flash pull <hf-repo, such as someone/My-Flash-HGN> [--revision <rev>] [--as <name>] [--file <checkpoint.hgn|build.gguf>] [--keep-gguf]" ;;
 esac
 [[ "$repo" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "'$repo' is not a Hugging Face repository name"
 [[ "$revision" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || die "'$revision' is not a branch, tag or commit"
@@ -762,16 +989,20 @@ list_repo "$repo" "$revision"
 
 # The checkpoint: a .hgn in the repository's top folder that isn't one of its companions.
 candidates="$(cut -f1 <<< "$files" | grep -E '^[A-Za-z0-9._-]+\.hgn$' | grep -vE 'ngram|vision|mtp|overlay|drafter' || true)"
+# A GGUF build (named with --file, or the repository has no .hgn checkpoint) is converted once.
+if { [ -n "$want_file" ] && [[ "$want_file" != *.hgn ]] && [ -n "$(gguf_builds)" ]; } \
+   || { [ -z "$want_file" ] && [ -z "$candidates" ] && grep -qE '^[^[:space:]]+\.gguf[[:space:]]' <<< "$files"; }; then
+  gguf_pull
+  exit 0
+fi
+[ "$keep_gguf" = 0 ] || die "--keep-gguf is for a GGUF repository; $repo holds a Halogen checkpoint."
 if [ -n "$want_file" ]; then
   grep -qxF -- "$want_file" <<< "$candidates" \
     || die "$repo has no checkpoint called $want_file. Its checkpoints: $(tr '\n' ' ' <<< "$candidates")"
   checkpoint="$want_file"
 else
   case "$(grep -c . <<< "$candidates")" in
-    0) if grep -qiE '^[^[:space:]]+\.gguf[[:space:]]' <<< "$files"; then
-         die "$repo holds GGUF files, not a Halogen .hgn checkpoint. halogenctl can't pull a GGUF yet."
-       fi
-       die "$repo has no Halogen .hgn checkpoint in its top folder." ;;
+    0) die "$repo has no Halogen .hgn checkpoint in its top folder." ;;
     1) checkpoint="$candidates" ;;
     *) die "$repo holds several checkpoints. Pick one with --file: $(tr '\n' ' ' <<< "$candidates")" ;;
   esac
