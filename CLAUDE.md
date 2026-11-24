@@ -1180,7 +1180,12 @@ name, but allows saying halOS runs Halogen.
   binding. Enrolling twice on the same boot is a no-op ("already enrolled").
 - In the VM test, `systemd-pcrextend` needs `SYSTEMD_FORCE_MEASURE=1` on non-UKI boots.
 - `vm-login.py` types through QEMU `sendkey`. Any new character in a typed command needs a
-  key mapping, or it is silently dropped.
+  key mapping, or it is silently dropped. Typing costs about 0.05 s a key: the 11,700-character
+  report took about 10 minutes at each of the NPU test's three boots. So the long lines (report,
+  selftest, HTTPS, SSH unlock) are `SCRIPTS` in `vm-login.py`, written by `vm-login.py --scripts`
+  onto a read-only `HALOS_PROBE` disk that `iso-install.sh` attaches to every boot from the
+  installed disk; after login only the mount and `bash /run/halos-probe/<name>.sh` are typed. Add
+  new checks to a script, not to a typed line.
 - Until 0.19.0 Halogen needed the host's XRT, which halOS took from Debian trixie-backports
   and mounted at three paths. From 0.19.1 its image carries XRT 2.25, so halOS mounts none (a
   host mount must be all three libraries or none). `tests/static.sh` keeps it that way.

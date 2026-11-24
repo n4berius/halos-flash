@@ -8,8 +8,212 @@ With HALOS_TEST_SSH_UNLOCK=1, luks-stale also reports unlocking over SSH, which 
   luks-enroll  as luks, then bind the disk to the TPM with halogen-enroll-tpm and power off
   ssh-enroll   as luks-enroll, but the passphrase comes over SSH (tests/iso-install.sh), not typed
   tpm          fail if the passphrase is asked for: the TPM must unlock the disk by itself
+
+The long command lines (the report, the selftest, HTTPS and SSH unlock) aren't typed: typing goes
+one key at a time through the monitor, and the report alone took about ten minutes a boot.
+vm-login.py --scripts DIR writes them as shell scripts, which tests/iso-install.sh puts on a small
+read-only disk labelled HALOS_PROBE beside the system disk; at each boot this mounts it and types
+only "bash <script>". Short lines (login, setup --skip, enrolling, poweroff) are still typed.
 """
 import os, pathlib, re, socket, subprocess, sys, time
+
+REPORT = ("{ echo RESULT-START; cat /proc/cmdline; dmesg | grep -i secure; bootctl status | grep -i secure; "
+    "bootc status | head -12; udevadm verify /usr/lib/udev/rules.d/70-halogen-devices.rules; "
+    "lsblk -f | grep -i crypto; sysctl kernel.dmesg_restrict kernel.kptr_restrict kernel.yama.ptrace_scope; sshd -T | grep -i x11forwarding; "
+    "for d in $(lsblk -rno PATH,FSTYPE | awk '$2==\"crypto_LUKS\"{print $1}'); do cryptsetup luksDump $d | grep -i systemd-tpm2; done; vgs --noheadings -o vg_name; findmnt -rn -o TARGET,SOURCE -t xfs; sestatus | head -3; id halogen; loginctl show-user halogen -p Linger; "
+    "systemctl status user@970.service --no-pager | head -4; journalctl --no-pager -n 8 -o cat _SYSTEMD_USER_UNIT=halogen-fetch.service; systemctl --failed --no-legend --no-pager; "
+    "systemctl is-active firewalld halogen-prepare; halosctl version; ls /etc/ssh/sshd_config.d; sshd -T | grep -i permitrootlogin; journalctl -b -o cat -u bootc-fstab-edit; echo FSTABMARK $(grep -c Updated.by.bootc-fstab-edit /etc/fstab); echo BOOTSZ $(findmnt -bno SIZE,USED /boot) $(findmnt -bno SIZE /boot/efi); fwupdtool esp-list --json > /tmp/esp 2>&1; echo ESPRC $? $(grep -c /boot/efi /tmp/esp) $(systemctl is-enabled udisks2); echo UDLOOP $(runuser -u admin -- udisksctl loop-setup -r --no-user-interaction -f /etc/os-release 2>&1 | grep -c Error.NotAuthorized:); runuser -u halogen -- busctl call org.freedesktop.UDisks2 /org/freedesktop/UDisks2/Manager org.freedesktop.DBus.Properties GetAll s org.freedesktop.UDisks2.Manager > /tmp/udbus 2>&1; echo UDBUS $(grep -c -i access.denied /tmp/udbus); echo UDBUSOUT $(head -c 200 /tmp/udbus | tr -cd [:print:]); echo UDBUSLOG $(journalctl -b -u dbus-broker --no-pager -o cat | grep -i -e halogen -e udisks | tail -n 3 | tr -cd [:print:]); echo UDBUSADMIN $(runuser -u admin -- busctl call org.freedesktop.UDisks2 /org/freedesktop/UDisks2/Manager org.freedesktop.DBus.Properties GetAll s org.freedesktop.UDisks2.Manager 2>&1 | grep -c -F a{sv}); "
+    # Security audit P1: a link planted in /srv/models must not let root hand its target to halogen.
+    # Only the NPU edition makes model folders, so on no-NPU this passes without testing much.
+    "mkdir -p -m 755 /var/tmp/victim; mv /var/srv/models/custom /var/srv/models/custom.x; ln -s /var/tmp/victim /var/srv/models/custom; "
+    "systemctl restart halogen-prepare; ls -ld /var/tmp/victim; rm /var/srv/models/custom; mv /var/srv/models/custom.x /var/srv/models/custom; "
+    "systemctl restart halogen-prepare; "
+    # Request records (#107): on adds the mount and counts only reach Halogen; off removes it.
+    # Halogen doesn't run in the VM, so nothing is recorded: that part is checked on freyja.
+    "halogenctl records on --yes 2>&1 | cat > /tmp/rec; "
+    "echo RECCONF $(halogenctl config 2>/dev/null | grep -c -x -e HALOGEN_RECORD_DIR=/records -e HALOGEN_RECORD_TEXT=none) "
+    "$(setpriv --reuid=halogen --regid=halogen --init-groups env XDG_RUNTIME_DIR=/run/user/970 systemctl --user cat halogen.service 2>/dev/null | grep -c -F srv/logs/halogen:/records); "
+    # With recording on, the selftest sees the mount (it warned wrongly on freyja).
+    # It runs with a variable its own tests use set: through halogenctl that must change nothing
+    # (STENV 0: the path never shows in a message; RECST proves there was output).
+    "HALOS_USR_ETC=/none halogenctl selftest > /tmp/stfull 2>&1; grep records: /tmp/stfull > /tmp/recst; echo STENV $(grep -c -e /none /tmp/stfull); echo RECST $(grep -c -e mount /tmp/recst) $(grep -c -e 'INFO records: on' /tmp/recst); cat /tmp/recst >> /tmp/rec; "
+    "halogenctl records off --yes 2>&1 | cat >> /tmp/rec; echo RECOFF $(ls /etc/containers/systemd/users/970/halogen.container.d | grep -c records); "
+    "stat -c 'RECDIR %U %a' /var/srv/logs/halogen; cat /tmp/rec; "
+    # The prompt cache on disk: its private folder, the mount in Halogen's unit, on by default.
+    "stat -c 'PCDIR %U %a' /var/srv/models/.prompt-cache; "
+    "echo PCACHE $(halogenctl config 2>/dev/null | grep -c -x -e HALOGEN_CACHE_DIR=/models/.prompt-cache -e HALOGEN_CACHE_PRUNE_OLD=1) "
+    "$(setpriv --reuid=halogen --regid=halogen --init-groups env -C / XDG_RUNTIME_DIR=/run/user/970 systemctl --user cat halogen.service 2>/dev/null | grep -c -F .prompt-cache:/models/.prompt-cache:noexec); "
+    # Off mounts the folder read-only and stops telling Halogen about it; on puts both back and
+    # leaves no file behind.
+    "halogenctl cache off --yes > /tmp/pc 2>&1; "
+    "echo PCOFF $(setpriv --reuid=halogen --regid=halogen --init-groups env -C / XDG_RUNTIME_DIR=/run/user/970 systemctl --user cat halogen.service 2>/dev/null | grep -c -F .prompt-cache:/models/.prompt-cache:ro,noexec) "
+    "$(halogenctl config 2>/dev/null | grep -c -e HALOGEN_CACHE_DIR) "
+    "$(setpriv --reuid=halogen --regid=halogen --init-groups env -C / XDG_RUNTIME_DIR=/run/user/970 systemctl --user cat halogen.service 2>/dev/null | grep -e ExecStart= | grep -o -F .prompt-cache:/models/.prompt-cache: | grep -c -e prompt); "
+    "halogenctl cache on --yes >> /tmp/pc 2>&1; "
+    "echo PCON $(setpriv --reuid=halogen --regid=halogen --init-groups env -C / XDG_RUNTIME_DIR=/run/user/970 systemctl --user cat halogen.service 2>/dev/null | grep -c -F .prompt-cache:/models/.prompt-cache:noexec) "
+    "$(halogenctl config 2>/dev/null | grep -c -x -e HALOGEN_CACHE_DIR=/models/.prompt-cache) $(ls /etc/containers/systemd/users/halogen.container.d | grep -c prompt); cat /tmp/pc; "
+    # Hardening: the logs volume can't hold programs, and Halogen's container is read-only.
+    "echo RECMNT $(findmnt -n -o OPTIONS /var/srv/logs | tr , ' ' | xargs -n 1 | grep -c -x -e nodev -e nosuid -e noexec) "
+    "$(setpriv --reuid=halogen --regid=halogen --init-groups env XDG_RUNTIME_DIR=/run/user/970 systemctl --user cat halogen.service 2>/dev/null | grep -c -e --read-only); "
+    # Logs (#107): auditd runs with halOS's watches, a change in /etc/halos is recorded, and the
+    # journal has halOS's cap.
+    # The rule leaving Halogen out is loaded (-i would hide it failing), and a run of halosctl
+    # from this login is found too (an exec rule on /usr, which is composefs here).
+    "echo AUDIT $(systemctl is-active auditd) $(auditctl -l | grep -c -E -e 'key=|-k ') "
+    "$(auditctl -l | grep -c -x -e '-a never,task -F uid=970 -F auid=970') "
+    "$(auditctl -s | grep -c -x -e 'enabled 2'); auditctl -l | grep -e never; "
+    # Hardening: the exemption is Halogen's login session only. Its service manager has login uid
+    # 970; a file made by a unit it starts leaves no record, one made by root acting as halogen
+    # (runuser from this login) does. The Quadlet folder is watched. The rules are locked.
+    "echo HLOGIN $(cat /proc/$(systemctl show -p MainPID --value user@970.service)/loginuid); "
+    # systemd-run --wait talks to the D-Bus user bus, and this login's DBUS_SESSION_BUS_ADDRESS is
+    # root's, so halogen's is named. Only the records that create the files are counted (root's
+    # rm afterwards is recorded under the same names), and AUDITRAN shows the unit made its file.
+    "setpriv --reuid=970 --regid=970 --clear-groups env -C / XDG_RUNTIME_DIR=/run/user/970 "
+    "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/970/bus systemd-run --user --wait -q touch /srv/configs/audit-a; "
+    "runuser -u halogen -- env -C / touch /srv/configs/audit-b; echo AUDITRAN $(ls /srv/configs | grep -c -e audit-a -e audit-b); "
+    "touch /etc/containers/systemd/audit-q; rm -f /etc/containers/systemd/audit-q; "
+    "auditctl -e 0 > /dev/null 2>&1; echo AUDITLOCK $? $(auditctl -s | grep -c -x -e 'enabled 2'); "
+    "echo HCONF $(runuser -u halogen -- env -C / find /var/lib/halogen/.config -maxdepth 3 | xargs); "
+    "touch /etc/halos/audit-probe; rm -f /etc/halos/audit-probe; halosctl version > /dev/null 2>&1; sleep 2; "
+    "echo AUDITHIT $(ausearch -i -k halos-config 2>/dev/null | grep -c audit-probe) "
+    "$(ausearch -i -k halosctl 2>/dev/null | grep -c -e halosctl); "
+    "echo AUDITEX $(ausearch -i -k halogen-config 2>/dev/null | grep -c -e 'audit-a.*nametype=CREATE') "
+    "$(ausearch -i -k halogen-config 2>/dev/null | grep -c -e 'audit-b.*nametype=CREATE') "
+    "$(ausearch -i -k quadlet 2>/dev/null | grep -c -e audit-q); rm -f /srv/configs/audit-a /srv/configs/audit-b; "
+    # Hardening: sshd refuses the halogen service user; the converter's real sandbox (the same
+    # systemd-run call a conversion makes) starts under halogen's manager with its probes passing
+    # (work folder writable, models not, no devices, logs, shared memory or sockets, and the
+    # converter runs); on the NPU edition the model mounts are noexec.
+    "echo SSHDENY $(sshd -T -C user=halogen,host=x,addr=203.0.113.9 | grep -c -i -e 'denyusers halogen'); "
+    "setpriv --reuid=970 --regid=970 --clear-groups env -C / HOME=/var/lib/halogen XDG_RUNTIME_DIR=/run/user/970 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/970/bus "
+    "/usr/libexec/halogen/flash-checkpoint sandbox-check 2>&1 | cat; echo CONVSB ${PIPESTATUS[0]}; "
+    "echo NPUMNT $(setpriv --reuid=halogen --regid=halogen --init-groups env -C / XDG_RUNTIME_DIR=/run/user/970 systemctl --user cat halogen.service 2>/dev/null | grep -e ExecStart= | grep -o -F noexec,nosuid,nodev | grep -c -e noexec); "
+    # Halogen's network (#120): the generated unit puts it on halogen-internal, and Podman makes
+    # that network internal (no route out) and without DNS. Podman's warnings (stderr) aren't part
+    # of the answer: without the bus address it warns about a missing user session.
+    "echo HNET $(setpriv --reuid=halogen --regid=halogen --init-groups env -C / XDG_RUNTIME_DIR=/run/user/970 systemctl --user cat halogen.service 2>/dev/null | grep -e ExecStart= | grep -c -E -e '--network[= ]halogen-internal( |$)') "
+    "$(setpriv --reuid=970 --regid=970 --clear-groups env -C / XDG_RUNTIME_DIR=/run/user/970 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/970/bus systemctl --user start halogen-internal-network.service > /dev/null 2>&1; echo $?) "
+    "$(setpriv --reuid=970 --regid=970 --clear-groups env -C / HOME=/var/lib/halogen XDG_RUNTIME_DIR=/run/user/970 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/970/bus podman network inspect halogen-internal --format '{{.Internal}}-{{.DNSEnabled}}-{{.IPv6Enabled}}-{{len .Routes}}-{{range .Subnets}}{{.Gateway}}{{end}}' 2>/dev/null); "
+    "echo JOURNALCAP $(systemd-analyze cat-config systemd/journald.conf | grep -c -x SystemMaxUse=4G); "
+    # fail2ban (#92): running with both jails; a ban becomes an entry in its nftables set and halosctl lifts
+    # it; and the API filter matches the front door's real log line (a 503 here, Halogen being
+    # down, with its status set to 401: the line's shape is what the filter depends on).
+    "echo F2B $(systemctl is-active fail2ban) $(fail2ban-client status | grep -c -e 'halos-api, sshd'); "
+    # It runs in its own SELinux domain: a sandbox option that blocked the switch from systemd's
+    # domain (NoNewPrivileges did, for this policy) would leave it unable to write its database.
+    "echo F2BDOM $(ps -o label= -C fail2ban-server | grep -c -e fail2ban_t); "
+    # A ban is an entry in fail2ban's own nftables set (under its low CPU share, so it is waited
+    # for), in a chain asked before firewalld's; it survives a firewalld reload; halosctl lifts it.
+    "fail2ban-client set halos-api banip 203.0.113.9 > /dev/null 2>&1; "
+    "for i in 1 2 3 4 5 6 7 8 9 10; do nft list set inet f2b-table addr-set-halos-api 2>/dev/null | grep -c -F 203.0.113.9 > /dev/null && break; sleep 2; done; "
+    "echo F2BBAN $(nft list set inet f2b-table addr-set-halos-api 2>&1 | grep -c -F 203.0.113.9) "
+    "$(nft list chain inet f2b-table f2b-chain 2>&1 | grep -c -e 'priority filter - 1' -e 'tcp dport 8731 ip saddr @addr-set-halos-api reject with tcp reset'); "
+    "firewall-cmd --reload > /dev/null 2>&1; "
+    "echo F2BRELOAD $(nft list set inet f2b-table addr-set-halos-api 2>&1 | grep -c -F 203.0.113.9); "
+    "halosctl fail2ban unban 203.0.113.9 > /dev/null 2>&1; "
+    "for i in 1 2 3 4 5 6 7 8 9 10; do nft list set inet f2b-table addr-set-halos-api 2>/dev/null | grep -c -F 203.0.113.9 > /dev/null || break; sleep 2; done; "
+    "echo F2BUN $(nft list set inet f2b-table addr-set-halos-api 2>&1 | grep -c -F 203.0.113.9); "
+    # The same for an IPv6 address on the API and an IPv4 one on SSH (its own set, port 22).
+    "fail2ban-client set halos-api banip 2001:db8::9 > /dev/null 2>&1; fail2ban-client set sshd banip 203.0.113.10 > /dev/null 2>&1; "
+    "for i in 1 2 3 4 5 6 7 8 9 10; do nft list set inet f2b-table addr-set-sshd 2>/dev/null | grep -c -F 203.0.113.10 > /dev/null && break; sleep 2; done; "
+    "for i in 1 2 3 4 5 6 7 8 9 10; do nft list set inet f2b-table addr6-set-halos-api 2>/dev/null | grep -c -F 2001:db8::9 > /dev/null && break; sleep 2; done; "
+    "echo F2BV6 $(nft list set inet f2b-table addr6-set-halos-api 2>&1 | grep -c -F 2001:db8::9) "
+    "$(nft list chain inet f2b-table f2b-chain 2>&1 | grep -c -F 'tcp dport 8731 ip6 saddr @addr6-set-halos-api reject with tcp reset'); "
+    "echo F2BSSH $(nft list set inet f2b-table addr-set-sshd 2>&1 | grep -c -F 203.0.113.10) "
+    "$(nft list chain inet f2b-table f2b-chain 2>&1 | grep -c -F 'tcp dport 22 ip saddr @addr-set-sshd reject with tcp reset'); "
+    "halosctl fail2ban unban 2001:db8::9 > /dev/null 2>&1; halosctl fail2ban unban 203.0.113.10 > /dev/null 2>&1; "
+    "for i in 1 2 3 4 5 6 7 8 9 10; do nft list set inet f2b-table addr-set-sshd 2>/dev/null | grep -c -F 203.0.113.10 > /dev/null || break; sleep 2; done; "
+    "echo F2BUN2 $(nft list set inet f2b-table addr6-set-halos-api 2>&1 | grep -c -F 2001:db8::9) $(nft list set inet f2b-table addr-set-sshd 2>&1 | grep -c -F 203.0.113.10); "
+    # firewalld lets through only the ports it opens itself, not ports others DNAT: its running
+    # rules send DNAT'd traffic to a chain that rejects it.
+    "echo FWSTRICT $(nft list chain inet firewalld filter_INPUT_dnat 2>/dev/null | grep -c -e reject) $(systemctl is-active firewalld); "
+    # fail2ban runs under its system-call filter and sees no system bus in its own mount namespace.
+    "F2BPID=$(systemctl show -p MainPID --value fail2ban); "
+    "echo F2BSEC $(grep -c -x 'Seccomp:.2' /proc/$F2BPID/status) $(nsenter -t $F2BPID -m test -S /run/dbus/system_bus_socket; echo $?); "
+    # Why, if a ban didn't land: fail2ban's own last lines and SELinux's refusals for it.
+    "journalctl -u fail2ban -n 15 --no-pager -o cat | sed -e 's/.*/F2BLOG &/'; "
+    "echo F2BAVC $(ausearch -m avc -ts boot 2>/dev/null | grep -c -e fail2ban -e 'comm=.nft'); "
+    "ausearch -m avc -ts boot 2>/dev/null | grep -e fail2ban -e 'comm=.nft' | tail -n 5 | cut -c 1-400 | sed -e 's/.*/F2BAVCL &/'; "
+    # The front door takes 32 KB of request line and headers: more is refused (431), so an
+    # access-log line always fits one journal entry (LineMax).
+    "echo HDRCAP $(curl -s -o /dev/null -w '%{http_code}' -H \"X-Long: $(head -c 40000 /dev/zero | tr '\\0' a)\" http://127.0.0.1:8731/) "
+    "$(systemd-analyze cat-config systemd/journald.conf | grep -c -x LineMax=256K); "
+    # The filter through fail2ban's real journal reader. Halogen is down here, so the front
+    # door's line is a 503, which Caddy logs at level error: the shipped pattern is run with
+    # only those two words swapped, and must match that line (1 = some line matched).
+    "curl -s -k -o /dev/null http://127.0.0.1:8731/v1/models; sleep 2; "
+    "echo F2BRE $(fail2ban-regex -m _SYSTEMD_UNIT=halos-proxy.service systemd-journal "
+    "\"$(sed -n 's/failregex = //p' /etc/fail2ban/filter.d/halos-api.conf | sed -e 's/info/error/' -e 's/401/503/')\" | grep -c -e ' [1-9][0-9]* matched'); "
+    "echo F2BMEM $(systemctl show -p MemoryCurrent --value fail2ban); "
+    # The guided install (#42): volume sizes, hostname, admin user, and no password left behind.
+    "lvs --noheadings --units g --nosuffix -o lv_name,lv_size halos; cat /etc/hostname; id admin; "
+    "grep -rIlsE 'halogentest|rootsecret|adminsecret' /etc /var/roothome /var/log /boot | sed 's/.*/PWLEAK &/'; "
+    "echo PWJOURNAL $(journalctl -o cat | grep -cE 'halogentest|rootsecret|adminsecret'); "
+    # The serial getty has halOS's port check and still runs on a port that answers (QEMU's
+    # ttyS0). QEMU's other ports don't fail like freyja's dead ttyS0, so the skip is checked there.
+    "echo SERIALGETTY $(systemctl is-active serial-getty@ttyS0.service) "
+    "$(systemctl show serial-getty@ttyS0.service -p ExecCondition --value | grep -c stty); "
+    # Unlock over SSH (#13): no early-boot network settings may stay in the running system.
+    "for f in /run/NetworkManager/system-connections/*; do [ -e \"$f\" ] && echo NMRUN $f; done; "
+    "echo RESULT-END; } > /dev/ttyS0 2>&1\n")
+
+SELFTEST = ("halogenctl selftest > /tmp/st 2>&1; rc=$?; cat /tmp/st > /dev/ttyS0; "
+    "grep -qF -f /srv/configs/api-key /tmp/st && echo SELFTEST-LEAK > /dev/ttyS0; "
+    "cat /tmp/skip > /dev/ttyS0; echo SKIP-END > /dev/ttyS0; "
+    "cat /run/issue.d/50-halos.issue > /dev/ttyS0; echo ISSUE-END > /dev/ttyS0; "
+    "cat /run/motd.d/50-halos > /dev/ttyS0; "
+    "echo SELFTEST-RC=$rc > /dev/ttyS0\n")
+
+# Each step says when it starts on the serial console, so a slow step shows; what Caddy was
+# given, what listens, its status and log come at the end.
+step = lambda n: "echo HTTPS-STEP-" + n + " $(date +%s) > /dev/ttyS0; "
+# No --retry: curl retries a 503 and obeys its Retry-After (30 s), and a 503 is the answer
+# expected here; halosctl has already waited for Caddy to answer.
+c = "curl -sS -m 10 -o /dev/null "
+HTTPS = (step("on") + "halosctl https self-signed --yes > /tmp/https 2>&1; echo HTTPS-RC=$? >> /tmp/https; "
+    + step("ca") + "/usr/libexec/halogen/https ca > /tmp/ca.pem; "
+    # What Caddy was given and what listens, before any request.
+    + "{ cat /run/halos-https/proxy.env; ss -tlnp; systemctl show halos-proxy -p ActiveState -p SubState -p NRestarts; } > /tmp/https-diag 2>&1; "
+    + step("curl") + c + "-w 'CURL %{http_code}' --cacert /tmp/ca.pem https://127.0.0.1:8731/health >> /tmp/https 2>&1; echo >> /tmp/https; "
+    + c + "-w 'REDIRECT %{http_code}' http://127.0.0.1:8731/health >> /tmp/https 2>&1; echo >> /tmp/https; "
+    + step("selftest") + "halogenctl selftest 2>&1 | grep -E 'https|proxy:|dashboard:|api-ipv6' >> /tmp/https; "
+    + "systemctl status halos-proxy --no-pager -n 0 >> /tmp/https-diag 2>&1; journalctl -b -u halos-proxy --no-pager -o cat -n 25 >> /tmp/https-diag 2>&1; "
+    + step("off") + "halosctl https off --yes >> /tmp/https 2>&1; echo OFF-RC=$? >> /tmp/https; "
+    + step("back") + c + "-w 'BACK %{http_code}' http://127.0.0.1:8731/health >> /tmp/https 2>&1; echo >> /tmp/https; "
+    # DNS credentials reach Caddy as systemd credentials (LoadCredential=), readable by its user,
+    # and gone after forget-dns. (The runtime-folder count is only a smoke check: the copy
+    # happened in letsencrypt mode, which tests/https.sh covers.) A made-up DuckDNS token:
+    # the mode stays off, so nothing is asked of DuckDNS.
+    + step("cred") + "printf 'api_token=0123abcd-0123-abcd-0123-0123456789ab' | /usr/libexec/halogen/https dns-stage duckdns >> /tmp/https 2>&1; "
+    + "/usr/libexec/halogen/https dns-commit; systemctl restart halos-proxy; sleep 3; "
+    + "echo CRED $(stat -c '%a %U' /run/credentials/halos-proxy.service/dns_api_token) $(ls -A /run/halos-proxy | grep -c dns) >> /tmp/https 2>&1; "
+    + "u=$(ps -o uid= -p $(systemctl show -P MainPID halos-proxy)); "
+    + "echo CREDREAD $(setpriv --reuid=$u --regid=$u --clear-groups head -c 4 /run/credentials/halos-proxy.service/dns_api_token | wc -c) >> /tmp/https 2>&1; "
+    # forget-dns restarts Caddy itself, so the token it had loaded goes too.
+    + "halosctl https forget-dns --yes >> /tmp/https 2>&1; sleep 3; "
+    + "echo CREDGONE $(ls -A /run/credentials/halos-proxy.service | grep -c api_token) $(systemctl is-active halos-proxy) >> /tmp/https 2>&1; "
+    # Each switch changes the login screen's line, and agetty's reload on the serial console
+    # can swallow what is written meanwhile (login-status runs every 30 s): wait it out.
+    + step("print") + "sleep 35; cat /tmp/https /tmp/https-diag > /dev/ttyS0; echo HTTPS-END > /dev/ttyS0\n")
+
+SSHU = ("halosctl ssh-unlock > /tmp/sshu 2>&1; echo SSHU-RC=$? >> /tmp/sshu; "
+    "echo CHOICE $(/usr/libexec/halogen/ssh-unlock choice) >> /tmp/sshu; "
+    "echo ADMINKEYS $(grep -c halostest /var/home/admin/.ssh/authorized_keys) >> /tmp/sshu; "
+    "halogenctl selftest 2>&1 | grep ssh-unlock >> /tmp/sshu; "
+    # What the installer's save-unlock said (/var/log/anaconda keeps the %post output).
+    "grep -h halOS /var/log/anaconda/ks-script-*.log >> /tmp/sshu; "
+    "cat /tmp/sshu > /dev/ttyS0; echo SSHU-END > /dev/ttyS0\n")
+
+SCRIPTS = {"report": REPORT, "selftest": SELFTEST, "https": HTTPS, "sshu": SSHU}
+PROBE = "/run/halos-probe"
+
+if len(sys.argv) == 3 and sys.argv[1] == "--scripts":
+    d = pathlib.Path(sys.argv[2])
+    d.mkdir(parents=True, exist_ok=True)
+    for name, text in SCRIPTS.items():
+        (d / f"{name}.sh").write_text(text)
+    sys.exit(0)
 
 sock_path, serial, out = sys.argv[1:4]
 mode = sys.argv[4] if len(sys.argv) > 4 and sys.argv[4] else "plain"
@@ -30,6 +234,10 @@ mon.connect(sock_path)
 def cmd(text):
     mon.send((text + "\n").encode())
     time.sleep(0.05)
+
+def run(name):
+    """Run one of SCRIPTS from the HALOS_PROBE disk, mounted after login."""
+    typed(f"bash {PROBE}/{name}.sh\n")
 
 def typed(text):
     for ch in text:
@@ -69,152 +277,18 @@ typed("rootsecret\n"); time.sleep(5)
 # that a VM does not have. Give them time before reporting.
 typed("timeout 180 sh -c 'until journalctl -o cat _SYSTEMD_USER_UNIT=halogen-fetch.service | grep -q halogen-fetch; do sleep 5; done'\n")
 time.sleep(5)
-typed("{ echo RESULT-START; cat /proc/cmdline; dmesg | grep -i secure; bootctl status | grep -i secure; "
-      "bootc status | head -12; udevadm verify /usr/lib/udev/rules.d/70-halogen-devices.rules; "
-      "lsblk -f | grep -i crypto; sysctl kernel.dmesg_restrict kernel.kptr_restrict kernel.yama.ptrace_scope; sshd -T | grep -i x11forwarding; "
-      "for d in $(lsblk -rno PATH,FSTYPE | awk '$2==\"crypto_LUKS\"{print $1}'); do cryptsetup luksDump $d | grep -i systemd-tpm2; done; vgs --noheadings -o vg_name; findmnt -rn -o TARGET,SOURCE -t xfs; sestatus | head -3; id halogen; loginctl show-user halogen -p Linger; "
-      "systemctl status user@970.service --no-pager | head -4; journalctl --no-pager -n 8 -o cat _SYSTEMD_USER_UNIT=halogen-fetch.service; systemctl --failed --no-legend --no-pager; "
-      "systemctl is-active firewalld halogen-prepare; halosctl version; ls /etc/ssh/sshd_config.d; sshd -T | grep -i permitrootlogin; journalctl -b -o cat -u bootc-fstab-edit; echo FSTABMARK $(grep -c Updated.by.bootc-fstab-edit /etc/fstab); echo BOOTSZ $(findmnt -bno SIZE,USED /boot) $(findmnt -bno SIZE /boot/efi); fwupdtool esp-list --json > /tmp/esp 2>&1; echo ESPRC $? $(grep -c /boot/efi /tmp/esp) $(systemctl is-enabled udisks2); echo UDLOOP $(runuser -u admin -- udisksctl loop-setup -r --no-user-interaction -f /etc/os-release 2>&1 | grep -c Error.NotAuthorized:); runuser -u halogen -- busctl call org.freedesktop.UDisks2 /org/freedesktop/UDisks2/Manager org.freedesktop.DBus.Properties GetAll s org.freedesktop.UDisks2.Manager > /tmp/udbus 2>&1; echo UDBUS $(grep -c -i access.denied /tmp/udbus); echo UDBUSOUT $(head -c 200 /tmp/udbus | tr -cd [:print:]); echo UDBUSLOG $(journalctl -b -u dbus-broker --no-pager -o cat | grep -i -e halogen -e udisks | tail -n 3 | tr -cd [:print:]); echo UDBUSADMIN $(runuser -u admin -- busctl call org.freedesktop.UDisks2 /org/freedesktop/UDisks2/Manager org.freedesktop.DBus.Properties GetAll s org.freedesktop.UDisks2.Manager 2>&1 | grep -c -F a{sv}); "
-      # Security audit P1: a link planted in /srv/models must not let root hand its target to halogen.
-      # Only the NPU edition makes model folders, so on no-NPU this passes without testing much.
-      "mkdir -p -m 755 /var/tmp/victim; mv /var/srv/models/custom /var/srv/models/custom.x; ln -s /var/tmp/victim /var/srv/models/custom; "
-      "systemctl restart halogen-prepare; ls -ld /var/tmp/victim; rm /var/srv/models/custom; mv /var/srv/models/custom.x /var/srv/models/custom; "
-      "systemctl restart halogen-prepare; "
-      # Request records (#107): on adds the mount and counts only reach Halogen; off removes it.
-      # Halogen doesn't run in the VM, so nothing is recorded: that part is checked on freyja.
-      "halogenctl records on --yes 2>&1 | cat > /tmp/rec; "
-      "echo RECCONF $(halogenctl config 2>/dev/null | grep -c -x -e HALOGEN_RECORD_DIR=/records -e HALOGEN_RECORD_TEXT=none) "
-      "$(setpriv --reuid=halogen --regid=halogen --init-groups env XDG_RUNTIME_DIR=/run/user/970 systemctl --user cat halogen.service 2>/dev/null | grep -c -F srv/logs/halogen:/records); "
-      # With recording on, the selftest sees the mount (it warned wrongly on freyja).
-      # It runs with a variable its own tests use set: through halogenctl that must change nothing
-      # (STENV 0: the path never shows in a message; RECST proves there was output).
-      "HALOS_USR_ETC=/none halogenctl selftest > /tmp/stfull 2>&1; grep records: /tmp/stfull > /tmp/recst; echo STENV $(grep -c -e /none /tmp/stfull); echo RECST $(grep -c -e mount /tmp/recst) $(grep -c -e 'INFO records: on' /tmp/recst); cat /tmp/recst >> /tmp/rec; "
-      "halogenctl records off --yes 2>&1 | cat >> /tmp/rec; echo RECOFF $(ls /etc/containers/systemd/users/970/halogen.container.d | grep -c records); "
-      "stat -c 'RECDIR %U %a' /var/srv/logs/halogen; cat /tmp/rec; "
-      # The prompt cache on disk: its private folder, the mount in Halogen's unit, on by default.
-      "stat -c 'PCDIR %U %a' /var/srv/models/.prompt-cache; "
-      "echo PCACHE $(halogenctl config 2>/dev/null | grep -c -x -e HALOGEN_CACHE_DIR=/models/.prompt-cache -e HALOGEN_CACHE_PRUNE_OLD=1) "
-      "$(setpriv --reuid=halogen --regid=halogen --init-groups env -C / XDG_RUNTIME_DIR=/run/user/970 systemctl --user cat halogen.service 2>/dev/null | grep -c -F .prompt-cache:/models/.prompt-cache:noexec); "
-      # Off mounts the folder read-only and stops telling Halogen about it; on puts both back and
-      # leaves no file behind.
-      "halogenctl cache off --yes > /tmp/pc 2>&1; "
-      "echo PCOFF $(setpriv --reuid=halogen --regid=halogen --init-groups env -C / XDG_RUNTIME_DIR=/run/user/970 systemctl --user cat halogen.service 2>/dev/null | grep -c -F .prompt-cache:/models/.prompt-cache:ro,noexec) "
-      "$(halogenctl config 2>/dev/null | grep -c -e HALOGEN_CACHE_DIR) "
-      "$(setpriv --reuid=halogen --regid=halogen --init-groups env -C / XDG_RUNTIME_DIR=/run/user/970 systemctl --user cat halogen.service 2>/dev/null | grep -e ExecStart= | grep -o -F .prompt-cache:/models/.prompt-cache: | grep -c -e prompt); "
-      "halogenctl cache on --yes >> /tmp/pc 2>&1; "
-      "echo PCON $(setpriv --reuid=halogen --regid=halogen --init-groups env -C / XDG_RUNTIME_DIR=/run/user/970 systemctl --user cat halogen.service 2>/dev/null | grep -c -F .prompt-cache:/models/.prompt-cache:noexec) "
-      "$(halogenctl config 2>/dev/null | grep -c -x -e HALOGEN_CACHE_DIR=/models/.prompt-cache) $(ls /etc/containers/systemd/users/halogen.container.d | grep -c prompt); cat /tmp/pc; "
-      # Hardening: the logs volume can't hold programs, and Halogen's container is read-only.
-      "echo RECMNT $(findmnt -n -o OPTIONS /var/srv/logs | tr , ' ' | xargs -n 1 | grep -c -x -e nodev -e nosuid -e noexec) "
-      "$(setpriv --reuid=halogen --regid=halogen --init-groups env XDG_RUNTIME_DIR=/run/user/970 systemctl --user cat halogen.service 2>/dev/null | grep -c -e --read-only); "
-      # Logs (#107): auditd runs with halOS's watches, a change in /etc/halos is recorded, and the
-      # journal has halOS's cap.
-      # The rule leaving Halogen out is loaded (-i would hide it failing), and a run of halosctl
-      # from this login is found too (an exec rule on /usr, which is composefs here).
-      "echo AUDIT $(systemctl is-active auditd) $(auditctl -l | grep -c -E -e 'key=|-k ') "
-      "$(auditctl -l | grep -c -x -e '-a never,task -F uid=970 -F auid=970') "
-      "$(auditctl -s | grep -c -x -e 'enabled 2'); auditctl -l | grep -e never; "
-      # Hardening: the exemption is Halogen's login session only. Its service manager has login uid
-      # 970; a file made by a unit it starts leaves no record, one made by root acting as halogen
-      # (runuser from this login) does. The Quadlet folder is watched. The rules are locked.
-      "echo HLOGIN $(cat /proc/$(systemctl show -p MainPID --value user@970.service)/loginuid); "
-      # systemd-run --wait talks to the D-Bus user bus, and this login's DBUS_SESSION_BUS_ADDRESS is
-      # root's, so halogen's is named. Only the records that create the files are counted (root's
-      # rm afterwards is recorded under the same names), and AUDITRAN shows the unit made its file.
-      "setpriv --reuid=970 --regid=970 --clear-groups env -C / XDG_RUNTIME_DIR=/run/user/970 "
-      "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/970/bus systemd-run --user --wait -q touch /srv/configs/audit-a; "
-      "runuser -u halogen -- env -C / touch /srv/configs/audit-b; echo AUDITRAN $(ls /srv/configs | grep -c -e audit-a -e audit-b); "
-      "touch /etc/containers/systemd/audit-q; rm -f /etc/containers/systemd/audit-q; "
-      "auditctl -e 0 > /dev/null 2>&1; echo AUDITLOCK $? $(auditctl -s | grep -c -x -e 'enabled 2'); "
-      "echo HCONF $(runuser -u halogen -- env -C / find /var/lib/halogen/.config -maxdepth 3 | xargs); "
-      "touch /etc/halos/audit-probe; rm -f /etc/halos/audit-probe; halosctl version > /dev/null 2>&1; sleep 2; "
-      "echo AUDITHIT $(ausearch -i -k halos-config 2>/dev/null | grep -c audit-probe) "
-      "$(ausearch -i -k halosctl 2>/dev/null | grep -c -e halosctl); "
-      "echo AUDITEX $(ausearch -i -k halogen-config 2>/dev/null | grep -c -e 'audit-a.*nametype=CREATE') "
-      "$(ausearch -i -k halogen-config 2>/dev/null | grep -c -e 'audit-b.*nametype=CREATE') "
-      "$(ausearch -i -k quadlet 2>/dev/null | grep -c -e audit-q); rm -f /srv/configs/audit-a /srv/configs/audit-b; "
-      # Hardening: sshd refuses the halogen service user; the converter's real sandbox (the same
-      # systemd-run call a conversion makes) starts under halogen's manager with its probes passing
-      # (work folder writable, models not, no devices, logs, shared memory or sockets, and the
-      # converter runs); on the NPU edition the model mounts are noexec.
-      "echo SSHDENY $(sshd -T -C user=halogen,host=x,addr=203.0.113.9 | grep -c -i -e 'denyusers halogen'); "
-      "setpriv --reuid=970 --regid=970 --clear-groups env -C / HOME=/var/lib/halogen XDG_RUNTIME_DIR=/run/user/970 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/970/bus "
-      "/usr/libexec/halogen/flash-checkpoint sandbox-check 2>&1 | cat; echo CONVSB ${PIPESTATUS[0]}; "
-      "echo NPUMNT $(setpriv --reuid=halogen --regid=halogen --init-groups env -C / XDG_RUNTIME_DIR=/run/user/970 systemctl --user cat halogen.service 2>/dev/null | grep -e ExecStart= | grep -o -F noexec,nosuid,nodev | grep -c -e noexec); "
-      # Halogen's network (#120): the generated unit puts it on halogen-internal, and Podman makes
-      # that network internal (no route out) and without DNS. Podman's warnings (stderr) aren't part
-      # of the answer: without the bus address it warns about a missing user session.
-      "echo HNET $(setpriv --reuid=halogen --regid=halogen --init-groups env -C / XDG_RUNTIME_DIR=/run/user/970 systemctl --user cat halogen.service 2>/dev/null | grep -e ExecStart= | grep -c -E -e '--network[= ]halogen-internal( |$)') "
-      "$(setpriv --reuid=970 --regid=970 --clear-groups env -C / XDG_RUNTIME_DIR=/run/user/970 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/970/bus systemctl --user start halogen-internal-network.service > /dev/null 2>&1; echo $?) "
-      "$(setpriv --reuid=970 --regid=970 --clear-groups env -C / HOME=/var/lib/halogen XDG_RUNTIME_DIR=/run/user/970 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/970/bus podman network inspect halogen-internal --format '{{.Internal}}-{{.DNSEnabled}}-{{.IPv6Enabled}}-{{len .Routes}}-{{range .Subnets}}{{.Gateway}}{{end}}' 2>/dev/null); "
-      "echo JOURNALCAP $(systemd-analyze cat-config systemd/journald.conf | grep -c -x SystemMaxUse=4G); "
-      # fail2ban (#92): running with both jails; a ban becomes an entry in its nftables set and halosctl lifts
-      # it; and the API filter matches the front door's real log line (a 503 here, Halogen being
-      # down, with its status set to 401: the line's shape is what the filter depends on).
-      "echo F2B $(systemctl is-active fail2ban) $(fail2ban-client status | grep -c -e 'halos-api, sshd'); "
-      # It runs in its own SELinux domain: a sandbox option that blocked the switch from systemd's
-      # domain (NoNewPrivileges did, for this policy) would leave it unable to write its database.
-      "echo F2BDOM $(ps -o label= -C fail2ban-server | grep -c -e fail2ban_t); "
-      # A ban is an entry in fail2ban's own nftables set (under its low CPU share, so it is waited
-      # for), in a chain asked before firewalld's; it survives a firewalld reload; halosctl lifts it.
-      "fail2ban-client set halos-api banip 203.0.113.9 > /dev/null 2>&1; "
-      "for i in 1 2 3 4 5 6 7 8 9 10; do nft list set inet f2b-table addr-set-halos-api 2>/dev/null | grep -c -F 203.0.113.9 > /dev/null && break; sleep 2; done; "
-      "echo F2BBAN $(nft list set inet f2b-table addr-set-halos-api 2>&1 | grep -c -F 203.0.113.9) "
-      "$(nft list chain inet f2b-table f2b-chain 2>&1 | grep -c -e 'priority filter - 1' -e 'tcp dport 8731 ip saddr @addr-set-halos-api reject with tcp reset'); "
-      "firewall-cmd --reload > /dev/null 2>&1; "
-      "echo F2BRELOAD $(nft list set inet f2b-table addr-set-halos-api 2>&1 | grep -c -F 203.0.113.9); "
-      "halosctl fail2ban unban 203.0.113.9 > /dev/null 2>&1; "
-      "for i in 1 2 3 4 5 6 7 8 9 10; do nft list set inet f2b-table addr-set-halos-api 2>/dev/null | grep -c -F 203.0.113.9 > /dev/null || break; sleep 2; done; "
-      "echo F2BUN $(nft list set inet f2b-table addr-set-halos-api 2>&1 | grep -c -F 203.0.113.9); "
-      # The same for an IPv6 address on the API and an IPv4 one on SSH (its own set, port 22).
-      "fail2ban-client set halos-api banip 2001:db8::9 > /dev/null 2>&1; fail2ban-client set sshd banip 203.0.113.10 > /dev/null 2>&1; "
-      "for i in 1 2 3 4 5 6 7 8 9 10; do nft list set inet f2b-table addr-set-sshd 2>/dev/null | grep -c -F 203.0.113.10 > /dev/null && break; sleep 2; done; "
-      "for i in 1 2 3 4 5 6 7 8 9 10; do nft list set inet f2b-table addr6-set-halos-api 2>/dev/null | grep -c -F 2001:db8::9 > /dev/null && break; sleep 2; done; "
-      "echo F2BV6 $(nft list set inet f2b-table addr6-set-halos-api 2>&1 | grep -c -F 2001:db8::9) "
-      "$(nft list chain inet f2b-table f2b-chain 2>&1 | grep -c -F 'tcp dport 8731 ip6 saddr @addr6-set-halos-api reject with tcp reset'); "
-      "echo F2BSSH $(nft list set inet f2b-table addr-set-sshd 2>&1 | grep -c -F 203.0.113.10) "
-      "$(nft list chain inet f2b-table f2b-chain 2>&1 | grep -c -F 'tcp dport 22 ip saddr @addr-set-sshd reject with tcp reset'); "
-      "halosctl fail2ban unban 2001:db8::9 > /dev/null 2>&1; halosctl fail2ban unban 203.0.113.10 > /dev/null 2>&1; "
-      "for i in 1 2 3 4 5 6 7 8 9 10; do nft list set inet f2b-table addr-set-sshd 2>/dev/null | grep -c -F 203.0.113.10 > /dev/null || break; sleep 2; done; "
-      "echo F2BUN2 $(nft list set inet f2b-table addr6-set-halos-api 2>&1 | grep -c -F 2001:db8::9) $(nft list set inet f2b-table addr-set-sshd 2>&1 | grep -c -F 203.0.113.10); "
-      # firewalld lets through only the ports it opens itself, not ports others DNAT: its running
-      # rules send DNAT'd traffic to a chain that rejects it.
-      "echo FWSTRICT $(nft list chain inet firewalld filter_INPUT_dnat 2>/dev/null | grep -c -e reject) $(systemctl is-active firewalld); "
-      # fail2ban runs under its system-call filter and sees no system bus in its own mount namespace.
-      "F2BPID=$(systemctl show -p MainPID --value fail2ban); "
-      "echo F2BSEC $(grep -c -x 'Seccomp:.2' /proc/$F2BPID/status) $(nsenter -t $F2BPID -m test -S /run/dbus/system_bus_socket; echo $?); "
-      # Why, if a ban didn't land: fail2ban's own last lines and SELinux's refusals for it.
-      "journalctl -u fail2ban -n 15 --no-pager -o cat | sed -e 's/.*/F2BLOG &/'; "
-      "echo F2BAVC $(ausearch -m avc -ts boot 2>/dev/null | grep -c -e fail2ban -e 'comm=.nft'); "
-      "ausearch -m avc -ts boot 2>/dev/null | grep -e fail2ban -e 'comm=.nft' | tail -n 5 | cut -c 1-400 | sed -e 's/.*/F2BAVCL &/'; "
-      # The front door takes 32 KB of request line and headers: more is refused (431), so an
-      # access-log line always fits one journal entry (LineMax).
-      "echo HDRCAP $(curl -s -o /dev/null -w '%{http_code}' -H \"X-Long: $(head -c 40000 /dev/zero | tr '\\0' a)\" http://127.0.0.1:8731/) "
-      "$(systemd-analyze cat-config systemd/journald.conf | grep -c -x LineMax=256K); "
-      # The filter through fail2ban's real journal reader. Halogen is down here, so the front
-      # door's line is a 503, which Caddy logs at level error: the shipped pattern is run with
-      # only those two words swapped, and must match that line (1 = some line matched).
-      "curl -s -k -o /dev/null http://127.0.0.1:8731/v1/models; sleep 2; "
-      "echo F2BRE $(fail2ban-regex -m _SYSTEMD_UNIT=halos-proxy.service systemd-journal "
-      "\"$(sed -n 's/failregex = //p' /etc/fail2ban/filter.d/halos-api.conf | sed -e 's/info/error/' -e 's/401/503/')\" | grep -c -e ' [1-9][0-9]* matched'); "
-      "echo F2BMEM $(systemctl show -p MemoryCurrent --value fail2ban); "
-      # The guided install (#42): volume sizes, hostname, admin user, and no password left behind.
-      "lvs --noheadings --units g --nosuffix -o lv_name,lv_size halos; cat /etc/hostname; id admin; "
-      "grep -rIlsE 'halogentest|rootsecret|adminsecret' /etc /var/roothome /var/log /boot | sed 's/.*/PWLEAK &/'; "
-      "echo PWJOURNAL $(journalctl -o cat | grep -cE 'halogentest|rootsecret|adminsecret'); "
-      # The serial getty has halOS's port check and still runs on a port that answers (QEMU's
-      # ttyS0). QEMU's other ports don't fail like freyja's dead ttyS0, so the skip is checked there.
-      "echo SERIALGETTY $(systemctl is-active serial-getty@ttyS0.service) "
-      "$(systemctl show serial-getty@ttyS0.service -p ExecCondition --value | grep -c stty); "
-      # Unlock over SSH (#13): no early-boot network settings may stay in the running system.
-      "for f in /run/NetworkManager/system-connections/*; do [ -e \"$f\" ] && echo NMRUN $f; done; "
-      "echo RESULT-END; } > /dev/ttyS0 2>&1\n")
+# The scripts' disk (see the top). Without it nothing below can run: say so at once.
+typed(f"mkdir -p {PROBE}; mount -o ro LABEL=HALOS_PROBE {PROBE} || echo PROBE-MOUNT-FAILED > /dev/ttyS0\n")
+time.sleep(3)
+run("report")
 
 def wait_serial(marker, seconds):
     deadline = time.time() + seconds
     while time.time() < deadline:
         time.sleep(5)
         log = serial.read_text(errors="replace")
+        if "PROBE-MOUNT-FAILED" in log:
+            sys.exit("the HALOS_PROBE disk with the test scripts could not be mounted")
         if marker in log:
             return log
     sys.exit(f"{marker} never reached the serial log")
@@ -230,12 +304,7 @@ typed("cat /run/issue.d/50-halos.issue > /dev/ttyS0; echo SETUP-WAIT-END > /dev/
       "halosctl setup --skip > /tmp/skip 2>&1; sleep 45; echo SETUP-SKIPPED > /dev/ttyS0\n")
 log = wait_serial("SETUP-SKIPPED", 180)
 (out / "setup.txt").write_text(log.split("RESULT-END")[-1].split("SETUP-SKIPPED")[0])
-typed("halogenctl selftest > /tmp/st 2>&1; rc=$?; cat /tmp/st > /dev/ttyS0; "
-      "grep -qF -f /srv/configs/api-key /tmp/st && echo SELFTEST-LEAK > /dev/ttyS0; "
-      "cat /tmp/skip > /dev/ttyS0; echo SKIP-END > /dev/ttyS0; "
-      "cat /run/issue.d/50-halos.issue > /dev/ttyS0; echo ISSUE-END > /dev/ttyS0; "
-      "cat /run/motd.d/50-halos > /dev/ttyS0; "
-      "echo SELFTEST-RC=$rc > /dev/ttyS0\n")
+run("selftest")
 log = wait_serial("SELFTEST-RC=", 300)
 selftest = log.split("RESULT-END")[-1].split("SELFTEST-RC=")[0]
 (out / "selftest.txt").write_text(re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", selftest))
@@ -243,49 +312,13 @@ selftest = log.split("RESULT-END")[-1].split("SELFTEST-RC=")[0]
 # HTTPS (#102): self-signed, then back to plain HTTP. Halogen isn't up in the VM, so Caddy's own
 # 503 note answers /health: CURL 503 means the TLS handshake passed with halOS's authority.
 if mode in ("plain", "luks-stale"):   # the first boot only
-    # Each step says when it starts on the serial console, so a slow step shows; what Caddy was
-    # given, what listens, its status and log come at the end.
-    step = lambda n: "echo HTTPS-STEP-" + n + " $(date +%s) > /dev/ttyS0; "
-    # No --retry: curl retries a 503 and obeys its Retry-After (30 s), and a 503 is the answer
-    # expected here; halosctl has already waited for Caddy to answer.
-    c = "curl -sS -m 10 -o /dev/null "
-    typed(step("on") + "halosctl https self-signed --yes > /tmp/https 2>&1; echo HTTPS-RC=$? >> /tmp/https; "
-          + step("ca") + "/usr/libexec/halogen/https ca > /tmp/ca.pem; "
-          # What Caddy was given and what listens, before any request.
-          + "{ cat /run/halos-https/proxy.env; ss -tlnp; systemctl show halos-proxy -p ActiveState -p SubState -p NRestarts; } > /tmp/https-diag 2>&1; "
-          + step("curl") + c + "-w 'CURL %{http_code}' --cacert /tmp/ca.pem https://127.0.0.1:8731/health >> /tmp/https 2>&1; echo >> /tmp/https; "
-          + c + "-w 'REDIRECT %{http_code}' http://127.0.0.1:8731/health >> /tmp/https 2>&1; echo >> /tmp/https; "
-          + step("selftest") + "halogenctl selftest 2>&1 | grep -E 'https|proxy:|dashboard:|api-ipv6' >> /tmp/https; "
-          + "systemctl status halos-proxy --no-pager -n 0 >> /tmp/https-diag 2>&1; journalctl -b -u halos-proxy --no-pager -o cat -n 25 >> /tmp/https-diag 2>&1; "
-          + step("off") + "halosctl https off --yes >> /tmp/https 2>&1; echo OFF-RC=$? >> /tmp/https; "
-          + step("back") + c + "-w 'BACK %{http_code}' http://127.0.0.1:8731/health >> /tmp/https 2>&1; echo >> /tmp/https; "
-          # DNS credentials reach Caddy as systemd credentials (LoadCredential=), readable by its user,
-          # and gone after forget-dns. (The runtime-folder count is only a smoke check: the copy
-          # happened in letsencrypt mode, which tests/https.sh covers.) A made-up DuckDNS token:
-          # the mode stays off, so nothing is asked of DuckDNS.
-          + step("cred") + "printf 'api_token=0123abcd-0123-abcd-0123-0123456789ab' | /usr/libexec/halogen/https dns-stage duckdns >> /tmp/https 2>&1; "
-          + "/usr/libexec/halogen/https dns-commit; systemctl restart halos-proxy; sleep 3; "
-          + "echo CRED $(stat -c '%a %U' /run/credentials/halos-proxy.service/dns_api_token) $(ls -A /run/halos-proxy | grep -c dns) >> /tmp/https 2>&1; "
-          + "u=$(ps -o uid= -p $(systemctl show -P MainPID halos-proxy)); "
-          + "echo CREDREAD $(setpriv --reuid=$u --regid=$u --clear-groups head -c 4 /run/credentials/halos-proxy.service/dns_api_token | wc -c) >> /tmp/https 2>&1; "
-          # forget-dns restarts Caddy itself, so the token it had loaded goes too.
-          + "halosctl https forget-dns --yes >> /tmp/https 2>&1; sleep 3; "
-          + "echo CREDGONE $(ls -A /run/credentials/halos-proxy.service | grep -c api_token) $(systemctl is-active halos-proxy) >> /tmp/https 2>&1; "
-          # Each switch changes the login screen's line, and agetty's reload on the serial console
-          # can swallow what is written meanwhile (login-status runs every 30 s): wait it out.
-          + step("print") + "sleep 35; cat /tmp/https /tmp/https-diag > /dev/ttyS0; echo HTTPS-END > /dev/ttyS0\n")
+    run("https")
     log = wait_serial("HTTPS-END", 600)
     (out / "https.txt").write_text(re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", log.split("SELFTEST-RC=")[-1].split("HTTPS-END")[0]))
 
 if mode == "luks-stale" and os.environ.get("HALOS_TEST_SSH_UNLOCK"):
     # Unlock over SSH (#13), set up by the installer (TPM and SSH): the next boot asks over SSH too.
-    typed("halosctl ssh-unlock > /tmp/sshu 2>&1; echo SSHU-RC=$? >> /tmp/sshu; "
-          "echo CHOICE $(/usr/libexec/halogen/ssh-unlock choice) >> /tmp/sshu; "
-          "echo ADMINKEYS $(grep -c halostest /var/home/admin/.ssh/authorized_keys) >> /tmp/sshu; "
-          "halogenctl selftest 2>&1 | grep ssh-unlock >> /tmp/sshu; "
-          # What the installer's save-unlock said (/var/log/anaconda keeps the %post output).
-          "grep -h halOS /var/log/anaconda/ks-script-*.log >> /tmp/sshu; "
-          "cat /tmp/sshu > /dev/ttyS0; echo SSHU-END > /dev/ttyS0\n")
+    run("sshu")
     log = wait_serial("SSHU-END", 120)
     (out / "ssh-unlock.txt").write_text(log.split("SELFTEST-RC=")[-1].split("SSHU-END")[0])
 
