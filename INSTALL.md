@@ -989,8 +989,12 @@ sudo halogenctl flash check iq4          # then judge it, before serving it
   must have all its parts. halOS ignores projector files (`mmproj`), llama.cpp draft heads and
   importance matrices.
 - **Builds that Halogen can't read.** Halogen refuses `Q4_1`, `Q2_K`, `Q3_K`, the `IQ1` and
-  `IQ2` builds, and a plain `Q5_0` build. `flash pull` refuses these names before it downloads.
-  Good choices are `IQ4_XS`, `IQ4_NL`, `Q4_K_M` and `Q8_0`. Halogen's page compares some of them.
+  `IQ2` builds, a plain `Q5_0` build and a plain `Q6_K` build. Full-precision builds (`BF16`,
+  `F16`, `F32`) are larger than the memory of the machine. `flash pull` refuses these names
+  before it downloads.
+- **Good choices** are `IQ4_XS` and `IQ4_NL` builds, for example unsloth's `UD-IQ4_XS`.
+  Halogen's page compares some of them. K-quant builds (`Q4_K_M`, `UD-Q4_K_XL`) can give empty
+  replies when two requests overlap (Halogen's "Known issue (0.18.4)").
 - **What it downloads.** It downloads the parts of the build at an exact commit, and Halogen's
   draft head (`qwen38-flash-next-mtp.hgn`, 1.4 GiB) from the official weights repository. A GGUF
   has no draft head that Halogen can use. It checks each file against the hash from Hugging Face.
@@ -1006,7 +1010,7 @@ sudo halogenctl flash check iq4          # then judge it, before serving it
   the kernel stops the conversion, not Halogen. Then `flash pull` tells you to stop Halogen and
   pull again. Nobody has measured the memory that a conversion uses.
 - **The GGUF is deleted** after the conversion. `--keep-gguf` keeps it in
-  `/srv/models/flash/.convert/<name>/gguf`. If the conversion fails, the GGUF stays, so the next
+  `/srv/models/flash/.convert/<name>/gguf`. If the conversion or the check fails, the GGUF stays, so the next
   pull doesn't download it again. `sudo halogenctl flash convert-stop <name>` deletes it.
 - **Text only.** The result has no vision tower, so images stay off with it. It has no tokenizer
   of its own, so it gets the official one.

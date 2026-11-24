@@ -287,6 +287,34 @@ if pull someone/Flash-GGUF --as g8; then fail "a GGUF pull went over flash conve
 grep -q 'convert-stop g8' "$work/out" || fail "the clash wasn't explained"
 ok "a GGUF pull removes planted links, checks hashes and space, and keeps clear of flash convert"
 
+# A shard tampered with at its right size is deleted when its hash fails, so the next pull fetches
+# it again; a folder the download container made unwritable is opened up, not left stuck.
+gguf_repo
+printf 'ln -s x "$1/UD-IQ4_XS/l"; chmod 0555 "$1/UD-IQ4_XS" "$1"\n' > "$work/plant"
+pull someone/Flash-GGUF --as g10 --keep-gguf || fail "a pull whose download folder was made read-only failed"
+s2="$work/models/flash/.convert/g10/gguf/UD-IQ4_XS/Flash-UD-IQ4_XS-00002-of-00002.gguf"
+rm -rf "$work/models/flash/g10"; printf 'shardX' > "$s2"
+if pull someone/Flash-GGUF --as g10; then fail "a same-size tampered shard was converted"; fi
+[ ! -e "$s2" ] || fail "the tampered shard was kept"
+pull someone/Flash-GGUF --as g10 || fail "the pull after a tampered shard failed"
+grep -q 'Flash-UD-IQ4_XS-00002-of-00002.gguf' "$work/hf.log" || fail "the tampered shard wasn't fetched again"
+# flash convert-stop <name> deletes under the name's lock.
+mkdir -p "$work/models/flash/.convert/g11/gguf/sub"; chmod 0555 "$work/models/flash/.convert/g11/gguf"
+( exec 9>> "$work/state/pull-flash-g11.lock"; flock 9; sleep 5 ) & held=$!; sleep 1
+if "$tool" convert-clear g11 > "$work/out" 2>&1; then fail "convert-clear ran under a held lock"; fi
+wait "$held"
+"$tool" convert-clear g11 > "$work/out" 2>&1 || fail "convert-clear failed"
+[ ! -e "$work/models/flash/.convert/g11" ] || fail "convert-clear left the folder"
+ok "a tampered shard is fetched again, read-only folders are opened up, and convert-clear takes the lock"
+# A verify that fails keeps the download; full-precision builds are refused before downloading.
+gguf_repo
+if FAKE_BAD=model.hgn pull someone/Flash-GGUF --as g12; then fail "a result failing verify was accepted"; fi
+[ -f "$work/models/flash/.convert/g12/gguf/UD-IQ4_XS/Flash-UD-IQ4_XS-00001-of-00002.gguf" ] || fail "a failed verify deleted the download"
+put BF16/Flash-BF16-00001-of-00001.gguf b
+if pull someone/Flash-GGUF --as g13 --file BF16/Flash-BF16; then fail "a full-precision build was pulled"; fi
+[ ! -s "$work/hf.log" ] || fail "the full-precision refusal came after a download"
+ok "a failed verify keeps the download, and full precision is refused"
+
 reset_repo
 for bad in '--as ../x' '--as official' '--as .hidden' '--revision -x' "--as a;b"; do
   # shellcheck disable=SC2086 # split on purpose: option and value
