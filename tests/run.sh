@@ -8,6 +8,7 @@ tests/release-info.sh
 tests/channels.sh
 tests/next-tag.sh
 tests/needs-build.sh
+tests/build-helpers.sh
 tests/build-base.sh
 tests/first-boot.sh
 tests/fstab.sh

@@ -39,13 +39,14 @@ name, but allows saying halOS runs Halogen.
 |---|---|
 | `versions.env` | Every pinned input: Fedora base, kernel-next's test kernel, Halogen version, digest and source commit, upstream file hashes, weights repo and revision, ISO builder, bf16-to-hgn and halogen-dashboard commits |
 | `Containerfile` | The OS image. XRT is not in it: Halogen's image carries its own since 0.19.1 |
+| `Containerfile.helpers` | bf16-to-hgn, halogen-dashboard (+ `dashboard-nodump.so`) and Caddy, built from source (#122). `scripts/build-helpers.sh <dir>` builds it on the base by digest into `<dir>/tree` and records `<dir>/inputs` (the versions.env base, its digest and version label, both commits, a hash of its sources); each stage's `toolchain.txt` (#121) travels in the tree; `build.sh` takes `HALOS_HELPERS=<dir>` (else builds it first), refuses a folder whose inputs differ (`--check`), passes it as `--build-context helpers=` and builds the OS image on that same digest, so the libraries match. `build.yml`'s `helpers` job (beside `check`, also the change detection) builds it once and hands it to the four image jobs as a tar artifact of the run (a zip drops modes); no cache crosses runs. `release.yml`, `refresh.yml` and `iso.yml` still build it inside each job |
 | `Containerfile.installer`, `installer/` | The live installer image, Anaconda defaults (storage layout for custom partitioning), branding and boot menu. `installer/guided/`: the guided install's kickstart and `plan-install` (#42) |
 | `files/` | Copied into both editions: systemd units, `halosctl`, `halogenctl`, `halogen-enroll-tpm` (bash completion for all three in `usr/share/bash-completion/completions/`; `tests/completion.sh` fails when a tool gains a top-level command, or a `flash`/`model` subcommand, its completion doesn't offer; checkpoint folder names are written by halogen and its containers, so they are never passed to `compgen -W`, which expands `$(...)`: only plain names, matched by hand), `/usr/libexec/halogen/*` (`flash-checkpoint` and `model-pull` download your own checkpoints) |
 | `variants/npu`, `variants/no-npu` | Per-edition kernel arguments, Quadlet drop-ins, the allowed-options list and default `halogen.env` |
-| `scripts/` | `build.sh`, `build-info.sh` (an image's build record, #121), `build-iso.sh`, `package-iso.sh` (single-file release ISO), `release-info.sh`, `gen-options.py` (options from upstream `FLAGS.md`), `halogen-update.sh` (pins a new Halogen release), `size-report.sh`, `channels.sh` (which channel tags a release moves), `next-tag.sh` (the next release tag), `push-image.sh`, `sign-image.sh` (cosign signing), `kernel-next-update.sh` (moves kernel-next's pin to Fedora's newest plain build), `go-test.sh` (the Go tests of `src/caddy` without an image build; needs network; CI's `check` job in `build.yml` runs it and `tests/run.sh` once, and both edition builds wait for it, #123) |
+| `scripts/` | `build.sh`, `build-helpers.sh`, `build-info.sh` (an image's build record, #121), `build-iso.sh`, `package-iso.sh` (single-file release ISO), `release-info.sh`, `gen-options.py` (options from upstream `FLAGS.md`), `halogen-update.sh` (pins a new Halogen release), `size-report.sh`, `channels.sh` (which channel tags a release moves), `next-tag.sh` (the next release tag), `push-image.sh`, `sign-image.sh` (cosign signing), `kernel-next-update.sh` (moves kernel-next's pin to Fedora's newest plain build), `go-test.sh` (the Go tests of `src/caddy` without an image build; needs network; CI's `check` job in `build.yml` runs it and `tests/run.sh` once, and both edition builds wait for it, #123) |
 | `docs/` | `CLI.md` (every command; update it with a command or option), `CLIENTS.md` (connecting apps and coding agents, and trusting the certificate per agent, from each project's docs and source) |
 | `CHANGELOG.md`, `ROADMAP.md` | What each release changed (PRs add to Unreleased), and the order of the work ahead |
-| `src/` | halOS's own source: `dashboard-nodump.c` (built in the Containerfile's dashboard stage), `authenticode-check.py` (kernel-next's Secure Boot check at build time) and `caddy/` (`main.go`, `go.mod`, `go.sum`: Caddy with the DNS providers, built in the caddy stage; Dependabot `gomod`) |
+| `src/` | halOS's own source: `dashboard-nodump.c` (built in `Containerfile.helpers`' dashboard stage), `authenticode-check.py` (kernel-next's Secure Boot check at build time) and `caddy/` (`main.go`, `go.mod`, `go.sum`: Caddy with the DNS providers, built in the caddy stage; Dependabot `gomod`) |
 | `tests/` | `run.sh` (fast checks, no GPU or network), `iso-install.sh` + `vm-login.py` (QEMU install test) |
 | `.claude/skills/ste100/` | Write or rewrite user documentation in ASD-STE100 Simplified Technical English (#152): the rules, what never changes, and `check.py` (code, inline code, links and numbers as on main; every `#anchor` link resolves). Not for CLAUDE.md or `.claude/agents` |
 | `.claude/agents/` | Subagents: `code-reviewer` (QA review before merge) and `security-auditor` (audit, zero-cost hardening ideas). Both only read and report |
@@ -316,7 +317,7 @@ name, but allows saying halOS runs Halogen.
   key pair the owner makes offline (RELEASING.md).
 
 - Converting full-precision weights (`halogenctl flash convert`, #97): bf16-to-hgn
-  (Quat3rnion, MIT/Apache-2.0, `native/` Apache-2.0) is built in the Containerfile's
+  (Quat3rnion, MIT/Apache-2.0, `native/` Apache-2.0) is built in `Containerfile.helpers`'
   `bf16-to-hgn` stage from `BF16_TO_HGN_COMMIT` (same Fedora base, so libstdc++/libgomp match;
   `cargo build --release --locked`, CPU only, about a minute) and copied to
   `/usr/libexec/halogen/bf16-to-hgn` with its licenses; `release.env` records the commit. Its HF
@@ -339,7 +340,7 @@ name, but allows saying halOS runs Halogen.
 
 - Dashboard (#98): Quaternion's [halogen-dashboard](https://github.com/Quat3rnion/halogen-dashboard)
   (MIT/Apache-2.0; Rust collector + Svelte page embedded with rust-embed), built in the
-  Containerfile's `dashboard` stage from `HALOGEN_DASHBOARD_COMMIT` with Fedora's rust (1.99), nodejs
+  `Containerfile.helpers`' `dashboard` stage from `HALOGEN_DASHBOARD_COMMIT` with Fedora's rust (1.99), nodejs
   22 and pnpm 10 (reads its v9 lockfile; upstream says pnpm 11), `--bin halogen-dashboard` only (not
   `fake-halogen`), into `/usr/libexec/halogen/halogen-dashboard`. Licences in
   `/usr/share/licenses/halogen-dashboard/`: its own, `web/` (IBM Plex Sans OFL 1.1, uPlot, Svelte, the
@@ -382,7 +383,7 @@ name, but allows saying halOS runs Halogen.
   `/proc/<MainPID>/environ` belongs to uid 0. `iso.yml` also runs for `src/**`.
 
 - Front door (#102 step 2, #104): `halos-proxy.service` runs Caddy (`/usr/libexec/halogen/caddy`, built
-  in the Containerfile's `caddy` stage from `src/caddy` with Fedora's Go, `GOTOOLCHAIN=local`,
+  in `Containerfile.helpers`' `caddy` stage from `src/caddy` with Fedora's Go, `GOTOOLCHAIN=local`,
   `-mod=readonly`, `CGO_ENABLED=0`; Fedora's caddy package has no DNS providers). DNS providers: caddy-dns
   cloudflare and porkbun; DuckDNS and Namecheap through halOS's own modules in `src/caddy/dnsproviders`
   on the MIT libdns libraries, because caddy-dns/duckdns and /namecheap carry no licence (owner's call;
@@ -1097,7 +1098,7 @@ name, but allows saying halOS runs Halogen.
   rootlessport, not pasta's splice), and both editions.
 
 - Build record (#121): the base stays the moving tag `fedora-bootc:45` (Fedora's fixes, weekly
-  rebuild). `build.sh` resolves it once with `skopeo inspect` (a pinned `repo@sha256:` is checked
+  rebuild). `scripts/build-helpers.sh` (run by `build.sh`, or once per CI run, #122) resolves it once with `skopeo inspect` (a pinned `repo@sha256:` is checked
   to answer with that digest; a tag+digest reference is asked for as `repo@digest`, since
   containers/image refuses both), builds every stage `FROM` that digest, and labels the image
   `io.github.n4berius.halos.base` and `org.opencontainers.image.revision`. release.env gains

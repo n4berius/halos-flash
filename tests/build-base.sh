@@ -5,8 +5,9 @@ set -euo pipefail
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/bin" "$work/src/scripts"
-cp "$repo/scripts/build.sh" "$repo/scripts/image-ref.sh" "$work/src/scripts/"
-cp "$repo/versions.env" "$work/src/"
+cp "$repo/scripts/build.sh" "$repo/scripts/build-helpers.sh" "$repo/scripts/image-ref.sh" "$work/src/scripts/"
+cp "$repo/versions.env" "$repo/Containerfile.helpers" "$work/src/"
+mkdir -p "$work/src/src"; cp -r "$repo/src/caddy" "$repo/src/dashboard-nodump.c" "$work/src/src/"
 printf '#!/bin/bash\necho record\n' > "$work/src/scripts/build-info.sh"
 a="sha256:$(printf 'a%.0s' {1..64})"; b="sha256:$(printf 'b%.0s' {1..64})"
 cat > "$work/bin/skopeo" <<FAKE
@@ -14,7 +15,23 @@ cat > "$work/bin/skopeo" <<FAKE
 echo "\$*" > "$work/asked"
 case "\$*" in *@$b*) echo "$b <no value>" ;; *) echo "$a 45.20261120.0" ;; esac
 FAKE
-printf '#!/bin/bash\nprintf "%%s\\n" "$@" > "%s/podman"\n' "$work" > "$work/bin/podman"
+# The fake podman logs the OS build's arguments; for the helpers' build (--output) it writes
+# their tree and logs the arguments apart.
+cat > "$work/bin/podman" <<FAKE
+#!/bin/bash
+for a in "\$@"; do case "\$a" in type=local,dest=*) dest="\${a#type=local,dest=}" ;; esac; done
+if [ -n "\${dest:-}" ]; then
+  printf '%s\n' "\$@" > "$work/podman-helpers"
+  for f in bf16-to-hgn/bf16-to-hgn bf16-to-hgn/licenses/LICENSE-MIT bf16-to-hgn/licenses/LICENSE-APACHE \
+    bf16-to-hgn/licenses/native/LICENSE bf16-to-hgn/licenses/native/NOTICE dashboard/halogen-dashboard \
+    dashboard/dashboard-nodump.so dashboard/licenses/crates.txt caddy/caddy caddy/licenses/modules.txt \
+    caddy/licenses/go-LICENSE bf16-to-hgn/toolchain.txt dashboard/toolchain.txt caddy/toolchain.txt; do
+    mkdir -p "\$dest/\$(dirname "\$f")"; echo x > "\$dest/\$f"
+  done
+else
+  printf '%s\n' "\$@" > "$work/podman"
+fi
+FAKE
 # shellcheck disable=SC2016 # the fake's own $1
 printf '#!/bin/bash\ncase "$1" in rev-parse) echo 0123abc ;; esac\n' > "$work/bin/git"
 chmod +x "$work"/bin/* "$work/src/scripts/"*
@@ -26,6 +43,9 @@ has "FEDORA_BOOTC_IMAGE=quay.io/fedora/fedora-bootc@$a"
 has "io.github.n4berius.halos.base=quay.io/fedora/fedora-bootc@$a"
 has "HALOS_BASE_VERSION=45.20261120.0"
 has "HALOS_SOURCE_COMMIT=0123abc"
+grep -qxF "FEDORA_BOOTC_IMAGE=quay.io/fedora/fedora-bootc@$a" "$work/podman-helpers" \
+  || { echo "the helpers weren't built on the same digest" >&2; exit 1; }
+grep -q -- "--build-context" "$work/podman" || { echo "the OS build didn't get the helpers" >&2; exit 1; }
 grep -q "docker://quay.io/fedora/fedora-bootc:45" "$work/asked"
 grep -q '^record$' "$work/src/output/build-info-npu-fedora.txt"
 build "registry.example:5000/fedora/fedora-bootc:45"

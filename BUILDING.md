@@ -140,6 +140,7 @@ make machines check your own key, do these steps:
 | Kernel arguments | `variants/<edition>/usr/lib/bootc/kargs.d/10-halogen.toml` |
 | Services, scripts, `halogenctl` | `files/` |
 | Packages in the image | `Containerfile` |
+| bf16-to-hgn, the dashboard or Caddy (built from source) | `Containerfile.helpers` (`scripts/build.sh` builds it first) |
 | Installer defaults, for example partitions | `installer/` |
 | The Halogen version | `versions.env`, as [RELEASING.md](RELEASING.md) describes |
 
