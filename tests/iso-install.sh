@@ -39,6 +39,11 @@ ssh_key=$key
 admin_ssh=yes
 S
 genisoimage -quiet -V HALOS_ANSWERS -o "$out/answers.iso" "$out/answers/answers"
+# The test's long command lines, as scripts on a read-only disk for every boot from the installed
+# disk: vm-login.py types only "bash <script>" instead of each line key by key.
+python3 "$here/vm-login.py" --scripts "$out/probe"
+genisoimage -quiet -r -V HALOS_PROBE -o "$out/probe.iso" "$out/probe"
+probe=(-drive "file=$out/probe.iso,format=raw,if=virtio,readonly=on")
 
 vm() {
   # A fresh swtpm per run; its state in $out/tpm lasts across the install and every boot.
@@ -69,7 +74,7 @@ echo "install finished"
 
 echo "=== first boot from disk ==="
 # No network: the fetch must not start a 125 GB download in CI.
-vm -nic none -serial "file:$out/firstboot.log" &
+vm "${probe[@]}" -nic none -serial "file:$out/firstboot.log" &
 pid=$!
 trap 'kill "$pid" 2>/dev/null || true' EXIT
 python3 "$here/vm-login.py" "$out/monitor.sock" "$out/firstboot.log" "$out" "$([ -n "$luks" ] && echo luks-stale)"
@@ -236,7 +241,7 @@ if [ -n "$luks" ]; then
   echo "=== second boot: stale binding, so the passphrase is asked; answered over SSH; re-enroll ==="
   timeout 180 tail --pid="$pid" -f /dev/null || { echo "the VM did not power off after enrolling" >&2; exit 1; }
   # Network for the initramfs's SSH server only: restrict=on lets nothing out of the VM.
-  vm -nic "user,restrict=on,hostfwd=tcp:127.0.0.1:2222-:22" -serial "file:$out/secondboot.log" &
+  vm "${probe[@]}" -nic "user,restrict=on,hostfwd=tcp:127.0.0.1:2222-:22" -serial "file:$out/secondboot.log" &
   pid=$!
   # As a person would: ssh in, type the passphrase. Until the prompt is there, the server isn't up
   # yet or has nothing to ask; it counts only once the passphrase prompt was answered.
@@ -266,7 +271,7 @@ if [ -n "$luks" ]; then
 
   echo "=== third boot: the TPM must unlock the disk ==="
   timeout 180 tail --pid="$pid" -f /dev/null || { echo "the VM did not power off after re-enrolling" >&2; exit 1; }
-  vm -nic none -serial "file:$out/thirdboot.log" &
+  vm "${probe[@]}" -nic none -serial "file:$out/thirdboot.log" &
   pid=$!
   python3 "$here/vm-login.py" "$out/monitor.sock" "$out/thirdboot.log" "$out" tpm
   cat "$out/report.txt"

@@ -10,6 +10,12 @@ if command -v shellcheck >/dev/null; then shellcheck -x "${scripts[@]}"; else ec
 completions=(files/usr/share/bash-completion/completions/*)
 for f in "${completions[@]}"; do bash -n "$f"; done
 if command -v shellcheck >/dev/null; then shellcheck -s bash "${completions[@]}"; fi
+# The VM test's long checks are written out by vm-login.py and run with bash in the VM: a quoting
+# slip should fail here, not 30 minutes into the ISO install test.
+probe="$(mktemp -d)"
+python3 tests/vm-login.py --scripts "$probe"
+for f in report selftest https sshu; do bash -n "$probe/$f.sh"; done
+rm -r "$probe"
 
 python3 - <<'P'
 import configparser, glob, json, os, re, tomllib, xml.dom.minidom, yaml

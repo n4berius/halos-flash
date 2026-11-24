@@ -1180,7 +1180,12 @@ name, but allows saying halOS runs Halogen.
   binding. Enrolling twice on the same boot is a no-op ("already enrolled").
 - In the VM test, `systemd-pcrextend` needs `SYSTEMD_FORCE_MEASURE=1` on non-UKI boots.
 - `vm-login.py` types through QEMU `sendkey`. Any new character in a typed command needs a
-  key mapping, or it is silently dropped.
+  key mapping, or it is silently dropped. Typing costs about 0.05 s a key: the 11,700-character
+  report took about 10 minutes at each of the NPU test's three boots. So the long lines (report,
+  selftest, HTTPS, SSH unlock) are `SCRIPTS` in `vm-login.py`, written by `vm-login.py --scripts`
+  onto a read-only `HALOS_PROBE` disk that `iso-install.sh` attaches to every boot from the
+  installed disk; after login only the mount and `bash /run/halos-probe/<name>.sh` are typed. Add
+  new checks to a script, not to a typed line.
 - Until 0.19.0 Halogen needed the host's XRT, which halOS took from Debian trixie-backports
   and mounted at three paths. From 0.19.1 its image carries XRT 2.25, so halOS mounts none (a
   host mount must be all three libraries or none). `tests/static.sh` keeps it that way.
@@ -1203,6 +1208,10 @@ name, but allows saying halOS runs Halogen.
   the writer dies of SIGPIPE, and the pipe fails. In tests, write to a file and grep that.
 - ISO install tests take about 25 to 40 minutes, and a new push cancels the previous run.
   Don't push mid-run unless you mean to.
+- GitHub's runners have no native overlay diff (their kernel has `CONFIG_OVERLAY_FS_REDIRECT_DIR`),
+  so every committed build step walks the whole tree: about 8 s per step for the OS image, 3 s for
+  the installer. The four workflows set `BUILDAH_LAYERS=false` (one commit per stage); local builds
+  keep layers, which #161's Caddy caching relies on.
 - The OS image is flattened (`FROM scratch` + `COPY --from=os / /`) after its `dnf remove`
   step, with `/sysroot/ostree` deleted first, as Fedora's rechunker does. Otherwise the removed
   files still ship in the base image's layers inside the ISO. File capabilities survive the copy.
