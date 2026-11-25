@@ -347,6 +347,14 @@ name, but allows saying halOS runs Halogen.
   through the environment. Halogen's `bench`/`sweep` image modes start their own engine, which
   would need Halogen stopped, so they aren't used. Reports (text + JSON, with versions, BIOS, kargs,
   fabric clock, platform profile, checkpoint and settings minus keys) go to `/srv/configs/bench/`.
+  The tool's prompts are the same every run (`lead_line(i)`), so the prompt cache on disk answered
+  every prefill from the second run on (freyja: 0.2 s at every length, 165,593 tok/s at 32K). It now
+  runs through `/usr/share/halogen/bench-cold.py` (passed with `python3 -I -c`, so still no mount),
+  which loads the tool as a module, prefixes `lead_line` with a per-run `Run <12 hex>. ` and wraps
+  `ask` to record `timings.cache_n` of each prefill pass (one token, 256+ prompt tokens) into the
+  JSON's `halos_cold.passes`; the report warns when a pass is over half cached, and only reports
+  with `halos_cold` are compared. It refuses a tool without `lead_line`/`ask`/`main` (check at each
+  Halogen pin). Checked against upstream's real `halogen-bench.py` and a stand-in prefix-cache server.
 - `halogenctl bench tools [--quick]` (`/usr/libexec/halogen/bench-tools`, as halogen): tool-eval-bench
   (SeraphimSerapis, MIT; `TOOL_EVAL_BENCH_COMMIT`/`_VERSION`, v3.1.0) against 18731 with the key in
   `TOOL_EVAL_API_KEY`. Its Python source comes from `Containerfile.helpers`' `tool-eval-bench` stage

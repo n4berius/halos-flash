@@ -51,9 +51,13 @@ trap 'rm -f "$raw" "$raw.json"' EXIT
 echo "Measuring Halogen ($kind run: prefill $pp tokens, generation $tg tokens over Halogen's ten"
 echo "prompt shapes, $reps time(s) each). Other requests are slower meanwhile."
 # The key goes in through the environment, not the command line, so ps never shows it.
+# The tool runs through bench-cold.py, which gives this run's prompts a new first word: the tool
+# sends the same prompts every time, and Halogen's prompt cache (kept on disk) would otherwise
+# answer them from the second run on, in a fraction of a second at any length.
+cold="$(cat "${HALOGEN_BENCH_COLD:-/usr/share/halogen/bench-cold.py}")" || die "cannot read bench-cold.py"
 HALOGEN_API_KEY="$(head -n 1 "$configs/api-key")" podman run --rm --pull=never --network=host \
   --read-only --tmpfs /tmp --cap-drop=all --security-opt no-new-privileges -e HALOGEN_API_KEY \
-  --entrypoint python3 "$HALOGEN_IMAGE" /halogen/tools/halogen-bench.py \
+  --entrypoint python3 "$HALOGEN_IMAGE" -I -c "$cold" /halogen/tools/halogen-bench.py \
   --api "$api" -p "$pp" -n "$tg" -r "$reps" --json > "$raw" \
   || die "the measurement failed; see above, and sudo halogenctl logs"
 # The tool prints two header lines before its JSON. Keep the JSON, with every control character
@@ -65,12 +69,15 @@ fi
 
 # The newest earlier report of the same kind (full or quick), to compare with. Reports are
 # halogen's own files, but one may have been edited, so only a readable one with rows counts.
+# Reports from before bench-cold.py (no halos_cold) are skipped: their prompt reading may have
+# come from the prompt cache.
 prev=/dev/null
 while IFS= read -r f; do
   if [ ! -f "$f" ] || [ -L "$f" ]; then continue; fi
   # One JSON value, of the shape this script writes (a hand-edited one is skipped, not trusted).
   if jq -e -s --arg run "$kind" 'length == 1 and (.[0] | type == "object" and .run == $run
        and (.bench | type == "object") and (.bench.rows | type == "array" and length > 0 and all(type == "object"))
+       and (.bench.halos_cold | type == "object")
        and ((.system // {}) | type == "object") and ((.system.settings // []) | type == "array"))' \
        "$f" > /dev/null 2>&1; then prev="$f"; break; fi
 done < <(find "$dir" -maxdepth 1 -regextype posix-extended -regex '.*/[0-9]{8}-[0-9]{6}\.json' -printf '%f\n' 2>/dev/null \
@@ -162,6 +169,12 @@ def table($label; $rows; $samples):
                  (if $sl > 0 then "\($sl) test\(if $sl == 1 then "" else "s" end) slower" else empty end)] | join(", ")) + "."
           end)
    end),
+  ( [.bench.halos_cold.passes // [] | .[] | select(type == "object")
+     | select((.cached | nz) * 2 > (.tokens | nz))] | length ) as $warm
+  | if $warm > 0 then
+      "Warning: \($warm) prompt-reading pass\(if $warm == 1 then " was" else "es were" end) mostly"
+      + " answered from the prompt cache, so the reading speeds are too high. Run the benchmark again."
+    else empty end,
   "",
   (if ($pp | length) > 0 then
      "Reading the prompt (prefill): how long before the answer starts",
@@ -198,8 +211,9 @@ def table($label; $rows; $samples):
   "how long that length takes at that speed. Spread is the variation between passes (one standard",
   "deviation); for writing it is mostly the prompt type, since code is written about twice as fast",
   "as prose. \"About the same\" means the change is within the normal variation between runs.",
-  "The prompt cache was on, as Halogen runs: compare reading speeds with the \"cache on (a cold",
-  "request)\" rows in Halogen'"'"'s docs/performance.md."
+  "The prompt cache was on, as Halogen runs, but each run uses prompts that are new to it:",
+  "compare reading speeds with the \"cache on (a cold request)\" rows in Halogen'"'"'s",
+  "docs/performance.md."
 '
 # If an earlier report still trips the comparison, show this run without it rather than lose it.
 summary="$(jq -r --argjson reps "$reps" --slurpfile prev "$prev" --arg input_prev "$prev_name" "$report" "$dir/$stamp.json" 2>/dev/null)" \

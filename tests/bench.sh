@@ -15,7 +15,8 @@ f podman 'case "$1" in
        printf "halogen-bench: m, ctx 262144, reps 3, effort low\nendpoint x\n\n"
        echo "{\"model\":\"halogen-q38fn\",\"context\":262144,\"reps\":3,\"rows\":[
          {\"test\":\"pp2048\",\"drafter\":\"mtp\",\"tokens\":2049,\"mean\":${FAKE_PP:-1701.234},\"stdev\":3.21},
-         {\"test\":\"tg128\",\"drafter\":\"mt\u001b[2Jp\",\"tokens\":128,\"mean\":${FAKE_TG:-64.567},\"stdev\":9.1}]}" ;;
+         {\"test\":\"tg128\",\"drafter\":\"mt\u001b[2Jp\",\"tokens\":128,\"mean\":${FAKE_TG:-64.567},\"stdev\":9.1}],
+         \"halos_cold\":{\"passes\":[{\"tokens\":2049,\"cached\":${FAKE_CACHED:-40}},{\"tokens\":2050,\"cached\":${FAKE_CACHED:-40}}]}}" ;;
 esac'
 f curl '[ -z "${FAKE_DOWN:-}" ]'
 f clock '[ -z "${FAKE_CLOCK_LOOSE:-}" ]'
@@ -26,7 +27,8 @@ printf 'Compal\n' > "$work/sys/class/dmi/id/board_vendor"; printf 'Halo\e[2J\n' 
 printf '04.01\n' > "$work/sys/class/dmi/id/bios_version"; printf 'performance\n' > "$work/sys/firmware/acpi/platform_profile"
 echo 'BOOT_IMAGE=x amdgpu.gttsize=126976 iommu=pt quiet' > "$work/cmdline"
 export PATH="$work/bin:$PATH" HALOGEN_RELEASE_FILE="$work/release.env" HALOGEN_CONFIGS_DIR="$work/configs" \
-  HALOGEN_RENDER="$work/bin/render" HALOGEN_SYS="$work/sys" HALOGEN_CMDLINE="$work/cmdline" HALOGEN_CLOCK="$work/bin/clock"
+  HALOGEN_RENDER="$work/bin/render" HALOGEN_SYS="$work/sys" HALOGEN_CMDLINE="$work/cmdline" HALOGEN_CLOCK="$work/bin/clock" \
+  HALOGEN_BENCH_COLD="$repo/files/usr/share/halogen/bench-cold.py"
 bench="$repo/files/usr/libexec/halogen/bench"
 ok() { echo "ok: $*"; }
 fail() { echo "$*" >&2; [ ! -f "$work/out" ] || cat "$work/out" >&2; exit 1; }
@@ -45,6 +47,7 @@ has '^  128 tokens +64\.6 tok/s +±14\.1% +2\.0 s$' "$txt"
 has 'draft head mt\[2Jp/mtp' "$txt"
 has 'Prompt cache: default' "$txt"
 has '^No earlier full run to compare with' "$txt"
+if grep -q 'Warning' "$txt"; then fail "a cold run was flagged as served from the cache"; fi
 if grep -q 'HALOGEN_KV8' "$work/out"; then fail "the settings list is on the screen, not only in the saved file"; fi
 has 'Saved: ' "$work/out"
 if grep -q $'\e' "$txt" "$json"; then fail "an escape code from firmware got into the report"; fi
@@ -85,6 +88,8 @@ ln -s "$latest" "$work/configs/bench/29991231-235959.json"
 echo '{' > "$work/configs/bench/29991231-235958.json"
 jq '.system = "x"' "$latest" > "$work/configs/bench/29991231-235957.json"
 jq -c . "$latest" | sed 's/^/{"run":"x"} /' > "$work/configs/bench/29991231-235956.json"
+# A report from before the cold prompts (no halos_cold): its reading speeds may be the cache's.
+jq 'del(.bench.halos_cold)' "$latest" > "$work/configs/bench/29991231-235960.json"
 cp "$latest" "$work/configs/bench/9"$'\e'"]0;x-1.json"
 jq '.date = "evil\u001b[2J" | .system.halogen = "0.1\u001b]0;x\u0007" | .bench.rows[0].mean = "1700"' \
   "$latest" > "$work/configs/bench/29991231-235955.json"
@@ -97,8 +102,52 @@ if grep -q $'[\e\a]' "$work/out"; then fail "an escape code from an old report r
 rm "$work/configs/bench/2999"* "$work/configs/bench/9"*
 ok "a run is compared with the last one of its kind: faster, slower or about the same, and what changed"
 
+# A run whose prefill passes the cache mostly answered says so.
+sleep 1
+FAKE_CACHED=2000 "$bench" > "$work/out" 2>&1 || fail "a warm run failed"
+has '^Warning: 2 prompt-reading passes were mostly answered from the prompt cache, so the reading speeds are too high\.' "$work/out"
+ok "a prefill the prompt cache answered is flagged, and reports from before the cold prompts aren't compared"
+
+# bench-cold.py, against a stand-in for Halogen's tool: every prefill prompt starts with this
+# run's word, the tool's own arguments reach it, and its JSON gains the passes with their cache hits.
+cat > "$work/tool.py" <<'T'
+import json, sys
+calls = []
+def lead_line(i):
+    return "lead%d " % i
+def ask(api, prompt, max_tokens, drafter, effort):
+    calls.append(prompt)
+    return {"usage": {"prompt_tokens": 300 if prompt.endswith("long") else 20}, "timings": {"cache_n": 7}}, 0.5
+def main():
+    ask("a", lead_line(0) + "short", 1, None, "low")
+    ask("a", lead_line(1) + "long", 1, None, "low")
+    ask("a", "tg prompt", 128, None, "low")
+    print("header line\n")
+    print(json.dumps({"argv": sys.argv[1:], "calls": calls, "rows": [{"test": "pp512"}]}))
+    return 0
+T
+for i in 1 2; do
+  python3 -I -c "$(cat "$repo/files/usr/share/halogen/bench-cold.py")" "$work/tool.py" --api x -r 3 > "$work/cold$i" \
+    || fail "bench-cold.py failed"
+done
+[ "$(head -n 1 "$work/cold1")" = "header line" ] || fail "bench-cold.py lost the tool's header"
+sed -n '/^{/,$p' "$work/cold1" > "$work/cold1.json"
+jq -e '.argv == ["--api", "x", "-r", "3"] and (.calls[0] | test("^Run [0-9a-f]{12}\\. lead0 short$"))
+       and (.calls[2] == "tg prompt") and .halos_cold.passes == [{"tokens": 300, "cached": 7}]' "$work/cold1.json" > /dev/null \
+  || fail "bench-cold.py didn't make the prompts new or count the passes: $(cat "$work/cold1.json")"
+[ "$(sed -n '/^{/,$p' "$work/cold2" | jq -r '.calls[0]')" != "$(jq -r '.calls[0]' "$work/cold1.json")" ] \
+  || fail "two runs sent the same prompt"
+printf 'def main():\n    return 0\n' > "$work/tool2.py"
+if python3 -I -c "$(cat "$repo/files/usr/share/halogen/bench-cold.py")" "$work/tool2.py" > "$work/out" 2>&1; then
+  fail "bench-cold.py ran a tool it can't make cold"
+fi
+has "Halogen's sweep tool has changed \(no lead_line, ask\)" "$work/out"
+ok "bench-cold.py gives each run new prompts and counts the prompt cache's share, and refuses a changed tool"
+
 has '--network=host --read-only --tmpfs /tmp --cap-drop=all --security-opt no-new-privileges -e HALOGEN_API_KEY ' "$work/podman.log"
 has '-p 512,2048,8192,32768 -n 128 -r 3 --json' "$work/podman.log"
+has 'ghcr\.io/peonist-ai/halogen-flash-server@sha256:1 -I -c # halogenctl bench runs' "$work/podman.log"
+has '^sys\.exit\(rc\) /halogen/tools/halogen-bench\.py --api http://127\.0\.0\.1:18731 -p ' "$work/podman.log"
 has '^key=secret-key-123$' "$work/podman.log"
 grep -v '^key=' "$work/podman.log" > "$work/args" || true
 if grep -q 'secret-key-123' "$work/args"; then fail "the key was on podman's command line"; fi

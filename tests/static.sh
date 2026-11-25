@@ -10,6 +10,8 @@ for f in files/usr/libexec/halogen/*; do
     [ -x "$f" ] || { echo "$f is not executable" >&2; exit 1; }
   else scripts+=("$f"); fi
 done
+# bench runs this one inside Halogen's image with python3 -I -c, so it is read, not executed.
+python3 -I -c 'import ast, sys; ast.parse(open(sys.argv[1]).read(), sys.argv[1])' files/usr/share/halogen/bench-cold.py
 for f in "${scripts[@]}"; do
   bash -n "$f"
   [ -x "$f" ] || { echo "$f is not executable" >&2; exit 1; }
