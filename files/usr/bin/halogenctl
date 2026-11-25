@@ -44,7 +44,7 @@ gpu_lock() {
   local d="${HALOS_LOCK_DIR:-/run/halos-locks}"
   install -d -m 0700 -- "$d" || exit 1
   exec 8> "$d/gpu.lock" || exit 1
-  flock -n 8 || { echo "Another halogenctl command is using the GPU or restarting Halogen (a flash check, or a flash use about to restart it). Wait for it to end, then try again." >&2; exit 75; }
+  flock -n 8 || { echo "Another halogenctl command is using the GPU or restarting Halogen (a flash check, or a flash use about to restart it).${1:-} Wait for it to end, then try again." >&2; exit 75; }
 }
 chosen_flash() {
   local c; c="$(as_owner head -n 1 "$flash_choice" 2>/dev/null | tr -cd 'A-Za-z0-9._-')" || true
@@ -143,6 +143,116 @@ case "${1:-status}" in
         else printf "\nset: in effect from halogen.env. commented: in the file, switched off. new: not in your file yet.\nCopy a line from /srv/configs/halogen.env.example into halogen.env, then: sudo halogenctl restart\n"
       }' "$template"
     duplicate_settings
+    ;;
+  settings)
+    # One screen for the Flash checkpoint, its draft head, the NPU models and Halogen's settings,
+    # each with its default; saved together, then (if you choose) one restart. --editor opens
+    # halogen.env in an editor instead. --no-restart (halosctl setup, which asks at its end)
+    # saves without restarting.
+    editor_mode=0; no_restart=()
+    for a in "${@:2}"; do
+      case "$a" in
+        --editor) editor_mode=1 ;;
+        --no-restart) no_restart=(--no-restart) ;;
+        *) echo "usage: halogenctl settings [--editor] [--no-restart]" >&2; exit 2 ;;
+      esac
+    done
+    if [ ! -t 0 ] || [ ! -t 1 ]; then echo "settings needs a terminal. Edit the file instead: sudo nano $configs/halogen.env" >&2; exit 1; fi
+    as_owner test -r "$configs/halogen.env" 2>/dev/null \
+      || { echo "Cannot read $configs/halogen.env. Run it with sudo: sudo halogenctl settings" >&2; exit 1; }
+    # Root's private copies (as sudoedit does): nothing of halogen's runs on root's terminal, and
+    # root never opens halogen's files itself. The answer goes back as halogen.
+    tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+    # A plain file of at most 1 MiB: halogen could put a link to /dev/zero, a FIFO or a huge file
+    # there, which would fill root's /tmp or hang. One byte more than the limit is read, to tell.
+    # shellcheck disable=SC2016 # expanded by the halogen shell, from its arguments
+    read_env() { as_owner sh -c '[ -f "$1" ] && [ ! -L "$1" ] && head -c 1048577 -- "$1"' sh "$configs/halogen.env" < /dev/null; }
+    read_env > "$tmp/env" || { echo "Could not read $configs/halogen.env (not a plain file?)" >&2; exit 1; }
+    [ "$(stat -c %s "$tmp/env")" -le 1048576 ] || { echo "$configs/halogen.env is larger than 1 MiB; edit it by hand." >&2; exit 1; }
+    cp "$tmp/env" "$tmp/before"
+    save_env() {
+      # Only if nobody changed the file meanwhile (another admin, a model pull's offer). Each
+      # writer has its own temporary name, so two at once can't mix their files.
+      if ! read_env 2>/dev/null | cmp -s - "$tmp/before"; then
+        echo "$configs/halogen.env changed while you were editing it, so nothing was saved. Run this again." >&2
+        return 1
+      fi
+      # shellcheck disable=SC2016 # expanded by the halogen shell, from its arguments
+      as_owner sh -c 'umask 027; t="$(mktemp "$1.XXXXXX")" && cat > "$t" && chmod 0640 "$t" && mv -f "$t" "$1" || { rm -f "$t"; exit 1; }' sh "$configs/halogen.env" < "$1"
+    }
+    if [ "$editor_mode" = 1 ]; then
+      editor="$(command -v "${EDITOR:-nano}" || command -v nano || command -v vi || true)"
+      [ -n "$editor" ] || { echo "No editor found." >&2; exit 1; }
+      if "$editor" "$tmp/env" && ! cmp -s "$tmp/before" "$tmp/env"; then
+        save_env "$tmp/env" || exit 1
+        echo "Saved. What Halogen will get: sudo halogenctl config. Apply it: sudo halogenctl restart"
+      else echo "No change."; fi
+      exit 0
+    fi
+    # What the screen offers, as plain names only (halogen and its containers write these folders).
+    plain='^[A-Za-z0-9][A-Za-z0-9._-]*$'
+    {
+      if unit is-active --quiet halogen.service 2>/dev/null; then echo "running yes"; fi
+      echo "flash-chosen $(chosen_flash)"
+      # Listed as halogen, like the folders below; halos.info read at most 64 KiB.
+      { as_owner find "$models/flash" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null < /dev/null || true; } | { grep -E "$plain" || true; } | while read -r name; do
+        v="$(flash_info "$name" verified)"; [[ "$v" =~ $plain ]] || v=none
+        own_drafters="$( { as_owner head -c 65536 -- "$models/flash/$name/halos.info" 2>/dev/null < /dev/null || true; } | sed -n 's/^drafter=//p' | { grep -E "$plain" || true; } | tr '\n' ' ')"
+        echo "flash $name $v $own_drafters"
+      done
+      { as_owner grep -E '^[A-Za-z0-9][A-Za-z0-9._-]*=[A-Za-z0-9][A-Za-z0-9._-]*$' "$configs/flash-drafter" 2>/dev/null || true; } | sed 's/^/drafter /'
+      { as_owner find "$models/npu" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null || true; } | { grep -E "$plain" || true; } | sed 's/^/npu-downloaded /'
+      for kind in decider LFM custom; do
+        { as_owner find "$models/$kind" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null || true; } | { grep -E "$plain" || true; } | sed "s|^|own $kind/|"
+      done
+    } > "$tmp/state"
+    rc=0
+    # shellcheck disable=SC2086 # the tests' hook may hold a command and its arguments
+    ${HALOGEN_SETTINGS_TUI:-/usr/bin/python3 -I /usr/libexec/halogen/settings-tui} --dir "$tmp" \
+      --template "${HALOGEN_ENV_TEMPLATE:-/usr/share/halogen/halogen.env.default}" \
+      --allowed "${HALOGEN_ALLOWED_FILE:-/usr/share/halogen/options.allowed}" \
+      --catalog "${HALOGEN_NPU_CATALOG:-/usr/share/halogen/npu-models.list}" "${no_restart[@]}" || rc=$?
+    case "$rc" in
+      0) ;;
+      3) echo "Nothing changed."; exit 0 ;;
+      *) echo "The settings screen stopped (exit $rc); nothing changed. Edit the file instead: sudo halogenctl settings --editor" >&2; exit 1 ;;
+    esac
+    restart=0; ! grep -qx 'restart yes' "$tmp/choices" || restart=1
+    # Not during a flash check's measurement, and before anything changes, when it restarts.
+    [ "$restart" = 0 ] || gpu_lock " Nothing was saved."
+    failed=0
+    # The file first: if it can't be saved, nothing else changes either (no checkpoint switch,
+    # no restart), since the screen promised the changes together.
+    if [ -f "$tmp/env.new" ]; then
+      save_env "$tmp/env.new" || exit 1
+      echo "Saved $configs/halogen.env."
+    fi
+    # The checkpoint and draft heads, through the same helper as flash use and flash drafter: it
+    # checks again, under the checkpoint's lock, that the choice still stands.
+    while read -r what name value; do
+      case "$what" in
+        drafter)
+          [[ "$name" =~ $plain && "$value" =~ $plain ]] || continue
+          if halogen_run /usr/libexec/halogen/flash-checkpoint drafter "$name" "$value"; then echo "$name drafts with $value."
+          else failed=1; fi ;;
+        flash)
+          [[ "$name" =~ $plain ]] || continue
+          if halogen_run /usr/libexec/halogen/flash-checkpoint use "$name"; then echo "Halogen serves $name from its next start."
+          else failed=1; fi ;;
+      esac
+    done < "$tmp/choices"
+    # render-config's notes on what it will ignore or change.
+    { halogen_run /usr/libexec/halogen/render-config --show 2>&1 || true; } | { grep '^halogen-config:' || true; }
+    duplicate_settings
+    [ "$failed" = 0 ] || echo "Some changes weren't made (above)." >&2
+    if [ "$restart" = 1 ]; then
+      start_halogen restart
+      echo "Halogen is starting with the new settings; follow it with: sudo halogenctl logs"
+      echo "Models not on disk yet are downloaded first (sudo halogenctl fetch-logs)."
+    elif [ "${#no_restart[@]}" = 0 ]; then
+      echo "They apply at Halogen's next start: sudo halogenctl restart"
+    fi
+    exit "$failed"
     ;;
   selftest)
     # The hardware checklist in one go. It changes no setting and prints nothing private (it starts a tiny test container as halogen).
@@ -884,5 +994,5 @@ case "${1:-status}" in
     [ "$(id -u)" = 0 ] || { echo "Run it with sudo: sudo halogenctl bench ${2:-}" >&2; exit 1; }
     halogen_run /usr/libexec/halogen/bench ${2:+"$2"}
     ;;
-  *) echo "usage: halogenctl status|start|stop|restart|logs [lines]|fetch-logs [lines]|doctor|selftest|bench [--quick]|config|options [--new]|api-key [status|on|off]|hf-token [--remove]|records [on|off|stats|prune]|cache [on|off|clear]|model pull|list|remove|flash pull|convert|convert-logs|convert-stop|list|use|drafter|verify|check|remove" >&2; exit 2 ;;
+  *) echo "usage: halogenctl status|start|stop|restart|logs [lines]|fetch-logs [lines]|doctor|selftest|bench [--quick]|config|options [--new]|settings [--editor] [--no-restart]|api-key [status|on|off]|hf-token [--remove]|records [on|off|stats|prune]|cache [on|off|clear]|model pull|list|remove|flash pull|convert|convert-logs|convert-stop|list|use|drafter|verify|check|remove" >&2; exit 2 ;;
 esac
