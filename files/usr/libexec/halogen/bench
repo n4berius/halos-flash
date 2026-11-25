@@ -67,10 +67,11 @@ fi
 # halogen's own files, but one may have been edited, so only a readable one with rows counts.
 prev=/dev/null
 while IFS= read -r f; do
-  [ -f "$f" ] && [ ! -L "$f" ] || continue
+  if [ ! -f "$f" ] || [ -L "$f" ]; then continue; fi
   if jq -e --arg run "$kind" '.run == $run and (.bench.rows | length > 0)' "$f" > /dev/null 2>&1; then prev="$f"; break; fi
 done < <(find "$dir" -maxdepth 1 -name '[0-9]*-[0-9]*.json' -printf '%f\n' 2>/dev/null | sort -r | sed "s|^|$dir/|")
-[ "$prev" = /dev/null ] && prev_name="" || prev_name="$(basename "$prev")"
+prev_name=""
+[ "$prev" = /dev/null ] || prev_name="$(basename "$prev")"
 
 jq --arg date "$(date -u '+%Y-%m-%d %H:%M UTC')" --arg kind "$kind" \
    --arg halos "${HALOS_RELEASE:-unknown}" --arg edition "${HALOGEN_VARIANT:-unknown}" \
