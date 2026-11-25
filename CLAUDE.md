@@ -116,8 +116,10 @@ name, but allows saying halOS runs Halogen.
   lines, downloaded `npu/*`, own `decider|LFM|custom/*`), runs the screen on root's terminal (it
   never opens halogen's files; everything it draws is cut to printable characters), and applies its
   answer: `env.new` (the whole file, edited line by line: the last active line replaced, older ones
-  commented, `#KEY=` uncommented, else appended under a marker; default = `#KEY=`; reset = the
-  template's own value) written back as halogen only if the file still matches what was read;
+  commented, `#KEY=` uncommented, else appended under a marker; an empty entry or `r` = the
+  template's own value (halOS's, else commented out keeping the old value: `#KEY=old`); read as a
+  plain file of at most 1 MiB) written back as halogen through its own `mktemp` name, only if the
+  file still matches what was read (else exit 1 before any checkpoint switch or restart);
   `choices` (`flash`, `drafter`, `restart`) through `flash-checkpoint use|drafter` (their own locks
   and checks); then `gpu_lock` and one `start_halogen restart` when asked. Exit 3 = nothing to save.
   The NPU checklist comes from `files/usr/share/halogen/npu-models.list` (from Halogen's NPU.md:

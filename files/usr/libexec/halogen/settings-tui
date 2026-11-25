@@ -71,6 +71,12 @@ class Option:
             return "%s (halOS)" % self.halos_value
         return self.halogen_default or "unset"
 
+    def unset_text(self):
+        """What Halogen uses when the file doesn't set it."""
+        if self.halos_value is not None:
+            return "not set: Halogen's own default, %s" % (self.halogen_default or "unset")
+        return "default: " + (self.halogen_default or "unset")
+
 
 def parse_template(text, allowed):
     """The edition's halogen.env.default: sections, descriptions and defaults, in its order."""
@@ -142,7 +148,7 @@ class EnvFile:
 
     def unset(self, key):
         for i in self._active(key):
-            self.lines[i] = "#%s=" % key
+            self.lines[i] = "#" + self.lines[i].lstrip()
 
     def text(self):
         return "\n".join(self.lines) + "\n"
@@ -393,7 +399,7 @@ class Screen:
         self.s = stdscr
         self.m = model
         self.msg = ""
-        curses.curs_set(0)
+        self.cursor(0)
         self.s.keypad(True)
         self.color = False
         if curses.has_colors():
@@ -406,6 +412,14 @@ class Screen:
                 self.color = True
             except curses.error:
                 self.color = False
+
+    @staticmethod
+    def cursor(n):
+        # Some terminals can't hide or show the cursor; that is no reason to stop.
+        try:
+            curses.curs_set(n)
+        except curses.error:
+            pass
 
     def attr(self, n):
         return curses.color_pair(n) if self.color else 0
@@ -515,7 +529,7 @@ class Screen:
                 r = on_key("enter", pos)
                 if r is not None:
                     return r
-            elif on_key is not None and sel:
+            elif on_key is not None and (sel or k == "/"):
                 r = on_key(k, pos)
                 if r is not None:
                     return r
@@ -538,7 +552,7 @@ class Screen:
     def ask_line(self, prompt, initial):
         """A one-line editor at the bottom. Returns the text, or None on Esc."""
         buf, cur = list(initial), len(initial)
-        curses.curs_set(1)
+        self.cursor(1)
         try:
             while True:
                 h, w = self.s.getmaxyx()
@@ -581,7 +595,7 @@ class Screen:
                     buf.insert(cur, k)
                     cur += 1
         finally:
-            curses.curs_set(0)
+            self.cursor(0)
 
     def confirm(self, question):
         h, w = self.s.getmaxyx()
@@ -747,7 +761,7 @@ class Screen:
                     last = o.section
                 v = self.m.values[k]
                 changed = v != self.m.orig_values[k]
-                val = "default: " + o.default_text() if v is None else v
+                val = o.unset_text() if v is None else v
                 if v is not None and v == o.halos_value:
                     val += " (halOS default)"
                 out.append(("%s %-34s %s" % ("*" if changed else " ", k[len("HALOGEN_"):], val),
@@ -787,14 +801,17 @@ class Screen:
             o = self.m.option[key]
             if k == "enter":
                 cur = self.m.values[key]
-                v = self.ask_line("%s (Enter keeps it; empty = default %s; Esc cancels):"
+                v = self.ask_line("%s (Enter keeps it; empty = the default, %s; Esc cancels):"
                                   % (key, o.default_text()), cur if cur is not None else "")
                 if v is None:
                     return None
                 v = v.strip()
-                err = self.m.set_value(key, v if v != "" else None)
-                if err:
-                    self.msg = "Not changed: the value " + err
+                if v == "":
+                    self.m.reset(key)
+                else:
+                    err = self.m.set_value(key, v)
+                    if err:
+                        self.msg = "Not changed: the value " + err
             elif k in ("r", curses.KEY_DC):
                 self.m.reset(key)
                 self.msg = "%s back to its default." % key
@@ -824,7 +841,12 @@ class Screen:
             return [(label, curses.A_BOLD, True) for _, label in acts]
 
         def header():
-            return ["These changes are saved together:"] + ["  " + c for c in changes]
+            # Room for the choices below, whatever the number of changes.
+            room = max(1, self.s.getmaxyx()[0] - 10)
+            lines = ["  " + c for c in changes]
+            if len(lines) > room:
+                lines = lines[:room - 1] + ["  ... and %d more" % (len(lines) - room + 1)]
+            return ["These %d changes are saved together:" % len(changes)] + lines
         r = self.pick("Review", rows, header=header, footer="Up/Down move  Enter choose  q back")
         if r is None or acts[r][0] == "back":
             return False

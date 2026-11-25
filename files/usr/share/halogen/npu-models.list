@@ -1,5 +1,5 @@
 # Halogen's NPU models, for the NPU model checklist of sudo halogenctl settings.
-# From Halogen's docs/NPU.md (0.20.7): id, what it does, host memory when known (blank if the docs
+# From Halogen's docs/NPU.md (0.20.7): id, what it does, memory as the docs give it (GiB or GB) (blank if the docs
 # don't say). Tab-separated. A model missing here can still be named in HALOGEN_NPU_MODELS by hand;
 # the checklist keeps any name your file already has.
 decider-0.8b	Decisions: a probability for each option (Qwen3.5-0.8B)	
@@ -7,17 +7,17 @@ decider-4b	Decisions, better on harder questions (Qwen3.5-4B)	5.5 GiB
 d3-lite	Decisions over text and pictures (Decision 3.0, 0.8B)	
 d3-nano	Decisions over text and pictures (Decision 3.0, 2B)	
 qwen3-embedding-0.6b	Embeddings (Qwen3-Embedding-0.6B)	0.8 GiB
-qwen3-embedding-4b	Embeddings, larger (Qwen3-Embedding-4B)	5 GiB
-embeddinggemma-2	Embeddings of text, pictures and sound (EmbeddingGemma 2)	1.1 GiB
-wemm-embedding-4b	Embeddings of text and pictures (WeMM-Embedding-4B)	5 GiB
+qwen3-embedding-4b	Embeddings, larger (Qwen3-Embedding-4B)	about 5 GB
+embeddinggemma-2	Embeddings of text, pictures and sound (EmbeddingGemma 2)	1.1 GB
+wemm-embedding-4b	Embeddings of text and pictures (WeMM-Embedding-4B)	about 5 GB
 qwen3-reranker-0.6b	Reranking (Qwen3-Reranker-0.6B)	
-qwen3-reranker-4b	Reranking, larger (Qwen3-Reranker-4B)	5 GiB
+qwen3-reranker-4b	Reranking, larger (Qwen3-Reranker-4B)	about 5 GB
 qwen3guard-gen-0.6b	Moderation: is a prompt or reply safe? (Qwen3Guard-Gen-0.6B)	
-qwen3guard-stream-0.6b	Streaming guard on the Flash model's replies (Qwen3Guard-Stream-0.6B)	0.8 GiB
+qwen3guard-stream-0.6b	Streaming guard on the Flash model's replies (Qwen3Guard-Stream-0.6B)	0.8 GB
 qwen3.5-2b	Text generation for short jobs, thinking off (Qwen3.5-2B)	
 flux2-klein-4b	Images: generation and edits (FLUX.2-klein-4B)	7.6 GiB
-qwen3-asr-0.6b	Speech to text (Qwen3-ASR-0.6B)	1.6 GiB
-qwen3-asr-1.7b	Speech to text, larger (Qwen3-ASR-1.7B)	4 GiB
-qwen3-tts-0.6b-customvoice	Text to speech, nine voices (Qwen3-TTS-0.6B)	4 GiB
-qwen3-tts-1.7b-customvoice	Text to speech, larger (Qwen3-TTS-1.7B)	5 GiB
+qwen3-asr-0.6b	Speech to text (Qwen3-ASR-0.6B)	1.6 GB
+qwen3-asr-1.7b	Speech to text, larger (Qwen3-ASR-1.7B)	4 GB
+qwen3-tts-0.6b-customvoice	Text to speech, nine voices (Qwen3-TTS-0.6B)	4 GB
+qwen3-tts-1.7b-customvoice	Text to speech, larger (Qwen3-TTS-1.7B)	5 GB
 halogen-spotter-0.6b	Reads tool results for the agent guard (a preview; HALOGEN_AGENT_GUARD adds it)	

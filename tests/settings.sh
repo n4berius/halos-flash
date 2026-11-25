@@ -37,7 +37,7 @@ diff <(diff "$work/env" "$d/env.new" | grep '^[<>]') - <<'EOF' || fail "the edit
 < #HALOGEN_TEMPERATURE=
 > HALOGEN_TEMPERATURE=0.7
 < HALOGEN_KV_POOL_POSITIONS=262144
-> #HALOGEN_KV_POOL_POSITIONS=
+> #HALOGEN_KV_POOL_POSITIONS=262144
 < HALOGEN_NPU_MODELS=decider-0.8b,qwen3-embedding-0.6b,qwen3-reranker-0.6b,qwen3guard-gen-0.6b,qwen3.5-2b
 > HALOGEN_NPU_MODELS=decider-0.8b,qwen3-embedding-0.6b,qwen3-reranker-0.6b,qwen3guard-gen-0.6b,d3-lite,/models/LFM/My-LFM
 < HALOGEN_CTX=1000
@@ -50,7 +50,7 @@ flash mine
 drafter mine mine-drafter.hgn
 restart yes
 EOF
-ok "the screen changes only the lines asked for, keeps the rest of the file, and comments out a setting's older lines"
+ok "the screen changes only the lines asked for, keeps the rest of the file, and comments out a setting's older lines (keeping their values)"
 
 # reset goes back to halOS's own value; an option the file never mentioned is added at the end.
 printf 'HALOGEN_KV_POOL_POSITIONS=1\n' > "$work/env2"
@@ -71,7 +71,7 @@ batch "$work/env3" "" 'npu on decider-0.8b'
 grep -qx 'HALOGEN_NPU_MODELS=future-model,qwen3.5-2b,decider-0.8b' "$d/env.new" || { cat "$d/env.new" >&2; fail "an unknown NPU name was lost"; }
 batch "$work/env3" "" 'npu off future-model
 npu off qwen3.5-2b'
-grep -qx '#HALOGEN_NPU_MODELS=' "$d/env.new" || { cat "$d/env.new" >&2; fail "an empty NPU list wasn't commented out"; }
+grep -qx '#HALOGEN_NPU_MODELS=future-model,qwen3.5-2b' "$d/env.new" || { cat "$d/env.new" >&2; fail "an empty NPU list wasn't commented out, keeping the old value"; }
 ok "reset takes halOS's value, new options go at the end, and the NPU list keeps names it doesn't know"
 
 # Refusals: nothing is written.
@@ -121,7 +121,10 @@ def drain(t):
                 return
 drain(1.0)
 for k in keys:
-    os.write(fd, k.encode().decode("unicode_escape").encode("latin-1"))
+    try:
+        os.write(fd, k.encode().decode("unicode_escape").encode("latin-1"))
+    except OSError:
+        break
     drain(0.2)
 drain(0.5)
 _, st = os.waitpid(pid, 0)
@@ -139,6 +142,12 @@ EOF
   grep -qx 'HALOGEN_NPU_MODELS=decider-0.8b,qwen3-embedding-0.6b,qwen3-reranker-0.6b,qwen3guard-gen-0.6b,qwen3.5-2b,decider-4b' "$d/env.new" \
     || { grep NPU_MODELS= "$d/env.new" >&2; fail "the ticked model wasn't added"; }
   printf 'flash mine\nrestart yes\n' | diff "$d/choices" - || fail "the screen's choices"
+  # Clearing KV_POOL_POSITIONS (Common settings, third line) means its default, halOS's 262144:
+  # nothing changes, so "Review and save" (twice) has nothing to save, and q quits with exit 3.
+  rm -f "$d/env.new" "$d/choices"; rc=0
+  python3 "$work/drive.py" 'j|j|j|\n|j|j|\n|\x15|\n|q|j|j|\n|\n|q' \
+    python3 -I "$tui" --dir "$d" --template "$tmpl" --allowed "$allowed" --catalog "$catalog" || rc=$?
+  if [ "$rc" != 3 ] || [ -e "$d/env.new" ]; then fail "an empty value didn't mean halOS's default (exit $rc)"; fi
   # q on the menu with changes asks; n stays, then q y leaves without saving.
   rm -f "$d/env.new" "$d/choices"; rc=0
   python3 "$work/drive.py" 'j|j|\n| |q|q|n|q|y' \
@@ -173,8 +182,8 @@ run
 [ "$rc" = 0 ] || { cat "$work/out" "$work/log" >&2; fail "settings exit $rc"; }
 grep -qx 'HALOGEN_CTX=65536' "$work/configs/halogen.env" || fail "the new halogen.env wasn't saved"
 [ "$(stat -c %a "$work/configs/halogen.env")" = 640 ] || fail "halogen.env lost its 0640 mode"
-grep -q 'runuser -u halogen -- env -C / sh -c' "$work/log" || fail "halogen.env wasn't written as halogen"
-grep -q 'runuser -u halogen -- env -C / cat' "$work/log" || fail "halogen.env wasn't read as halogen"
+grep -q 'runuser -u halogen -- env -C / sh -c umask 027; t="$(mktemp' "$work/log" || fail "halogen.env wasn't written as halogen"
+grep -q 'runuser -u halogen -- env -C / sh -c \[ -f' "$work/log" || fail "halogen.env wasn't read as halogen"
 if ! grep -q 'flash-checkpoint drafter mine off' "$work/log" || ! grep -q 'flash-checkpoint use mine' "$work/log"; then
   cat "$work/log" >&2; fail "the checkpoint or draft head wasn't set through flash-checkpoint"
 fi
@@ -192,18 +201,26 @@ grep -qx 'HALOGEN_CTX=2048' "$work/configs/halogen.env" || fail "--no-restart di
 ok "it restarts only when asked, and --no-restart (setup) only saves"
 
 cp "$work/configs/halogen.env" "$work/keep"
-printf 'set HALOGEN_CTX 3000\n' > "$work/cmds"; FAKE_MEANWHILE=1 run
+printf 'set HALOGEN_CTX 3000\nflash mine\n' > "$work/cmds"; FAKE_MEANWHILE=1 run
 if [ "$rc" != 1 ] || ! grep -q 'changed while you were editing' "$work/out"; then cat "$work/out" >&2; fail "a file changed meanwhile was overwritten"; fi
 grep -q 'HALOGEN_CTX=3000' "$work/configs/halogen.env" && fail "the edit replaced another's change"
+if grep -q 'flash-checkpoint use\|restart halogen.service' "$work/log"; then cat "$work/log" >&2; fail "a refused save still switched the checkpoint or restarted"; fi
 cp "$work/keep" "$work/configs/halogen.env"
 : > "$work/cmds"; run
 if [ "$rc" != 0 ] || ! grep -q 'Nothing changed' "$work/out"; then fail "no answer wasn't 'Nothing changed'"; fi
-if grep -q 'restart halogen.service\|sh -c' "$work/log"; then fail "no answer still wrote or restarted"; fi
+if grep -q 'restart halogen.service\|mktemp' "$work/log"; then fail "no answer still wrote or restarted"; fi
 printf 'set HALOGEN_CTX 4000\nflash bad\n' > "$work/cmds"; run
 [ "$rc" = 2 ] || [ "$rc" = 1 ] || fail "a refused command passed"
 rc=0; "$ctl" settings < /dev/null > "$work/out" 2>&1 || rc=$?
 if [ "$rc" != 1 ] || ! grep -q 'needs a terminal' "$work/out"; then fail "it ran without a terminal"; fi
-ok "a file changed meanwhile isn't overwritten, no answer changes nothing, and it needs a terminal"
+# Not a plain file, or too large: refused before the screen opens.
+mv "$work/configs/halogen.env" "$work/real.env"; ln -s /dev/zero "$work/configs/halogen.env"
+printf 'set HALOGEN_CTX 1\n' > "$work/cmds"; run
+if [ "$rc" != 1 ] || grep -q '^tui ' "$work/log"; then cat "$work/out" >&2; fail "a link to /dev/zero was read"; fi
+rm "$work/configs/halogen.env"; head -c 1100000 /dev/zero | tr '\0' '#' > "$work/configs/halogen.env"; run
+if [ "$rc" != 1 ] || ! grep -q 'larger than 1 MiB' "$work/out"; then cat "$work/out" >&2; fail "a huge halogen.env was taken"; fi
+mv -f "$work/real.env" "$work/configs/halogen.env"
+ok "a file changed meanwhile isn't overwritten (and nothing else changes then), a link or huge file is refused, no answer changes nothing, and it needs a terminal"
 
 # --editor: root edits a private copy; the result goes back as halogen.
 run --editor

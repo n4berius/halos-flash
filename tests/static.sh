@@ -3,7 +3,7 @@ set -euo pipefail
 scripts=(scripts/*.sh tests/*.sh files/usr/bin/* installer/guided/plan-install)
 # halOS's helpers are shell scripts, but for the settings screen (Python's curses).
 for f in files/usr/libexec/halogen/*; do
-  if head -n 1 "$f" | grep -q python3; then
+  if [ "$f" = files/usr/libexec/halogen/settings-tui ]; then
     [ "$(head -n 1 "$f")" = '#!/usr/bin/python3 -I' ] || { echo "$f must start #!/usr/bin/python3 -I" >&2; exit 1; }
     python3 -I -c 'import ast, sys; ast.parse(open(sys.argv[1]).read(), sys.argv[1])' "$f"
     [ -x "$f" ] || { echo "$f is not executable" >&2; exit 1; }
@@ -177,7 +177,7 @@ assert ".prompt-cache" not in "\n".join(l for l in open("files/etc/containers/sy
 assert "\nVolume=/srv/models/.prompt-cache:/models/.prompt-cache:noexec,nosuid,nodev\n" in open("files/etc/containers/systemd/users/970/halogen.container.d/15-prompt-cache.conf").read()
 for path in glob.glob("files/usr/libexec/halogen/*"):
     body = open(path).read()
-    if body.startswith("#!/usr/bin/python3"):
+    if path.endswith("/settings-tui"):
         continue
     for line in body.splitlines():
         # Any spelling of a mount whose destination is all of /models (-v, --volume, ${models}, :rw, dst=).
