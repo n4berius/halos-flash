@@ -19,6 +19,7 @@ tests/first-boot.sh
 tests/fstab.sh
 tests/prepare.sh
 tests/halogenctl.sh
+tests/settings.sh
 tests/preflight.sh
 tests/halogen-update.sh
 tests/model-pull.sh

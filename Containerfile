@@ -42,6 +42,7 @@ RUN dnf -y --setopt=install_weak_deps=False install \
     rpm -q bash-completion fwupd udisks2 skopeo jq clevis-dracut clevis-systemd amd-ucode-firmware realtek-firmware mt7xxx-firmware atheros-firmware && \
     systemctl disable udisks2.service && ls /usr/share/dbus-1/system-services/org.freedesktop.UDisks2.service && \
     ls -d /usr/lib/firmware/amdgpu /usr/lib/firmware/amdnpu && \
+    python3 -I -c 'import curses' && \
     for c in runuser setpriv prlimit nano auditctl augenrules ausearch aureport clevis jose curl; do command -v "$c" > /dev/null || { echo "missing: $c" >&2; exit 1; }; done && \
     rm -f /etc/audit/rules.d/audit.rules && \
     sed -i -E -e 's/^max_log_file *=.*/max_log_file = 50/' -e 's/^num_logs *=.*/num_logs = 20/' \

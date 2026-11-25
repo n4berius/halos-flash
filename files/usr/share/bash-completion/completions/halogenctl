@@ -21,13 +21,14 @@ _halogenctl() {
   else cur="${COMP_WORDS[COMP_CWORD]}"; words=("${COMP_WORDS[@]}"); cword=$COMP_CWORD; fi
   local models=/srv/models
   if [ "$cword" -eq 1 ]; then
-    _halogenctl_offer "status start stop restart logs fetch-logs doctor selftest bench config options api-key hf-token records cache model flash"
+    _halogenctl_offer "status start stop restart logs fetch-logs doctor selftest bench config options settings api-key hf-token records cache model flash"
     return
   fi
   # After an option that takes a value, there is nothing to offer.
   case "${words[cword-1]}" in --revision|--as|--file|--days|--gib|--session|--unit) return ;; esac
   case "${words[1]}" in
     options) [ "$cword" -eq 2 ] && _halogenctl_offer "--new" ;;
+    settings) _halogenctl_offer "--editor --no-restart" ;;
     bench)
       if [ "$cword" -eq 2 ]; then _halogenctl_offer "--quick tools"
       elif [ "$cword" -eq 3 ] && [ "${words[2]}" = tools ]; then _halogenctl_offer "--quick"
