@@ -1,0 +1,51 @@
+#!/bin/bash
+# The names of the models and checkpoints on this machine, for tab completion of halogenctl
+# under sudo. sudo runs completion as you, not as root, and /srv/models is the halogen user's
+# (0750), so completion can't look there itself. login-status (root, every 30 s) runs this, and
+# halogenctl starts that service after a pull or a removal. It writes one file:
+#   /run/halos/model-names, root's, mode 0640, group wheel (the admins sudo lets in)
+# one name per line:
+#   flash <name>            your Flash checkpoints (flash use, check, remove, pull --as)
+#   drafter <name> <file>   draft head files in a checkpoint's folder (flash drafter)
+#   convert <name>          conversions in progress (flash convert-stop)
+#   own <kind> <name>       your NPU checkpoints in decider, LFM or custom (model remove, pull --as)
+# Only folder and file names are read, as halogen (setpriv, no login), never a file's contents.
+# The halogen user and its containers can name those folders, so only plain names are kept.
+set -uo pipefail
+out="${1:?usage: model-names <file>}"
+models="${HALOGEN_MODELS_DIR:-/srv/models}"
+uid="${HALOGEN_UID:-970}"
+group="${HALOS_NAMES_GROUP:-wheel}"
+as_halogen() { setpriv --reuid="$uid" --regid="$uid" --clear-groups -- env -C / "$@"; }
+plain='^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$'
+
+dirs=()
+for d in flash flash/.convert decider LFM custom; do dirs+=("$models/$d"); done
+list="$(
+  # Folders one level down, then draft head files in each Flash checkpoint's folder. NUL-ended:
+  # a name may hold a line break.
+  { as_halogen timeout 10 find "${dirs[@]}" -mindepth 1 -maxdepth 1 -type d -printf 'd %h/%f\0' 2>/dev/null
+    as_halogen timeout 10 find "$models/flash" -mindepth 2 -maxdepth 2 -type f -name '*drafter*.hgn' -printf 'f %h/%f\0' 2>/dev/null
+  } | while IFS= read -r -d '' e; do
+    t="${e%% *}"; p="${e#? }"
+    rel="${p#"$models"/}"; [ "$rel" != "$p" ] || continue
+    [[ "$rel" != *$'\n'* ]] || continue
+    IFS=/ read -r a b c rest <<< "$rel"
+    [ -z "${rest:-}" ] || continue
+    case "$t/$a" in
+      d/flash)
+        if [ "$b" = .convert ]; then [[ "${c:-}" =~ $plain ]] && echo "convert $c"
+        elif [ -z "${c:-}" ]; then [[ "$b" =~ $plain ]] && echo "flash $b"
+        fi ;;
+      f/flash) [[ "$b" =~ $plain && "${c:-}" =~ $plain ]] && echo "drafter $b $c" ;;
+      d/decider|d/LFM|d/custom) [[ -z "${c:-}" && "$b" =~ $plain ]] && echo "own $a $b" ;;
+    esac
+  done | LC_ALL=C sort -u | head -n 2000
+)"
+
+# Rewrite only on a change, through a new file, so a reader never sees half of one.
+[ "$(cat "$out" 2>/dev/null)" != "$list" ] || exit 0
+rm -f -- "$out.new"
+( umask 077; printf '%s\n' "$list" > "$out.new" ) || exit 1
+chgrp -- "$group" "$out.new" 2>/dev/null && chmod 0640 -- "$out.new"
+mv -f -- "$out.new" "$out"

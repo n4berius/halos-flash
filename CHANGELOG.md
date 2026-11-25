@@ -10,6 +10,12 @@ it promotes.
 
 ## Unreleased
 
+- Tab completion of `halogenctl` now completes the names of your checkpoints and models after
+  `sudo` too (before, it found them only in a root shell). It also completes the draft head files
+  for `flash drafter <name>` and your existing names after `--as` of `flash pull` and
+  `model pull`, to update one. The names come from a list that halOS keeps in
+  `/run/halos/model-names` for administrators (#PR).
+
 - Hardening from the same review (#166):
   - Unlocking from a tang server: `halosctl tang-unlock on` with `--tpm and` or `--tpm or`, and
     `halogen-enroll-tpm`, refuse while Secure Boot is off, since the TPM's check then doesn't stop

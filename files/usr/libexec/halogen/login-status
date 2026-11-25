@@ -109,6 +109,10 @@ $(sed 's/^/  /' "$version")${free:+
   More:      sudo halosctl version, sudo halogenctl status"
 put "$run/motd.d/50-halos" "$motd" || true
 
+# The names of your models for halogenctl's tab completion, which runs as you under sudo and
+# can't read /srv/models itself (model-names says more).
+"${HALOS_MODEL_NAMES:-/usr/libexec/halogen/model-names}" "$state_dir/model-names" || true
+
 # Tell logged-in terminals once per boot, the first time Halogen answers.
 if [ "$state" = ready ] && [ ! -e "$state_dir/announced" ]; then
   : > "$state_dir/announced"

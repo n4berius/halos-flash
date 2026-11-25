@@ -22,6 +22,12 @@ Common options:
   `ssh host cmd`), these commands refuse unless you give `--yes`. The commands without it
   (`start`, `stop`, `restart`, `power`, `dashboard`, `records stats`) don't ask. `model remove`
   always asks, in a terminal.
+- Press Tab to complete commands, options and names, also after `sudo`. For `halogenctl`, Tab
+  also completes the names of your checkpoints and models: `flash use`, `flash check`,
+  `flash remove`, `flash verify`, `flash drafter` (and its draft head files), `flash convert-stop`,
+  `model remove`, and `--as` of `flash pull` and `model pull` (to update a model that you have).
+  These names come from `/run/halos/model-names`, which halOS updates every 30 seconds and after
+  each pull or removal. Only members of the `wheel` group (the administrators) can read it.
 - `--reboot` restarts the machine immediately after an OS change, not at your next reboot.
   A reboot stops Halogen until the machine is back. In two cases it does not restart, and waits
   for you: while models download, and when an upgrade stages an older build than the one that
@@ -185,6 +191,7 @@ BIOS or Secure Boot change, use `sudo halosctl tang-unlock renew` instead.
 | `/etc/halos/https.env` | The HTTPS setting (only root can change it) |
 | `/etc/halos/https/` | Your certificate and key, and the credential of the DNS provider for Let's Encrypt (only root) |
 | `/srv/configs/hf-token` | Your Hugging Face token, if you saved one |
+| `/run/halos/model-names` | The names of your checkpoints and models, for Tab completion (root writes it, the `wheel` group can read it) |
 | `/srv/configs/flash-checkpoint` | The Flash checkpoint that `flash use` chose |
 | `/srv/configs/flash-drafter` | The draft head of each of your Flash checkpoints that does not use the official one (`flash drafter`), as `<name>=off` or `<name>=<file>` |
 | `/etc/halos/proxy.env` | Optional: more networks that can see the dashboard (`HALOS_DASHBOARD_ALLOW`) |
