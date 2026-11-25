@@ -10,7 +10,7 @@ it promotes.
 
 ## Unreleased
 
-- A settings screen, `sudo halogenctl settings` (#PR): choose the Flash checkpoint, its draft
+- A settings screen, `sudo halogenctl settings` (#175): choose the Flash checkpoint, its draft
   head, the NPU models (a checklist) and Halogen's settings in one place, each shown with its
   default, instead of editing `halogen.env`. All changes are saved together, with one restart of
   Halogen at the end. `halosctl setup` opens it in step 3 (Enter on a new install).
