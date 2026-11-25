@@ -20,6 +20,11 @@ it promotes.
   (settings, updates, HTTPS, the dashboard, benchmarks, your own checkpoints, logs) moved to the
   new [docs/GUIDE.md](docs/GUIDE.md), without the text that was there twice. README.md is now a
   short overview. Version numbers and release names in the examples are up to date.
+- `sudo halogenctl bench` is easier to read: a one-line summary, then a table for reading the
+  prompt and one for writing the answer, with the speed, the spread, the time each length takes
+  and the change since your last run (faster, slower or about the same). It also tells what
+  changed in the setup since that run. The list of settings is now only in the saved report
+  (#171).
 - A settings screen, `sudo halogenctl settings` (#175): choose the Flash checkpoint, its draft
   head, the NPU models (a checklist) and Halogen's settings in one place, each shown with its
   default, instead of editing `halogen.env`. All changes are saved together, with one restart of
