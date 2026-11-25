@@ -13,6 +13,11 @@ it promotes.
 - The settings screen's NPU model checklist no longer lists `halogen-spotter-0.6b`. Only the
   agent guard uses it, and the `HALOGEN_AGENT_GUARD` setting (`watch` or `hold`) already adds it
   (#176).
+- Tab completion of `halogenctl` now completes the names of your checkpoints and models after
+  `sudo` too (before, it found them only in a root shell). It also completes the draft head files
+  for `flash drafter <name>` and your existing names after `--as` of `flash pull` and
+  `model pull`, to update one. The names come from a list that halOS keeps in
+  `/run/halos/model-names` for administrators (#174).
 - The documentation is shorter and easier to find your way in (#172). INSTALL.md now holds only
   the installation, the first boot and the disk unlock. Everything about using the machine
   (settings, updates, HTTPS, the dashboard, benchmarks, your own checkpoints, logs) moved to the

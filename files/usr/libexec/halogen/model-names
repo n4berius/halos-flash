@@ -1,0 +1,63 @@
+#!/bin/bash
+# The names of the models and checkpoints on this machine, for tab completion of halogenctl
+# under sudo. sudo runs completion as you, not as root, and /srv/models is the halogen user's
+# (0750), so completion can't look there itself. login-status (root, every 30 s) runs this, and
+# halogenctl starts that service after a pull or a removal. It writes one file:
+#   /run/halos/model-names, root's, mode 0640, group wheel (the admins sudo lets in)
+# one name per line:
+#   flash <name>            your Flash checkpoints (flash use, check, remove, pull --as)
+#   drafter <name> <file>   draft head files in a checkpoint's folder (flash drafter)
+#   convert <name>          conversions in progress (flash convert-stop)
+#   own <kind> <name>       your NPU checkpoints in decider, LFM or custom (model remove, pull --as)
+# Only folder and file names are read, as halogen (setpriv, no login), never a file's contents.
+# The halogen user and its containers can name those folders, so only plain names are kept.
+set -uo pipefail
+out="${1:?usage: model-names <file>}"
+models="${HALOGEN_MODELS_DIR:-/srv/models}"
+uid="${HALOGEN_UID:-970}"
+group="${HALOS_NAMES_GROUP:-wheel}"
+# find [tests] -- <start> [depth]: depth 1 by default, at most 1000 entries, 10 s.
+found() {
+  local tests=() starts=() depth=1
+  while [ "$1" != -- ]; do tests+=("$1"); shift; done; shift
+  starts=("$@")
+  if [[ "${starts[-1]}" =~ ^[0-9]$ ]]; then depth="${starts[-1]}"; unset 'starts[-1]'; fi
+  timeout -k 2 10 setpriv --reuid="$uid" --regid="$uid" --clear-groups -- env -C / \
+    find "${starts[@]}" -mindepth "$depth" -maxdepth "$depth" "${tests[@]}" 2>/dev/null | head -z -n 1000
+}
+plain='^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$'
+
+list="$(
+  # Folders one level down, conversions, then draft head files in each Flash checkpoint's folder.
+  # NUL-ended: a name may hold a line break.
+  # Each find is cut at 1000 entries before root's loop sees them (so at most 6000 lines, and a
+  # flood in one folder can't push out another's names): halogen's containers can fill these folders, and the loop must stay a few milliseconds, every 30 s. The time limit is root's,
+  # outside setpriv, so a halogen process can't stop it (SIGSTOP on find meets root's SIGKILL).
+  # Start points are the folders themselves: find doesn't follow a link there, and .convert is
+  # reached through flash, never by a path that would follow a link at flash.
+  { for d in flash decider LFM custom; do found -type d -printf 'd %h/%f\0' -- "$models/$d"; done
+    found -type d -path "$models/flash/.convert/*" -printf 'd %h/%f\0' -- "$models/flash" 2
+    found -type f -name '*drafter*.hgn' -printf 'f %h/%f\0' -- "$models/flash" 2
+  } | while IFS= read -r -d '' e; do
+    t="${e%% *}"; p="${e#? }"
+    rel="${p#"$models"/}"; [ "$rel" != "$p" ] || continue
+    [[ "$rel" != *$'\n'* ]] || continue
+    IFS=/ read -r a b c rest <<< "$rel"
+    [ -z "${rest:-}" ] || continue
+    case "$t/$a" in
+      d/flash)
+        if [ "$b" = .convert ]; then [[ "${c:-}" =~ $plain ]] && echo "convert $c"
+        elif [ -z "${c:-}" ]; then [[ "$b" =~ $plain ]] && echo "flash $b"
+        fi ;;
+      f/flash) [[ "$b" =~ $plain && "${c:-}" =~ $plain ]] && echo "drafter $b $c" ;;
+      d/decider|d/LFM|d/custom) [[ -z "${c:-}" && "$b" =~ $plain ]] && echo "own $a $b" ;;
+    esac
+  done | LC_ALL=C sort -u
+)"
+
+# Rewrite only on a change, through a new file, so a reader never sees half of one.
+[ "$(cat "$out" 2>/dev/null)" != "$list" ] || exit 0
+rm -f -- "$out.new"
+( umask 077; printf '%s\n' "$list" > "$out.new" ) || exit 1
+chgrp -- "$group" "$out.new" 2>/dev/null && chmod 0640 -- "$out.new"
+mv -f -- "$out.new" "$out"
