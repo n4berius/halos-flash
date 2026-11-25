@@ -1,0 +1,885 @@
+#!/usr/bin/python3 -I
+"""The settings screen of sudo halogenctl settings: the Flash checkpoint, its draft head, the NPU
+models and Halogen's settings, each shown with its default, changed in one place and applied with
+one restart.
+
+It runs as root on root's terminal but touches nothing of halogen's: halogenctl reads
+/srv/configs/halogen.env and the model folders as halogen and hands this a private folder of
+copies. This writes its answer into that folder (env.new: the whole new halogen.env; choices: the
+checkpoint, draft heads and restart), and halogenctl writes it back as halogen. Everything read
+from the copies is halogen's to write, so it is shown with control characters removed, and only
+plain names are taken as model or checkpoint names.
+
+Exit 0: save (the files are written). Exit 3: nothing to save (cancelled or no change).
+--batch reads commands from standard input instead of showing the screen (the tests use it).
+"""
+
+import argparse
+import curses
+import os
+import re
+import sys
+
+NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+OWN = re.compile(r"^/models/(decider|LFM|custom)/[A-Za-z0-9][A-Za-z0-9._-]*$")
+KEY = re.compile(r"^HALOGEN_[A-Z0-9_]+$")
+NPU_KEY = "HALOGEN_NPU_MODELS"
+MAX_VALUE = 4096
+# Shown first, in this order, when the template has them: what most people change.
+COMMON = [
+    "HALOGEN_CTX", "HALOGEN_KV_SLOTS", "HALOGEN_KV_POOL_POSITIONS", "HALOGEN_MODEL_ID",
+    "HALOGEN_VISION_TOWER", "HALOGEN_TEMPERATURE", "HALOGEN_REASONING_EFFORT",
+    "HALOGEN_ENABLE_THINKING", "HALOGEN_MAX_TOKENS_DEFAULT", "HALOGEN_MAX_TOKENS_CAP",
+    "HALOGEN_ACCESS_LOG", "HALOGEN_AGENT_GUARD", "HALOGEN_KV8", "HALOGEN_WEIGHTS_LOCK",
+]
+
+
+def shown(text):
+    """Text from halogen's files, safe to draw: printable characters only."""
+    return "".join(c if c.isprintable() else "?" for c in text)
+
+
+def read_text(path):
+    try:
+        with open(path, encoding="utf-8", errors="surrogateescape") as f:
+            return f.read()
+    except FileNotFoundError:
+        return ""
+
+
+def value_ok(value):
+    """A value halogen.env can hold on one line. render-config checks what it means."""
+    if len(value) > MAX_VALUE:
+        return "longer than %d characters" % MAX_VALUE
+    if not all(c.isprintable() for c in value):
+        return "holds characters that aren't printable"
+    if value != value.strip():
+        return "starts or ends with a space"
+    return None
+
+
+class Option:
+    def __init__(self, key, section, desc, halogen_default, halos_value):
+        self.key = key
+        self.section = section
+        self.desc = desc                    # the template's text, "Default: ..." cut off
+        self.halogen_default = halogen_default  # Halogen's default, as the template says it
+        self.halos_value = halos_value      # the value halOS's template sets, or None
+
+    def default_text(self):
+        if self.halos_value is not None:
+            return "%s (halOS)" % self.halos_value
+        return self.halogen_default or "unset"
+
+
+def parse_template(text, allowed):
+    """The edition's halogen.env.default: sections, descriptions and defaults, in its order."""
+    options, section, prev = [], "", ""
+    for line in text.splitlines():
+        if line.startswith("## "):
+            section = line[3:].strip()
+            prev = ""
+            continue
+        m = re.match(r"^(#?)(HALOGEN_[A-Z0-9_]+)=(.*)$", line)
+        if m and m.group(2) in allowed:
+            desc, default = prev, ""
+            d = re.match(r"^# (.*?)\s*Default: (.*)$", prev)
+            if d:
+                desc, default = d.group(1), d.group(2)
+            elif prev.startswith("# "):
+                desc = prev[2:]
+            halos = m.group(3) if m.group(1) == "" else None
+            if not any(o.key == m.group(2) for o in options):
+                options.append(Option(m.group(2), section, desc.rstrip(". ") + ".", default.strip(), halos))
+        prev = line if line.startswith("# ") else ""
+    return options
+
+
+class EnvFile:
+    """halogen.env as lines, changed in place so its comments and order stay."""
+
+    def __init__(self, text):
+        self.lines = text.split("\n")
+        if self.lines and self.lines[-1] == "":
+            self.lines.pop()
+
+    def _active(self, key):
+        pat = re.compile(r"^\s*" + re.escape(key) + "=")
+        return [i for i, l in enumerate(self.lines) if pat.match(l)]
+
+    def _commented(self, key):
+        pat = re.compile(r"^#\s*" + re.escape(key) + "=")
+        return [i for i, l in enumerate(self.lines) if pat.match(l)]
+
+    def get(self, key):
+        """The value render-config would take (the last line), or None when unset."""
+        idx = self._active(key)
+        if not idx:
+            return None
+        v = self.lines[idx[-1]].split("=", 1)[1]
+        if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+            v = v[1:-1]
+        return v
+
+    def set(self, key, value):
+        idx = self._active(key)
+        new = "%s=%s" % (key, value)
+        if idx:
+            for i in idx[:-1]:      # older lines render-config ignores anyway
+                self.lines[i] = "#" + self.lines[i].lstrip()
+            self.lines[idx[-1]] = new
+            return
+        com = self._commented(key)
+        if com:
+            self.lines[com[-1]] = new
+            return
+        marker = "# Set with sudo halogenctl settings"
+        if marker not in self.lines:
+            if self.lines and self.lines[-1] != "":
+                self.lines.append("")
+            self.lines.append(marker)
+        self.lines.append(new)
+
+    def unset(self, key):
+        for i in self._active(key):
+            self.lines[i] = "#%s=" % key
+
+    def text(self):
+        return "\n".join(self.lines) + "\n"
+
+
+class NpuItem:
+    def __init__(self, ident, desc, mem="", downloaded=False, known=True):
+        self.ident, self.desc, self.mem = ident, desc, mem
+        self.downloaded, self.known = downloaded, known
+
+
+class Model:
+    """Everything the screen changes, and what it changes it from."""
+
+    def __init__(self, env_text, template_text, allowed, catalog_text, state_text, no_restart=False):
+        self.orig_text = env_text
+        self.env = EnvFile(env_text)
+        self.allowed = set(allowed)
+        self.options = [o for o in parse_template(template_text, self.allowed) if o.key != NPU_KEY]
+        self.option = {o.key: o for o in self.options}
+        self.npu_edition = NPU_KEY in self.allowed
+        self.no_restart = no_restart
+        self.running = False
+        self.flash_chosen = "official"
+        self.flash = {}          # name -> (verified, [drafter files])
+        self.drafter = {}        # name -> official|off|<file>
+        downloaded, own = set(), []
+        for line in state_text.splitlines():
+            parts = line.split()
+            if not parts:
+                continue
+            kind, args = parts[0], parts[1:]
+            if kind == "running" and args == ["yes"]:
+                self.running = True
+            elif kind == "flash-chosen" and len(args) == 1 and NAME.match(args[0]):
+                self.flash_chosen = args[0]
+            elif kind == "flash" and len(args) >= 2 and NAME.match(args[0]) and args[0] != "official":
+                self.flash[args[0]] = (args[1], [a for a in args[2:] if NAME.match(a)])
+            elif kind == "drafter" and len(args) == 1 and "=" in args[0]:
+                n, v = args[0].split("=", 1)
+                if NAME.match(n) and NAME.match(v):
+                    self.drafter[n] = v
+            elif kind == "npu-downloaded" and len(args) == 1 and NAME.match(args[0]):
+                downloaded.add(args[0])
+            elif kind == "own" and len(args) == 1 and OWN.match("/models/" + args[0]):
+                own.append("/models/" + args[0])
+        self.orig_flash = self.flash_chosen
+        self.orig_drafter = dict(self.drafter)
+        # The checklist: halOS's list of Halogen's models, your own checkpoints, then any name the
+        # file already has that neither knows (kept as it is, never dropped).
+        self.npu = []
+        for line in catalog_text.splitlines():
+            if not line or line.startswith("#"):
+                continue
+            f = line.split("\t")
+            if NAME.match(f[0]):
+                self.npu.append(NpuItem(f[0], f[1] if len(f) > 1 else "", f[2] if len(f) > 2 else "",
+                                        f[0] in downloaded))
+        for p in own:
+            self.npu.append(NpuItem(p, "your own checkpoint (%s)" % p.split("/")[2], "", True))
+        current = self.npu_list(self.env.get(NPU_KEY))
+        for ident in current:
+            if not any(i.ident == ident for i in self.npu):
+                self.npu.append(NpuItem(ident, "in your file, not in halOS's list", "", ident in downloaded, False))
+        self.orig_npu = current
+        self.npu_on = list(current)  # in the file's order; new ones go at the end
+        self.values = {o.key: self.env.get(o.key) for o in self.options}
+        self.orig_values = dict(self.values)
+        self.restart = not no_restart
+
+    @staticmethod
+    def npu_list(value):
+        if not value:
+            return []
+        return [x for x in (s.strip() for s in value.split(",")) if x]
+
+    def toggle_npu(self, ident):
+        if ident in self.npu_on:
+            self.npu_on.remove(ident)
+        else:
+            self.npu_on.append(ident)
+
+    def is_on(self, ident):
+        return ident in self.npu_on
+
+    def set_value(self, key, value):
+        """value None = back to the default. Returns an error or None."""
+        if key not in self.option:
+            return "not an option of this release"
+        if value is not None:
+            err = value_ok(value)
+            if err:
+                return err
+        self.values[key] = value
+        return None
+
+    def reset(self, key):
+        o = self.option[key]
+        self.values[key] = o.halos_value
+
+    def flash_choices(self):
+        """(name, selectable, note), the official checkpoint first."""
+        out = [("official", True, "Halogen's own, always kept")]
+        for n in sorted(self.flash):
+            v, _ = self.flash[n]
+            if v == "pass":
+                out.append((n, True, "verified"))
+            elif v == "fail":
+                out.append((n, False, "failed Halogen's verify"))
+            elif v == "no":
+                out.append((n, False, "not verified yet: sudo halogenctl flash verify " + n))
+            else:
+                out.append((n, False, "incomplete pull"))
+        return out
+
+    def drafter_choices(self, name):
+        return ["official", "off"] + [f for f in self.flash.get(name, ("", []))[1] if f not in ("official", "off")]
+
+    def drafter_of(self, name):
+        return self.drafter.get(name, "official")
+
+    def cycle_drafter(self, name):
+        ch = self.drafter_choices(name)
+        now = self.drafter_of(name)
+        nxt = ch[(ch.index(now) + 1) % len(ch)] if now in ch else "official"
+        if nxt == "official":
+            self.drafter.pop(name, None)
+        else:
+            self.drafter[name] = nxt
+
+    def changes(self):
+        """What will change, as lines a person reads."""
+        out = []
+        if self.flash_chosen != self.orig_flash:
+            out.append("Flash checkpoint: %s -> %s" % (self.orig_flash, self.flash_chosen))
+        for n in sorted(set(self.drafter) | set(self.orig_drafter)):
+            a, b = self.orig_drafter.get(n, "official"), self.drafter.get(n, "official")
+            if a != b:
+                out.append("Draft head of %s: %s -> %s" % (n, a, b))
+        if self.npu_edition and self.npu_on != self.orig_npu:
+            added = [i for i in self.npu_on if i not in self.orig_npu]
+            gone = [i for i in self.orig_npu if i not in self.npu_on]
+            if added:
+                out.append("NPU models added: " + ", ".join(added))
+            if gone:
+                out.append("NPU models removed: " + ", ".join(gone))
+            if not added and not gone:
+                out.append("NPU models reordered")
+        for o in self.options:
+            a, b = self.orig_values[o.key], self.values[o.key]
+            if a != b:
+                out.append("%s: %s -> %s" % (o.key, "default" if a is None else a, "default" if b is None else b))
+        return [shown(c) for c in out]
+
+    def env_changed(self):
+        return (self.npu_edition and self.npu_on != self.orig_npu) or any(
+            self.values[k] != self.orig_values[k] for k in self.values)
+
+    def new_env(self):
+        env = EnvFile(self.orig_text)
+        for o in self.options:
+            if self.values[o.key] != self.orig_values[o.key]:
+                if self.values[o.key] is None:
+                    env.unset(o.key)
+                else:
+                    env.set(o.key, self.values[o.key])
+        if self.npu_edition and self.npu_on != self.orig_npu:
+            if self.npu_on:
+                env.set(NPU_KEY, ",".join(self.npu_on))
+            else:
+                env.unset(NPU_KEY)
+        return env.text()
+
+    def write(self, outdir):
+        if self.env_changed():
+            with open(os.path.join(outdir, "env.new"), "w", encoding="utf-8", errors="surrogateescape") as f:
+                f.write(self.new_env())
+        with open(os.path.join(outdir, "choices"), "w", encoding="utf-8") as f:
+            if self.flash_chosen != self.orig_flash:
+                f.write("flash %s\n" % self.flash_chosen)
+            for n in sorted(set(self.drafter) | set(self.orig_drafter)):
+                a, b = self.orig_drafter.get(n, "official"), self.drafter.get(n, "official")
+                if a != b:
+                    f.write("drafter %s %s\n" % (n, b))
+            f.write("restart %s\n" % ("yes" if self.restart and not self.no_restart else "no"))
+
+
+# ----------------------------------------------------------------------------- batch (tests)
+
+def run_batch(model, lines):
+    """One command per line: set K V | reset K | default K | npu on|off ID | flash NAME |
+    drafter NAME VALUE | restart yes|no. Errors go to stderr and stop with exit 2."""
+    for raw in lines:
+        line = raw.rstrip("\n")
+        if not line.strip() or line.startswith("#"):
+            continue
+        cmd, _, rest = line.partition(" ")
+        if cmd == "set":
+            k, _, v = rest.partition(" ")
+            err = model.set_value(k, v)
+        elif cmd == "default":
+            err = model.set_value(rest, None)
+        elif cmd == "reset":
+            err = None if rest in model.option else "not an option of this release"
+            if not err:
+                model.reset(rest)
+        elif cmd == "npu":
+            how, _, ident = rest.partition(" ")
+            if not any(i.ident == ident for i in model.npu):
+                err = "not in the list"
+            elif (how == "on") != model.is_on(ident):
+                model.toggle_npu(ident)
+                err = None
+            else:
+                err = None
+        elif cmd == "flash":
+            ok = [n for n, sel, _ in model.flash_choices() if sel]
+            err = None if rest in ok else "not a checkpoint that can be used"
+            if not err:
+                model.flash_chosen = rest
+        elif cmd == "drafter":
+            n, _, v = rest.partition(" ")
+            if n not in model.flash or v not in model.drafter_choices(n):
+                err = "not a choice"
+            else:
+                if v == "official":
+                    model.drafter.pop(n, None)
+                else:
+                    model.drafter[n] = v
+                err = None
+        elif cmd == "restart":
+            model.restart = rest == "yes"
+            err = None
+        else:
+            err = "unknown command"
+        if err:
+            print("settings-tui: %s: %s" % (shown(line), err), file=sys.stderr)
+            sys.exit(2)
+
+
+# ----------------------------------------------------------------------------- the screen
+
+HELP = "Up/Down move  Enter choose  Space tick  q back"
+
+
+class Screen:
+    def __init__(self, stdscr, model):
+        self.s = stdscr
+        self.m = model
+        self.msg = ""
+        curses.curs_set(0)
+        self.s.keypad(True)
+        self.color = False
+        if curses.has_colors():
+            try:
+                curses.start_color()
+                curses.use_default_colors()
+                curses.init_pair(1, curses.COLOR_CYAN, -1)    # headings
+                curses.init_pair(2, curses.COLOR_YELLOW, -1)  # changed
+                curses.init_pair(3, curses.COLOR_GREEN, -1)   # on
+                self.color = True
+            except curses.error:
+                self.color = False
+
+    def attr(self, n):
+        return curses.color_pair(n) if self.color else 0
+
+    def put(self, y, x, text, attr=0):
+        h, w = self.s.getmaxyx()
+        if y < 0 or y >= h or x >= w:
+            return
+        text = shown(text)[: max(0, w - x - (1 if y == h - 1 else 0))]
+        try:
+            self.s.addstr(y, x, text, attr)
+        except curses.error:
+            pass
+
+    def frame(self, title, footer=HELP):
+        self.s.erase()
+        h, w = self.s.getmaxyx()
+        n = len(self.m.changes())
+        right = "%d change%s" % (n, "" if n == 1 else "s") if n else "no changes"
+        self.put(0, 0, " halOS settings: " + title, curses.A_BOLD | self.attr(1))
+        self.put(0, max(0, w - len(right) - 1), right, self.attr(2) if n else 0)
+        self.put(h - 1, 0, footer, curses.A_DIM)
+        if self.msg:
+            self.put(h - 2, 0, self.msg, curses.A_BOLD)
+            self.msg = ""
+
+    def small(self):
+        h, w = self.s.getmaxyx()
+        if h < 12 or w < 50:
+            self.s.erase()
+            self.put(0, 0, "Make the window bigger (50x12 at least).")
+            self.s.refresh()
+            return True
+        return False
+
+    def key(self):
+        k = self.s.get_wch()
+        if k == curses.KEY_RESIZE:
+            return "resize"
+        return k
+
+    # A list screen: rows (text, attr, selectable); returns the chosen row, or None for back.
+    def pick(self, title, rows_fn, on_key=None, header=None, detail=None, footer=HELP, start=0):
+        pos, top = start, 0
+        while True:
+            if self.small():
+                if self.key() in ("q", "\x1b"):
+                    return None
+                continue
+            rows = rows_fn()
+            sel = [i for i, r in enumerate(rows) if r[2]]
+            if not sel:
+                pos = 0
+            elif pos not in sel:
+                pos = min(sel, key=lambda i: abs(i - pos))
+            self.frame(title, footer)
+            h, w = self.s.getmaxyx()
+            y0 = 2
+            for line in (header() if header else []):
+                self.put(y0, 1, line, curses.A_DIM)
+                y0 += 1
+            if header:
+                y0 += 1
+            dlines = detail(pos) if detail and rows else []
+            room = h - y0 - 2 - (len(dlines) + 1 if dlines else 0)
+            room = max(3, room)
+            if pos < top:
+                top = pos
+            if pos >= top + room:
+                top = pos - room + 1
+            for j, (text, attr, _) in enumerate(rows[top: top + room]):
+                i = top + j
+                a = attr | (curses.A_REVERSE if i == pos and sel else 0)
+                self.put(y0 + j, 1, (text + " " * w)[: w - 2] if i == pos and sel else text, a)
+            if top > 0:
+                self.put(y0, w - 3, "^", curses.A_DIM)
+            if top + room < len(rows):
+                self.put(y0 + room - 1, w - 3, "v", curses.A_DIM)
+            if dlines:
+                y = h - 2 - len(dlines)
+                for line in dlines:
+                    self.put(y, 1, line)
+                    y += 1
+            self.s.refresh()
+            k = self.key()
+            if k == "resize":
+                continue
+            if k in (curses.KEY_UP, "k") and sel:
+                before = [i for i in sel if i < pos]
+                pos = before[-1] if before else pos
+            elif k in (curses.KEY_DOWN, "j") and sel:
+                after = [i for i in sel if i > pos]
+                pos = after[0] if after else pos
+            elif k == curses.KEY_PPAGE and sel:
+                pos = max([i for i in sel if i <= max(0, pos - room)] or [sel[0]])
+            elif k == curses.KEY_NPAGE and sel:
+                pos = min([i for i in sel if i >= pos + room] or [sel[-1]])
+            elif k == curses.KEY_HOME and sel:
+                pos = sel[0]
+            elif k == curses.KEY_END and sel:
+                pos = sel[-1]
+            elif k in ("q", "\x1b", curses.KEY_LEFT):
+                return None
+            elif k in ("\n", "\r", curses.KEY_ENTER, curses.KEY_RIGHT) and sel:
+                if on_key is None:
+                    return pos
+                r = on_key("enter", pos)
+                if r is not None:
+                    return r
+            elif on_key is not None and sel:
+                r = on_key(k, pos)
+                if r is not None:
+                    return r
+
+    def wrap(self, text, width, limit=3):
+        words, lines, cur = shown(text).split(), [], ""
+        for wd in words:
+            if len(cur) + len(wd) + 1 > width:
+                lines.append(cur)
+                cur = wd
+            else:
+                cur = (cur + " " + wd).strip()
+        if cur:
+            lines.append(cur)
+        if len(lines) > limit:
+            lines = lines[:limit]
+            lines[-1] = lines[-1][: width - 3] + "..."
+        return lines
+
+    def ask_line(self, prompt, initial):
+        """A one-line editor at the bottom. Returns the text, or None on Esc."""
+        buf, cur = list(initial), len(initial)
+        curses.curs_set(1)
+        try:
+            while True:
+                h, w = self.s.getmaxyx()
+                self.put(h - 2, 0, " " * (w - 1))
+                self.put(h - 1, 0, " " * (w - 1))
+                self.put(h - 2, 0, prompt, curses.A_BOLD)
+                room = max(10, w - 3)
+                start = max(0, cur - room + 1)
+                self.put(h - 1, 1, "".join(buf[start:start + room]))
+                try:
+                    self.s.move(h - 1, 1 + cur - start)
+                except curses.error:
+                    pass
+                self.s.refresh()
+                k = self.key()
+                if k == "resize":
+                    continue
+                if k == "\x1b":
+                    return None
+                if k in ("\n", "\r", curses.KEY_ENTER):
+                    return "".join(buf)
+                if k in (curses.KEY_BACKSPACE, "\x7f", "\b"):
+                    if cur > 0:
+                        del buf[cur - 1]
+                        cur -= 1
+                elif k == curses.KEY_DC:
+                    if cur < len(buf):
+                        del buf[cur]
+                elif k == curses.KEY_LEFT:
+                    cur = max(0, cur - 1)
+                elif k == curses.KEY_RIGHT:
+                    cur = min(len(buf), cur + 1)
+                elif k in (curses.KEY_HOME, "\x01"):
+                    cur = 0
+                elif k in (curses.KEY_END, "\x05"):
+                    cur = len(buf)
+                elif k == "\x15":   # Ctrl-U: clear
+                    buf, cur = [], 0
+                elif isinstance(k, str) and k.isprintable() and len(buf) < MAX_VALUE:
+                    buf.insert(cur, k)
+                    cur += 1
+        finally:
+            curses.curs_set(0)
+
+    def confirm(self, question):
+        h, w = self.s.getmaxyx()
+        self.put(h - 2, 0, " " * (w - 1))
+        self.put(h - 2, 0, question + " [y/N] ", curses.A_BOLD)
+        self.s.refresh()
+        while True:
+            k = self.key()
+            if k != "resize":
+                return k in ("y", "Y")
+
+    # --- the menus
+
+    def main(self):
+        items = [("flash", "Flash checkpoint"), ("drafter", "Draft heads")]
+        if self.m.npu_edition:
+            items.append(("npu", "NPU models"))
+        items += [("common", "Common settings"), ("all", "All settings"), ("apply", "Review and save"),
+                  ("quit", "Quit without saving")]
+
+        def summary(what):
+            m = self.m
+            if what == "flash":
+                return m.flash_chosen
+            if what == "drafter":
+                return "%d of your own checkpoints" % len(m.flash) if m.flash else "none of your own checkpoints yet"
+            if what == "npu":
+                return "%d on" % len(m.npu_on)
+            if what in ("common", "all"):
+                keys = [k for k in self.common_keys()] if what == "common" else list(m.values)
+                n = sum(1 for k in keys if m.values[k] is not None)
+                c = sum(1 for k in keys if m.values[k] != m.orig_values[k])
+                return "%d set in your file%s" % (n, ", %d changed" % c if c else "")
+            if what == "apply":
+                n = len(m.changes())
+                return "%d change%s" % (n, "" if n == 1 else "s") if n else "nothing changed yet"
+            return ""
+
+        def rows():
+            return [("%-22s %s" % (label, summary(what)), 0, True) for what, label in items]
+
+        def header():
+            return ["Each setting shows its default. Nothing changes until you save.",
+                    "Halogen is running." if self.m.running else "Halogen is not running."]
+
+        pos = 0
+        while True:
+            r = self.pick("menu", rows, header=header, start=pos,
+                          footer="Up/Down move  Enter open  q quit")
+            if r is None:
+                what = "quit"
+            else:
+                pos = r
+                what = items[r][0]
+            if what == "flash":
+                self.flash_menu()
+            elif what == "drafter":
+                self.drafter_menu()
+            elif what == "npu":
+                self.npu_menu()
+            elif what == "common":
+                self.settings_menu("Common settings", self.common_keys())
+            elif what == "all":
+                self.settings_menu("All settings", [o.key for o in self.m.options], sections=True)
+            elif what == "apply":
+                if self.review():
+                    return True
+            elif what == "quit":
+                if not self.m.changes() or self.confirm("Quit and lose %d change(s)?" % len(self.m.changes())):
+                    return False
+
+    def common_keys(self):
+        return [k for k in COMMON if k in self.m.option]
+
+    def flash_menu(self):
+        ch = self.m.flash_choices()
+
+        def rows():
+            return [("(%s) %-28s %s" % ("*" if n == self.m.flash_chosen else " ", n, note),
+                     0 if sel else curses.A_DIM, True) for n, sel, note in ch]
+
+        def act(k, pos):
+            if k in ("enter", " "):
+                n, sel, note = ch[pos]
+                if not sel:
+                    self.msg = "%s can't be used: %s" % (n, note)
+                else:
+                    self.m.flash_chosen = n
+            return None
+
+        def header():
+            return ["The model Halogen serves on the GPU. Default: official.",
+                    "Your own come from: sudo halogenctl flash pull <Hugging Face repo>"]
+        self.pick("Flash checkpoint", rows, on_key=act, header=header,
+                  footer="Up/Down move  Enter/Space choose  q back")
+
+    def drafter_menu(self):
+        names = sorted(self.m.flash)
+
+        def rows():
+            if not names:
+                return [("You have no checkpoints of your own. The official one always uses Halogen's draft head.", 0, False)]
+            return [("%-28s %s" % (n, self.m.drafter_of(n)), self.attr(2) if self.m.drafter_of(n) != self.m.orig_drafter.get(n, "official") else 0, True) for n in names]
+
+        def act(k, pos):
+            if k in ("enter", " ") and names:
+                self.m.cycle_drafter(names[pos])
+            return None
+
+        def header():
+            return ["The draft head guesses tokens ahead for the GPU model; answers stay the same, only the speed",
+                    "changes. official (default): Halogen's own. off: the checkpoint's built-in head.",
+                    "Other names: a draft head file shipped with that checkpoint."]
+        self.pick("Draft heads", rows, on_key=act, header=header,
+                  footer="Up/Down move  Enter/Space next choice  q back")
+
+    def npu_menu(self):
+        items = self.m.npu
+
+        def rows():
+            out = []
+            for it in items:
+                on = self.m.is_on(it.ident)
+                note = it.desc + (", " + it.mem if it.mem else "")
+                disk = "on disk" if it.downloaded else ("to fetch" if on else "")
+                out.append(("[%s] %-27s %-9s %s" % ("x" if on else " ", it.ident, disk, note),
+                            self.attr(3) if on else 0, True))
+            return out
+
+        def act(k, pos):
+            if k in ("enter", " "):
+                self.m.toggle_npu(items[pos].ident)
+            elif k == "d":
+                self.m.npu_on = list(self.default_npu())
+                self.msg = "Back to halOS's default list."
+            return None
+
+        def header():
+            return ["Small models that run on the NPU beside the Flash model, on the same port.",
+                    "Default: %s" % (", ".join(self.default_npu()) or "none"),
+                    "Each takes host memory while in use; tick only the ones you use. \"to fetch\": downloaded",
+                    "before Halogen's next start."]
+        self.pick("NPU models (%d on)" % len(self.m.npu_on), rows, on_key=act, header=header,
+                  footer="Up/Down move  Space tick  d default list  q back")
+
+    def default_npu(self):
+        return self.m.npu_list(self.m.npu_default)
+
+    def settings_menu(self, title, keys, sections=False):
+        flt = [""]
+
+        def visible():
+            f = flt[0].lower()
+            return [k for k in keys if not f or f in k.lower() or f in self.m.option[k].desc.lower()]
+
+        def build():
+            out, idx, last = [], [], None
+            for k in visible():
+                o = self.m.option[k]
+                if sections and o.section != last and not flt[0]:
+                    out.append(("-- %s --" % o.section, curses.A_BOLD | self.attr(1), False))
+                    idx.append(None)
+                    last = o.section
+                v = self.m.values[k]
+                changed = v != self.m.orig_values[k]
+                val = "default: " + o.default_text() if v is None else v
+                if v is not None and v == o.halos_value:
+                    val += " (halOS default)"
+                out.append(("%s %-34s %s" % ("*" if changed else " ", k[len("HALOGEN_"):], val),
+                            self.attr(2) if changed else (0 if v is None else curses.A_BOLD), True))
+                idx.append(k)
+            if not out:
+                out.append(("Nothing matches \"%s\". Press / to search again." % flt[0], 0, False))
+                idx.append(None)
+            return out, idx
+
+        def rows():
+            return build()[0]
+
+        def key_at(pos):
+            idx = build()[1]
+            return idx[pos] if 0 <= pos < len(idx) else None
+
+        def detail(pos):
+            k = key_at(pos)
+            if not k:
+                return []
+            o = self.m.option[k]
+            w = self.s.getmaxyx()[1] - 3
+            out = self.wrap(o.desc, w, 2)
+            out.append(shown("%s. Default: %s" % (k, o.default_text()))[:w])
+            return out
+
+        def act(k, pos):
+            key = key_at(pos)
+            if k == "/":
+                f = self.ask_line("Search (name or words, empty = all):", flt[0])
+                if f is not None:
+                    flt[0] = f.strip()
+                return None
+            if not key:
+                return None
+            o = self.m.option[key]
+            if k == "enter":
+                cur = self.m.values[key]
+                v = self.ask_line("%s (Enter keeps it; empty = default %s; Esc cancels):"
+                                  % (key, o.default_text()), cur if cur is not None else "")
+                if v is None:
+                    return None
+                v = v.strip()
+                err = self.m.set_value(key, v if v != "" else None)
+                if err:
+                    self.msg = "Not changed: the value " + err
+            elif k in ("r", curses.KEY_DC):
+                self.m.reset(key)
+                self.msg = "%s back to its default." % key
+            elif k == "u":
+                self.m.values[key] = self.m.orig_values[key]
+                self.msg = "%s back to what your file had." % key
+            return None
+
+        self.pick(title, rows, on_key=act, detail=detail,
+                  footer="Enter edit  r default  u undo  / search  q back")
+
+    def review(self):
+        changes = self.m.changes()
+        if not changes:
+            self.msg = "Nothing changed yet."
+            return False
+        if self.m.no_restart:
+            acts = [("save", "Save")]
+        elif self.m.running:
+            acts = [("restart", "Save and restart Halogen now (it stops answering for a few minutes)"),
+                    ("save", "Save, restart later (sudo halogenctl restart)")]
+        else:
+            acts = [("restart", "Save and start Halogen"), ("save", "Save only")]
+        acts.append(("back", "Back"))
+
+        def rows():
+            return [(label, curses.A_BOLD, True) for _, label in acts]
+
+        def header():
+            return ["These changes are saved together:"] + ["  " + c for c in changes]
+        r = self.pick("Review", rows, header=header, footer="Up/Down move  Enter choose  q back")
+        if r is None or acts[r][0] == "back":
+            return False
+        self.m.restart = acts[r][0] == "restart"
+        return True
+
+
+def run_screen(model):
+    try:
+        curses.set_escdelay(25)
+    except AttributeError:
+        os.environ.setdefault("ESCDELAY", "25")
+    return curses.wrapper(lambda s: Screen(s, model).main())
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--dir", required=True, help="the private folder: env, state; env.new and choices are written here")
+    ap.add_argument("--template", required=True)
+    ap.add_argument("--allowed", required=True)
+    ap.add_argument("--catalog", required=True)
+    ap.add_argument("--no-restart", action="store_true")
+    ap.add_argument("--batch", action="store_true")
+    a = ap.parse_args()
+    allowed = [l.strip() for l in read_text(a.allowed).splitlines() if KEY.match(l.strip())]
+    template = read_text(a.template)
+    model = Model(read_text(os.path.join(a.dir, "env")), template, allowed, read_text(a.catalog),
+                  read_text(os.path.join(a.dir, "state")), a.no_restart)
+    m = re.search(r"^%s=(.*)$" % NPU_KEY, template, re.M)
+    model.npu_default = m.group(1) if m else ""
+    for name in ("env.new", "choices"):
+        try:
+            os.unlink(os.path.join(a.dir, name))
+        except FileNotFoundError:
+            pass
+    if a.batch:
+        run_batch(model, sys.stdin)
+        save = True
+    else:
+        if not (sys.stdin.isatty() and sys.stdout.isatty()):
+            print("settings-tui: needs a terminal", file=sys.stderr)
+            return 2
+        try:
+            save = run_screen(model)
+        except curses.error as e:
+            print("settings-tui: this terminal can't show the screen (%s). Edit the file instead: "
+                  "sudo halogenctl settings --editor" % e, file=sys.stderr)
+            return 2
+        except KeyboardInterrupt:
+            save = False
+    if not save or not model.changes():
+        return 3
+    model.write(a.dir)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

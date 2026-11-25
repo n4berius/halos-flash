@@ -10,6 +10,12 @@ it promotes.
 
 ## Unreleased
 
+- A settings screen, `sudo halogenctl settings` (#PR): choose the Flash checkpoint, its draft
+  head, the NPU models (a checklist) and Halogen's settings in one place, each shown with its
+  default, instead of editing `halogen.env`. All changes are saved together, with one restart of
+  Halogen at the end. `halosctl setup` opens it in step 3 (Enter on a new install).
+  `halogenctl settings --editor` still opens the file in an editor.
+
 - Hardening from the same review (#166):
   - Unlocking from a tang server: `halosctl tang-unlock on` with `--tpm and` or `--tpm or`, and
     `halogen-enroll-tpm`, refuse while Secure Boot is off, since the TPM's check then doesn't stop

@@ -47,7 +47,7 @@ The `Signatures:` line of `version` shows this.
 
 | Command | What it does |
 |---|---|
-| `halosctl setup [--skip]` | Asks the first-boot questions: TPM unlock, unlock from a tang server, SSH unlock, SSH logins with keys only, your Hugging Face token, your settings and HTTPS. On a new install, Enter turns on `https self-signed`. An upgraded machine keeps plain HTTP unless you answer yes. On a new install, Halogen waits for setup (up to 30 minutes). `--skip` starts Halogen with the defaults. |
+| `halosctl setup [--skip]` | Asks the first-boot questions: TPM unlock, unlock from a tang server, SSH unlock, SSH logins with keys only, your Hugging Face token, the settings screen and HTTPS. On a new install, Enter turns on `https self-signed`. An upgraded machine keeps plain HTTP unless you answer yes. On a new install, Halogen waits for setup (up to 30 minutes). `--skip` starts Halogen with the defaults. |
 | `halosctl power [low-power\|balanced\|performance]` | Sets the firmware's power profile, now and at each boot. `performance` (the default) serves fastest. The other profiles use less power, and the machine is cooler and slower. Without a profile name, it shows the current profile. |
 
 ### SSH
@@ -108,11 +108,12 @@ after a change, halOS puts back the previous setting automatically.
 
 | Command | What it does |
 |---|---|
+| `halogenctl settings [--editor] [--no-restart]` | Opens the settings screen: the Flash checkpoint, the draft heads, a checklist of NPU models, and Halogen's settings, each with its default. It saves all changes together, then restarts Halogen one time if you choose that. `--editor` opens `halogen.env` in an editor instead. `--no-restart` saves only (`halosctl setup` uses it). See [the settings screen](../INSTALL.md#the-settings-screen). |
 | `halogenctl config` | Shows the settings that Halogen gets: your allowed settings from `/srv/configs/halogen.env`, then the settings that halOS locks. |
 | `halogenctl options [--new]` | Shows each option of this release, and if it is set, commented out or new in your file. `--new` shows only the options that your file doesn't mention. |
 | `halogenctl doctor` | Checks the settings and the machine before a start (halOS's own checks), and tells what to change. |
 
-To edit the settings, run `sudo nano /srv/configs/halogen.env`. Then run `sudo halogenctl restart`.
+To change the settings, run `sudo halogenctl settings`. You can also edit the file with `sudo nano /srv/configs/halogen.env`, then run `sudo halogenctl restart`.
 
 ### Checks and speed
 
