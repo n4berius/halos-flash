@@ -16,6 +16,10 @@ PublishPort=127.0.0.1:18731:8731
 # Its own network, with no route out and no DNS (#120): new connections from Halogen to the
 # internet, the LAN or this machine fail at once ("Network is unreachable"). See halogen-internal.network.
 Network=halogen-internal.network
+# No IPv6 on its network link (security audit of #120): eth0 would otherwise keep an fe80::
+# address, on-link to anything listening on :: in halogen's rootless network namespace. Only eth0:
+# Halogen listens on :: and needs IPv6 itself, on lo. The published port reaches it over IPv4.
+Sysctl=net.ipv6.conf.eth0.disable_ipv6=1
 AddDevice=/dev/kfd
 AddDevice=/dev/dri
 Ulimit=memlock=-1:-1

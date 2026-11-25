@@ -15,6 +15,21 @@ PrivateTmp=yes
 PrivateNetwork=yes
 NoNewPrivileges=yes
 RestrictAddressFamilies=AF_UNIX
+# The rest that leaves /sys and the GPU's device files alone (security audit, after #165).
+# No capabilities: upstream's script only writes root's own 0644 files in /sys (pp_dpm_fclk,
+# power_dpm_force_performance_level), which root may as their owner.
+CapabilityBoundingSet=
+MemoryDenyWriteExecute=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
 
 [Install]
 WantedBy=multi-user.target suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target

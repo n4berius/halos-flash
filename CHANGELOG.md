@@ -24,6 +24,14 @@ it promotes.
     at the same time: the check refuses while a conversion runs, and a conversion waits for a check.
   - CI: builds of pull requests and other branches run without the right to push packages or to
     sign. Only main's build has it.
+- More hardening from the whole-image review, tried on a real machine before release (#167):
+  - The conversion of a GGUF download (`halogenctl flash pull`) sees only its own download, with
+    the rest of the system read-only, not every model.
+  - Halogen's container has no IPv6 on its network link (it keeps IPv6 inside, where it listens).
+  - The boot jobs that prepare Halogen's folders, hold the GPU clock, and renew HTTPS certificates
+    run with fewer rights.
+  - Four kernel settings: no terminal modules loaded on demand, stricter rules for files in shared
+    temporary folders, and no switching to another kernel without a reboot (kexec).
 
 - New release names (#168): `v<Halogen version>-<halOS number>-<stage>`, such as `v0.20.7-1-stable`
   and `v0.20.7-2-alpha`. The halOS number counts halOS's own changes on one Halogen version, so a

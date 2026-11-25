@@ -171,7 +171,8 @@ for path in glob.glob("files/usr/libexec/halogen/*"):
     body = open(path).read()
     for line in body.splitlines():
         # Any spelling of a mount whose destination is all of /models (-v, --volume, ${models}, :rw, dst=).
-        if not line.lstrip().startswith("#") and re.search(r'[:=]/models(:[a-z,]+)?["\s)]|dst=/models\b', line):
+        # GGUF's convert mounts only its own work folder at /models (flash-checkpoint's gguf_convert).
+        if not line.lstrip().startswith("#") and re.search(r'[:=]/models(:[a-z,]+)?["\s)]|dst=/models\b', line) and not (path.endswith("/flash-checkpoint") and '-v "$work:/models:ro,noexec,nosuid,nodev"' in line):
             assert '"${hide_cache[@]}"' in line, f"{path} mounts all of /srv/models without hiding the prompt cache: {line.strip()}"
     if "hide_cache" in body:
         assert 'hide_cache=(--tmpfs "/models/.prompt-cache:ro,size=4k,notmpcopyup")' in body, f"{path}: the tmpfs must not copy the folder's files up"

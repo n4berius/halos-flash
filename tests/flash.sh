@@ -38,11 +38,13 @@ echo "podman $*" >> "$FAKE/podman.log"
 # Removing the container ends a "container" that ignores SIGTERM (FAKE_HANG below).
 if [ "$1" = rm ] && [ -s "$FAKE/hang.pid" ]; then kill -9 "$(cat "$FAKE/hang.pid")" 2> /dev/null; fi
 [ "$1" = run ] || exit 0
-shift; entry=""
+shift; entry=""; vols=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --entrypoint) entry="$2"; shift 2 ;;
-    -v|-e|--tmpfs|--security-opt|--cap-drop|--device|--group-add|--ulimit|--name) shift 2 ;;
+    -v) vols+=("$2"); shift 2 ;;
+    -e) case "$2" in HALOGEN_MTP_HEAD=*) HALOGEN_MTP_HEAD_SEEN="${2#*=}" ;; esac; shift 2 ;;
+    --tmpfs|--security-opt|--cap-drop|--device|--group-add|--ulimit|--name) shift 2 ;;
     -*) shift ;;
     *) shift; break ;;
   esac
@@ -66,9 +68,13 @@ case "$entry" in
   /usr/local/bin/flash_serve) echo "loading"; echo "${FAKE_FACTS-61.2 0 1}" ;;
   "") if [ "$1" = convert ]; then
         echo "convert $2 $3" >> "$FAKE/convert.log"
-        [ -f "${2/\/models/$FAKE/models}" ] || exit 1
+        # Container paths through its mounts, the longest destination first (as the kernel sees them).
+        host() { local v best="" bl=0 src dst; for v in "${vols[@]}"; do src="${v%%:*}"; dst="${v#*:}"; dst="${dst%%:*}"
+                   if [[ "$1" == "$dst"/* ]] && [ "${#dst}" -gt "$bl" ]; then best="$src${1#"$dst"}"; bl="${#dst}"; fi; done; echo "$best"; }
+        [ -f "$(host "$2")" ] || exit 1
+        [ -f "$(host "$HALOGEN_MTP_HEAD_SEEN")" ] || exit 1
         [ -z "${FAKE_CONVERT_RC:-}" ] || exit "$FAKE_CONVERT_RC"
-        o="${3/\/models/$FAKE/models}"; printf 'HGN1converted' > "$o"; echo junk > "$(dirname "$o")/stray.txt"
+        o="$(host "$3")"; printf 'HGN1converted' > "$o"; echo junk > "$(dirname "$o")/stray.txt"
         exit 0
       fi
       if [ "$1" = ppl ]; then
@@ -233,11 +239,13 @@ g="$work/models/flash/gg"
 grep -qx "hf $commit UD-IQ4_XS/Flash-UD-IQ4_XS-00001-of-00002.gguf UD-IQ4_XS/Flash-UD-IQ4_XS-00002-of-00002.gguf" "$work/hf.log" || fail "the shards weren't fetched at the commit: $(cat "$work/hf.log")"
 grep -qx "hf $wcommit qwen38-flash-next-mtp.hgn" "$work/hf.log" || fail "the draft head wasn't fetched from the weights repository: $(cat "$work/hf.log")"
 if grep -qE 'mmproj|MTP-draft' "$work/hf.log"; then fail "a projector or llama.cpp draft head was downloaded"; fi
-grep -qx "convert /models/flash/.convert/gg/gguf/UD-IQ4_XS/Flash-UD-IQ4_XS-00001-of-00002.gguf /models/flash/.convert/gg/out/gg/model.hgn" "$work/convert.log" || fail "convert wasn't given the first shard: $(cat "$work/convert.log")"
+grep -qx "convert /models/gguf/UD-IQ4_XS/Flash-UD-IQ4_XS-00001-of-00002.gguf /models/out/gg/model.hgn" "$work/convert.log" || fail "convert wasn't given the first shard: $(cat "$work/convert.log")"
 grep ' convert ' "$work/podman.log" > "$work/conv.line"
 { grep -q -- '--network=none' "$work/conv.line" && grep -q -- '--cap-drop=all' "$work/conv.line" && grep -q -- '--oom-score-adj=1000' "$work/conv.line" \
-  && grep -q -- '-e HALOGEN_MTP_HEAD=/models/flash/.convert/gg/head/qwen38-flash-next-mtp.hgn' "$work/conv.line" \
-  && grep -q -- "-v $work/models:/models:ro" "$work/conv.line"; } || fail "convert didn't run offline, unprivileged, with the head: $(cat "$work/conv.line")"
+  && grep -q -- '-e HALOGEN_MTP_HEAD=/models/head/qwen38-flash-next-mtp.hgn' "$work/conv.line" \
+  && grep -q -- '--read-only --read-only-tmpfs=false --tmpfs /run -v /tmp -v /var/tmp -v /root -v /dev/shm:/dev/shm ' "$work/conv.line" \
+  && grep -q -- "-v $work/models/flash/.convert/gg:/models:ro,noexec,nosuid,nodev -v $work/models/flash/.convert/gg/out/gg:/models/out/gg:noexec,nosuid,nodev " "$work/conv.line" \
+  && [ "$(grep -o -- ' -v ' "$work/conv.line" | wc -l)" = 6 ] && [ "$(stat -c %a "$g/model.hgn")" = 640 ]; } || fail "convert didn't run offline, unprivileged, read-only, seeing only its own work folder, with the head: $(cat "$work/conv.line")"
 { [ ! -e "$g/stray.txt" ] && [ ! -e "$work/models/flash/.convert/gg" ] && grep -q official "$g/tokenizer/tokenizer.json"; } || fail "strays, the download or a missing tokenizer"
 grep -qx "verify /models/flash/gg/model.hgn" "$work/verify.log" || fail "verify didn't check the result"
 grep -qx 'name=gg' "$work/out" || fail "no name= line for halogenctl"
