@@ -63,38 +63,146 @@ if ! sed -n '/^{/,$p' "$raw" | jq 'walk(if type == "string" then gsub("[[:cntrl:
   die "the measurement returned no results it could read; its output was: $(head -c 300 "$raw" | tr -cd '[:print:]\n')"
 fi
 
+# The newest earlier report of the same kind (full or quick), to compare with. Reports are
+# halogen's own files, but one may have been edited, so only a readable one with rows counts.
+prev=/dev/null
+while IFS= read -r f; do
+  [ -f "$f" ] && [ ! -L "$f" ] || continue
+  if jq -e --arg run "$kind" '.run == $run and (.bench.rows | length > 0)' "$f" > /dev/null 2>&1; then prev="$f"; break; fi
+done < <(find "$dir" -maxdepth 1 -name '[0-9]*-[0-9]*.json' -printf '%f\n' 2>/dev/null | sort -r | sed "s|^|$dir/|")
+[ "$prev" = /dev/null ] && prev_name="" || prev_name="$(basename "$prev")"
+
 jq --arg date "$(date -u '+%Y-%m-%d %H:%M UTC')" --arg kind "$kind" \
    --arg halos "${HALOS_RELEASE:-unknown}" --arg edition "${HALOGEN_VARIANT:-unknown}" \
    --arg halogen "${HALOGEN_VERSION:-unknown}" --arg image "$HALOGEN_IMAGE" \
    --arg kernel "$(uname -r | clean)" --arg board "$(dmi board_vendor) $(dmi board_name)" \
    --arg bios "$(dmi bios_version)" --arg gtt "$(karg amdgpu.gttsize)" \
    --arg iommu "$(karg iommu; karg amd_iommu)" --arg fabric "$fabric" --arg profile "$profile" \
-   --arg flash "$flash" --arg settings "$settings" --arg cache "${cache:-default}" '
+   --arg flash "$flash" --arg settings "$settings" --arg cache "${cache:-default}" --arg prev "$prev_name" '
   {date: $date, run: $kind,
    system: {halos: $halos, edition: $edition, halogen: $halogen, image: $image, kernel: $kernel,
             board: $board, bios: $bios, gttsize: $gtt, iommu: $iommu, fabric_clock: $fabric,
             platform_profile: $profile, flash_checkpoint: $flash, prompt_cache: $cache,
             settings: ($settings | split("\n") | map(select(length > 0)))},
+   compared_with: (if $prev == "" then null else $prev end),
    bench: .}' "$raw.json" > "$dir/$stamp.json"
 
+# The report: results first, in plain units, then what changed since the last run. The details
+# (board, kernel, every setting) go only into the saved text file.
+# shellcheck disable=SC2016 # jq's own variables
+report='
+def th: if length > 3 then (.[0:length-3] | th) + "," + .[length-3:] else . end;
+def d1: fabs * 10 | round | tostring | if length == 1 then "0." + . else .[0:-1] + "." + .[-1:] end;
+def speed: if . < 100 then d1 else (round | tostring | th) end;
+def secs: if . < 10 then d1 else (round | tostring | th) end + " s";
+def pct: (if . * 10 | round > 0 then "+" elif . * 10 | round < 0 then "-" else "" end) + d1 + "%";
+def size: if . >= 1024 and . % 1024 == 0 then "\(. / 1024)K" else tostring end;
+def rpad($n): tostring | . + ([range(0; $n - length)] | map(" ") | join(""));
+def lpad($n): tostring | ([range(0; $n - length)] | map(" ") | join("")) + .;
+def clean: tostring | gsub("[[:cntrl:]]"; "");
+def num: (.test | clean | ltrimstr("pp") | ltrimstr("tg") | tonumber? ) // null;
+($prev[0] // null) as $p
+| (.bench.reps // 1) as $reps
+# Faster, slower or about the same as the last run. Noise: 2%, or two standard errors of the
+# mean of this run, whichever is more.
+| def verdict($samples):
+    (.mean // 0) as $m | (.test) as $t
+    | (if $m > 0 then 100 * (.stdev // 0) / $m else 0 end) as $spread
+    | (if $p == null then null else [$p.bench.rows[] | select(.test == $t) | .mean][0] end) as $old
+    | if $old == null or ($old | type) != "number" or $old <= 0 then null else
+        (100 * ($m - $old) / $old) as $d
+        | ([2, 2 * $spread / ($samples | sqrt)] | max) as $noise
+        | if ($d | fabs) < $noise then "about the same" elif $d > 0 then "faster" else "slower" end
+      end;
+  def line($samples):
+    (.mean // 0) as $m | (num) as $n
+    | (if $m > 0 then 100 * (.stdev // 0) / $m else 0 end) as $spread
+    | (if $n == null then (.test | clean) else "\($n | size) tokens" end | rpad(12))
+      + ("\($m | speed) tok/s" | lpad(13))
+      + ("±\($spread | d1)%" | lpad(9))
+      + (if $m > 0 then ((.tokens // $n // 0) / $m | secs) else "" end | lpad(9))
+      + (if $p == null then "" else
+           (.test) as $t | ([$p.bench.rows[] | select(.test == $t) | .mean][0] // null) as $old
+           | if $old == null or $old <= 0 then "    (not in the last run)" else
+               (100 * ($m - $old) / $old) as $d
+               | "   " + ($d | pct | lpad(7)) + "  " + verdict($samples)
+             end
+         end);
+def table($label; $rows; $samples):
+  "  " + ($label | rpad(12)) + ("Speed" | lpad(13)) + ("Spread" | lpad(9)) + ("Time" | lpad(9))
+  + (if $p == null then "" else "   Last run" end),
+  ($rows[] | "  " + line($samples));
+[.bench.rows[] | select(.test | clean | startswith("pp"))] as $pp
+| [.bench.rows[] | select(.test | clean | startswith("tg"))] as $tg
+| [.bench.rows[] | select(.test | clean | (startswith("pp") or startswith("tg")) | not)] as $other
+| .system as $s
+| "halOS benchmark, \(.date), \(.run) run (\($reps) pass\(if $reps == 1 then "" else "es" end) per test)",
+  "",
+  ( [ (if ($pp | length) > 0 then
+         ($pp | map(.mean) | [min, max]) as [$lo, $hi]
+         | "reads prompts at \(if ($lo | round) == ($hi | round) then ($lo | speed) else "\($lo | speed) to \($hi | speed)" end) tok/s" else empty end),
+      (if ($tg | length) > 0 then "writes answers at \($tg[0].mean | speed) tok/s" else empty end) ]
+    | if length > 0 then "In short: Halogen " + join(" and ") + "." else empty end ),
+  (if $p == null then empty else
+     ([$pp[] | verdict($reps)] + [$tg[] | verdict($reps * 10)] | map(select(. != null))) as $v
+     | ($v | map(select(. == "faster")) | length) as $f | ($v | map(select(. == "slower")) | length) as $sl
+     | "Since the last \(.run) run: "
+       + (if $f == 0 and $sl == 0 then "no change beyond the normal variation."
+          else ([(if $f > 0 then "\($f) test\(if $f == 1 then "" else "s" end) faster" else empty end),
+                 (if $sl > 0 then "\($sl) test\(if $sl == 1 then "" else "s" end) slower" else empty end)] | join(", ")) + "."
+          end)
+   end),
+  "",
+  (if ($pp | length) > 0 then
+     "Reading the prompt (prefill): how long before the answer starts",
+     table("Prompt"; $pp; $reps), "" else empty end),
+  (if ($tg | length) > 0 then
+     "Writing the answer (generation): mean over Halogen'"'"'s 10 prompt types",
+     table("Answer"; $tg; $reps * 10), "" else empty end),
+  (if ($other | length) > 0 then "Other", table("Test"; $other; $reps), "" else empty end),
+  (if $p == null then "No earlier \(.run) run to compare with. The next run will be compared with this one."
+   else
+     ($p.system // {}) as $o
+     | [ ["halOS", "halos"], ["Halogen", "halogen"], ["edition", "edition"], ["kernel", "kernel"],
+         ["BIOS", "bios"], ["GTT size", "gttsize"], ["IOMMU", "iommu"], ["fabric clock held", "fabric_clock"],
+         ["power profile", "platform_profile"], ["Flash checkpoint", "flash_checkpoint"] ]
+     | map(.[1] as $k | select(($o[$k] // "" | clean) != ($s[$k] // "" | clean))
+           | "\(.[0]) \($o[.[1]] // "?" | clean | gsub("\n"; " ")) -> \($s[.[1]] // "?" | clean | gsub("\n"; " "))")
+     + ( (($o.settings // []) | map(clean)) as $a | ($s.settings | map(clean)) as $b
+         | ($a + $b | map(split("=")[0]) | unique) as $names
+         | [ $names[] as $n
+             | ([$a[] | select(startswith($n + "=")) | .[($n | length) + 1:]][0] // "unset") as $x
+             | ([$b[] | select(startswith($n + "=")) | .[($n | length) + 1:]][0] // "unset") as $y
+             | select($x != $y) | "\($n) \($x) -> \($y)" ] )
+     | "Last run: \($p.date // "?" | clean) (\($input_prev)). "
+       + (if length == 0 then "Nothing in the setup changed since then."
+          else "Changed since then:\n" + (map("  " + .) | join("\n")) end)
+   end),
+  "",
+  "Setup: halOS \($s.halos) (\($s.edition) edition), Halogen \($s.halogen), Flash checkpoint \($s.flash_checkpoint),",
+  "  draft head \([.bench.rows[] | .drafter // "default" | clean] | unique | join("/"))"
+  + ", power profile \(if $s.platform_profile == "" then "not reported" else $s.platform_profile end),"
+  + " fabric clock \(if $s.fabric_clock == "yes" then "held" else "NOT held" end).",
+  "",
+  "Speed is tokens per second, measured end to end over HTTP with Halogen'"'"'s own tool. Time is",
+  "how long that length takes at that speed. Spread is the variation between passes (one standard",
+  "deviation); for writing it is mostly the prompt type, since code is written about twice as fast",
+  "as prose. \"About the same\" means the change is within the normal variation between runs.",
+  "The prompt cache was on, as Halogen runs: compare reading speeds with the \"cache on (a cold",
+  "request)\" rows in Halogen'"'"'s docs/performance.md."
+'
+summary="$(jq -r --slurpfile prev "$prev" --arg input_prev "$prev_name" "$report" "$dir/$stamp.json")" \
+  || die "could not write the report"
 {
-  echo "halOS benchmark, $(jq -r .date "$dir/$stamp.json") ($kind run)"
-  jq -r '.system | "halOS \(.halos), \(.edition) edition, Halogen \(.halogen)",
-    "Board:     \(.board), BIOS \(.bios)",
-    "Kernel:    \(.kernel); \(.gttsize); \(.iommu | gsub("\n"; " "))",
-    "Fabric clock held: \(.fabric_clock); platform profile: \(if .platform_profile == "" then "not reported" else .platform_profile end)",
-    "Flash checkpoint: \(.flash_checkpoint); prompt cache: \(.prompt_cache)",
-    "Settings:  \(if (.settings | length) == 0 then "defaults" else (.settings | join(", ")) end)"' "$dir/$stamp.json"
+  printf '%s\n' "$summary"
   echo
-  printf '%-10s %-10s %8s %12s\n' test drafter tokens tok/s
-  jq -r '.bench.rows[] | [.test, (.drafter // "default"), .tokens, "\(.mean * 100 | round / 100) ± \(.stdev * 100 | round / 100)"] | @tsv' \
-    "$dir/$stamp.json" | while IFS=$'\t' read -r t d n s; do printf '%-10s %-10s %8s %12s\n' "$t" "$d" "$n" "$s"; done
-  echo
-  echo "pp = reading the prompt (prefill), tg = writing the answer. Both are measured end to end over"
-  echo "HTTP. tg is the mean over Halogen's ten prompt shapes: code runs about twice as fast as prose,"
-  echo "so compare it with another run of this command, not with a single prompt. The prompt cache was"
-  echo "on as you run Halogen: compare pp with Halogen's \"cache on (a cold request)\" rows, and tg is a"
-  echo "little faster from the second pass on, when the same prompts come from the cache."
-} | tee "$dir/$stamp.txt"
+  echo "Details"
+  jq -r '.system | "  Board:   \(.board), BIOS \(.bios)",
+    "  Kernel:  \(.kernel); \(.gttsize); \(.iommu | gsub("\n"; " "))",
+    "  Image:   \(.image)",
+    "  Prompt cache: \(.prompt_cache)",
+    "  Settings:", (if (.settings | length) == 0 then "    defaults" else (.settings[] | "    " + .) end)' "$dir/$stamp.json"
+} > "$dir/$stamp.txt"
+printf '%s\n' "$summary"
 echo
-echo "Saved: $dir/$stamp.txt and $stamp.json"
+echo "Saved: $dir/$stamp.txt (with the board, kernel and every setting) and $stamp.json"
