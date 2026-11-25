@@ -15,6 +15,9 @@ it promotes.
   and the change since your last run (faster, slower or about the same). It also tells what
   changed in the setup since that run. The list of settings is now only in the saved report
   (#171).
+- The login screen no longer lists `halos-tang-unlock.service` under "Failed Units". The early-boot
+  check was stopped when the TPM unlocked the disk before it finished looking, and systemd
+  counted that stop as a failure (#169).
 - Hardening from the same review (#166):
   - Unlocking from a tang server: `halosctl tang-unlock on` with `--tpm and` or `--tpm or`, and
     `halogen-enroll-tpm`, refuse while Secure Boot is off, since the TPM's check then doesn't stop
