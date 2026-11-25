@@ -88,14 +88,15 @@ _halogenctl() {
       elif [ "$cword" -eq 3 ]; then
         case "${words[2]}" in
           use) _halogenctl_names flash; _halogenctl_add official ;;
-          drafter|verify|check|remove) _halogenctl_names flash ;;
+          drafter) _halogenctl_names flash; _halogenctl_add official; _halogenctl_add official-r2; _halogenctl_add off ;;
+          verify|check|remove) _halogenctl_names flash ;;
           convert-stop) _halogenctl_names convert ;;
         esac
       else
         case "${words[2]}" in
           pull) _halogenctl_offer "--revision --as --file --keep-gguf" ;;
           drafter)
-            if [ "$cword" -eq 4 ]; then _halogenctl_offer "official off"; _halogenctl_names drafter "${words[3]}"
+            if [ "$cword" -eq 4 ]; then _halogenctl_offer "official official-r2 off"; _halogenctl_names drafter "${words[3]}"
             else _halogenctl_offer "--yes"; fi ;;
           convert) _halogenctl_offer "--revision --as --threads --keep-source --yes" ;;
           convert-stop) _halogenctl_offer "--yes" ;;

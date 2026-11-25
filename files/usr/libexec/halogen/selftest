@@ -536,6 +536,8 @@ if [ "${running:-0}" = 1 ] && have journalctl && have systemctl; then
   case "$dh" in
     "halogen: draft head qwen38-flash-next-drafter-r2-ht4.hgn"*|"halogen: overlay /models/qwen38-flash-next-drafter-r2-ht4.hgn")
       say PASS draft-head "Halogen drafts with the official draft head (qwen38-flash-next-drafter-r2-ht4.hgn)" ;;
+    "halogen: overlay /models/qwen38-flash-next-drafter-r2.hgn")
+      say INFO draft-head "Halogen drafts with Halogen 0.20.6's official draft head (qwen38-flash-next-drafter-r2.hgn, flash drafter official-r2; sudo halogenctl flash drafter <name> official goes back)" ;;
     "halogen: overlay /models/flash/"*)
       say INFO draft-head "Halogen drafts with ${dh#halogen: overlay /models/flash/}, a draft head shipped with your checkpoint (sudo halogenctl flash drafter <name> official goes back)" ;;
     *"is not in"*)
