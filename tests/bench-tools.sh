@@ -68,7 +68,9 @@ has "Every conversation: $dir/runs/2026/11/r1\\.md" "$txt"
 if grep -q 'HALOGEN_KV8' "$work/out"; then fail "the settings list is on the screen, not only in the saved file"; fi
 if grep -q $'[\e\a]' "$work/out" "$txt" "$json"; then fail "an escape code from the model reached the report"; fi
 if grep -q 'secret-key-123\|API_KEY' "$txt" "$json"; then fail "the report holds the key or its setting"; fi
-[ "$(jq -r '.score' "$json")" = 67 ] && [ "$(jq -r '.system.tool_eval_bench' "$json")" = 3.1.0 ] || fail "the JSON lost the score or the versions"
+if [ "$(jq -r '.score' "$json")" != 67 ] || [ "$(jq -r '.system.tool_eval_bench' "$json")" != 3.1.0 ]; then
+  fail "the JSON lost the score or the versions"
+fi
 [ -z "$(find "$dir" -maxdepth 1 -name '.*' -type f)" ] || fail "temporary files were left behind"
 ok "a full run uses the leaderboard's settings, gets the key only through its environment, and saves a readable report"
 
