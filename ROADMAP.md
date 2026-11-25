@@ -57,6 +57,8 @@ Simplified Technical English (#152).
    then without the server.
 5. Try `flash pull` of a GGUF on the test machine (#61): the conversion's time and memory while
    Halogen serves, and `flash check` of the result.
+6. Try the settings screen (`halogenctl settings`) on the test machine over SSH. Then extend it:
+   the `:fast` and `:qad` forms of own NPU checkpoints, and more settings with fixed choices.
 
 Later: a first real `flash convert` on the test machine (time and quality). Then its GPU (HIP)
 build and the Qwen4 models.

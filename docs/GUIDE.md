@@ -57,8 +57,9 @@ Claude Code, Codex, Pi and other agents.
 
 ## Settings
 
-`/srv/configs/halogen.env` lists each option that halOS lets Halogen use, as a comment. To use an
-option, remove the comment mark, set the value and apply it:
+`sudo halogenctl settings` opens [the settings screen](#the-settings-screen). You can also edit
+`/srv/configs/halogen.env` yourself. The file lists each option that halOS lets Halogen use, as a
+comment. To use an option, remove the comment mark, set the value and apply it:
 
 ```bash
 sudo nano /srv/configs/halogen.env
@@ -91,6 +92,28 @@ To change what is allowed or locked:
 1. Edit `files/usr/share/halogen/locked.env` or `BLOCKED` in `scripts/gen-options.py`.
 2. Run that script on the new `docs/FLAGS.md`.
 3. Build the image again.
+
+### The settings screen
+
+`sudo halogenctl settings` shows one screen for the models and the settings. Use it instead of
+editing `/srv/configs/halogen.env`. Each item shows its default. Nothing changes until you save.
+
+- **Flash checkpoint.** The model on the GPU: `official`, or one of your own checkpoints. A
+  checkpoint that did not pass Halogen's verify is shown but you cannot choose it.
+- **Draft heads.** For each of your own checkpoints: `official` (the default), `off`, or a draft
+  head file that came with the checkpoint.
+- **NPU models** (NPU edition). A checklist of Halogen's NPU models and your own checkpoints. Press
+  Space to tick or untick a model. `on disk` shows the models that are downloaded. Halogen downloads
+  the other ticked models before its next start. Press `d` to go back to the default list.
+- **Common settings** and **All settings.** Each line shows the value from your file, or
+  `default:` and the default. Press Enter to type a value (an empty value means the default), `r`
+  for the default, `u` to undo your change, and `/` to search.
+- **Review and save.** Shows all changes. Then save and restart Halogen one time, or save and
+  restart later with `sudo halogenctl restart`.
+
+The screen changes only the lines that you change, and keeps your comments. If somebody else
+changes `halogen.env` while the screen is open, your changes are not saved. Then run the command
+again. `sudo halogenctl settings --editor` opens the file in an editor instead.
 
 ## Where things are
 

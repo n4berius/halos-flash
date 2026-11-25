@@ -226,8 +226,9 @@ It asks four groups of questions. You can skip each one:
 2. **A Hugging Face token.** This is optional. Downloads work without an account, but a free read
    token increases the rate limits, and usually makes the downloads faster. Make a read token at
    [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens).
-3. **Settings.** Open `/srv/configs/halogen.env` in an editor, or keep the defaults. The defaults
-   are correct for most people.
+3. **Models and settings.** Open the settings screen (`sudo halogenctl settings`), or keep the
+   defaults. On a new install, Enter opens it. The defaults are correct for most people. See
+   [the settings screen](docs/GUIDE.md#the-settings-screen).
 4. **HTTPS.** On a new install, Enter turns HTTPS on, with the halOS authority (self-signed). Then
    apps that use `https://` don't send prompts, replies and the API key across the network as
    plain text. Each app must trust the authority one time: `sudo halosctl https ca` prints it (see

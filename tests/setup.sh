@@ -19,7 +19,6 @@ f lsblk 'printf "%s\n" "${FAKE_LSBLK-/dev/nvme0n1p3 crypto_LUKS}"'
 f cryptsetup 'printf "Tokens:\n%s" "${FAKE_TOKENS:-}"'
 f halogen-enroll-tpm 'echo "enroll-tpm" >> "$FAKE/log"'
 f halogenctl 'echo "halogenctl $*" >> "$FAKE/log"'
-f nano 'echo "nano $* as=${FAKE_AS:-root}" >> "$FAKE/log"; echo "HALOGEN_KV_SLOTS=2" >> "$1"'
 # Unlock over SSH (#13): off until installed; codeberg user alice has one key.
 f ssh-unlock 'case "$1" in
   status) if [ -s "$FAKE/installed" ]; then echo "on 1"; else echo off; fi ;;
@@ -70,7 +69,7 @@ grep -q 'Please answer y or n' "$work/out" || { cat "$work/out" >&2; echo "a wro
 touch "$work/state/setup-pending"
 answer y n n n n
 grep -qx 'enroll-tpm' "$work/log" || { cat "$work/out" >&2; echo "TPM not enrolled" >&2; exit 1; }
-if grep -q 'halogenctl hf-token\|nano' "$work/log"; then echo "a declined step ran" >&2; exit 1; fi
+if grep -q 'halogenctl hf-token\|halogenctl settings' "$work/log"; then echo "a declined step ran" >&2; exit 1; fi
 [ ! -e "$work/state/setup-pending" ] || { echo "setup didn't release the download" >&2; exit 1; }
 grep -q "runuser -u halogen -- rm -f $work/state/setup-pending" "$work/log" || { echo "the marker was removed as root" >&2; exit 1; }
 grep -q 'first download' "$work/out" || exit 1
@@ -84,13 +83,12 @@ grep -qx 'halogenctl hf-token' "$work/log" || { echo "no token step" >&2; exit 1
 echo 'HALOGEN_FLASH_CTX=1' > "$work/configs/halogen.env"
 touch "$work/state/setup-pending"; : > "$work/log"
 FAKE_TOKENS='  0: systemd-tpm2' answer n n n y
-if ! grep -qE '^nano /tmp/.*/halogen.env as=root$' "$work/log"; then cat "$work/log" >&2; echo "the editor didn't run as root on a private copy" >&2; exit 1; fi
-if grep -q "nano $work/configs" "$work/log"; then echo "the editor opened halogen's file directly" >&2; exit 1; fi
-grep -qx 'HALOGEN_KV_SLOTS=2' "$work/configs/halogen.env" || { echo "the edit was not saved" >&2; exit 1; }
-grep -q "runuser -u halogen -- sh -c" "$work/log" || { echo "the edit was not written back as halogen" >&2; exit 1; }
+# The settings screen (halogenctl settings, tested in tests/halogenctl.sh) saves without its own
+# restart: setup asks once, at its end.
+grep -qx 'halogenctl settings --no-restart' "$work/log" || { cat "$work/log" >&2; echo "the settings screen wasn't opened" >&2; exit 1; }
 FAKE_LSBLK='' answer n n
 grep -q "isn't encrypted" "$work/out" || exit 1
-ok "setup knows an existing TPM binding and an unencrypted disk, and edits settings as halogen"
+ok "setup knows an existing TPM binding and an unencrypted disk, and opens the settings screen"
 
 # Unlock over SSH: a user with no keys asks again; a found key is shown, confirmed and installed.
 touch "$work/state/setup-pending"
