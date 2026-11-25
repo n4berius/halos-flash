@@ -60,6 +60,18 @@ source for Fedora packages from [Fedora](https://src.fedoraproject.org/).
 |---|---|
 | [bf16-to-hgn](https://github.com/Quat3rnion/bf16-to-hgn) by Quaternion (`/usr/libexec/halogen/bf16-to-hgn`, built unmodified from the commit in `versions.env`) | MIT or Apache-2.0; its vendored trellis encoder (`native/`) Apache-2.0 only. Texts in `/usr/share/licenses/bf16-to-hgn/` |
 
+## Benchmark in the OS image
+
+`halogenctl bench tools` runs [tool-eval-bench](https://github.com/SeraphimSerapis/tool-eval-bench)
+by SeraphimSerapis. halOS ships its Python source unmodified from the commit in `versions.env`,
+without its optional web page. Thank you to its author. The libraries it uses (httpx, PyYAML,
+rich, python-dotenv) are Fedora packages.
+
+| Component | License |
+|---|---|
+| [tool-eval-bench](https://github.com/SeraphimSerapis/tool-eval-bench) (`/usr/lib/halos/tool-eval-bench/`) | MIT. Text in `/usr/share/licenses/tool-eval-bench/` |
+| The Typed Decisions test data it carries (`tool_eval_bench/plugins/decision/vendor/typed_decisions/`, unused by `bench tools`) | Apache-2.0. Licence and notice in that folder |
+
 ## Dashboard in the OS image
 
 The halOS dashboard (`halos-dashboard.service`, port 8732) is

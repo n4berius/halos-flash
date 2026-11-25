@@ -24,9 +24,11 @@ ARG HALOGEN_WEIGHTS_REVISION
 # nftables table (nft comes with firewalld; named here so it stays); its settings are in files/etc/fail2ban.
 # clevis (#44): unlocks the disk from a tang server on the network; its dracut and systemd parts put
 # the password agent into the initramfs, which halOS's own module starts only where it's set up.
+# httpx, PyYAML, rich and python-dotenv: the libraries tool-eval-bench needs (halogenctl bench tools).
 RUN dnf -y --setopt=install_weak_deps=False install \
       amd-gpu-firmware firewalld linux-firmware tpm2-tss tpm2-tools clevis clevis-luks clevis-dracut clevis-systemd \
-      amdsmi nvtop htop pciutils usbutils tmux wireless-regdb nano bash-completion audit audit-rules fail2ban-server nftables && \
+      amdsmi nvtop htop pciutils usbutils tmux wireless-regdb nano bash-completion audit audit-rules fail2ban-server nftables \
+      python3-httpx python3-pyyaml python3-rich python3-dotenv && \
     dnf -y remove \
       nvidia-gpu-firmware intel-gpu-firmware intel-npu-firmware intel-audio-firmware \
       cirrus-audio-firmware brcmfmac-firmware tiwilink-firmware nxpwireless-firmware \
@@ -122,7 +124,7 @@ RUN --mount=type=bind,source=src/authenticode-check.py,target=/tmp/authenticode-
 COPY files/ /
 COPY variants/${HALOGEN_VARIANT}/ /
 COPY LICENSE THIRD-PARTY-NOTICES.md /usr/share/licenses/halos-flash/
-# bf16-to-hgn, halogen-dashboard and Caddy, built by Containerfile.helpers on this same base:
+# bf16-to-hgn, halogen-dashboard, Caddy and tool-eval-bench, built by Containerfile.helpers on this same base:
 # "helpers" is the build context scripts/build.sh passes (--build-context helpers=<tree>).
 COPY --from=helpers bf16-to-hgn/bf16-to-hgn /usr/libexec/halogen/bf16-to-hgn
 COPY --from=helpers bf16-to-hgn/licenses/ /usr/share/licenses/bf16-to-hgn/
@@ -131,10 +133,13 @@ COPY --from=helpers dashboard/licenses/ /usr/share/licenses/halogen-dashboard/
 COPY --from=helpers dashboard/dashboard-nodump.so /usr/lib64/halos/dashboard-nodump.so
 COPY --from=helpers caddy/caddy /usr/libexec/halogen/caddy
 COPY --from=helpers caddy/licenses/ /usr/share/licenses/halos-caddy/
+COPY --from=helpers tool-eval-bench/tool_eval_bench/ /usr/lib/halos/tool-eval-bench/tool_eval_bench/
+COPY --from=helpers tool-eval-bench/licenses/ /usr/share/licenses/tool-eval-bench/
 # The compilers each helper stage used, for the build record (scripts/build-info.sh, #121).
 COPY --from=helpers bf16-to-hgn/toolchain.txt /tmp/toolchain-1.txt
 COPY --from=helpers dashboard/toolchain.txt /tmp/toolchain-2.txt
 COPY --from=helpers caddy/toolchain.txt /tmp/toolchain-3.txt
+COPY --from=helpers tool-eval-bench/toolchain.txt /tmp/toolchain-4.txt
 
 # Upstream's clock script and terms, unmodified and checked by hash.
 RUN set -eu; \
@@ -151,6 +156,8 @@ RUN set -eu; \
 ARG HALOS_RELEASE
 ARG BF16_TO_HGN_COMMIT
 ARG HALOGEN_DASHBOARD_COMMIT
+ARG TOOL_EVAL_BENCH_COMMIT
+ARG TOOL_EVAL_BENCH_VERSION
 # What this build was made from (#121): the Fedora base as build.sh resolved it (repository@digest,
 # used by every stage), the base's own version label and the halOS source commit.
 ARG FEDORA_BOOTC_IMAGE
@@ -174,6 +181,14 @@ RUN set -eu; \
         /usr/libexec/halogen/caddy adapt --config /usr/share/halos/proxy/Caddyfile.letsencrypt --adapter caddyfile > /dev/null; \
     done; done; \
     chmod 0755 /usr/bin/halosctl /usr/bin/halogenctl /usr/bin/halogen-enroll-tpm /usr/libexec/halogen/*; \
+    # tool-eval-bench must import with Fedora's libraries and list its scenarios (no server needed);
+    # compiled once here, since /usr is read-only on the machine.
+    python3 -I -m compileall -q /usr/lib/halos/tool-eval-bench; \
+    (cd /tmp; HOME=/tmp /usr/libexec/halogen/tool-eval-bench --dry-run --short > /tmp/teb.txt); \
+    grep -q 'TC-15' /tmp/teb.txt; \
+    rm -f /tmp/teb.txt; \
+    [ "$(cd /tmp && /usr/libexec/halogen/tool-eval-bench --version)" = "tool-eval-bench ${TOOL_EVAL_BENCH_VERSION}" ] \
+      || { echo "tool-eval-bench reports another version than ${TOOL_EVAL_BENCH_VERSION}" >&2; exit 1; }; \
     find /etc/containers/systemd/users/970 -type f -exec sed -i \
       -e "s|@HALOGEN_IMAGE@|${HALOGEN_IMAGE}|g" -e "s|@HALOGEN_VERSION@|${HALOGEN_VERSION}|g" {} +; \
     if grep -rq '@HALOGEN_' /etc/containers/systemd/users/970; then exit 1; fi; \
@@ -198,13 +213,15 @@ RUN set -eu; \
       echo "HALOGEN_WEIGHTS_REVISION=${HALOGEN_WEIGHTS_REVISION}"; \
       echo "BF16_TO_HGN_COMMIT=${BF16_TO_HGN_COMMIT}"; \
       echo "HALOGEN_DASHBOARD_COMMIT=${HALOGEN_DASHBOARD_COMMIT}"; \
+      echo "TOOL_EVAL_BENCH_COMMIT=${TOOL_EVAL_BENCH_COMMIT}"; \
+      echo "TOOL_EVAL_BENCH_VERSION=${TOOL_EVAL_BENCH_VERSION}"; \
       echo "HALOS_KERNEL=${KERNEL_TRACK}"; \
       echo "HALOS_KERNEL_BUILT=$(rpm -q --qf '%{BUILDTIME}' kernel-core)"; \
       echo "HALOS_BASE_IMAGE=${FEDORA_BOOTC_IMAGE}"; \
       echo "HALOS_BASE_VERSION=${HALOS_BASE_VERSION}"; \
       echo "HALOS_SOURCE_COMMIT=${HALOS_SOURCE_COMMIT}"; } > /usr/share/halogen/release.env; \
     case "$FEDORA_BOOTC_IMAGE" in *@sha256:*) ;; *) echo "the base must come by digest (scripts/build.sh resolves it)" >&2; exit 1 ;; esac; \
-    cat /tmp/toolchain-1.txt /tmp/toolchain-2.txt /tmp/toolchain-3.txt > /usr/share/halogen/toolchains.txt; \
+    cat /tmp/toolchain-1.txt /tmp/toolchain-2.txt /tmp/toolchain-3.txt /tmp/toolchain-4.txt > /usr/share/halogen/toolchains.txt; \
     rm -f /tmp/toolchain-*.txt; \
     rpm -qa --qf '%{NAME}-%{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort > /usr/share/halogen/packages.txt; \
     grep -q '^kernel-core-' /usr/share/halogen/packages.txt; \

@@ -1,0 +1,199 @@
+#!/bin/bash
+# halogenctl bench tools: how well Halogen calls tools, with tool-eval-bench (MIT, pinned in
+# versions.env). Runs as halogen. Usage: bench-tools [--quick]
+# Each scenario is one conversation with mock tools (weather, email, files and so on, all fake and
+# inside the benchmark): nothing is really sent or changed, and only Halogen is asked, at
+# 127.0.0.1:18731. A full run is the standard 69 scenarios, three times each, at the settings of
+# the public Qwen3.8 Flash Next leaderboard (temperature 1.0, seed 42, thinking on), so its numbers
+# compare with that table. --quick is the 15 core scenarios once (about two minutes elsewhere).
+set -euo pipefail
+die() { echo "halogenctl bench tools: $*" >&2; exit 1; }
+unset HALOS_RELEASE HALOGEN_VERSION HALOGEN_VARIANT HALOGEN_IMAGE TOOL_EVAL_BENCH_VERSION
+# shellcheck source=/dev/null
+. "${HALOGEN_RELEASE_FILE:-/usr/share/halogen/release.env}"
+configs="${HALOGEN_CONFIGS_DIR:-/srv/configs}"
+render="${HALOGEN_RENDER:-/usr/libexec/halogen/render-config}"
+teb="${HALOGEN_TOOL_EVAL_BENCH:-/usr/libexec/halogen/tool-eval-bench}"
+api=http://127.0.0.1:18731
+
+kind=full; runs=3; args=(--trials 3 --temperature 1.0)
+case "${1:-}" in
+  '') ;;
+  --quick) kind=quick; runs=1; args=(--short) ;;
+  *) die "usage: halogenctl bench tools [--quick]" ;;
+esac
+
+[ -x "$teb" ] || die "this halOS image has no tool-eval-bench"
+curl -sf -m 5 -o /dev/null "$api/health" || die "Halogen isn't answering on $api. Check: sudo halogenctl status"
+[ -r "$configs/api-key" ] || die "cannot read $configs/api-key"
+
+settings="$("$render" --show 2>/dev/null | grep -E '^HALOGEN_[A-Z0-9_]+=' | grep -vE '_(KEY|TOKEN)[A-Z_]*=' | tr -cd '[:print:]\n' || true)"
+checkpoint="$(sed -n 's/^HALOGEN_CHECKPOINT=//p' <<< "$settings" | tail -n 1)"
+case "$checkpoint" in /models/flash/*/*) flash="${checkpoint#/models/flash/}"; flash="${flash%%/*} (your own)" ;; *) flash=official ;; esac
+
+stamp="$(date -u +%Y%m%d-%H%M%S)"
+dir="$configs/bench/tools"
+umask 027
+mkdir -p "$dir"
+# tool-eval-bench keeps its own records (runs/<year>/<month>/*.md with every conversation, and
+# data/benchmarks.sqlite) under the folder it runs in. It also reads a .env file there or above;
+# none is expected, and halOS never writes one.
+raw="$dir/.$stamp.raw.json"; events="$dir/.$stamp.events"
+trap 'rm -f "$raw" "$events"' EXIT
+
+if [ "$kind" = full ]; then
+  echo "Measuring how Halogen calls tools: 69 scenarios, 3 times each, as on the public leaderboard."
+  echo "This takes a long time (tens of minutes or more). Other requests are slower meanwhile."
+else
+  echo "Measuring how Halogen calls tools: the 15 core scenarios, once. Other requests are slower meanwhile."
+fi
+
+# The key goes in through the environment, not the command line, so ps never shows it. Progress
+# comes as one JSON event per line on stderr: show one line per finished scenario.
+progress() {
+  tee "$events" | jq -rn --unbuffered --argjson runs "$runs" '
+    def c: tostring | gsub("[[:cntrl:]]"; "");
+    foreach (inputs | select(type == "object" and .event == "scenario_result")) as $e (0; . + 1;
+      ($e.total | if type == "number" and . > 0 then . else 1 end) as $t
+      | "  " + (if $runs > 1 then "run \(((. - 1) / $t | floor) + 1) of \($runs), " else "" end)
+        + "\($e.index + 1 | c)/\($e.total | c) \($e.scenario_id | c): \($e.status | c)")' 2>/dev/null || true
+}
+rc=0
+(cd "$dir" && TOOL_EVAL_API_KEY="$(head -n 1 "$configs/api-key")" \
+  "$teb" "${args[@]}" --seed 42 --base-url "$api" --backend halogen --json-file "$raw") \
+  2> >(progress) > /dev/null || rc=$?
+wait
+[ -s "$raw" ] || die "the benchmark stopped before it gave a result (exit $rc); see sudo halogenctl logs"
+# Every string loses its control characters: the text came from the model and ends up on root's
+# terminal.
+clean_json() { jq 'walk(if type == "string" then gsub("[[:cntrl:]]"; "") else . end)' "$@"; }
+if ! clean_json "$raw" > "$raw.c" 2>/dev/null; then rm -f "$raw.c"; die "the benchmark's result isn't readable JSON"; fi
+mv "$raw.c" "$raw"
+err="$(jq -r '.error // empty' "$raw")"
+[ -z "$err" ] || die "the benchmark failed: $err"
+jq -e '(.final_score | type) == "number" and (.scores.category_scores | type == "array" and length > 0)' "$raw" > /dev/null 2>&1 \
+  || die "the benchmark gave no scores"
+
+# Scenario id -> category, from the progress events, so scores over three runs can be put back
+# into their categories.
+cats="$(jq -c -s 'map(select(.event == "scenario_start") | {(.scenario_id | tostring): (.category | tostring)}) | add // {}' "$events" 2>/dev/null || echo '{}')"
+
+# The newest earlier result of the same kind, to compare with (regular files that parse only:
+# they are halogen's own files).
+prev=/dev/null
+while IFS= read -r f; do
+  if [ ! -f "$f" ] || [ -L "$f" ]; then continue; fi
+  if jq -e -s --arg run "$kind" 'length == 1 and (.[0] | type == "object" and .run == $run
+       and (.score | type) == "number" and (.categories | type == "array" and all(type == "object"))
+       and ((.system // {}) | type == "object") and ((.system.settings // []) | type == "array"))' \
+       "$f" > /dev/null 2>&1; then prev="$f"; break; fi
+done < <(find "$dir" -maxdepth 1 -regextype posix-extended -regex '.*/[0-9]{8}-[0-9]{6}\.json' -printf '%f\n' 2>/dev/null \
+         | sort -r | sed "s|^|$dir/|")
+prev_name=""
+[ "$prev" = /dev/null ] || prev_name="$(basename "$prev")"
+
+# halOS's own record: the scores that matter, per category, and what they depend on. The full
+# result, with every conversation, stays in tool-eval-bench's own report (report_path).
+jq --arg date "$(date -u '+%Y-%m-%d %H:%M UTC')" --arg kind "$kind" \
+   --arg halos "${HALOS_RELEASE:-unknown}" --arg edition "${HALOGEN_VARIANT:-unknown}" \
+   --arg halogen "${HALOGEN_VERSION:-unknown}" --arg teb "${TOOL_EVAL_BENCH_VERSION:-unknown}" \
+   --arg flash "$flash" --arg settings "$settings" --arg prev "$prev_name" --argjson cats "$cats" '
+  (.trial_statistics // null) as $t
+  | (.scores.category_scores) as $c
+  | ($c | map({(.category): .label}) | add) as $labels
+  # Each category: the mean points over the runs (2 = pass, 1 = partial, 0 = fail), as a percentage.
+  | (if $t != null and ($t.per_scenario | type) == "object" and ($cats | length) > 0 then
+       [ $t.per_scenario | to_entries[] | {cat: ($cats[.key] // "?"), mean: (.value.mean // 0)} ]
+       | group_by(.cat)
+       | map({category: .[0].cat, label: ($labels[.[0].cat] // .[0].cat), scenarios: length,
+              percent: ((map(.mean) | add) / (2 * length) * 100 | round)})
+     else
+       $c | map({category, label, scenarios: (.pass_count + .partial_count + .fail_count),
+                 percent, pass: .pass_count, partial: .partial_count, fail: .fail_count})
+     end) as $categories
+  | {date: $date, run: $kind,
+     system: {halos: $halos, edition: $edition, halogen: $halogen, tool_eval_bench: $teb,
+              flash_checkpoint: $flash, settings: ($settings | split("\n") | map(select(length > 0)))},
+     compared_with: (if $prev == "" then null else $prev end),
+     score: (if $t != null then $t.final_score_mean else .final_score end),
+     score_stddev: (if $t != null then $t.final_score_stddev else null end),
+     trials: ($t.trials // 1),
+     pass_at_k: ($t.pass_at_k // null), pass_hat_k: ($t.pass_hat_k // null),
+     rating, deployability, responsiveness, total_scenarios,
+     safety_warnings: (.safety_warnings // []),
+     categories: $categories,
+     failed: [ .scores.scenario_results[]? | select(.status != "pass")
+               | {id: .scenario_id, status, summary} ],
+     model: (.config.model // null), run_id, report_path}' "$raw" > "$dir/$stamp.json"
+
+# shellcheck disable=SC2016 # jq's own variables
+report='
+def clean: tostring | gsub("[[:cntrl:]]"; "");
+def rpad($n): tostring | . + ([range(0; $n - length)] | map(" ") | join(""));
+def lpad($n): tostring | ([range(0; $n - length)] | map(" ") | join("")) + .;
+def r1: . * 10 | round / 10;
+def change($old; $new): ($new - $old) as $d
+  | if $d == 0 then "same" elif $d > 0 then "+\($d | r1)" else "\($d | r1)" end;
+($prev[0] // null) as $p
+| (if $p == null then {} else ($p.categories | map(select(.percent | type == "number") | {(.category | clean): .percent}) | add // {}) end) as $old
+| "halOS tool-calling benchmark, \(.date), \(.run) run (\(.total_scenarios // "?") scenarios, \(.trials) time\(if .trials == 1 then "" else "s" end) each)",
+  "",
+  "Score: \(.score | r1) out of 100\(if .score_stddev != null then " (±\(.score_stddev | r1) between runs)" else "" end), \(.rating // "" | clean | gsub("^[^A-Za-z]+"; "") | ascii_downcase)"
+  + (if $p == null or ($p.score | type) != "number" then "" else "; last run \($p.score | r1) (\(change($p.score; .score)))" end),
+  (if .pass_hat_k != null then
+     "Reliable (right in all \(.trials) runs): \(.pass_hat_k * 100 | round)% of scenarios; right at least once: \(.pass_at_k * 100 | round)%"
+   else empty end),
+  "",
+  "  " + ("Category" | rpad(24)) + ("Score" | lpad(7)) + (if $p == null then "" else ("Last run" | lpad(11)) end),
+  (.categories[] | (.category | clean) as $k
+   | "  " + ("\($k) \(.label | clean)" | rpad(24)) + ("\(.percent)%" | lpad(7))
+     + (if $p == null then "" elif $old[$k] == null then ("new" | lpad(11))
+        else (change($old[$k]; .percent) | lpad(11)) end)),
+  "",
+  (if (.safety_warnings | length) > 0 then
+     "Safety warnings:", (.safety_warnings[] | "  " + (. | if type == "string" then . else tojson end | clean)), ""
+   else empty end),
+  (if .run == "quick" and (.failed | length) > 0 then
+     "Not right:", (.failed[] | "  \(.id | clean) (\(.status | clean)): \(.summary // "" | clean)"), ""
+   else empty end),
+  (if $p == null then "No earlier \(.run) run to compare with. The next run will be compared with this one."
+   else
+     ($p.system // {}) as $o | .system as $s
+     | [ ["halOS", "halos"], ["Halogen", "halogen"], ["tool-eval-bench", "tool_eval_bench"],
+         ["Flash checkpoint", "flash_checkpoint"] ]
+     | map(.[1] as $k | select(($o[$k] // "" | clean) != ($s[$k] // "" | clean))
+           | "\(.[0]) \($o[.[1]] // "?" | clean) -> \($s[.[1]] // "?" | clean)")
+     + ( (($o.settings // []) | map(clean)) as $a | ($s.settings | map(clean)) as $b
+         | ($a + $b | map(split("=")[0]) | unique) as $names
+         | [ $names[] as $n
+             | ([$a[] | select(startswith($n + "=")) | .[($n | length) + 1:]][0] // "unset") as $x
+             | ([$b[] | select(startswith($n + "=")) | .[($n | length) + 1:]][0] // "unset") as $y
+             | select($x != $y) | "\($n) \($x) -> \($y)" ] )
+     | "Last run: \($p.date // "?" | clean) (\($prev_name | clean)). "
+       + (if length == 0 then "Nothing in the setup changed since then."
+          else "Changed since then:\n" + (map("  " + .) | join("\n")) end)
+   end),
+  "",
+  "Setup: halOS \(.system.halos) (\(.system.edition) edition), Halogen \(.system.halogen), Flash checkpoint \(.system.flash_checkpoint),",
+  "  tool-eval-bench \(.system.tool_eval_bench).",
+  "",
+  "Each scenario is a conversation with fake tools; a right answer scores 2 points, a partly right",
+  "one 1. The score is the share of points, out of 100. Answers vary from run to run (temperature",
+  "1.0), so a change of a few points can be chance. A full run uses the settings of the public",
+  "Qwen3.8 Flash Next tool-calling leaderboard, so its score compares with that table."
+'
+# If an earlier result still trips the comparison, show this run without it rather than lose it.
+summary="$(jq -r --slurpfile prev "$prev" --arg prev_name "$prev_name" "$report" "$dir/$stamp.json" 2>/dev/null)" \
+  || summary="$(jq -r --slurpfile prev /dev/null --arg prev_name "" "$report" "$dir/$stamp.json")" \
+  || die "could not write the report"
+{
+  printf '%s\n' "$summary"
+  echo
+  echo "Details"
+  jq -r '"  Model:   \(.model // "?")", "  Every conversation: \(.report_path // "?")",
+    (if (.failed | length) > 0 then "  Not right in the last run:", (.failed[] | "    \(.id) (\(.status)): \(.summary // "")") else empty end),
+    "  Settings:", (if (.system.settings | length) == 0 then "    defaults" else (.system.settings[] | "    " + .) end)' "$dir/$stamp.json"
+} > "$dir/$stamp.txt"
+printf '%s\n' "$summary"
+echo
+echo "Saved: $dir/$stamp.txt (with every scenario that went wrong) and $stamp.json"

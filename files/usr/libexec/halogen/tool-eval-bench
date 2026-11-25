@@ -1,0 +1,10 @@
+#!/usr/bin/python3 -I
+# tool-eval-bench (github.com/SeraphimSerapis/tool-eval-bench, MIT), the tool-calling benchmark
+# behind `halogenctl bench tools`, from its pinned source in /usr/lib/halos/tool-eval-bench.
+# -I: no user site folder, no current folder on the path, no PYTHON* variables.
+import sys
+
+sys.path.insert(0, "/usr/lib/halos/tool-eval-bench")
+from tool_eval_bench.cli.bench import main  # noqa: E402
+
+sys.exit(main())

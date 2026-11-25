@@ -711,6 +711,37 @@ request)" rows, not with the cache-off headline figures. The prompts of the run 
 cache. They can push out long conversations from the cache, which then read their history again
 one time.
 
+### Measuring tool calls
+
+```bash
+sudo halogenctl bench tools            # 69 scenarios, three times each: tens of minutes or more
+sudo halogenctl bench tools --quick    # 15 scenarios, one time
+```
+
+It measures how well the model calls tools, with
+[tool-eval-bench](https://github.com/SeraphimSerapis/tool-eval-bench) (MIT). Each scenario is a
+conversation with fake tools, for example weather, email, files and a calculator. Nothing is
+really sent or changed. The benchmark checks if the model picks the right tool, gives the right
+values, chains calls, stops when no tool is necessary and recovers from tool errors. A right
+answer gets 2 points and a partly right answer 1 point.
+
+The report shows:
+
+- **Score**: the points out of 100, with a short rating.
+- **Reliable**: in a full run, the scenarios that were right in all three runs. "Right at least
+  once" counts the scenarios that were right in one run or more.
+- **Category**: the score for each kind of task.
+- **Last run**: the change from your last run of the same kind.
+
+A full run uses the settings of the public
+[Qwen3.8 Flash Next tool-calling leaderboard](https://huggingface.co/spaces/johnlockejrr/qwen38-flash-next-hgn-leaderboard)
+(temperature 1.0, seed 42, thinking on), so you can compare your score with that table. The
+answers change from run to run, so a change of a few points can be chance.
+
+halOS saves the report as text and JSON in `/srv/configs/bench/tools/`. The text also lists each
+scenario that went wrong. tool-eval-bench keeps every conversation in `runs/` in the same folder.
+It needs no restart, but other requests are slower while it runs.
+
 ### Prompt cache on disk
 
 Halogen keeps the state of each conversation, so the next turn doesn't read the full conversation

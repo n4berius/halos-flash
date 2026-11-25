@@ -302,6 +302,19 @@ name, but allows saying halOS runs Halogen.
   through the environment. Halogen's `bench`/`sweep` image modes start their own engine, which
   would need Halogen stopped, so they aren't used. Reports (text + JSON, with versions, BIOS, kargs,
   fabric clock, platform profile, checkpoint and settings minus keys) go to `/srv/configs/bench/`.
+- `halogenctl bench tools [--quick]` (`/usr/libexec/halogen/bench-tools`, as halogen): tool-eval-bench
+  (SeraphimSerapis, MIT; `TOOL_EVAL_BENCH_COMMIT`/`_VERSION`, v3.1.0) against 18731 with the key in
+  `TOOL_EVAL_API_KEY`. Its Python source comes from `Containerfile.helpers`' `tool-eval-bench` stage
+  (no web page; `_version.py` written there) into `/usr/lib/halos/tool-eval-bench`, run by the
+  `-I` launcher `/usr/libexec/halogen/tool-eval-bench`; its libraries are Fedora's (python3-httpx,
+  -pyyaml, -rich, -dotenv); the build compiles it and runs `--dry-run --short` and `--version`.
+  Full = `--trials 3 --temperature 1.0 --seed 42` (johnlockejrr's leaderboard space: no licence,
+  so only its settings are matched), quick = `--short`. It runs in `/srv/configs/bench/tools`
+  (its own `runs/` and `data/benchmarks.sqlite` land there; it reads a `.env` there or above).
+  Progress from its stderr JSON events; categories over three runs from `per_scenario` means and
+  the events' scenario→category map. Earlier results are compared like `bench`'s (shape-checked,
+  stamp names only). Accuracy benchmarks are next (BenchKit Apache-2.0 ships GPQA in plain text
+  and runs HumanEval code on the host; lm-evaluation-harness MIT).
 - `/srv` is `/var/srv` on bootc. The installer makes LVM volumes for `/`, `/var`, `/var/log`,
   `/var/log/audit`, `/var/home`, `/var/srv/configs`, `/var/srv/logs` (4 GiB, #107) and `/var/srv/models`. The guided install
   names them `halos-root`, `-var`, `-log`, `-audit`, `-home`, `-configs`, `-logs`, `-models` (VG `halos`);

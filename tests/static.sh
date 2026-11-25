@@ -1,6 +1,13 @@
 #!/bin/bash
 set -euo pipefail
-scripts=(scripts/*.sh tests/*.sh files/usr/bin/* files/usr/libexec/halogen/* installer/guided/plan-install)
+scripts=()
+for f in scripts/*.sh tests/*.sh files/usr/bin/* files/usr/libexec/halogen/* installer/guided/plan-install; do
+  # Python programs (the tool-eval-bench launcher) are compiled instead of read as shell.
+  if head -n 1 "$f" | grep -q '^#!/usr/bin/python3'; then
+    python3 -I -c 'import ast, sys; ast.parse(open(sys.argv[1]).read(), sys.argv[1])' "$f"
+    [ -x "$f" ] || { echo "$f is not executable" >&2; exit 1; }
+  else scripts+=("$f"); fi
+done
 for f in "${scripts[@]}"; do
   bash -n "$f"
   [ -x "$f" ] || { echo "$f is not executable" >&2; exit 1; }
@@ -285,6 +292,13 @@ assert "caddy validate --config /usr/share/halos/proxy/Caddyfile" in cf and "sys
 assert "caddyserver/caddy" in notices and "halos-caddy/modules.txt" in notices, "THIRD-PARTY-NOTICES doesn't credit Caddy"
 assert "Quat3rnion/halogen-dashboard" in notices and "IBM Plex" in notices, "THIRD-PARTY-NOTICES doesn't credit halogen-dashboard and its font"
 assert '--build-arg "HALOGEN_DASHBOARD_COMMIT=$HALOGEN_DASHBOARD_COMMIT"' in open("scripts/build.sh").read(), "build.sh doesn't pass the dashboard pin"
+# tool-eval-bench (MIT) comes from an exact commit, with its licence, and build.sh passes the pin.
+assert re.fullmatch(r"[0-9a-f]{40}", pins["TOOL_EVAL_BENCH_COMMIT"]), "TOOL_EVAL_BENCH_COMMIT must be a full commit"
+assert re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", pins["TOOL_EVAL_BENCH_VERSION"]), "TOOL_EVAL_BENCH_VERSION must be a release number"
+assert 'git checkout -q "$TOOL_EVAL_BENCH_COMMIT"' in hf and "grep -qx 'license = \"MIT\"' pyproject.toml" in hf, "tool-eval-bench isn't taken from its pin"
+assert "COPY --from=helpers tool-eval-bench/licenses/ /usr/share/licenses/tool-eval-bench/" in cf, "tool-eval-bench's licence isn't shipped"
+assert "SeraphimSerapis/tool-eval-bench" in notices, "THIRD-PARTY-NOTICES doesn't credit tool-eval-bench"
+assert '--build-arg "TOOL_EVAL_BENCH_COMMIT=$TOOL_EVAL_BENCH_COMMIT"' in open("scripts/build.sh").read(), "build.sh doesn't pass the tool-eval-bench pin"
 assert "--add-service=halos-dashboard" in cf and "halos-dashboard.service" in cf, "the dashboard isn't enabled with its port"
 # The public key machines get is the one the signing script checks with (#46).
 sign = open("scripts/sign-image.sh").read()

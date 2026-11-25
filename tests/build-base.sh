@@ -25,7 +25,9 @@ if [ -n "\${dest:-}" ]; then
   for f in bf16-to-hgn/bf16-to-hgn bf16-to-hgn/licenses/LICENSE-MIT bf16-to-hgn/licenses/LICENSE-APACHE \
     bf16-to-hgn/licenses/native/LICENSE bf16-to-hgn/licenses/native/NOTICE dashboard/halogen-dashboard \
     dashboard/dashboard-nodump.so dashboard/licenses/crates.txt caddy/caddy caddy/licenses/modules.txt \
-    caddy/licenses/go-LICENSE bf16-to-hgn/toolchain.txt dashboard/toolchain.txt caddy/toolchain.txt; do
+    caddy/licenses/go-LICENSE bf16-to-hgn/toolchain.txt dashboard/toolchain.txt caddy/toolchain.txt \
+    tool-eval-bench/tool_eval_bench/cli/bench.py tool-eval-bench/tool_eval_bench/_version.py \
+    tool-eval-bench/licenses/LICENSE tool-eval-bench/toolchain.txt; do
     mkdir -p "\$dest/\$(dirname "\$f")"; echo x > "\$dest/\$f"
   done
 else
