@@ -1,10 +1,10 @@
 #!/bin/bash
 # Build the helper programs the OS image carries (Containerfile.helpers: bf16-to-hgn,
-# halogen-dashboard with dashboard-nodump, Caddy) into <dir>/tree, for scripts/build.sh (#122).
+# halogen-dashboard with dashboard-nodump, Caddy, tool-eval-bench) into <dir>/tree, for scripts/build.sh (#122).
 # CI builds them once per run and hands the folder to all four image jobs; a local build.sh
 # without HALOS_HELPERS runs this itself, so nothing changes for it.
 # <dir>/inputs records what the tree was built from: the base image by digest and its version label (the OS image is
-# built on that same base, so the helpers' libstdc++, libgomp and glibc are the image's), the two
+# built on that same base, so the helpers' libstdc++, libgomp and glibc are the image's), the
 # pinned upstream commits and a hash of halOS's own sources for them. build.sh refuses a folder
 # whose inputs differ from its checkout's.
 # Usage: scripts/build-helpers.sh <dir>          build into <dir> (missing or empty)
@@ -18,7 +18,9 @@ cd "$(dirname "$0")/.."
 TREE_FILES="bf16-to-hgn/bf16-to-hgn bf16-to-hgn/licenses/LICENSE-MIT bf16-to-hgn/licenses/LICENSE-APACHE
 bf16-to-hgn/licenses/native/LICENSE bf16-to-hgn/licenses/native/NOTICE dashboard/halogen-dashboard
 dashboard/dashboard-nodump.so dashboard/licenses/crates.txt caddy/caddy caddy/licenses/modules.txt
-caddy/licenses/go-LICENSE bf16-to-hgn/toolchain.txt dashboard/toolchain.txt caddy/toolchain.txt"
+caddy/licenses/go-LICENSE bf16-to-hgn/toolchain.txt dashboard/toolchain.txt caddy/toolchain.txt
+tool-eval-bench/tool_eval_bench/cli/bench.py tool-eval-bench/tool_eval_bench/_version.py
+tool-eval-bench/licenses/LICENSE tool-eval-bench/toolchain.txt"
 
 inputs() { # $1: the base image by digest, $2: its version label
   local sums
@@ -29,6 +31,7 @@ inputs() { # $1: the base image by digest, $2: its version label
   echo "base_version=$2"
   echo "bf16_to_hgn=$BF16_TO_HGN_COMMIT"
   echo "halogen_dashboard=$HALOGEN_DASHBOARD_COMMIT"
+  echo "tool_eval_bench=$TOOL_EVAL_BENCH_COMMIT $TOOL_EVAL_BENCH_VERSION"
   echo "sources=${sums%% *}"
 }
 
@@ -86,11 +89,13 @@ esac
 base="$BASE_REPO@$digest"
 echo "Building the helpers on $FEDORA_BOOTC_IMAGE ($base, version $version)"
 
-# --jobs 3: the three helper stages don't depend on each other, so they build side by side.
-podman build --pull=newer --jobs 3 -f Containerfile.helpers \
+# --jobs 4: the four helper stages don't depend on each other, so they build side by side.
+podman build --pull=newer --jobs 4 -f Containerfile.helpers \
   --build-arg "FEDORA_BOOTC_IMAGE=$base" \
   --build-arg "BF16_TO_HGN_COMMIT=$BF16_TO_HGN_COMMIT" \
   --build-arg "HALOGEN_DASHBOARD_COMMIT=$HALOGEN_DASHBOARD_COMMIT" \
+  --build-arg "TOOL_EVAL_BENCH_COMMIT=$TOOL_EVAL_BENCH_COMMIT" \
+  --build-arg "TOOL_EVAL_BENCH_VERSION=$TOOL_EVAL_BENCH_VERSION" \
   --output "type=local,dest=$DIR/tree" \
   .
 inputs "$base" "$version" > "$DIR/inputs"

@@ -15,8 +15,8 @@ documentation for your version.
 - [Tools on the machine](#tools-on-the-machine)
 - Network: [the front door](#the-front-door), [the API key](#the-api-key), [HTTPS](#https),
   [the dashboard](#the-dashboard), [fail2ban](#fail2ban), [SSH logins with keys only](#ssh-logins-with-keys-only)
-- Halogen: [measuring speed](#measuring-speed), [prompt cache on disk](#prompt-cache-on-disk),
-  [request records](#request-records), [logs and the audit trail](#logs-and-the-audit-trail)
+- Halogen: [measuring speed](#measuring-speed), [measuring tool calls](#measuring-tool-calls),
+  [prompt cache on disk](#prompt-cache-on-disk), [request records](#request-records), [logs and the audit trail](#logs-and-the-audit-trail)
 - Models: [your own NPU checkpoints](#your-own-npu-checkpoints),
   [your own Flash checkpoint](#your-own-flash-checkpoint)
 - [Design choices](#design-choices)
@@ -39,6 +39,7 @@ sudo halogenctl api-key      # print the API key
 sudo halogenctl hf-token     # save a Hugging Face token for faster model downloads
 sudo halogenctl selftest     # the hardware checklist; prints nothing private
 sudo halogenctl bench        # measure speed (--quick: under a minute); reports in /srv/configs/bench
+sudo halogenctl bench tools  # measure tool calls (--quick: 15 scenarios); reports in /srv/configs/bench/tools
 sudo halogenctl model list   # your own NPU checkpoints (NPU edition)
 sudo halogenctl flash list   # the official Flash checkpoint and your own; flash use switches
 ```
@@ -612,6 +613,39 @@ run uses the prompt cache as your server does. So compare the reading speeds wit
 request)" rows, not with the cache-off headline figures. The prompts of the run also go into the
 cache. They can push out long conversations from the cache, which then read their history again
 one time.
+
+## Measuring tool calls
+
+```bash
+sudo halogenctl bench tools            # 69 scenarios, three times each: tens of minutes or more
+sudo halogenctl bench tools --quick    # 15 scenarios, one time
+```
+
+It measures how well the model calls tools, with
+[tool-eval-bench](https://github.com/SeraphimSerapis/tool-eval-bench) (MIT). Each scenario is a
+conversation with fake tools, for example weather, email, files and a calculator. Nothing is
+really sent or changed. The benchmark checks if the model picks the right tool, gives the right
+values, chains calls, stops when no tool is necessary and recovers from tool errors. A right
+answer gets 2 points and a partly right answer 1 point.
+
+The report shows:
+
+- **Score**: the points out of 100, with a short rating.
+- **Reliable**: in a full run, the scenarios that were right in all three runs. "Right at least
+  once" counts the scenarios that were right in one run or more.
+- **Category**: the score for each kind of task.
+- **Last run**: the change from your last run of the same kind.
+
+A full run uses the settings of the public
+[Qwen3.8 Flash Next tool-calling leaderboard](https://huggingface.co/spaces/johnlockejrr/qwen38-flash-next-hgn-leaderboard)
+(temperature 1.0, seed 42, thinking on), so you can compare your score with that table. The
+answers change from run to run, so a change of a few points can be chance.
+
+halOS saves the report as text and JSON in `/srv/configs/bench/tools/`. The text also lists each
+scenario that went wrong. tool-eval-bench keeps every conversation in `runs/` in the same folder.
+It needs no restart, but other requests are slower while it runs. These records stay until you
+delete them, on the small `/srv/configs` volume: a run needs 200 MB free there. To make space,
+delete old folders in `/srv/configs/bench/tools/runs/` with `sudo rm -r`.
 
 ## Prompt cache on disk
 
