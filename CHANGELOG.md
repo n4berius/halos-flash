@@ -14,7 +14,7 @@ it promotes.
   `sudo` too (before, it found them only in a root shell). It also completes the draft head files
   for `flash drafter <name>` and your existing names after `--as` of `flash pull` and
   `model pull`, to update one. The names come from a list that halOS keeps in
-  `/run/halos/model-names` for administrators (#PR).
+  `/run/halos/model-names` for administrators (#174).
 
 - Hardening from the same review (#166):
   - Unlocking from a tang server: `halosctl tang-unlock on` with `--tpm and` or `--tpm or`, and
