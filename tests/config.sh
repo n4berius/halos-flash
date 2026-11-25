@@ -119,6 +119,14 @@ printf 'mine=../x\nmine=off\n' > "$work/flash-drafter"
 [ -z "$(ovl)" ] || { echo "off didn't keep the built-in head" >&2; exit 1; }
 printf 'notmine=off\n' > "$work/flash-drafter"
 [ "$(ovl)" = "$dh" ] || { echo "another checkpoint's line was read" >&2; exit 1; }
+# official-r2: Halogen 0.20.6's draft head while it is a plain draft head file in /srv/models.
+printf 'mine=official-r2\n' > "$work/flash-drafter"
+{ [ "$(ovl)" = "$dh" ] && grep -q "0.20.6's draft head" "$work/log"; } || { echo "official-r2 without the file didn't fall back" >&2; exit 1; }
+printf 'HGN1r2' > "$work/models/qwen38-flash-next-drafter-r2.hgn"
+[ "$(ovl)" = /models/qwen38-flash-next-drafter-r2.hgn ] || { echo "official-r2 wasn't used" >&2; exit 1; }
+rm "$work/models/qwen38-flash-next-drafter-r2.hgn"; ln -s "$work/models/flash/mine/their-drafter.hgn" "$work/models/qwen38-flash-next-drafter-r2.hgn"
+[ "$(ovl)" = "$dh" ] || { echo "a link at official-r2's name was used" >&2; exit 1; }
+rm "$work/models/qwen38-flash-next-drafter-r2.hgn"
 # Only for a checkpoint that carries its own precision: with a w4b-style one the setting selects
 # the precision sidecar. Unknown (a pull from before this) waits for flash verify.
 for p in 0 unknown; do

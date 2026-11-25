@@ -60,7 +60,8 @@ flash_choice="${HALOGEN_FLASH_FILE:-${HALOGEN_CONFIGS_DIR:-/srv/configs}/flash-c
 drafter_choice="${HALOGEN_DRAFTER_CHOICE_FILE:-${HALOGEN_CONFIGS_DIR:-/srv/configs}/flash-drafter}"
 valid_name() {
   case "$1" in [A-Za-z0-9]*) ;; *) return 1 ;; esac
-  case "$1" in *[!A-Za-z0-9._-]*|official) return 1 ;; esac
+  # off and official-r2 are flash drafter choices: a checkpoint of that name would be read as one.
+  case "$1" in *[!A-Za-z0-9._-]*|official|off|official-r2) return 1 ;; esac
 }
 case "${1:-}" in
   sandbox-check|use|remove|drafter|convert-clear) ;;
@@ -927,13 +928,13 @@ case "${1:-}" in
     fi
     exit 0 ;;
   drafter)
-    # flash drafter <name> official|off|<file>: which draft head your own checkpoint drafts with
+    # flash drafter <name> official|official-r2|off|<file>: which draft head your own checkpoint drafts with
     # (render-config passes it to Halogen): the official one (the default), the checkpoint's
     # built-in head, or a draft head file its repository ships (listed as drafter= in halos.info
     # by the pull, which checked it against the repository's hash). Under the name's lock, so a
     # removal or a new pull can't come between the check and the write.
     name="${2:-}"; want="${3:-}"
-    if ! valid_name "$name" || ! [[ "$want" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then die "usage: halogenctl flash drafter <name> official|off|<file>"; fi
+    if ! valid_name "$name" || ! [[ "$want" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then die "usage: halogenctl flash drafter <name> official|official-r2|off|<file>"; fi
     name_lock "$name"
     d="$models/flash/$name"
     if ! plain_dir "$d" || [ ! -f "$d/halos.info" ] || [ -L "$d/halos.info" ]; then
@@ -941,9 +942,15 @@ case "${1:-}" in
     fi
     case "$want" in
       official|off) ;;
+      # Halogen 0.20.6's official draft head, kept in /srv/models after the upgrade (the fetch
+      # still checks its hash).
+      official-r2)
+        if [ -L "$models/qwen38-flash-next-drafter-r2.hgn" ] || [ ! -f "$models/qwen38-flash-next-drafter-r2.hgn" ]; then
+          die "$models/qwen38-flash-next-drafter-r2.hgn isn't there, so official-r2 can't be chosen."
+        fi ;;
       *) if ! is_drafter_name "$want" || [ "$want" = "$(info_get "$d/halos.info" checkpoint)" ] \
             || ! info_get_all "$d/halos.info" drafter | grep -qxF -- "$want" || [ -L "$d/$want" ] || [ ! -f "$d/$want" ]; then
-           die "$name has no draft head called $want. Its own: $(info_get_all "$d/halos.info" drafter | tr '\n' ' ')(or official, off)"
+           die "$name has no draft head called $want. Its own: $(info_get_all "$d/halos.info" drafter | tr '\n' ' ')(or official, official-r2, off)"
          fi ;;
     esac
     # The official one is the default, so it needs no line.

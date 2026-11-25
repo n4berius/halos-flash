@@ -358,25 +358,84 @@ case "${1:-status}" in
         ;;
       drafter)
         # Which draft head your own checkpoint drafts with: Halogen's official one (0.20.7's
-        # qwen38-flash-next-drafter-r2-ht4.hgn, the default), off (the checkpoint's built-in head), or
-        # a draft head file its repository ships. Answers stay the same; only the speed changes.
+        # qwen38-flash-next-drafter-r2-ht4.hgn, the default), official-r2 (0.20.6's
+        # qwen38-flash-next-drafter-r2.hgn, when it is still in /srv/models), off (the checkpoint's
+        # built-in head), or a draft head file its repository ships. Answers stay the same; only the
+        # speed changes. The name may be left out: then it is the checkpoint Halogen serves. The
+        # choice may be a file name from /srv/models or the checkpoint's folder, or its full path.
+        ht4=qwen38-flash-next-drafter-r2-ht4.hgn; r2=qwen38-flash-next-drafter-r2.hgn
         name="${3:-}"; want="${4:-}"
-        if ! valid "$name" || [ "$name" = official ] || { [ -n "$want" ] && ! valid "$want"; }; then
-          echo "usage: halogenctl flash drafter <name> [official|off|<file>] [--yes] (the official checkpoint always uses the official one)" >&2; exit 2
+        # One argument that isn't one of your checkpoints is the choice, for the one Halogen serves.
+        if [ -z "$want" ] && { [ -z "$name" ] || [ "$name" = official ] || ! valid "$name" || [ -z "$(flash_info "$name" repo)" ]; }; then
+          # No checkpoint named: the one Halogen serves, and the argument (if any) is the choice.
+          want="$name"; name="$(chosen_flash)"
+          if [ "$name" = official ]; then
+            echo "Halogen serves the official checkpoint, which always drafts with the official draft head." >&2
+            echo "Name one of your checkpoints: sudo halogenctl flash drafter <name> [official|off|<file>] (see sudo halogenctl flash list)" >&2
+            exit 2
+          fi
+        fi
+        if ! valid "$name" || [ "$name" = official ]; then
+          echo "usage: halogenctl flash drafter [<name>] [official|off|<file>] [--yes] (the official checkpoint always uses the official one)" >&2; exit 2
         fi
         [ -n "$(flash_info "$name" repo)" ] || { echo "No checkpoint called $name. See: sudo halogenctl flash list" >&2; exit 1; }
         # shellcheck disable=SC2016 # awk expands them.
         now="$( { as_owner awk -F= -v n="$name" '$1 == n { v = substr($0, length($1) + 2) } END { print v }' "$configs/flash-drafter" 2> /dev/null || true; } | tr -cd 'A-Za-z0-9._-')"
         now="${now:-official}"
         own="$( { as_owner sed -n 's/^drafter=//p' "$models/flash/$name/halos.info" 2> /dev/null || true; } | tr -cd 'A-Za-z0-9._\n-' | tr '\n' ' ')"
+        # Plain files only, as render-config takes them.
+        there() { as_owner test -f "$1" && ! as_owner test -L "$1"; }
+        choices="official ($ht4)"
+        there "$models/$r2" && choices+=", official-r2 ($r2, Halogen 0.20.6's)"
+        choices+=", off (the checkpoint's built-in head)${own:+, or one shipped with it: ${own% }}"
         if [ -z "$want" ]; then
           case "$now" in
-            official) echo "$name drafts with Halogen's official draft head (the default)." ;;
+            official) echo "$name drafts with Halogen's official draft head (the default), $ht4." ;;
+            official-r2) echo "$name drafts with Halogen 0.20.6's official draft head, $r2." ;;
             off) echo "$name drafts with its own built-in draft head." ;;
             *) echo "$name drafts with $now, a draft head file from its repository." ;;
           esac
-          echo "Choices: official, off${own:+, or one shipped with it: ${own% }}. Change it: sudo halogenctl flash drafter $name <choice>"
+          echo "Choices: $choices."
+          echo "Change it: sudo halogenctl flash drafter $name <choice>"
           exit 0
+        fi
+        # A file name or a path, as ls shows them, becomes the choice it stands for. Halogen's
+        # container sees only /srv/models, and halOS passes on only draft heads whose hash it
+        # checked: the official ones in /srv/models and those the checkpoint's pull listed.
+        given="$want"
+        if [[ "$want" == /* ]]; then
+          p="${want#/var}"; p="${p#/srv}"
+          case "$p" in
+            /models/flash/"$name"/*) want="${p#/models/flash/"$name"/}" ;;
+            /models/"$ht4") want=official ;;
+            /models/"$r2") want="official-r2" ;;
+            *) want="" ;;
+          esac
+        # For either official name, the checkpoint's own listed file of that name (a pull
+        # reflink-copies an identical one) comes first; the full path under /srv/models picks the
+        # official one.
+        elif ! grep -qxF -- "$want" <<< "${own// /$'\n'}"; then
+          if [ "$want" = "$ht4" ]; then want=official; elif [ "$want" = "$r2" ]; then want="official-r2"; fi
+        fi
+        case "$want" in
+          official|off) ;;
+          official-r2) there "$models/$r2" || want="" ;;
+          *) { valid "$want" && grep -qxF -- "$want" <<< "${own// /$'\n'}"; } || want="" ;;
+        esac
+        if [ -z "$want" ]; then
+          echo "$name can't draft with $given: halOS uses only Halogen's official draft heads in $models and the ones $name's pull downloaded and checked." >&2
+          echo "Choices: $choices." >&2
+          echo "Nothing changed." >&2; exit 1
+        fi
+        # render-config names a draft head only for a checkpoint whose own precision Halogen's
+        # verify recorded; say so now, not after a restart that changes nothing.
+        if [ "$want" != off ]; then
+          case "$(flash_info "$name" own_precision)" in
+            1) ;;
+            # A w4b-style checkpoint: HALOGEN_CK_OVERLAY would pick its precision sidecar instead.
+            0) echo "Note: $name doesn't carry its own precision, so no draft head file can be given to it; its built-in head drafts." ;;
+            *) echo "Note: halOS doesn't know yet whether $name carries its own precision, so it drafts with its built-in head until you run: sudo halogenctl flash verify $name" ;;
+          esac
         fi
         if [ "$want" = "$now" ]; then echo "$name already drafts with $want."; exit 0; fi
         if [ "$name" = "$(chosen_flash)" ]; then
@@ -467,7 +526,7 @@ case "${1:-status}" in
         # were asked (#119).
         as_halogen /usr/libexec/halogen/flash-checkpoint remove "$name" || exit 1
         ;;
-      *) echo "usage: halogenctl flash pull <hf-repo> [--revision <rev>] [--as <name>] [--file <checkpoint.hgn|build.gguf>] [--keep-gguf] | convert <hf-repo> [--revision <rev>] [--as <name>] [--threads <n>] [--keep-source] [--yes] | convert-logs [lines] | convert-stop [<name>] [--yes] | list | use <name>|official [--yes] | drafter <name> [official|off|<file>] [--yes] | verify <name> | check <name> [--yes] | remove <name> [--yes]" >&2; exit 2 ;;
+      *) echo "usage: halogenctl flash pull <hf-repo> [--revision <rev>] [--as <name>] [--file <checkpoint.hgn|build.gguf>] [--keep-gguf] | convert <hf-repo> [--revision <rev>] [--as <name>] [--threads <n>] [--keep-source] [--yes] | convert-logs [lines] | convert-stop [<name>] [--yes] | list | use <name>|official [--yes] | drafter [<name>] [official|official-r2|off|<file>] [--yes] | verify <name> | check <name> [--yes] | remove <name> [--yes]" >&2; exit 2 ;;
     esac
     ;;
   model)
