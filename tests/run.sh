@@ -6,7 +6,7 @@ cd "$(dirname "$0")/.."
 # (HALOGEN_VARIANT=no-npu, IMAGE_TAG, TAG): the checks must not depend on them. With
 # HALOGEN_VARIANT=no-npu, build-base.sh looked for the NPU build's record and failed, which
 # stopped the release of v0.20.7-r2 (November 2026).
-unset HALOGEN_VARIANT KERNEL_TRACK IMAGE_TAG IMAGE_NAME TAG HALOS_RELEASE HALOS_HELPERS
+unset HALOGEN_VARIANT KERNEL_TRACK IMAGE_TAG IMAGE_NAME TAG HALOS_RELEASE HALOS_HELPERS HALOS_BASE
 tests/static.sh
 tests/config.sh
 tests/release-info.sh
@@ -40,4 +40,5 @@ tests/completion.sh
 tests/enroll-tpm.sh
 tests/setup.sh
 tests/guided.sh
+tests/ci-background.sh
 echo "all checks passed"

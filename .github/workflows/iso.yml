@@ -60,21 +60,41 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Free disk space
-        run: sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
-      - name: Install tools
+      # Freeing disk space, the VM tools and the ISO builder's image took 1.5 to 3 minutes before
+      # the build could start. They run beside the builds now; each is waited for where it's needed.
+      - name: Start the setup in the background
         run: |
-          sudo apt-get update -q
-          sudo apt-get install -yq qemu-system-x86 qemu-utils ovmf tesseract-ocr genisoimage swtpm swtpm-tools squashfs-tools tang jose
-          # Ubuntu's AppArmor profile for swtpm only allows libvirt's paths.
-          if [ -e /etc/apparmor.d/usr.bin.swtpm ]; then sudo apparmor_parser -R /etc/apparmor.d/usr.bin.swtpm || true; fi
-          sudo chmod 666 /dev/kvm
+          scripts/ci-background.sh start free-disk sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
+          scripts/ci-background.sh start tools bash -c '
+            set -e
+            sudo apt-get update -q
+            sudo apt-get install -yq qemu-system-x86 qemu-utils ovmf tesseract-ocr genisoimage swtpm swtpm-tools squashfs-tools tang jose
+            # The AppArmor profile Ubuntu ships for swtpm only allows the paths libvirt uses.
+            if [ -e /etc/apparmor.d/usr.bin.swtpm ]; then sudo apparmor_parser -R /etc/apparmor.d/usr.bin.swtpm || true; fi
+            sudo chmod 666 /dev/kvm'
+          scripts/ci-background.sh start builder bash -c '. ./versions.env && sudo podman pull -q "$IMAGE_BUILDER"'
       - name: Read version
         run: grep '^HALOGEN_VERSION=' versions.env >> "$GITHUB_ENV"
-      - name: Build OS image
-        run: sudo -E scripts/build.sh
+      - name: Build the OS image and the installer image side by side
+        # The installer image needs only the Fedora base, by digest, not the OS image: resolved
+        # once here, both build on it (scripts/build-iso.sh checks it before the ISO is made).
+        run: |
+          read -r base _ < <(scripts/build-helpers.sh --resolve)
+          echo "Fedora base: $base"
+          export HALOS_BASE="$base"
+          sudo podman pull -q "$base" > /dev/null
+          scripts/ci-background.sh start installer sudo -E scripts/build-iso.sh installer
+          sudo -E scripts/build.sh
+          echo "::group::Installer image build"
+          scripts/ci-background.sh wait installer 1800
+          echo "::endgroup::"
       - name: Build ISO
-        run: sudo -E scripts/build-iso.sh
+        run: |
+          scripts/ci-background.sh wait free-disk 600
+          # A failed pull here isn't fatal: the build pulls the image itself.
+          scripts/ci-background.sh wait builder 600 || true
+          df -h / | tail -1
+          sudo -E scripts/build-iso.sh iso
       - name: Check the guided questions in the installer
         # tests/guided.sh with the installer's own bash, tools and kickstart parser, minutes
         # before the VM install would find a kickstart the installer can't read.
@@ -85,6 +105,9 @@ jobs:
       - name: Size report
         # What takes space in the OS image, installer and ISO. Kept as an artifact for trimming.
         run: |
+          echo "::group::VM tools"
+          scripts/ci-background.sh wait tools 900
+          echo "::endgroup::"
           sudo -E scripts/size-report.sh "$(sudo find output -name '*.iso' | head -1)" > size-report.txt 2>&1 || true
           head -c 60000 size-report.txt
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

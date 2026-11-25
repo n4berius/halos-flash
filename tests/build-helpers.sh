@@ -53,3 +53,24 @@ reset; rm "$t/c/inputs"; refused "no inputs file"
 reset; sed -i "s|^base_version=.*|base_version=a b|" "$t/c/inputs"; refused "a bad base version"
 reset; sed -i "s|^image=.*|image=${FEDORA_BOOTC_IMAGE%:*}:other|" "$t/c/inputs"; refused "another base tag"
 echo "ok: the helpers record their inputs, and build.sh's check refuses other ones"
+
+# --resolve prints the base by digest, and HALOS_BASE (what iso.yml resolved once for the OS image
+# and the installer) is built on as given, but only the same repository by a full digest.
+[ "$(scripts/build-helpers.sh --resolve | cut -d' ' -f1)" = "$base" ] || { echo "--resolve doesn't print the base by digest" >&2; exit 1; }
+HALOS_BASE="$base" scripts/build-helpers.sh "$t/r" > /dev/null
+if ! grep -qx "base=$base" "$t/r/inputs" || ! grep -qx "FEDORA_BOOTC_IMAGE=$base" "$t/podman.log"; then
+  echo "HALOS_BASE isn't what the helpers are built on" >&2; exit 1
+fi
+scripts/build-helpers.sh --check "$t/r"
+for bad in "quay.io/evil/fedora-bootc@$digest" "${FEDORA_BOOTC_IMAGE%:*}@sha256:1" "$FEDORA_BOOTC_IMAGE"; do
+  rm -rf "$t/r"
+  if HALOS_BASE="$bad" scripts/build-helpers.sh "$t/r" > /dev/null 2>&1; then echo "HALOS_BASE=$bad was taken" >&2; exit 1; fi
+done
+# The answer must be the digest asked for.
+cat > "$t/bin/skopeo" <<FAKE
+#!/bin/bash
+echo "sha256:$(printf '%064d' 8)"
+FAKE
+rm -rf "$t/r"
+if HALOS_BASE="$base" scripts/build-helpers.sh "$t/r" > /dev/null 2>&1; then echo "a base that answered with another digest was taken" >&2; exit 1; fi
+echo "ok: --resolve names the base by digest, and HALOS_BASE builds on exactly that"
