@@ -106,7 +106,13 @@ ok "a run is compared with the last one of its kind: faster, slower or about the
 sleep 1
 FAKE_CACHED=2000 "$bench" > "$work/out" 2>&1 || fail "a warm run failed"
 has '^Warning: 2 prompt-reading passes were mostly answered from the prompt cache, so the reading speeds are too high\.' "$work/out"
-ok "a prefill the prompt cache answered is flagged, and reports from before the cold prompts aren't compared"
+sleep 1
+"$bench" > "$work/out" 2>&1 || fail "the run after a warm one failed"
+if grep -q Warning "$work/out"; then fail "a cold run after a warm one was flagged"; fi
+warm="$(find "$work/configs/bench" -name '*.json' | sort | tail -n 2 | head -n 1)"
+if grep -qF "($(basename "$warm"))" "$work/out"; then fail "a run the cache answered was used as the last run"; fi
+has '^Last run: .* \([0-9]{8}-[0-9]{6}\.json\)' "$work/out"
+ok "a prefill the prompt cache answered is flagged and never compared with, nor are reports from before the cold prompts"
 
 # bench-cold.py, against a stand-in for Halogen's tool: every prefill prompt starts with this
 # run's word, the tool's own arguments reach it, and its JSON gains the passes with their cache hits.
@@ -137,6 +143,14 @@ jq -e '.argv == ["--api", "x", "-r", "3"] and (.calls[0] | test("^Run [0-9a-f]{1
   || fail "bench-cold.py didn't make the prompts new or count the passes: $(cat "$work/cold1.json")"
 [ "$(sed -n '/^{/,$p' "$work/cold2" | jq -r '.calls[0]')" != "$(jq -r '.calls[0]' "$work/cold1.json")" ] \
   || fail "two runs sent the same prompt"
+# A tool that keeps lead_line but no longer uses it for the timed prompts: nothing gets the word.
+sed 's/ask("a", lead_line(1) + "long"/ask("a", "same " + "long"/' "$work/tool.py" > "$work/tool3.py"
+grep -q '"same "' "$work/tool3.py" || fail "the test couldn't make its changed tool"
+if python3 -I -c "$(cat "$repo/files/usr/share/halogen/bench-cold.py")" "$work/tool3.py" > "$work/out" 2>&1; then
+  fail "bench-cold.py reported a tool whose timed prompts it couldn't make new"
+fi
+has "only 0 of 1 prompt-reading passes started with this run's word" "$work/out"
+if grep -q '"rows"' "$work/out"; then fail "bench-cold.py printed results it couldn't vouch for"; fi
 printf 'def main():\n    return 0\n' > "$work/tool2.py"
 if python3 -I -c "$(cat "$repo/files/usr/share/halogen/bench-cold.py")" "$work/tool2.py" > "$work/out" 2>&1; then
   fail "bench-cold.py ran a tool it can't make cold"

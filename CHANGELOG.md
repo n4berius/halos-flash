@@ -12,7 +12,7 @@ it promotes.
 
 - `sudo halogenctl bench` measures reading speed correctly again (#181). From the second run on,
   the prompt cache answered the benchmark's prompts from its earlier runs, so prompts seemed to read
-  in 0.2 s at any length (165,000 tok/s at 32K). Each run now uses prompts that are new to the
+  in 0.2 s at any length (165,000 tok/s at 32K). Each run now reads prompts that are new to the
   cache, and the report warns if the cache still answered one. Earlier reports are not compared.
 - The settings screen is easier to use (#179). Settings that are on or off, or that have a fixed
   set of values, show a list to choose from, with what each value does. Numbers show a list of

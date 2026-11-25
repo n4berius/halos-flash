@@ -69,8 +69,8 @@ fi
 
 # The newest earlier report of the same kind (full or quick), to compare with. Reports are
 # halogen's own files, but one may have been edited, so only a readable one with rows counts.
-# Reports from before bench-cold.py (no halos_cold) are skipped: their prompt reading may have
-# come from the prompt cache.
+# Reports from before bench-cold.py (no halos_cold), and runs the cache mostly answered, are
+# skipped: their prompt reading came from the prompt cache.
 prev=/dev/null
 while IFS= read -r f; do
   if [ ! -f "$f" ] || [ -L "$f" ]; then continue; fi
@@ -78,6 +78,7 @@ while IFS= read -r f; do
   if jq -e -s --arg run "$kind" 'length == 1 and (.[0] | type == "object" and .run == $run
        and (.bench | type == "object") and (.bench.rows | type == "array" and length > 0 and all(type == "object"))
        and (.bench.halos_cold | type == "object")
+       and ([.bench.halos_cold.passes[]? | select((.cached | numbers) * 2 > (.tokens | numbers))] | length == 0)
        and ((.system // {}) | type == "object") and ((.system.settings // []) | type == "array"))' \
        "$f" > /dev/null 2>&1; then prev="$f"; break; fi
 done < <(find "$dir" -maxdepth 1 -regextype posix-extended -regex '.*/[0-9]{8}-[0-9]{6}\.json' -printf '%f\n' 2>/dev/null \
@@ -169,12 +170,12 @@ def table($label; $rows; $samples):
                  (if $sl > 0 then "\($sl) test\(if $sl == 1 then "" else "s" end) slower" else empty end)] | join(", ")) + "."
           end)
    end),
-  ( [.bench.halos_cold.passes // [] | .[] | select(type == "object")
-     | select((.cached | nz) * 2 > (.tokens | nz))] | length ) as $warm
-  | if $warm > 0 then
-      "Warning: \($warm) prompt-reading pass\(if $warm == 1 then " was" else "es were" end) mostly"
-      + " answered from the prompt cache, so the reading speeds are too high. Run the benchmark again."
-    else empty end,
+  ( ( [.bench.halos_cold.passes // [] | .[] | select(type == "object")
+       | select((.cached | nz) * 2 > (.tokens | nz))] | length ) as $warm
+    | if $warm > 0 then
+        "Warning: \($warm) prompt-reading pass\(if $warm == 1 then " was" else "es were" end) mostly"
+        + " answered from the prompt cache, so the reading speeds are too high. Run the benchmark again."
+      else empty end ),
   "",
   (if ($pp | length) > 0 then
      "Reading the prompt (prefill): how long before the answer starts",

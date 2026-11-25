@@ -634,8 +634,9 @@ this, halOS starts each prompt with a word that is new for each run. If the cach
 most of a prompt, the report shows a warning. Reports from before this change are not used for
 "Last run", because their reading speeds can be too high.
 
-The prompts of the run also go into the cache. They can push out long conversations from the
-cache, which then read their history again one time.
+The prompts of the run also go into the cache. Each full run adds about 3 GB that no later run
+uses, and the cache keeps 64 GiB by default, so many runs can push out long conversations from
+the cache. Those conversations then read their history again one time.
 
 ## Measuring tool calls
 

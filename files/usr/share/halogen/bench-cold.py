@@ -3,11 +3,13 @@
 #
 # The tool builds the same prompts on every run, so from the second run on Halogen's prompt cache
 # (on disk, it outlives restarts) already holds them and answers the prefill in a fraction of a
-# second: a 32K prompt then "reads" at 165,000 tok/s. Here every prompt starts with a word that is
-# new for this run, so the cache can't match any of it and each prefill is cold, as in the
+# second: a 32K prompt then "reads" at 165,000 tok/s. Here every prompt-reading prompt starts with
+# a word that is new for this run, so the cache can't match it and each prefill is cold, as in the
 # "cache on (a cold request)" rows of Halogen's docs/performance.md. The tool's own prompts,
-# lengths and timing are unchanged. Its JSON also gets "halos_cold": the tokens the cache served
-# for each prefill pass (llama-server's timings.cache_n), so the report can tell if one wasn't cold.
+# lengths and timing are otherwise unchanged. The answer-writing prompts stay as they are: the tool
+# itself reuses them across its passes. Its JSON also gets "halos_cold": the tokens the cache
+# served for each prefill pass (llama-server's timings.cache_n), so the report can tell if one
+# wasn't cold.
 import contextlib
 import importlib.util
 import io
@@ -56,6 +58,15 @@ try:
 except ValueError:
     result = None
 if isinstance(result, dict):
+    # Every prefill pass must have been seen with this run's word, or a later tool builds its
+    # timed prompts some other way and they may be warm again: then refuse, rather than report.
+    rows = result.get("rows") if isinstance(result.get("rows"), list) else []
+    want = sum(1 for r in rows if isinstance(r, dict) and str(r.get("test", "")).startswith("pp"))
+    want *= result.get("reps") if isinstance(result.get("reps"), int) else 1
+    if len(passes) < want:
+        sys.exit("halOS: only %d of %d prompt-reading passes started with this run's word, so "
+                 "Halogen's sweep tool has changed and the speeds may come from the prompt cache"
+                 % (len(passes), want))
     result["halos_cold"] = {"passes": passes}
     print(text[:start + 1] + json.dumps(result, indent=2))
 else:
