@@ -16,6 +16,7 @@ case "$cmd" in
     rm -f "$dir/$name.rc"
     : > "$dir/$name.log"
     # nohup and setsid: the step that starts it ends long before the command does.
+    # shellcheck disable=SC2016 # expanded by the inner bash: $0 is the state path, $@ the command
     nohup setsid bash -c '"$@" > "$0.log" 2>&1; echo $? > "$0.rc.new"; mv "$0.rc.new" "$0.rc"' \
       "$dir/$name" "$@" < /dev/null > /dev/null 2>&1 &
     echo "started $name in the background"

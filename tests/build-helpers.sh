@@ -58,7 +58,9 @@ echo "ok: the helpers record their inputs, and build.sh's check refuses other on
 # and the installer) is built on as given, but only the same repository by a full digest.
 [ "$(scripts/build-helpers.sh --resolve | cut -d' ' -f1)" = "$base" ] || { echo "--resolve doesn't print the base by digest" >&2; exit 1; }
 HALOS_BASE="$base" scripts/build-helpers.sh "$t/r" > /dev/null
-grep -qx "base=$base" "$t/r/inputs" && grep -qx "FEDORA_BOOTC_IMAGE=$base" "$t/podman.log" || { echo "HALOS_BASE isn't what the helpers are built on" >&2; exit 1; }
+if ! grep -qx "base=$base" "$t/r/inputs" || ! grep -qx "FEDORA_BOOTC_IMAGE=$base" "$t/podman.log"; then
+  echo "HALOS_BASE isn't what the helpers are built on" >&2; exit 1
+fi
 scripts/build-helpers.sh --check "$t/r"
 for bad in "quay.io/evil/fedora-bootc@$digest" "${FEDORA_BOOTC_IMAGE%:*}@sha256:1" "$FEDORA_BOOTC_IMAGE"; do
   rm -rf "$t/r"
