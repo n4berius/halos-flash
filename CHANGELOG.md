@@ -14,7 +14,7 @@ it promotes.
   tool-eval-bench (MIT): 69 conversations with fake tools, three times each, at the settings of
   the public Qwen3.8 Flash Next tool-calling leaderboard, so the score compares with that table.
   `--quick` runs 15 of them once. The report gives the score, how many scenarios were right every
-  time, a score for each kind of task and the change since your last run (#PR).
+  time, a score for each kind of task and the change since your last run (#173).
 - Hardening from the same review (#166):
   - Unlocking from a tang server: `halosctl tang-unlock on` with `--tpm and` or `--tpm or`, and
     `halogen-enroll-tpm`, refuse while Secure Boot is off, since the TPM's check then doesn't stop
