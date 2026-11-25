@@ -15,12 +15,16 @@ it promotes.
   for `flash drafter <name>` and your existing names after `--as` of `flash pull` and
   `model pull`, to update one. The names come from a list that halOS keeps in
   `/run/halos/model-names` for administrators (#174).
+- The documentation is shorter and easier to find your way in (#172). INSTALL.md now holds only
+  the installation, the first boot and the disk unlock. Everything about using the machine
+  (settings, updates, HTTPS, the dashboard, benchmarks, your own checkpoints, logs) moved to the
+  new [docs/GUIDE.md](docs/GUIDE.md), without the text that was there twice. README.md is now a
+  short overview. Version numbers and release names in the examples are up to date.
 - A settings screen, `sudo halogenctl settings` (#175): choose the Flash checkpoint, its draft
   head, the NPU models (a checklist) and Halogen's settings in one place, each shown with its
   default, instead of editing `halogen.env`. All changes are saved together, with one restart of
   Halogen at the end. `halosctl setup` opens it in step 3 (Enter on a new install).
   `halogenctl settings --editor` still opens the file in an editor.
-
 - `halogenctl flash drafter` takes a draft head by the file name you see in `/srv/models`, or by
   its full path, as well as `official`, `off` and the checkpoint's own files. `official-r2` picks
   Halogen 0.20.6's draft head when it is still on disk. Without a checkpoint name it sets the one
@@ -572,7 +576,7 @@ No change for users: the project notes and roadmap are now up to date (#79).
   official one always stays downloaded. A pull fetches only what Halogen loads, at an exact
   commit. It checks every file against the repository's hashes and with Halogen's `verify`, and
   halOS checks the checkpoint again after each Halogen update. See
-  [INSTALL.md](INSTALL.md#your-own-flash-checkpoint). (#60)
+  [docs/GUIDE.md](docs/GUIDE.md#your-own-flash-checkpoint). (#60)
 - The model download and `model pull` no longer get the NPU device. (#60)
 
 ## v0.19.1-alpha.1 (2026-11-06)

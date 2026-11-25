@@ -164,8 +164,8 @@ cosign verify ghcr.io/n4berius/halos-flash:rc \
   --certificate-identity-regexp '^https://github\.com/n4berius/halos-flash/\.github/workflows/(build|release|refresh)\.yml@refs/(heads/main|tags/v.+)$'
 ```
 
-Machines check the key's signature at every update. INSTALL.md, "Signed images", explains this for
-owners.
+Machines check the key's signature at every update. [Signed images](docs/GUIDE.md#signed-images)
+explains this for owners.
 
 ## Move to a new Halogen version
 

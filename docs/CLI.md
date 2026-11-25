@@ -10,8 +10,8 @@ of one line.
 | [`halogenctl`](#halogenctl-halogen-and-its-models) | Halogen: the server, its settings, models and checkpoints, checks and benchmarks |
 | [`halogen-enroll-tpm`](#halogen-enroll-tpm) | The TPM unlock of the encrypted disk |
 
-[INSTALL.md](../INSTALL.md) tells how to install, and the reasons for each feature. This page
-tells what each command does. Halogen's
+[INSTALL.md](../INSTALL.md) tells how to install, and [Running halOS](GUIDE.md) tells the
+reasons for each feature. This page tells what each command does. Halogen's
 [FLAGS.md](https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/FLAGS.md) tells about
 Halogen's own settings (`HALOGEN_*` in `/srv/configs/halogen.env`).
 
@@ -70,11 +70,11 @@ The `Signatures:` line of `version` shows this.
 | `halosctl tang-unlock off [--yes]` | Removes the tang unlock. Then `halogen-enroll-tpm` can add the TPM unlock again. |
 | `halosctl ssh-passwords [on\|off] [--yes]` | `off`: SSH logins with keys only (first, your account needs a key). `on`: passwords are possible again. Without `on` or `off`, it shows the current state. The console always accepts the password. |
 
-### The dashboard and HTTPS
+### Network: fail2ban, the dashboard and HTTPS
 
 | Command | What it does |
 |---|---|
-| `halosctl fail2ban` | Shows if [fail2ban](../INSTALL.md#shutting-out-repeated-failed-logins-fail2ban) is on, and which addresses it blocks now because of failed SSH logins (`sshd`) or API keys (`halos-api`). |
+| `halosctl fail2ban` | Shows if [fail2ban](GUIDE.md#fail2ban) is on, and which addresses it blocks now because of failed SSH logins (`sshd`) or API keys (`halos-api`). |
 | `halosctl fail2ban on\|off` | Turns fail2ban on (the default) or off. `off` also removes all blocks. |
 | `halosctl fail2ban unban <address>` | Removes the block on one address immediately. |
 | `halosctl dashboard [on\|off]` | Turns on or off the live web page of Halogen's load and health on port 8732. The page is for your local network and has no login. Without `on` or `off`, it shows the state and the address. |
@@ -100,12 +100,12 @@ after a change, halOS puts back the previous setting automatically.
 | `halogenctl logs [lines]` | Shows the logs of Halogen and of the download step together (100 lines by default). On a terminal, it shows new lines as they come. |
 | `halogenctl fetch-logs [lines]` | Shows only the log of the download-and-check step. |
 | `halogenctl api-key` | Prints the API key that apps need (`/srv/configs/api-key`). |
-| `halogenctl api-key status` | Shows if Halogen requires the [API key](../INSTALL.md#the-api-key) (on, the default) or not (off). |
+| `halogenctl api-key status` | Shows if Halogen requires the [API key](GUIDE.md#the-api-key) (on, the default) or not (off). |
 | `halogenctl api-key on\|off [--yes]` | Requires the API key again, or stops requiring it. `off` asks first. If Halogen runs, both restart it. The key itself does not change. |
-| `halogenctl cache [status]` | Shows if Halogen's [prompt cache on disk](../INSTALL.md#prompt-cache-on-disk) is on, and the space that it uses. |
+| `halogenctl cache [status]` | Shows if Halogen's [prompt cache on disk](GUIDE.md#prompt-cache-on-disk) is on, and the space that it uses. |
 | `halogenctl cache on\|off [--yes]` | Turns the cache on (the default) or off. If Halogen runs, it restarts Halogen. `off` keeps the saved data, and then Halogen can only read the folder. |
 | `halogenctl cache clear [--yes]` | Asks, then deletes all saved conversation states. It stops Halogen for a short time and starts it again. |
-| `halogenctl records [on\|off] [--yes]` | Controls Halogen's [request records](../INSTALL.md#request-records): one line for each request in `/srv/logs/halogen`. They contain only counts, unless `HALOGEN_RECORD_TEXT` sets a different value. `on` and `off` restart Halogen. Without `on` or `off`, it shows the state and the space used. |
+| `halogenctl records [on\|off] [--yes]` | Controls Halogen's [request records](GUIDE.md#request-records): one line for each request in `/srv/logs/halogen`. They contain only counts, unless `HALOGEN_RECORD_TEXT` sets a different value. `on` and `off` restart Halogen. Without `on` or `off`, it shows the state and the space used. |
 | `halogenctl records stats` | Shows counts by API, client and finish, the part that the cache supplied, and tool errors. It uses Halogen's own tool: inside Halogen's container while it runs, else in a short-lived copy of the pinned image with only the records folder. |
 | `halogenctl records prune --days <n>\|--gib <g>\|--session <hash>\|--unit <hash>\|--all [--yes]` | Asks, then deletes records. |
 | `halogenctl hf-token [--remove]` | Asks for your Hugging Face read token and saves it, for gated models. It does not show the token. `--remove` deletes it. |
@@ -114,7 +114,7 @@ after a change, halOS puts back the previous setting automatically.
 
 | Command | What it does |
 |---|---|
-| `halogenctl settings [--editor] [--no-restart]` | Opens the settings screen: the Flash checkpoint, the draft heads, a checklist of NPU models, and Halogen's settings, each with its default. It saves all changes together, then restarts Halogen one time if you choose that. `--editor` opens `halogen.env` in an editor instead. `--no-restart` saves only (`halosctl setup` uses it). See [the settings screen](../INSTALL.md#the-settings-screen). |
+| `halogenctl settings [--editor] [--no-restart]` | Opens the settings screen: the Flash checkpoint, the draft heads, a checklist of NPU models, and Halogen's settings, each with its default. It saves all changes together, then restarts Halogen one time if you choose that. `--editor` opens `halogen.env` in an editor instead. `--no-restart` saves only (`halosctl setup` uses it). See [the settings screen](GUIDE.md#the-settings-screen). |
 | `halogenctl config` | Shows the settings that Halogen gets: your allowed settings from `/srv/configs/halogen.env`, then the settings that halOS locks. |
 | `halogenctl options [--new]` | Shows each option of this release, and if it is set, commented out or new in your file. `--new` shows only the options that your file doesn't mention. |
 | `halogenctl doctor` | Checks the settings and the machine before a start (halOS's own checks), and tells what to change. |
@@ -140,7 +140,7 @@ To change the settings, run `sudo halogenctl settings`. You can also edit the fi
 
 | Command | What it does |
 |---|---|
-| `halogenctl flash pull <hf-repo> [--revision <rev>] [--as <name>] [--file <checkpoint.hgn\|build.gguf>] [--keep-gguf]` | Downloads a Flash checkpoint in Halogen's format. It checks the checkpoint against the hashes from Hugging Face and with Halogen's `verify`. From a GGUF repository, it downloads one build, converts it one time into a `.hgn` with Halogen's `convert`, then deletes the GGUF (`--keep-gguf` keeps it). See [INSTALL.md](../INSTALL.md#pulling-a-gguf). |
+| `halogenctl flash pull <hf-repo> [--revision <rev>] [--as <name>] [--file <checkpoint.hgn\|build.gguf>] [--keep-gguf]` | Downloads a Flash checkpoint in Halogen's format. It checks the checkpoint against the hashes from Hugging Face and with Halogen's `verify`. From a GGUF repository, it downloads one build, converts it one time into a `.hgn` with Halogen's `convert`, then deletes the GGUF (`--keep-gguf` keeps it). See [Pulling a GGUF](GUIDE.md#pulling-a-gguf). |
 | `halogenctl flash list` | Shows the official checkpoint and yours, and which one Halogen serves. |
 | `halogenctl flash use <name>\|official [--yes]` | Asks, then switches Halogen to that checkpoint and restarts Halogen immediately (`--yes` skips the question). halOS always keeps the official checkpoint. |
 | `halogenctl flash drafter [<name>] [official\|official-r2\|off\|<file>] [--yes]` | Sets the draft head that your checkpoint uses. Without `<name>`, it sets the checkpoint that Halogen serves. `official` (the default) is Halogen's official draft head (`qwen38-flash-next-drafter-r2-ht4.hgn`), which the official checkpoint always uses. `official-r2` is the draft head of Halogen 0.20.6 (`qwen38-flash-next-drafter-r2.hgn`), if it is still in `/srv/models`. `off` is the draft head inside the checkpoint. `<file>` is a draft head file that the checkpoint's repository supplies: `flash pull` downloads it, checks it against the repository's hash and shows its name. You can also give the name of a draft head file as `ls /srv/models` or `ls /srv/models/flash/<name>` shows it, or its full path. The command does not accept other files, because Halogen's container sees only `/srv/models` and halOS uses only draft heads whose hash it checked. If a name does not match, the command shows the choices. The answers do not change, because the model checks each token that a draft head proposes. Only the speed changes, so compare `halogenctl bench` with each setting. A checkpoint with a quality sidecar (`<checkpoint>.overlay.hgn`) keeps the sidecar. If Halogen serves the checkpoint, the command asks, then restarts Halogen. Without a setting, it shows the setting and the choices. |
@@ -197,4 +197,4 @@ BIOS or Secure Boot change, use `sudo halosctl tang-unlock renew` instead.
 | `/srv/configs/flash-drafter` | The draft head of each of your Flash checkpoints that does not use the official one (`flash drafter`), as `<name>=off`, `<name>=official-r2` or `<name>=<file>` |
 | `/etc/halos/proxy.env` | Optional: more networks that can see the dashboard (`HALOS_DASHBOARD_ALLOW`) |
 | `/var/lib/halos/history` | What `halosctl history` shows |
-| `/var/log/audit/` | The audit log (`sudo ausearch -i -k halos-config`; [the keys](../INSTALL.md#logs-and-the-audit-trail)) |
+| `/var/log/audit/` | The audit log (`sudo ausearch -i -k halos-config`; [the keys](GUIDE.md#logs-and-the-audit-trail)) |
