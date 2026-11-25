@@ -96,6 +96,14 @@ if grep -qx 'own LFM LFM3' "$work/names"; then fail "a folder name with a line b
 cp -p "$work/names" "$work/names.before"; sleep 1
 PATH="$work/bin:$PATH" HALOGEN_MODELS_DIR="$work" HALOS_NAMES_GROUP="$(id -gn)" "$repo/files/usr/libexec/halogen/model-names" "$work/names"
 [ "$work/names" -ot "$work/names.before" ] || [ ! "$work/names" -nt "$work/names.before" ] || fail "model-names rewrote an unchanged list"
+# A flooded folder is cut before root's loop, and a link at flash is never followed to .convert.
+mkdir -p "$work/flood/flash/.convert" "$work/flood/elsewhere/.convert/secret" "$work/flood/custom" "$work/flood/decider/keep"
+(cd "$work/flood/custom" && mkdir $(seq -f 'm%g' 1 6000))
+mv "$work/flood/flash" "$work/flood/flash.real"; ln -s elsewhere "$work/flood/flash"
+PATH="$work/bin:$PATH" HALOGEN_MODELS_DIR="$work/flood" HALOS_NAMES_GROUP="$(id -gn)" "$repo/files/usr/libexec/halogen/model-names" "$work/flood.names"
+if grep -q secret "$work/flood.names"; then fail "model-names followed a link at flash"; fi
+n="$(grep -c '^own custom ' "$work/flood.names")"; [ "$n" -le 1000 ] || fail "model-names kept $n names from one folder"
+grep -qx 'own decider keep' "$work/flood.names" || fail "a flood in one folder pushed out another's names"
 sed "s|local models=/srv/models names=/run/halos/model-names|local models=$work/unreadable names=$work/names|" "$dir/halogenctl" > "$work/c2"
 # A crafted line in the list (the folders are halogen's) still never runs.
 # shellcheck disable=SC2016 # meant literally

@@ -76,7 +76,8 @@ duplicate_settings() {
 }
 # Tab completion reads your model names from /run/halos/model-names (sudo runs it as you, and
 # /srv/models is halogen's). halos-status refreshes that list every 30 s; after a pull or a
-# removal, now, so the new name completes at once. Never waited for, and never an error.
+# removal it is started now, so the new name usually completes at once (if a run is already
+# under way, by the next one). Never waited for, and never an error.
 names_now() { systemctl start --no-block halos-status.service > /dev/null 2>&1 || true; }
 flash_info() { as_owner sed -n "s/^$2=//p" "$models/flash/$1/halos.info" 2>/dev/null | tail -n 1 | tr -cd '[:print:]' || true; }
 

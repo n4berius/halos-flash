@@ -94,6 +94,7 @@ echo 4242 > "$work/hstate/pull-npu-old-model.lock"
 { sleep 2; echo y; } | HALOGEN_MODELS_DIR="$work/models" script -qec "$ctl model remove old-model" /dev/null > "$work/out" 2>&1 || true
 [ ! -e "$work/models/LFM/old-model" ] || { echo "model remove didn't delete:" >&2; cat "$work/out" >&2; exit 1; }
 grep -q "systemd-run .*model-pull --remove LFM old-model" "$work/log" || { echo "model remove didn't delete as halogen, under the model's lock" >&2; exit 1; }
+grep -q 'systemctl start --no-block halos-status.service' "$work/log" || { echo "model remove didn't refresh the names for tab completion" >&2; exit 1; }
 [ ! -s "$work/hstate/pull-npu-old-model.lock" ] || { echo "a removal wrote a process group into the model's lock" >&2; exit 1; }
 ok "model remove deletes as halogen"
 
@@ -322,7 +323,9 @@ fi
 printf 'official\n' > "$work/configs/flash-checkpoint"
 "$ctl" flash drafter spare off > /dev/null 2>&1
 printf 'mine=off\nbad line\n' >> "$work/configs/flash-drafter"
+: > "$work/log"
 "$ctl" flash remove spare --yes > /dev/null 2>&1 || exit 1
+grep -q 'systemctl start --no-block halos-status.service' "$work/log" || { echo "flash remove didn't refresh the names for tab completion" >&2; exit 1; }
 [ "$(cat "$work/configs/flash-drafter")" = mine=off ] || { cat "$work/configs/flash-drafter" >&2; echo "remove didn't drop the line, or a bad line was kept" >&2; exit 1; }
 : > "$work/configs/flash-drafter"
 ok "flash drafter is official by default, saves a choice as halogen, takes only a listed file, asks and restarts only for the served checkpoint, and remove drops it"
