@@ -9,19 +9,39 @@ A Git tag starts a release. The tag must be on `main`. It must also match `HALOG
 |---|---|---|---|---|
 | Edge | None, every push to `main` | `edge` | Newest build, for tests | None |
 | Kernel next | None, every push to `main` | `kernel-next` | Edge with a test kernel (a Linux 7.4 release candidate from Fedora 46) in place of the Fedora 45 kernel | None |
-| Alpha | `v0.20.7-alpha.1` | `0.20.7-alpha.1`, `alpha` | Builds and installs in a VM. Not proven on hardware | Pre-release |
-| RC | `v0.20.7-rc.1` | `0.20.7-rc.1`, `rc` | Passed the hardware checklist on one machine. No known blockers | Pre-release |
-| Stable | `v0.20.7` | `0.20.7`, `stable`, `latest` | Recommended | Release |
-| Stable fix | `v0.20.7-r2` | `0.20.7`, `stable`, `latest` | A fix to this project on the same Halogen version | Release |
+| Alpha | `v0.20.7-2-alpha` | `0.20.7-2-alpha`, `alpha` | Builds and installs in a VM. Not proven on hardware | Pre-release |
+| RC | `v0.20.7-2-rc` | `0.20.7-2-rc`, `rc` | Passed the hardware checklist on one machine. No known blockers | Pre-release |
+| Stable | `v0.20.7-2-stable` | `0.20.7-2-stable`, `0.20.7`, `stable`, `latest` | Recommended | Release |
 
-For the other edition, add `-no-npu` to an image tag, for example `0.20.7-rc.1-no-npu`.
+For the other edition, add `-no-npu` to an image tag, for example `0.20.7-2-rc-no-npu`.
+
+### Release names
+
+A release name has three parts: `<Halogen version>-<halOS number>-<stage>`. For example,
+`v0.20.7-2-alpha` is the second halOS release on Halogen 0.20.7, at the alpha stage.
+
+- The Halogen version comes from `HALOGEN_VERSION` in `versions.env`.
+- The halOS number counts halOS's own changes on that Halogen version. Each alpha takes the next
+  number. An RC and a stable release keep the number of the release that they promote. The number
+  starts again at 1 with each new Halogen version.
+- The stage is `alpha`, `rc` or `stable`.
+
+The order of releases is: Halogen version, then halOS number, then stage. So `v0.20.7-2-alpha` is
+newer than `v0.20.7-1-stable`. Thus you can release a new halOS feature as an alpha after a
+stable release on the same Halogen version, and then promote it to RC and stable.
+
+Releases from before November 2026 have the old names (`v0.20.7-alpha.3`, `v0.20.7-rc.1`,
+`v0.20.7`, `v0.20.7-r2`). They stay as they are. Each new name is newer than all old names of the
+same Halogen version. So the first new release (`v0.20.7-1-alpha`) moves the `alpha` channel past
+`v0.20.7`. Machines follow channel tags, so no machine must do anything. An old stable release
+has no own exact image tag: its image tag is the plain version (`0.20.7`).
 
 There is no beta step since November 2026: an RC promotes the newest alpha. Old beta releases
 stay as they were. The `beta` channel tag moves with every RC and stable release. So a machine
 that still follows `beta` gets the same releases as `rc`.
 
-`0.20.7` and the channel tags move. The workflows never rebuild `0.20.7-alpha.1` and other
-exact tags. Each Monday, a workflow rebuilds the newest *published* stable release with Fedora
+`0.20.7` and the channel tags move. The workflows never rebuild `0.20.7-2-alpha`, `0.20.7-2-stable`
+and other exact tags. Each Monday, a workflow rebuilds the newest *published* stable release with Fedora
 updates. A stable tag whose release run failed has no release, so the workflow never rebuilds it.
 
 Each channel points to the newest release that is at least that stable. A stable release also
@@ -53,21 +73,22 @@ release. Then choose **Run workflow**. You never type a tag: the workflow takes 
 
 | Pick | What it does | Example |
 |---|---|---|
-| `alpha` | Builds `main` as the next alpha | `v0.20.7-alpha.3` after alpha.2 |
-| `rc` | Promotes the newest published alpha: it builds the same code again | alpha.3 becomes `v0.20.7-rc.1` |
-| `stable` | Promotes the newest published RC. A second stable of the same version becomes `-r2` | `v0.20.7`, then `v0.20.7-r2` |
+| `alpha` | Builds `main` with the next halOS number | `v0.20.7-3-alpha` after `v0.20.7-2-stable` |
+| `rc` | Promotes the newest published alpha: it builds the same code again, with the same number | `v0.20.7-3-alpha` becomes `v0.20.7-3-rc` |
+| `stable` | Promotes the newest published RC, with the same number | `v0.20.7-3-rc` becomes `v0.20.7-3-stable` |
 
-To build an RC or stable from `main` in place of a promotion, tick **from main**. Use this for
-example for a stable fix.
+To build an RC or stable from `main` in place of a promotion, tick **from main**. The release
+then takes the next halOS number. Use this for example for an urgent stable fix: `v0.20.7-4-stable`
+after `v0.20.7-3-stable`.
 
-After a version has a stable release, an alpha or RC of that version is older than the stable
-release for every channel. So it gets to no machine. In that case, the workflow stops at once
-and tells you why. To release a halOS-only fix after a stable release, pick **stable** and tick
-**from main**. The release becomes `-r2`. Otherwise, the next alpha comes with the next Halogen
-version.
+A new alpha is always newer than all releases before it, also after a stable release. If a
+release would move no channel, the workflow stops at once and tells you why. This can occur, for
+example, when you promote an RC that is older than the newest stable release.
 
-The workflow promotes only published releases. So it skips a tag whose run failed, but it never
-uses that number again. A promotion builds the same code again, so its Fedora packages can be
+The workflow promotes only published releases. So it skips a tag whose run failed. An alpha never
+uses that number again. If a promotion fails (for example `v0.20.7-3-rc`), run the same promotion
+again: the workflow uses the same tag again, because that tag has no release. It does this only
+when the tag is on the same commit. A promotion builds the same code again, so its Fedora packages can be
 newer than in the release it came from. Do not use **Draft a new release**, because the workflow
 makes the release itself.
 
@@ -75,14 +96,14 @@ You can also push a tag manually from your own computer:
 
 ```bash
 git checkout main && git pull
-git tag v0.20.7-alpha.3
-git push origin v0.20.7-alpha.3
+git tag v0.20.7-3-alpha
+git push origin v0.20.7-3-alpha
 ```
 
 In the two cases, the workflow does these steps:
 
 - It runs checks and builds the two images.
-- It pushes the exact image tags (for example `0.20.7-alpha.3`) before the ISO tests, because the
+- It pushes the exact image tags (for example `0.20.7-3-alpha`) before the ISO tests, because the
   tests install them.
 - It runs a full VM install of each ISO.
 - It moves the channel tags (`alpha`, `beta`, `rc`, `stable`, `latest`) only after the two installs
@@ -90,11 +111,11 @@ In the two cases, the workflow does these steps:
   So no machine upgrades to a release that failed them.
 - It makes the GitHub release last.
 
-One exception: the exact tag of a stable release is the plain version (`0.20.7`). A machine
-pinned to a stable release can follow that tag, so the workflow also pushes it before the tests.
+A stable release also moves the plain version tag (`0.20.7`) with the channel tags, after the
+two installs pass. The Monday rebuild and machines pinned to that version follow this tag.
 
-If a run fails, fix the problem on `main` and run the workflow again. It takes the next number. A
-promotion builds its old code again, so a fix on `main` does not get to it. Cut a new alpha and
+If an alpha fails, fix the problem on `main` and run the workflow again. It takes the next number.
+A promotion builds its old code again, so a fix on `main` does not get to it. Cut a new alpha and
 promote it, or tick **from main**.
 
 A promotion takes the newest *published* release one step down. Before you promote, look on the
