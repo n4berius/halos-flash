@@ -319,13 +319,42 @@ if [ "$(cat "$work/configs/flash-drafter")" != spare=off ] || ! grep -q 'restart
 fi
 "$ctl" flash drafter spare official --yes > /dev/null 2>&1
 [ ! -s "$work/configs/flash-drafter" ] || { echo "official (the default) left a line" >&2; exit 1; }
+# File names as ls shows them, and full paths, stand for the choice; anything outside what halOS
+# checked is refused with the list; one argument is the choice for the checkpoint Halogen serves.
+printf 'HGN1' > "$fm/qwen38-flash-next-drafter-r2-ht4.hgn"
+"$ctl" flash drafter spare off --yes > /dev/null 2>&1
+"$ctl" flash drafter spare qwen38-flash-next-drafter-r2-ht4.hgn --yes > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+[ ! -s "$work/configs/flash-drafter" ] || { cat "$work/configs/flash-drafter" >&2; echo "the official file's name didn't mean official" >&2; exit 1; }
+grep -q "doesn't know yet whether spare carries its own precision" "$work/out" || { cat "$work/out" >&2; echo "no note about own_precision" >&2; exit 1; }
+if "$ctl" flash drafter spare official-r2 --yes > "$work/out" 2>&1; then echo "official-r2 taken without the file" >&2; exit 1; fi
+grep -q 'Choices: official (qwen38-flash-next-drafter-r2-ht4.hgn), off .*their-drafter.hgn' "$work/out" || { cat "$work/out" >&2; echo "a refusal doesn't list the choices" >&2; exit 1; }
+printf 'HGN1' > "$fm/qwen38-flash-next-drafter-r2.hgn"
+"$ctl" flash drafter spare /var/srv/models/qwen38-flash-next-drafter-r2.hgn --yes > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+[ "$(cat "$work/configs/flash-drafter")" = spare=official-r2 ] || { echo "the older official draft head's path wasn't taken" >&2; exit 1; }
+"$ctl" flash drafter spare /srv/models/flash/spare/their-drafter.hgn --yes > /dev/null 2>&1
+[ "$(cat "$work/configs/flash-drafter")" = spare=their-drafter.hgn ] || { echo "the checkpoint's own file by path wasn't taken" >&2; exit 1; }
+for bad in /srv/configs/api-key /srv/models/flash/spare/stray.hgn /srv/models/flash/spare/../../configs/x /tmp/x-drafter.hgn /srv/models/qwen38-flash-next-ngram.hgn; do
+  if "$ctl" flash drafter spare "$bad" --yes > "$work/out" 2>&1 || ! grep -q '^Choices: .*official-r2' "$work/out"; then
+    cat "$work/out" >&2; echo "drafter took $bad, or didn't list the choices" >&2; exit 1
+  fi
+done
+[ "$(cat "$work/configs/flash-drafter")" = spare=their-drafter.hgn ] || { echo "a refused file changed the list" >&2; exit 1; }
+printf 'official\n' > "$work/configs/flash-checkpoint"
+if "$ctl" flash drafter official > "$work/out" 2>&1 || ! grep -q 'official checkpoint, which always' "$work/out"; then
+  cat "$work/out" >&2; echo "drafter without a name while the official checkpoint is served" >&2; exit 1
+fi
+printf 'spare\n' > "$work/configs/flash-checkpoint"
+"$ctl" flash drafter > "$work/out" 2>&1; grep -q '^spare drafts with their-drafter.hgn' "$work/out" || { cat "$work/out" >&2; echo "drafter alone doesn't show the served checkpoint" >&2; exit 1; }
+"$ctl" flash drafter official --yes > /dev/null 2>&1
+[ ! -s "$work/configs/flash-drafter" ] || { echo "drafter official didn't set the served checkpoint" >&2; exit 1; }
+rm "$fm/qwen38-flash-next-drafter-r2-ht4.hgn" "$fm/qwen38-flash-next-drafter-r2.hgn"
 printf 'official\n' > "$work/configs/flash-checkpoint"
 "$ctl" flash drafter spare off > /dev/null 2>&1
 printf 'mine=off\nbad line\n' >> "$work/configs/flash-drafter"
 "$ctl" flash remove spare --yes > /dev/null 2>&1 || exit 1
 [ "$(cat "$work/configs/flash-drafter")" = mine=off ] || { cat "$work/configs/flash-drafter" >&2; echo "remove didn't drop the line, or a bad line was kept" >&2; exit 1; }
 : > "$work/configs/flash-drafter"
-ok "flash drafter is official by default, saves a choice as halogen, takes only a listed file, asks and restarts only for the served checkpoint, and remove drops it"
+ok "flash drafter is official by default, saves a choice as halogen, takes only a listed or official file (by name or path), defaults to the served checkpoint, asks and restarts only for the served checkpoint, and remove drops it"
 
 # What another terminal does while flash use or remove asks is checked again under the
 # checkpoint's lock (#119), and a checkpoint another command holds is a busy message.

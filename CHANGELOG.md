@@ -10,6 +10,11 @@ it promotes.
 
 ## Unreleased
 
+- `halogenctl flash drafter` takes a draft head by the file name you see in `/srv/models`, or by
+  its full path, as well as `official`, `off` and the checkpoint's own files. `official-r2` picks
+  Halogen 0.20.6's draft head when it is still on disk. Without a checkpoint name it sets the one
+  Halogen serves. When a name doesn't match, it lists what you can choose, and it says when a
+  checkpoint needs `flash verify` before any draft head is used (#PR).
 - Hardening from the same review (#166):
   - Unlocking from a tang server: `halosctl tang-unlock on` with `--tpm and` or `--tpm or`, and
     `halogen-enroll-tpm`, refuse while Secure Boot is off, since the TPM's check then doesn't stop
