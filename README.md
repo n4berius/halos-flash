@@ -40,7 +40,7 @@ See **[INSTALL.md](INSTALL.md)**. In short:
 4. Run `sudo halosctl setup`.
 5. Let the first boot download the models.
 
-Then clients use `http://<host>:8731/v1` (or `https://` with HTTPS on) with the key that
+After that, clients use `http://<host>:8731/v1` (or `https://` with HTTPS on) with the key that
 `sudo halogenctl api-key` prints. A live dashboard is at `http://<host>:8732`.
 
 ## Documentation
@@ -69,13 +69,14 @@ trade-off of the IOMMU.
 
 ## Releases
 
-Each release is a git tag and an image tag of the same name, for example `0.20.7-1-stable`.
+Each release is a git tag, such as `v0.20.7-2-alpha`, and an image tag of the same name without
+the `v`.
 [RELEASING.md](RELEASING.md) defines the channels and the names.
 
 | Use | Image tag |
 |---|---|
 | Recommended | `stable`, or a version such as `0.20.7` |
-| Test a release | `rc`, or an exact tag such as `0.20.7-1-rc` |
+| Test a release | `rc`, or an exact tag such as `0.20.7-2-alpha` |
 | Earliest tests | `alpha` |
 | Newest `main` build | `edge` |
 | Newest `main` build with a test kernel (a Linux 7.4 release candidate) | `kernel-next` |

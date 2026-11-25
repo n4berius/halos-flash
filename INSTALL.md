@@ -13,7 +13,7 @@ information about how Halogen itself works, see its
 
 | Machine | Memory | Disk | Release | Edition |
 |---|---|---|---|---|
-| [AMD Ryzen AI Halo Developer Platform](https://www.microcenter.com/product/711961/amd-ryzen-ai-halo-developer-platform-linux-os) (Micro Center) | 128 GB | 2 TB NVMe | `v0.18.23-alpha.2` to `v0.20.7`, and the `kernel-next` test kernel | With NPU, and without NPU through `halosctl npu off` |
+| [AMD Ryzen AI Halo Developer Platform](https://www.microcenter.com/product/711961/amd-ryzen-ai-halo-developer-platform-linux-os) (Micro Center) | 128 GB | 2 TB NVMe | `v0.18.23-alpha.2` to `v0.20.6`, and the `kernel-next` test kernel | With NPU, and without NPU through `halosctl npu off` |
 
 On that machine, these items work:
 
@@ -22,9 +22,14 @@ On that machine, these items work:
 - First-boot download of the Halogen container and about 130 GB of models.
 - Halogen on the GPU, with all 5 NPU models loaded.
 - Access to the API from other machines: Hermes, Open WebUI, Claude Code, Pi and oh-my-pi.
-- Since `v0.20.0`: the selftest, the benchmark and `flash check`; the change between the two
-  editions with `halosctl npu off` and `on`; Tab completion and restarts; a `model pull` of
-  OvisOCR3; LUKS with TPM unlock, and the fabric clock with Secure Boot on.
+
+Since `v0.20.0`, these items also work:
+
+- The selftest, the benchmark and `flash check`
+- The change between the two editions with `halosctl npu off` and `on`
+- Tab completion and restarts
+- A `model pull` of OvisOCR3
+- LUKS with TPM unlock, and the fabric clock with Secure Boot on
 
 Not yet confirmed on hardware: a long soak test under real load.
 
@@ -101,7 +106,7 @@ ask first.
 
 ```bash
 lsblk
-sudo dd if=halos-flash-v0.20.7-1-stable-npu.iso of=/dev/sdX bs=4M status=progress conv=fsync
+sudo dd if=halos-flash-v0.20.7-npu.iso of=/dev/sdX bs=4M status=progress conv=fsync
 ```
 
 ## 5. Run the installer
@@ -211,8 +216,9 @@ It asks four groups of questions. You can skip each one:
 
 1. **How the disk unlocks at boot.** With the TPM, you type no passphrase while Secure Boot and
    the BIOS stay the same. Setup runs `halogen-enroll-tpm` for you. Or you can type the
-   passphrase at each boot. Setup also offers SSH unlock and unlock from a tang server
-   ([section 8](#8-optional-unlock-the-disk-at-boot)), and
+   passphrase at each boot. On an encrypted disk, setup also offers SSH unlock (if it is not set
+   up already) and unlock from a tang server ([section 8](#8-optional-unlock-the-disk-at-boot)).
+   If your account already has an SSH key, it offers
    [SSH logins with keys only](docs/GUIDE.md#ssh-logins-with-keys-only). After a guided
    install, the answers that you gave there are the defaults (Enter). The TPM protects a disk
    that somebody removes from the machine. It doesn't protect the full machine if somebody takes
@@ -336,7 +342,7 @@ On the NPU edition, also confirm these items:
 ## 8. Optional: unlock the disk at boot
 
 With LUKS, the boot asks for the passphrase at the keyboard of the machine. halOS has three other
-ways to unlock the disk. You can use them together:
+ways to unlock the disk:
 
 - [The TPM](#unlock-with-the-tpm) unlocks the disk by itself, while Secure Boot and the BIOS stay
   the same.
@@ -344,8 +350,9 @@ ways to unlock the disk. You can use them together:
 - [A tang server](#unlock-from-a-tang-server-on-your-network) on your network unlocks the disk by
   itself, only while the machine is on that network.
 
-`sudo halosctl setup` offers each of them. The passphrase always works too: keep it as your
-recovery key.
+SSH unlock works beside either of the others. The TPM and tang work together only as one of
+the `--tpm` modes of the tang unlock (see its section). `sudo halosctl setup` offers each of them.
+The passphrase always works too: keep it as your recovery key.
 
 ### Unlock with the TPM
 
