@@ -106,6 +106,8 @@ editing `/srv/configs/halogen.env`. Each item shows its default. Nothing changes
 - **NPU models** (NPU edition). A checklist of Halogen's NPU models and your own checkpoints. Press
   Space to tick or untick a model. `on disk` shows the models that are downloaded. Halogen downloads
   the other ticked models before its next start. Press `d` to go back to the default list.
+  `halogen-spotter-0.6b` is not in the list: only the agent guard uses it, and
+  `HALOGEN_AGENT_GUARD` (`watch` or `hold`, under All settings) adds it.
 - **Common settings** and **All settings.** Each line shows the value from your file, or
   `default:` and the default. Press Enter to type a value (an empty value means the default), `r`
   for the default, `u` to undo your change, and `/` to search.
