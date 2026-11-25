@@ -12,7 +12,7 @@ it promotes.
 
 - The settings screen's NPU model checklist no longer lists `halogen-spotter-0.6b`. Only the
   agent guard uses it, and the `HALOGEN_AGENT_GUARD` setting (`watch` or `hold`) already adds it
-  (#PR).
+  (#176).
 - The documentation is shorter and easier to find your way in (#172). INSTALL.md now holds only
   the installation, the first boot and the disk unlock. Everything about using the machine
   (settings, updates, HTTPS, the dashboard, benchmarks, your own checkpoints, logs) moved to the
