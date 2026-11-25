@@ -14,12 +14,12 @@ f podman 'case "$1" in
        [ -z "${FAKE_BENCH_FAILS:-}" ] || { echo "cannot reach /health" >&2; exit 2; }
        printf "halogen-bench: m, ctx 262144, reps 3, effort low\nendpoint x\n\n"
        echo "{\"model\":\"halogen-q38fn\",\"context\":262144,\"reps\":3,\"rows\":[
-         {\"test\":\"pp2048\",\"drafter\":\"mtp\",\"tokens\":2049,\"mean\":1701.234,\"stdev\":3.21},
-         {\"test\":\"tg128\",\"drafter\":\"mt\u001b[2Jp\",\"tokens\":128,\"mean\":64.567,\"stdev\":9.1}]}" ;;
+         {\"test\":\"pp2048\",\"drafter\":\"mtp\",\"tokens\":2049,\"mean\":${FAKE_PP:-1701.234},\"stdev\":3.21},
+         {\"test\":\"tg128\",\"drafter\":\"mt\u001b[2Jp\",\"tokens\":128,\"mean\":${FAKE_TG:-64.567},\"stdev\":9.1}]}" ;;
 esac'
 f curl '[ -z "${FAKE_DOWN:-}" ]'
 f clock '[ -z "${FAKE_CLOCK_LOOSE:-}" ]'
-f render 'printf "HALOGEN_CHECKPOINT=/models/flash/mine/model.hgn\nHALOGEN_KV8=1\nHALOGEN_API_KEY_FILE=/run/secrets/x\n"; echo "halogen-config: noise" >&2'
+f render 'printf "HALOGEN_CHECKPOINT=/models/flash/mine/model.hgn\nHALOGEN_KV8=${FAKE_KV8:-1}\nHALOGEN_API_KEY_FILE=/run/secrets/x\n"; echo "halogen-config: noise" >&2'
 printf 'HALOGEN_IMAGE=ghcr.io/peonist-ai/halogen-flash-server@sha256:1\nHALOGEN_VERSION=0.19.1\nHALOGEN_VARIANT=npu\nHALOS_RELEASE=0.19.1-beta.1\n' > "$work/release.env"
 echo 'secret-key-123' > "$work/configs/api-key"
 printf 'Compal\n' > "$work/sys/class/dmi/id/board_vendor"; printf 'Halo\e[2J\n' > "$work/sys/class/dmi/id/board_name"
@@ -35,24 +35,67 @@ has() { grep -qE -- "$1" "$2" || fail "expected '$1' in $2"; }
 "$bench" > "$work/out" 2>&1 || fail "the benchmark failed"
 txt="$(ls "$work/configs/bench/"*.txt)"; json="${txt%.txt}.json"
 [ -f "$json" ] || fail "no JSON report"
-has '^halOS 0\.19\.1-beta\.1, npu edition, Halogen 0\.19\.1' "$txt"
-has '^Flash checkpoint: mine \(your own\)' "$txt"
-has 'HALOGEN_KV8=1' "$txt"
+has '^halOS benchmark, .*, full run \(3 passes per test\)' "$txt"
+has '^Setup: halOS 0\.19\.1-beta\.1 \(npu edition\), Halogen 0\.19\.1, Flash checkpoint mine \(your own\),' "$txt"
+has 'power profile performance, fabric clock held\.' "$txt"
+has '^    HALOGEN_KV8=1$' "$txt"
 has 'amdgpu\.gttsize=126976; iommu=pt' "$txt"
-has 'platform profile: performance' "$txt"
-has 'Fabric clock held: yes;' "$txt"
-has '^pp2048 +mtp +2049 +1701\.23 ± 3\.21' "$txt"
-has '^tg128 +mt\[2Jp +128 +64\.57 ± 9\.1' "$txt"
-has 'prompt cache: default' "$txt"
+has '^  2K tokens +1,701 tok/s +±0\.2% +1\.2 s$' "$txt"
+has '^  128 tokens +64\.6 tok/s +±14\.1% +2\.0 s$' "$txt"
+has 'draft head mt\[2Jp/mtp' "$txt"
+has 'Prompt cache: default' "$txt"
+has '^No earlier full run to compare with' "$txt"
+if grep -q 'HALOGEN_KV8' "$work/out"; then fail "the settings list is on the screen, not only in the saved file"; fi
 has 'Saved: ' "$work/out"
 if grep -q $'\e' "$txt" "$json"; then fail "an escape code from firmware got into the report"; fi
 if grep -q 'API_KEY' "$txt" "$json"; then fail "the report names the API key setting"; fi
 if grep -q 'secret-key-123' "$txt" "$json"; then fail "the report holds the API key"; fi
 [ "$(jq -r '.bench.rows | length' "$json")" = 2 ] || fail "the JSON lost the rows"
 [ "$(jq -r '.system.halogen' "$json")" = 0.19.1 ] || fail "the JSON lost the system facts"
+sleep 1
 FAKE_CLOCK_LOOSE=1 "$bench" --quick > "$work/out" 2>&1 || fail "the run failed with the clock not held"
-has 'Fabric clock held: no;' "$work/out"
+has 'fabric clock NOT held' "$work/out"
+has '^No earlier quick run to compare with' "$work/out"
 ok "a full run saves a text and a JSON report with the system facts, and no key or escape codes"
+
+# A second full run is compared with the first; a quick run never with a full one.
+sleep 1
+FAKE_PP=1801.5 FAKE_KV8=0 "$bench" > "$work/out" 2>&1 || fail "the second full run failed"
+has '^  2K tokens +1,802 tok/s +±0\.2% +1\.1 s +\+5\.9% +faster$' "$work/out"
+has '^  128 tokens +64\.6 tok/s +±14\.1% +2\.0 s +0\.0% +about the same$' "$work/out"
+has '^Last run: .* UTC \([0-9]{8}-[0-9]{6}\.json\)\. Changed since then:$' "$work/out"
+has '^  HALOGEN_KV8 1 -> 0$' "$work/out"
+latest="$(find "$work/configs/bench" -name '*.json' | sort | tail -n 1)"
+first="$(find "$work/configs/bench" -name '*.json' | sort | head -n 1)"
+[ "$(jq -r .compared_with "$latest")" = "$(basename "$first")" ] || fail "the JSON doesn't name the run it was compared with"
+sleep 1
+# Writing 5% faster is a change: its spread is mostly the prompt types, not noise between runs.
+FAKE_PP=1690 FAKE_TG=67.8 FAKE_KV8=0 "$bench" > "$work/out" 2>&1 || fail "the third full run failed"
+has '^  2K tokens +1,690 tok/s +±0\.2% +1\.2 s +-6\.2% +slower$' "$work/out"
+has '^  128 tokens +67\.8 tok/s .* \+5\.0% +faster$' "$work/out"
+has 'Nothing in the setup changed since then\.' "$work/out"
+sleep 1
+FAKE_PP=1720 FAKE_TG=67.8 FAKE_KV8=0 "$bench" > "$work/out" 2>&1 || fail "the fourth full run failed"
+has '^  2K tokens +1,720 tok/s .* \+1\.8% +about the same$' "$work/out"
+has '^Since the last full run: no change beyond the normal variation\.$' "$work/out"
+latest="$(find "$work/configs/bench" -name '*.json' | sort | tail -n 1)"
+# A link (even to a good report), a broken file, a report of another shape, an odd name or one
+# with escape codes among the reports is never used, never stops the run, and nothing is printed raw.
+ln -s "$latest" "$work/configs/bench/29991231-235959.json"
+echo '{' > "$work/configs/bench/29991231-235958.json"
+jq '.system = "x"' "$latest" > "$work/configs/bench/29991231-235957.json"
+jq -c . "$latest" | sed 's/^/{"run":"x"} /' > "$work/configs/bench/29991231-235956.json"
+cp "$latest" "$work/configs/bench/9"$'\e'"]0;x-1.json"
+jq '.date = "evil\u001b[2J" | .system.halogen = "0.1\u001b]0;x\u0007" | .bench.rows[0].mean = "1700"' \
+  "$latest" > "$work/configs/bench/29991231-235955.json"
+sleep 1
+FAKE_PP=1690 FAKE_KV8=0 "$bench" > "$work/out" 2>&1 || fail "a run beside odd reports failed"
+has '^Last run: evil\[2J \(29991231-235955\.json\)' "$work/out"
+has '^  Halogen 0\.1\]0;x -> 0\.19\.1$' "$work/out"
+has '^  2K tokens +1,690 tok/s .*\(not in the last run\)$' "$work/out"
+if grep -q $'[\e\a]' "$work/out"; then fail "an escape code from an old report reached the screen"; fi
+rm "$work/configs/bench/2999"* "$work/configs/bench/9"*
+ok "a run is compared with the last one of its kind: faster, slower or about the same, and what changed"
 
 has '--network=host --read-only --tmpfs /tmp --cap-drop=all --security-opt no-new-privileges -e HALOGEN_API_KEY ' "$work/podman.log"
 has '-p 512,2048,8192,32768 -n 128 -r 3 --json' "$work/podman.log"

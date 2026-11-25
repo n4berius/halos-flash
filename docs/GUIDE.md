@@ -582,21 +582,35 @@ sudo halogenctl bench --quick    # under a minute: one prompt length, one pass
 It measures the running server with Halogen's own
 [`sweep` tool](https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/performance.md#served-throughput-end-to-end-over-http).
 Halogen's published numbers come from this tool, so you can compare your numbers with them. It
-needs no restart, but other requests are slower while it runs. It shows:
+needs no restart, but other requests are slower while it runs. It measures:
 
-- **pp** (prefill): how fast Halogen reads a prompt of 512, 2,048, 8,192 and 32,768 tokens.
-- **tg** (generation): how fast Halogen writes 128 tokens, as the mean over the 10 prompt shapes
-  of Halogen. Code is about two times as fast as prose, so compare means, not single prompts.
+- **Reading the prompt** (prefill, `pp` in Halogen's docs): how fast Halogen reads a prompt of
+  512, 2,048, 8,192 and 32,768 tokens.
+- **Writing the answer** (generation, `tg`): how fast Halogen writes 128 tokens, as the mean over
+  the 10 prompt shapes of Halogen. Code is about two times as fast as prose, so compare means, not
+  single prompts.
 
-Each report also shows the items that the numbers depend on: the halOS and Halogen versions, the
-kernel, the BIOS, the GTT size, the IOMMU, the fabric clock, the platform power profile, the Flash
-checkpoint that Halogen serves and your settings. halOS saves the report as text and JSON in
-`/srv/configs/bench/`, with the date in the name. So you can compare a run after an upgrade, a
-BIOS change or `flash use` with an earlier run.
+The report starts with a one-line summary and one table for each:
+
+- **Speed**: tokens per second.
+- **Spread**: the variation between passes. For writing, most of it comes from the prompt type.
+- **Time**: how long that length takes, for example how long a 32K-token prompt takes before the
+  answer starts.
+- **Last run**: the change from your last run of the same kind (full or quick), with "faster",
+  "slower" or "about the same". "About the same" means that the change is less than 2%, or for
+  reading, less than the normal variation between passes. Below the tables, the report tells
+  which items changed since that run: the halOS and Halogen versions, the edition, the kernel, the
+  BIOS, the GTT size, the IOMMU, the fabric clock, the power profile, the Flash checkpoint or a
+  setting.
+
+halOS saves the report as text and JSON in `/srv/configs/bench/`, with the date in the name. The
+saved text also has the details that the screen does not show: the board, the kernel arguments
+and every setting. So you can compare a run after an upgrade, a BIOS change or `flash use` with
+an earlier run.
 
 Halogen's [measurements](https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/performance.md)
 used about 85 W of sustained power. A machine with a lower power limit shows lower numbers. The
-run uses the prompt cache as your server does. So compare `pp` with Halogen's "cache on (a cold
+run uses the prompt cache as your server does. So compare the reading speeds with Halogen's "cache on (a cold
 request)" rows, not with the cache-off headline figures. The prompts of the run also go into the
 cache. They can push out long conversations from the cache, which then read their history again
 one time.
