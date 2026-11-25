@@ -14,7 +14,7 @@ it promotes.
   prompt and one for writing the answer, with the speed, the spread, the time each length takes
   and the change since your last run (faster, slower or about the same). It also tells what
   changed in the setup since that run. The list of settings is now only in the saved report
-  (#PR).
+  (#171).
 - Hardening from the same review (#166):
   - Unlocking from a tang server: `halosctl tang-unlock on` with `--tpm and` or `--tpm or`, and
     `halogen-enroll-tpm`, refuse while Secure Boot is off, since the TPM's check then doesn't stop
