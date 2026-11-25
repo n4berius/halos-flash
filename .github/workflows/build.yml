@@ -29,6 +29,8 @@ jobs:
   # the Go tests of halOS's Caddy modules. Read-only, no environment, so no signing key.
   check:
     runs-on: ubuntu-24.04
+    # A hung step stops the job after this, not after GitHub's six hours (each limit is several times the usual run).
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
@@ -53,6 +55,7 @@ jobs:
   # leave anything for main or a release to pick up. Runs beside check, not after it.
   helpers:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     permissions:
       contents: read
     outputs:
@@ -104,6 +107,7 @@ jobs:
     # "build (npu)" as it did when the helpers were built inside it.
     if: ${{ !cancelled() && !(github.event_name != 'pull_request' && github.ref == 'refs/heads/main') }}
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     permissions:
       contents: read
     strategy: &build-strategy
@@ -157,6 +161,7 @@ jobs:
     needs: [check, helpers]
     if: ${{ !cancelled() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     # The signing key lives in the "signing" environment, which only main and v* tags may use (#46).
     environment: signing
     # id-token: signing the pushed edge image with GitHub's identity (scripts/sign-image.sh).
