@@ -15,6 +15,11 @@ it promotes.
   and the change since your last run (faster, slower or about the same). It also tells what
   changed in the setup since that run. The list of settings is now only in the saved report
   (#171).
+- `halogenctl flash drafter` takes a draft head by the file name you see in `/srv/models`, or by
+  its full path, as well as `official`, `off` and the checkpoint's own files. `official-r2` picks
+  Halogen 0.20.6's draft head when it is still on disk. Without a checkpoint name it sets the one
+  Halogen serves. When a name doesn't match, it lists what you can choose, and it says when a
+  checkpoint needs `flash verify` before any draft head is used (#170).
 - The login screen no longer lists `halos-tang-unlock.service` under "Failed Units". The early-boot
   check was stopped when the TPM unlocked the disk before it finished looking, and systemd
   counted that stop as a failure (#169).
