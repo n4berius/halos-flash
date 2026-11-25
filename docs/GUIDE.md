@@ -109,8 +109,22 @@ editing `/srv/configs/halogen.env`. Each item shows its default. Nothing changes
   `halogen-spotter-0.6b` is not in the list: only the agent guard uses it, and
   `HALOGEN_AGENT_GUARD` (`watch` or `hold`, under All settings) adds it.
 - **Common settings** and **All settings.** Each line shows the value from your file, or
-  `default:` and the default. Press Enter to type a value (an empty value means the default), `r`
-  for the default, `u` to undo your change, and `/` to search.
+  `default:` and the default. Under the list, the screen tells what the selected setting does,
+  which values it takes and an example. Press Enter to change the setting, `r` for the default,
+  `u` to undo your change, and `/` to search. When you press Enter:
+  - A setting that is on or off (`0` or `1`), or that has a fixed set of values (such as
+    `HALOGEN_REASONING_EFFORT`), shows a list of its values with what each one does, and
+    `default`. Choose one with Enter.
+  - A number shows a list of usual values, `default`, and `type a value`.
+  - Text with a set form (such as `HALOGEN_PLD`, `3,3`) shows examples and `type a value`.
+  - Other text: you type it. An empty value means the default.
+
+  The screen checks a value before it takes it, with the limits in
+  [Halogen's FLAGS.md](https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/FLAGS.md):
+  a number must be a number in its range, on, off and choices must be one of their values, and
+  text must have the right form. Where FLAGS.md gives no lower limit for a count, the screen asks
+  for 1 or more. If your file has a value that the
+  screen does not accept, the screen tells you. It does not change that value until you do.
 - **Review and save.** Shows all changes. Then save and restart Halogen one time, or save and
   restart later with `sudo halogenctl restart`.
 

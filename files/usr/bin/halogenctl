@@ -216,7 +216,8 @@ case "${1:-status}" in
     ${HALOGEN_SETTINGS_TUI:-/usr/bin/python3 -I /usr/libexec/halogen/settings-tui} --dir "$tmp" \
       --template "${HALOGEN_ENV_TEMPLATE:-/usr/share/halogen/halogen.env.default}" \
       --allowed "${HALOGEN_ALLOWED_FILE:-/usr/share/halogen/options.allowed}" \
-      --catalog "${HALOGEN_NPU_CATALOG:-/usr/share/halogen/npu-models.list}" "${no_restart[@]}" || rc=$?
+      --catalog "${HALOGEN_NPU_CATALOG:-/usr/share/halogen/npu-models.list}" \
+      --kinds "${HALOGEN_OPTION_KINDS:-/usr/share/halogen/option-kinds}" "${no_restart[@]}" || rc=$?
     case "$rc" in
       0) ;;
       3) echo "Nothing changed."; exit 0 ;;
