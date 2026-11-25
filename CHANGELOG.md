@@ -10,7 +10,7 @@ it promotes.
 
 ## Unreleased
 
-- `sudo halogenctl bench` measures reading speed correctly again (#PR). From the second run on,
+- `sudo halogenctl bench` measures reading speed correctly again (#181). From the second run on,
   the prompt cache answered the benchmark's prompts from its earlier runs, so prompts seemed to read
   in 0.2 s at any length (165,000 tok/s at 32K). Each run now uses prompts that are new to the
   cache, and the report warns if the cache still answered one. Earlier reports are not compared.
