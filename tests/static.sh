@@ -191,7 +191,7 @@ assert re.fullmatch(r"[0-9a-f]{64}", pins["CRUN_PIN_SHA256"]) and pins["CRUN_PIN
 assert 'curl -fsSL --retry 3 -o /tmp/crun.rpm "$CRUN_PIN_URL"' in cf and 'echo "$CRUN_PIN_SHA256  /tmp/crun.rpm" | sha256sum -c -' in cf and "downgrade /tmp/crun.rpm" in cf, "crun's hold is gone from the Containerfile"
 assert cf.index("RUN dnf -y --setopt=install_weak_deps=False install") < cf.index("downgrade /tmp/crun.rpm") < cf.index("COPY files/ /"), "crun's hold must come after the main dnf install (which would bring 1.31 back) and before the files"
 assert '"CRUN_PIN_SHA256=$CRUN_PIN_SHA256"' in open("scripts/build.sh").read(), "crun's hold isn't passed to the build"
-assert '*-beta.*) echo "$tag: beta releases are no longer made.' in open(".github/workflows/release.yml").read(), "release.yml must refuse a beta tag pushed by hand (#141)"
+assert '[[ "$tag" =~ ^v[0-9]+\\.[0-9]+\\.[0-9]+-[1-9][0-9]{0,3}-(alpha|rc|stable)$ ]] ||' in open(".github/workflows/release.yml").read(), "release.yml must refuse a beta or old-style tag pushed by hand (#141)"
 assert "rpmkeys --delete f577861e" in cf, "Fedora 45's key must leave the image's rpm keyring after crun's check"
 assert "RUN --mount=type=bind,source=src/authenticode-check.py,target=/tmp/authenticode-check.py" in cf, "the kernel-next step must check the kernel's Secure Boot signature"
 assert "HALOS_KERNEL_BUILT=" in cf, "release.env must record when the kernel was built (the selftest's kernel-next age check)"
