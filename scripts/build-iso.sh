@@ -35,14 +35,13 @@ fi
 [ "$STEP" != installer ] || exit 0
 
 podman image exists "$TARGET" || { echo "build or pull $TARGET first" >&2; exit 1; }
-if [ "$STEP" = iso ]; then
-  # An installer built apart from the OS image must be on the base the OS image records.
-  podman image exists "$INSTALLER" || { echo "build $INSTALLER first: $0 installer" >&2; exit 1; }
-  want="$(podman image inspect --format '{{index .Labels "io.github.n4berius.halos.base"}}' "$TARGET")"
-  got="$(podman image inspect --format '{{index .Labels "io.github.n4berius.halos.base"}}' "$INSTALLER")"
-  if [[ "$want" =~ @sha256:[0-9a-f]{64}$ ]] && [ "$want" != "$got" ]; then
-    echo "the installer was built on ${got:-an unrecorded base}, the OS image on $want" >&2; exit 1
-  fi
+podman image exists "$INSTALLER" || { echo "build $INSTALLER first: $0 installer" >&2; exit 1; }
+# The installer must be on the base the OS image records (HALOS_BASE or an earlier installer build
+# could name another).
+want="$(podman image inspect --format '{{index .Labels "io.github.n4berius.halos.base"}}' "$TARGET")"
+got="$(podman image inspect --format '{{index .Labels "io.github.n4berius.halos.base"}}' "$INSTALLER")"
+if [[ "$want" =~ @sha256:[0-9a-f]{64}$ ]] && [ "$want" != "$got" ]; then
+  echo "the installer was built on ${got:-an unrecorded base}, the OS image on $want" >&2; exit 1
 fi
 
 # Upstream's build, because embedding the OS needs newer support than Fedora's package.

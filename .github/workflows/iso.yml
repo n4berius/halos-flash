@@ -90,7 +90,7 @@ jobs:
           echo "::endgroup::"
       - name: Build ISO
         run: |
-          scripts/ci-background.sh wait free-disk 600 > /dev/null
+          scripts/ci-background.sh wait free-disk 600
           # A failed pull here isn't fatal: the build pulls the image itself.
           scripts/ci-background.sh wait builder 600 || true
           df -h / | tail -1
