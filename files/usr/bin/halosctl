@@ -1138,23 +1138,14 @@ case "$cmd" in
       if as_halogen test -s "$configs/hf-token"; then echo "   Saved."; fi
     else echo "   Skipped. Add one later with: sudo halogenctl hf-token"; fi
 
-    echo; echo "3. Settings"
-    echo "   Halogen's defaults suit most people. Every option, with what it does: sudo halogenctl options"
-    if ask "   Open /srv/configs/halogen.env in an editor now? [y/N]" n; then
-      # As sudoedit does: root edits a private copy, and the copy goes back as halogen. Nothing of
-      # halogen's (its home, an editor startup file) runs on root's terminal, and root never
-      # opens halogen's files itself.
-      editor="$(command -v "${EDITOR:-nano}" || command -v vi || true)"
-      [ -n "$editor" ] || die "no editor found; edit it with: sudo halogenctl options, then the file"
-      tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
-      as_halogen cat "$configs/halogen.env" > "$tmp/halogen.env" || die "could not read $configs/halogen.env"
-      cp "$tmp/halogen.env" "$tmp/before"
-      if "$editor" "$tmp/halogen.env" && ! cmp -s "$tmp/before" "$tmp/halogen.env"; then
-        # shellcheck disable=SC2016 # expanded by the halogen shell, from its arguments
-        as_halogen sh -c 'umask 027; cat > "$1.new" && mv -f "$1.new" "$1"' sh "$configs/halogen.env" < "$tmp/halogen.env"
-        echo "   Saved. What Halogen will get: sudo halogenctl config"
-      else echo "   No change."; fi
-      rm -rf "$tmp"; trap - EXIT
+    echo; echo "3. Models and settings"
+    echo "   One screen for the Flash checkpoint, the NPU models and Halogen's settings, each with its"
+    echo "   default shown. Halogen's defaults suit most people. Later: sudo halogenctl settings"
+    # Enter opens it on a new install (setup pending), as the first run is where it helps most.
+    set_yn="[y/N]"; set_default=n; [ "$pending" = 0 ] || { set_yn="[Y/n]"; set_default=y; }
+    if ask "   Open it now? $set_yn" "$set_default"; then
+      # It saves without restarting: this command asks once, at its end (or starts the download).
+      halogenctl settings --no-restart || echo "   Something there didn't work (above). Later: sudo halogenctl settings, or --editor for the file"
     else echo "   Kept the defaults."; fi
 
     echo; echo "4. HTTPS for the API and the dashboard"

@@ -291,8 +291,9 @@ It asks four questions. You can skip each one:
    somebody takes it: see [what TPM unlock protects](#what-tpm-unlock-protects-and-what-it-doesnt).
 2. **A Hugging Face token.** This is optional. It increases the download limits. Make a read token
    at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens).
-3. **Settings.** Open `/srv/configs/halogen.env` in an editor, or keep the defaults. The defaults
-   are correct for most people.
+3. **Models and settings.** Open the settings screen (`sudo halogenctl settings`), or keep the
+   defaults. On a new install, Enter opens it. The defaults are correct for most people. See
+   [the settings screen](#the-settings-screen).
 4. **HTTPS.** On a new install, Enter turns HTTPS on, with the halOS authority (self-signed). Then
    apps that use `https://` don't send prompts, replies and the API key across the network as
    plain text. (An app that still uses `http://` sends its key one time before the redirect.)
@@ -363,6 +364,28 @@ halOS keeps the token in `/srv/configs/hf-token`. Only the `halogen` service can
 uses the token only for downloads. To remove the token, run `sudo halogenctl hf-token --remove`.
 
 Later boots skip the download, unless the model list or the Halogen version changes.
+
+### The settings screen
+
+`sudo halogenctl settings` shows one screen for the models and the settings. Use it instead of
+editing `/srv/configs/halogen.env`. Each item shows its default. Nothing changes until you save.
+
+- **Flash checkpoint.** The model on the GPU: `official`, or one of your own checkpoints. A
+  checkpoint that did not pass Halogen's verify is shown but you cannot choose it.
+- **Draft heads.** For each of your own checkpoints: `official` (the default), `off`, or a draft
+  head file that came with the checkpoint.
+- **NPU models** (NPU edition). A checklist of Halogen's NPU models and your own checkpoints. Press
+  Space to tick or untick a model. `on disk` shows the models that are downloaded. Halogen downloads
+  the other ticked models before its next start. Press `d` to go back to the default list.
+- **Common settings** and **All settings.** Each line shows the value from your file, or
+  `default:` and the default. Press Enter to type a value (an empty value means the default), `r`
+  for the default, `u` to undo your change, and `/` to search.
+- **Review and save.** Shows all changes. Then save and restart Halogen one time, or save and
+  restart later with `sudo halogenctl restart`.
+
+The screen changes only the lines that you change, and keeps your comments. If somebody else
+changes `halogen.env` while the screen is open, your changes are not saved. Then run the command
+again. `sudo halogenctl settings --editor` opens the file in an editor instead.
 
 ## 7. Check the install
 
