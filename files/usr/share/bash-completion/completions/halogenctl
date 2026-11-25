@@ -64,7 +64,10 @@ _halogenctl() {
   case "${words[1]}" in
     options) [ "$cword" -eq 2 ] && _halogenctl_offer "--new" ;;
     settings) _halogenctl_offer "--editor --no-restart" ;;
-    bench) [ "$cword" -eq 2 ] && _halogenctl_offer "--quick" ;;
+    bench)
+      if [ "$cword" -eq 2 ]; then _halogenctl_offer "--quick tools"
+      elif [ "$cword" -eq 3 ] && [ "${words[2]}" = tools ]; then _halogenctl_offer "--quick"
+      fi ;;
     hf-token) [ "$cword" -eq 2 ] && _halogenctl_offer "--remove" ;;
     api-key)
       if [ "$cword" -eq 2 ]; then _halogenctl_offer "status on off"

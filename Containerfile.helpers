@@ -1,5 +1,5 @@
 # The helper programs the OS image carries, built from source (#122): bf16-to-hgn, halogen-dashboard
-# with halOS's dashboard-nodump library, and Caddy. scripts/build-helpers.sh builds this file once
+# with halOS's dashboard-nodump library, Caddy, and tool-eval-bench's Python source. scripts/build-helpers.sh builds this file once
 # and exports the last stage's tree; scripts/build.sh hands that tree to the Containerfile as the
 # build context "helpers", so CI builds them once for its four image jobs instead of four times.
 # FEDORA_BOOTC_IMAGE is the base by digest, the same one the OS image is then built on.
@@ -129,6 +129,28 @@ RUN --mount=type=cache,id=halos-caddy-go-build,target=/go-build set -eu; \
     done; \
     { echo "caddy stage:"; rpm -q golang | sed 's/^/  /'; echo "  $(go env GOVERSION)"; } > /toolchain.txt
 
+# tool-eval-bench (SeraphimSerapis, MIT): the tool-calling benchmark behind `halogenctl bench tools`.
+# Pure Python, so nothing is compiled: this stage only takes the package from its pinned release
+# commit, without its optional web page (it needs Starlette, which the image lacks), and records the
+# version that setuptools-scm would have written. The OS image installs its four libraries from
+# Fedora (httpx, PyYAML, rich, python-dotenv).
+FROM ${FEDORA_BOOTC_IMAGE} AS tool-eval-bench
+RUN dnf -y --setopt=install_weak_deps=False install git-core
+ARG TOOL_EVAL_BENCH_COMMIT
+ARG TOOL_EVAL_BENCH_VERSION
+RUN set -eu; \
+    git clone -q https://github.com/SeraphimSerapis/tool-eval-bench /src; \
+    cd /src; git checkout -q "$TOOL_EVAL_BENCH_COMMIT"; \
+    [ "$(git rev-parse HEAD)" = "$TOOL_EVAL_BENCH_COMMIT" ]; \
+    grep -qx 'license = "MIT"' pyproject.toml; \
+    mkdir -p /out/licenses; \
+    cp -r src/tool_eval_bench /out/tool_eval_bench; \
+    rm -rf /out/tool_eval_bench/web; \
+    find /out -name __pycache__ -prune -exec rm -rf {} +; \
+    printf 'version = "%s"\n__version__ = version\n' "$TOOL_EVAL_BENCH_VERSION" > /out/tool_eval_bench/_version.py; \
+    cp LICENSE /out/licenses/LICENSE; \
+    { echo "tool-eval-bench stage (Python source, nothing compiled):"; rpm -q git-core | sed 's/^/  /'; } > /toolchain.txt
+
 # What the OS image copies (Containerfile, COPY --from=helpers), one folder per program.
 FROM scratch AS helpers
 COPY --from=bf16-to-hgn /src/target/release/bf16-to-hgn /bf16-to-hgn/bf16-to-hgn
@@ -140,7 +162,10 @@ COPY --from=dashboard /out/licenses/ /dashboard/licenses/
 COPY --from=dashboard /out/dashboard-nodump.so /dashboard/dashboard-nodump.so
 COPY --from=caddy /out/caddy /caddy/caddy
 COPY --from=caddy /out/licenses/ /caddy/licenses/
+COPY --from=tool-eval-bench /out/tool_eval_bench/ /tool-eval-bench/tool_eval_bench/
+COPY --from=tool-eval-bench /out/licenses/ /tool-eval-bench/licenses/
 # The compilers each stage used, for the build record (scripts/build-info.sh, #121).
 COPY --from=bf16-to-hgn /toolchain.txt /bf16-to-hgn/toolchain.txt
 COPY --from=dashboard /toolchain.txt /dashboard/toolchain.txt
 COPY --from=caddy /toolchain.txt /caddy/toolchain.txt
+COPY --from=tool-eval-bench /toolchain.txt /tool-eval-bench/toolchain.txt

@@ -28,6 +28,7 @@ tests/weights-sums.sh
 tests/authenticode.sh
 tests/kernel-next-update.sh
 tests/bench.sh
+tests/bench-tools.sh
 tests/selftest.sh
 tests/login-status.sh
 tests/halosctl.sh

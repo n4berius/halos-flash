@@ -53,7 +53,8 @@ done
 echo "ok: every command and subcommand of halogenctl and halosctl is offered, and nothing else"
 
 expect "flash" _halogenctl halogenctl fl
-expect "--quick" _halogenctl halogenctl bench ''
+expect "--quick tools" _halogenctl halogenctl bench ''
+expect "--quick" _halogenctl halogenctl bench tools ''
 sed "s|local models=/srv/models names=/run/halos/model-names|local models=$work names=$work/none|" "$dir/halogenctl" > "$work/c"
 grep -q "local models=$work names=" "$work/c" || fail "the test couldn't point completion at its folder"
 # Names a container could create: run in $work, they would leave pwned files there.
