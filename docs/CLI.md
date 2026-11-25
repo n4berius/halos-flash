@@ -127,6 +127,7 @@ To change the settings, run `sudo halogenctl settings`. You can also edit the fi
 |---|---|
 | `halogenctl selftest` | Runs the checklist of the hardware and the setup. It changes nothing. It shows PASS, WARN, FAIL, SKIP or INFO for each item, with what to do. |
 | `halogenctl bench [--quick]` | Measures the server while it runs, with Halogen's own tool, and saves the report in `/srv/configs/bench/`. `--quick` takes less than a minute. |
+| `halogenctl bench tools [--quick]` | Measures how well the model calls tools, with [tool-eval-bench](https://github.com/SeraphimSerapis/tool-eval-bench), while the server runs. A full run is 69 scenarios, three times each, at the settings of the public leaderboard, and takes tens of minutes or more. `--quick` is 15 scenarios, one time. The report goes in `/srv/configs/bench/tools/`. |
 
 ### Your own NPU checkpoints (NPU edition)
 
@@ -183,7 +184,7 @@ BIOS or Secure Boot change, use `sudo halosctl tang-unlock renew` instead.
 | `/srv/configs/halogen.env.example` | The template of this release, with every option |
 | `/srv/configs/api-key` | The API key |
 | `/etc/halos/api-key-off` | Present only while the API key is off (`sudo halogenctl api-key off`) |
-| `/srv/configs/bench/` | Benchmark reports |
+| `/srv/configs/bench/` | Benchmark reports (`tools/`: the tool-calling benchmark, with every conversation) |
 | `/srv/models/.prompt-cache/` | Halogen's prompt cache on disk: conversation states, which only `halogen` can read |
 | `/srv/configs/prompt-cache` | `off` after `halogenctl cache off`. If not, the cache is on |
 | `/etc/containers/systemd/users/halogen.container.d/15-prompt-cache.conf` | `halogenctl cache off` writes it, and `cache on` removes it. It mounts the cache folder read-only |

@@ -28,6 +28,11 @@ it promotes.
   and the change since your last run (faster, slower or about the same). It also tells what
   changed in the setup since that run. The list of settings is now only in the saved report
   (#171).
+- New: `sudo halogenctl bench tools` measures how well the model calls tools, with
+  tool-eval-bench (MIT): 69 conversations with fake tools, three times each, at the settings of
+  the public Qwen3.8 Flash Next tool-calling leaderboard, so the score compares with that table.
+  `--quick` runs 15 of them once. The report gives the score, how many scenarios were right every
+  time, a score for each kind of task and the change since your last run (#173).
 - A settings screen, `sudo halogenctl settings` (#175): choose the Flash checkpoint, its draft
   head, the NPU models (a checklist) and Halogen's settings in one place, each shown with its
   default, instead of editing `halogen.env`. All changes are saved together, with one restart of

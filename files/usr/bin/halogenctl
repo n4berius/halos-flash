@@ -999,10 +999,18 @@ case "${1:-status}" in
     esac
     ;;
   bench)
-    # Halogen's own sweep against the running server; the report goes to /srv/configs/bench.
-    case "${2:-}" in ''|--quick) ;; *) echo "usage: halogenctl bench [--quick]" >&2; exit 2 ;; esac
-    [ "$(id -u)" = 0 ] || { echo "Run it with sudo: sudo halogenctl bench ${2:-}" >&2; exit 1; }
-    halogen_run /usr/libexec/halogen/bench ${2:+"$2"}
+    # Speed: Halogen's own sweep against the running server; the report goes to /srv/configs/bench.
+    # Tool calls: tool-eval-bench's scenarios; the report goes to /srv/configs/bench/tools.
+    if [ "${2:-}" = tools ]; then
+      case "${3:-}" in ''|--quick) ;; *) echo "usage: halogenctl bench tools [--quick]" >&2; exit 2 ;; esac
+      [ -z "${4:-}" ] || { echo "usage: halogenctl bench tools [--quick]" >&2; exit 2; }
+      [ "$(id -u)" = 0 ] || { echo "Run it with sudo: sudo halogenctl bench tools ${3:-}" >&2; exit 1; }
+      halogen_run /usr/libexec/halogen/bench-tools ${3:+"$3"}
+    else
+      case "${2:-}" in ''|--quick) ;; *) echo "usage: halogenctl bench [--quick] | bench tools [--quick]" >&2; exit 2 ;; esac
+      [ "$(id -u)" = 0 ] || { echo "Run it with sudo: sudo halogenctl bench ${2:-}" >&2; exit 1; }
+      halogen_run /usr/libexec/halogen/bench ${2:+"$2"}
+    fi
     ;;
-  *) echo "usage: halogenctl status|start|stop|restart|logs [lines]|fetch-logs [lines]|doctor|selftest|bench [--quick]|config|options [--new]|settings [--editor] [--no-restart]|api-key [status|on|off]|hf-token [--remove]|records [on|off|stats|prune]|cache [on|off|clear]|model pull|list|remove|flash pull|convert|convert-logs|convert-stop|list|use|drafter|verify|check|remove" >&2; exit 2 ;;
+  *) echo "usage: halogenctl status|start|stop|restart|logs [lines]|fetch-logs [lines]|doctor|selftest|bench [--quick]|bench tools [--quick]|config|options [--new]|settings [--editor] [--no-restart]|api-key [status|on|off]|hf-token [--remove]|records [on|off|stats|prune]|cache [on|off|clear]|model pull|list|remove|flash pull|convert|convert-logs|convert-stop|list|use|drafter|verify|check|remove" >&2; exit 2 ;;
 esac
