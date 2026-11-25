@@ -15,6 +15,11 @@ it promotes.
   for `flash drafter <name>` and your existing names after `--as` of `flash pull` and
   `model pull`, to update one. The names come from a list that halOS keeps in
   `/run/halos/model-names` for administrators (#174).
+- A settings screen, `sudo halogenctl settings` (#175): choose the Flash checkpoint, its draft
+  head, the NPU models (a checklist) and Halogen's settings in one place, each shown with its
+  default, instead of editing `halogen.env`. All changes are saved together, with one restart of
+  Halogen at the end. `halosctl setup` opens it in step 3 (Enter on a new install).
+  `halogenctl settings --editor` still opens the file in an editor.
 
 - `halogenctl flash drafter` takes a draft head by the file name you see in `/srv/models`, or by
   its full path, as well as `official`, `off` and the checkpoint's own files. `official-r2` picks
