@@ -970,7 +970,10 @@ What `flash pull` does:
   proposes tokens, and the model checks each one, so the answers do not change. Only the speed
   changes. To use the draft head file from the repository, run
   `sudo halogenctl flash drafter <name> <file>`. To use the draft head inside the checkpoint, run
-  `sudo halogenctl flash drafter <name> off`. Compare the speed with `sudo halogenctl bench`. A
+  `sudo halogenctl flash drafter <name> off`. To use the draft head of Halogen 0.20.6
+  (`qwen38-flash-next-drafter-r2.hgn`, if it is still in `/srv/models`), run
+  `sudo halogenctl flash drafter <name> official-r2`. If you do not give `<name>`, the command
+  sets the checkpoint that Halogen serves. Compare the speed with `sudo halogenctl bench`. A
   checkpoint with a quality sidecar keeps its sidecar and its own draft head. halOS uses the
   official draft head only for a checkpoint that keeps its own precision. Halogen's server tells
   this during the check. For a checkpoint that you pulled before this change, run
