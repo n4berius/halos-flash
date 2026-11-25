@@ -57,7 +57,7 @@ f firewall-cmd 'case "$1" in --state) echo "${FAKE_FIREWALL:-running}" ;; --get-
 f lsblk 'echo "${FAKE_LSBLK-/dev/nvme0n1p3 crypto_LUKS}"'
 f cryptsetup '[ -n "${FAKE_NO_TPM:-}" ] || printf "Tokens:\n  0: systemd-tpm2\n"'
 # Unlock from a tang server (#44): FAKE_TANG is its short state; a server named down... doesn't answer.
-f tang-unlock 'case "$1" in status) echo "${FAKE_TANG:-off}" ;; thumbprints) case "$2" in *down*) echo "tang-unlock: no answer" >&2; exit 1 ;; esac; echo "abc def" ;; *) exit 1 ;; esac'
+f tang-unlock 'case "$1" in status) echo "${FAKE_TANG:-off}" ;; thumbprints) case "$2" in *down*) echo "tang-unlock: no answer" >&2; exit 1 ;; esac; echo abc ;; bound) [ -z "${FAKE_TANG_BOUND:-}" ] || echo "$FAKE_TANG_BOUND" ;; *) exit 1 ;; esac'
 f amd-smi 'if [ -n "${FAKE_NOGPU:-}" ]; then echo "ERROR:root:Unable to detect any GPU devices"; exit 255; fi; printf "GPU: 0\n    BDF: 0000:c3:00.0\n"'
 f systemd-run 'case "$*" in *render-config*) printf "%s\n" "${FAKE_RENDER:-HALOGEN_CHECKPOINT=/models/qwen38-flash-next-v2.hgn}" ;; *) echo "preflight: ok" ;; esac'
 f bootc 'case "$*" in *json*) echo "{\"spec\":{\"image\":{\"image\":\"${FAKE_FOLLOWS:-ghcr.io/n4berius/halos-flash:stable}\",\"signature\":\"${FAKE_SIG:-containerPolicy}\"}}}" ;; *) echo "Booted image: ghcr.io/n4berius/halos-flash:9.9.9" ;; esac'
@@ -390,7 +390,12 @@ expect '^WARN luks-tang: unlocks at boot when a tang server answers, but no tang
 FAKE_TANG='on or http://down.lan' "$selftest" > "$work/out" 2>&1 || true
 expect '^WARN luks-tang: unlocks at boot with the TPM, or else from a tang server, but no tang server answers now \(http://down.lan\): only the TPM would unlock'
 FAKE_TANG='tang-unlock: broken' "$selftest" > "$work/out" 2>&1 || true; expect "^WARN luks-tang: its state couldn't be read"
-ok "unlocking from a tang server is shown with whether its servers answer now, offered when not, and a warning when unreadable"
+# The bound key is still the one the server signs with; a server that changed keys can't unlock.
+FAKE_TANG='on off http://10.0.0.5:7500' FAKE_TANG_BOUND='http://10.0.0.5:7500 abc' "$selftest" > "$work/out" 2>&1 || true
+expect '^PASS luks-tang: unlocks at boot'
+FAKE_TANG='on off http://10.0.0.5:7500' FAKE_TANG_BOUND='http://10.0.0.5:7500 xyz' "$selftest" > "$work/out" 2>&1 || true
+expect '^WARN luks-tang: .*http://10.0.0.5:7500 no longer signs with the key bound to it'
+ok "unlocking from a tang server is shown with whether its servers answer now and still sign with the bound key, offered when not, and a warning when unreadable"
 # Without encryption: no ssh-unlock line, unless keys were left on the EFI partition.
 FAKE_LSBLK='/dev/nvme0n1p2 xfs' FAKE_SSHU=off "$selftest" > "$work/out" 2>&1 || true
 expect '^INFO luks: no encrypted volume'; refuse '^[A-Z]+ ssh-unlock:'

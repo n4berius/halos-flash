@@ -26,7 +26,21 @@ vision=qwen38-flash-next-vision.hgn
 die() { echo "$*" >&2; exit 1; }
 # podman and its conmon would inherit the pull lock (fd 9) and hold it after a hard kill, for as
 # long as a leftover container runs: every podman call closes it.
-podman() { command podman "$@" 9>&-; }
+podman() { command podman "$@" 9>&- 6>&-; }
+# GPU work run as halogen: a GGUF conversion and a flash check's measurement must not overlap
+# (both use the GPU; halogenctl's own GPU lock is root's and covers only its own commands). Held
+# on fd 6 until this ends (7 is the drafter list's lock). A conversion waits for a check; a check refuses (75) while a
+# conversion runs, since halogenctl has stopped Halogen for it.
+gpu_work() {
+  exec 6>> "$state/gpu-work.lock" || die "Can't open the GPU lock in $state."
+  if [ "$1" = wait ]; then
+    flock -n 6 && return 0
+    echo "Waiting for a flash check to finish using the GPU..."
+    flock 6 || die "Can't take the GPU lock in $state."
+  else
+    flock -n 6 || { echo "A GGUF conversion is using the GPU (halogenctl flash pull). Wait for it to end, then try again." >&2; exit 75; }
+  fi
+}
 # Says who holds a pull lock: the process group written in it, with a way to stop it, when that
 # is still one of this user's (a pull stopped with Ctrl-C goes on in the background).
 lock_busy() {
@@ -789,6 +803,7 @@ Pick another build with --file, such as an IQ4_XS or IQ4_NL one. Halogen's list:
   # serving meanwhile; should memory run short, the kernel ends the conversion, not Halogen.
   open_up "$work/out"; rm -rf -- "$work/out" || die "Couldn't delete $work/out."
   mk_plain "$out" || die "$out isn't a plain folder under $models (a link stands in its path)."
+  gpu_work wait
   echo "Converting $key into Halogen's format (a few minutes to about ten on an NVMe disk)..."
   gguf_convert "/models/flash/.convert/$name/gguf/${shards[0]}" "/models/flash/.convert/$name/out/$name/model.hgn"
   rc=$?
@@ -838,6 +853,7 @@ case "${1:-}" in
     [ -f "$models/flash/$name/halos.info" ] || die "No checkpoint called $name. See: sudo halogenctl flash list"
     if [ -L "$models/flash/$name" ] || [ -L "$models/flash/$name/halos.info" ]; then die "$models/flash/$name holds links; pull it again."; fi
     name_lock "$name"
+    gpu_work refuse
     if [ "$1" = check-prepare ]; then check_prepare "$name"; else check_dir_run "$name"; fi
     exit 0 ;;
   verify)

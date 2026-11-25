@@ -160,6 +160,8 @@ for w in ("/etc/environment", "/etc/fstab", "/etc/nsswitch.conf", "/etc/authsele
 assert rules.index("-w /etc/containers/policy.json") < rules.index("-w /etc/containers/systemd") < rules.index("-w /etc/containers -p"), "the wider /etc/containers watch must come last"
 assert "\n-a always,exit -F path=/usr/bin/kmod -F perm=x -k modules\n" in rules, "runs of modprobe/insmod aren't recorded"
 ctl = open("files/usr/bin/halogenctl").read()
+for tool in ("files/usr/bin/halosctl", "files/usr/bin/halogen-enroll-tpm"):
+    assert open(tool).read().startswith("#!/bin/bash -p\n"), f"{tool} reads BASH_ENV or imported functions (needs #!/bin/bash -p)"
 assert ctl.startswith("#!/bin/bash -p\n") and "exec /usr/bin/env -i PATH=/usr/sbin:/usr/bin LANG=C.UTF-8 /usr/libexec/halogen/selftest" in ctl, "the selftest's test variables work for root in production"
 # Cache hardening: the cache mount lives in a drop-in (so cache off can replace it), and every
 # container that mounts all of /srv/models hides the cache folder behind an empty tmpfs.
@@ -327,6 +329,12 @@ assert "check" in bj["build"]["needs"] and "environment" not in bj["check"] and 
 # The helper programs are built once per run, by a job that can only read and never signs (#122).
 assert "helpers" in bj["build"]["needs"] and "environment" not in bj["helpers"] and bj["helpers"]["permissions"] == {"contents": "read"}, "build.yml's helpers job must feed the builds and hold no rights"
 assert 'HALOS_HELPERS="$RUNNER_TEMP/helpers" scripts/build.sh' in str(bj["build"]["steps"]), "build.yml's image jobs don't use the helpers job's programs"
+# Pull requests and other branches build with read-only rights; only main's publish job may push,
+# sign and use the signing environment, and it builds with the same steps.
+bw = yaml.safe_load(open(".github/workflows/build.yml").read())
+assert bw.get("permissions") == {"contents": "read"} and bj["build"]["permissions"] == {"contents": "read"} and "environment" not in bj["build"], "build.yml's branch builds hold write rights"
+assert "refs/heads/main" in bj["publish"]["if"] and "pull_request" in bj["publish"]["if"] and bj["build"]["steps"] == bj["publish"]["steps"][:len(bj["build"]["steps"])], "build.yml's publish job isn't main's own, or builds differently"
+assert not any("podman push" in st.get("run", "") or "sign-image" in st.get("run", "") for st in bj["build"]["steps"]), "build.yml's branch build pushes or signs"
 assert '{"context": "check"}' in open(".github/rulesets/protect-main.json").read(), "the check job isn't a required check in the ruleset"
 # udisks2 (kept for fwupd, #106) is root's alone: a polkit rule refuses everyone else, and halogen
 # can't reach it on the bus.

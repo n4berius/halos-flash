@@ -396,6 +396,23 @@ for c in verify check-prepare check; do
 done
 exec 8>&-
 ok "verify and check wait their turn behind a pull of the same checkpoint"
+# A GGUF conversion and a flash check share the GPU: a check refuses while a conversion holds the
+# GPU lock, and a conversion waits for a check to finish.
+exec 8>> "$work/state/gpu-work.lock"; flock -n 8
+for c in check-prepare check; do
+  rc=0; "$tool" "$c" mine > "$work/out" 2>&1 || rc=$?
+  if [ "$rc" != 75 ] || ! grep -q "A GGUF conversion is using the GPU" "$work/out"; then
+    cat "$work/out" >&2; fail "$c ran beside a GGUF conversion (rc $rc)"
+  fi
+done
+gguf_repo; : > "$work/convert.log"
+( sleep 2; flock -u 8 ) &
+pull someone/Flash-GGUF --as gwait || fail "a GGUF pull waiting for a flash check failed"
+wait
+grep -q "Waiting for a flash check to finish using the GPU" "$work/out" || fail "the conversion didn't wait for the GPU"
+[ -s "$work/convert.log" ] || fail "the conversion didn't run after the wait"
+exec 8>&-
+ok "a flash check and a GGUF conversion never use the GPU at once"
 # The busy message says how to stop the holder only when it is a live process group of this user's,
 # never for 1 or one that is gone.
 exec 8>> "$work/state/pull-flash-busy.lock"; flock -n 8
