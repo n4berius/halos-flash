@@ -15,6 +15,9 @@ it promotes.
   the public Qwen3.8 Flash Next tool-calling leaderboard, so the score compares with that table.
   `--quick` runs 15 of them once. The report gives the score, how many scenarios were right every
   time, a score for each kind of task and the change since your last run (#173).
+- The login screen no longer lists `halos-tang-unlock.service` under "Failed Units". The early-boot
+  check was stopped when the TPM unlocked the disk before it finished looking, and systemd
+  counted that stop as a failure (#169).
 - Hardening from the same review (#166):
   - Unlocking from a tang server: `halosctl tang-unlock on` with `--tpm and` or `--tpm or`, and
     `halogen-enroll-tpm`, refuse while Secure Boot is off, since the TPM's check then doesn't stop
