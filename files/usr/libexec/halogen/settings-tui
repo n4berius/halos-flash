@@ -10,8 +10,13 @@ checkpoint, draft heads and restart), and halogenctl writes it back as halogen. 
 from the copies is halogen's to write, so it is shown with control characters removed, and only
 plain names are taken as model or checkpoint names.
 
+What each option takes (on/off, a choice, a number in a range, a form, text), its presets and an
+example come from option-kinds (read from Halogen's FLAGS.md): on/off and choices are picked from a
+list, numbers from presets or typed, and a typed value is checked before it is taken.
+
 Exit 0: save (the files are written). Exit 3: nothing to save (cancelled or no change).
 --batch reads commands from standard input instead of showing the screen (the tests use it).
+--check-kinds checks option-kinds against the template and the allowed list (the tests use it).
 """
 
 import argparse
@@ -62,8 +67,111 @@ def value_ok(value):
     return None
 
 
+INT = re.compile(r"^-?[0-9]+$")
+DEC = re.compile(r"^-?([0-9]+(\.[0-9]*)?|\.[0-9]+)$")
+
+
+class Kind:
+    """What one option takes: a line of option-kinds (name, kind, accepted, presets, hint)."""
+
+    def __init__(self, kind, accepted, presets, hint):
+        self.kind, self.hint = kind, hint
+        self.choices, self.lo, self.hi, self.form, self.maxlen = [], None, None, None, MAX_VALUE
+        self.presets = [p for p in presets.split("|") if p]
+        if kind in ("onoff", "choice"):
+            for part in accepted.split("|"):
+                v, _, label = part.partition("=")
+                if not v:
+                    raise ValueError("an empty choice")
+                self.choices.append((v, label or v))
+            if kind == "onoff" and [v for v, _ in self.choices] != ["0", "1"]:
+                raise ValueError("on/off must name 0 and 1")
+        elif kind in ("int", "dec"):
+            lo, sep, hi = accepted.partition("..")
+            if not sep:
+                raise ValueError("a range is min..max")
+            num = int if kind == "int" else float
+            self.lo_text, self.hi_text = lo, hi
+            self.lo = num(lo) if lo else None
+            self.hi = num(hi) if hi else None
+        elif kind == "form":
+            self.form = re.compile(r"(?:%s)\Z" % accepted)
+        elif kind == "text":
+            self.maxlen = int(accepted) if accepted else MAX_VALUE
+        else:
+            raise ValueError("unknown kind " + kind)
+
+    def check(self, value):
+        """None when the value is accepted, else why not (it follows "the value")."""
+        if self.choices:
+            if value not in [v for v, _ in self.choices]:
+                return "isn't one of: " + ", ".join(v for v, _ in self.choices)
+        elif self.kind in ("int", "dec"):
+            if self.kind == "int" and not INT.match(value):
+                return "isn't a whole number"
+            if self.kind == "dec" and not DEC.match(value):
+                return "isn't a number (a dot for decimals, such as 0.7)"
+            n = int(value) if self.kind == "int" else float(value)
+            if (self.lo is not None and n < self.lo) or (self.hi is not None and n > self.hi):
+                return "is outside " + self.range_text()
+        elif self.form is not None:
+            if not self.form.match(value):
+                return "doesn't have the right form" + (", such as " + self.presets[0] if self.presets else "")
+        elif len(value) > self.maxlen:
+            return "is longer than %d characters" % self.maxlen
+        return None
+
+    def range_text(self):
+        if self.lo is not None and self.hi is not None:
+            return "%s to %s" % (self.lo_text, self.hi_text)
+        if self.lo is not None:
+            return "%s or more" % self.lo_text
+        if self.hi is not None:
+            return "%s or less" % self.hi_text
+        return "any value"
+
+    def describe(self):
+        """What it takes, in a few words."""
+        if self.kind == "onoff":
+            return "0 or 1"
+        if self.choices:
+            return "one of " + ", ".join(v for v, _ in self.choices)
+        if self.kind == "int":
+            return "a whole number, " + self.range_text()
+        if self.kind == "dec":
+            return "a number, " + self.range_text()
+        if self.kind == "form":
+            return "for example " + " or ".join(self.presets[:2]) if self.presets else "text in a set form"
+        return "text, up to %d characters" % self.maxlen
+
+    def label(self, value):
+        for v, label in self.choices:
+            if v == value and label != v:
+                return label
+        return ""
+
+
+def parse_kinds(text):
+    """option-kinds: {name: Kind}, and the lines that couldn't be read (as problems)."""
+    kinds, problems = {}, []
+    for n, line in enumerate(text.splitlines(), 1):
+        if not line.strip() or line.startswith("#"):
+            continue
+        f = line.split("\t")
+        f += [""] * (5 - len(f))
+        if not KEY.match(f[0]) or len(f) > 5:
+            problems.append("line %d: not name, kind, accepted, presets, hint" % n)
+            continue
+        try:
+            kinds[f[0]] = Kind(f[1], f[2], f[3], f[4])
+        except (ValueError, re.error) as e:
+            problems.append("line %d (%s): %s" % (n, f[0], e))
+    return kinds, problems
+
+
 class Option:
     def __init__(self, key, section, desc, halogen_default, halos_value):
+        self.kind = None                    # a Kind, when option-kinds has the option
         self.key = key
         self.section = section
         self.desc = desc                    # the template's text, "Default: ..." cut off
@@ -167,12 +275,14 @@ class NpuItem:
 class Model:
     """Everything the screen changes, and what it changes it from."""
 
-    def __init__(self, env_text, template_text, allowed, catalog_text, state_text, no_restart=False):
+    def __init__(self, env_text, template_text, allowed, catalog_text, state_text, no_restart=False, kinds=None):
         self.orig_text = env_text
         self.env = EnvFile(env_text)
         self.allowed = set(allowed)
         self.options = [o for o in parse_template(template_text, self.allowed) if o.key != NPU_KEY]
         self.option = {o.key: o for o in self.options}
+        for o in self.options:
+            o.kind = (kinds or {}).get(o.key)
         self.npu_edition = NPU_KEY in self.allowed
         self.no_restart = no_restart
         self.running = False
@@ -254,6 +364,9 @@ class Model:
             return "not an option of this release"
         if value is not None:
             err = value_ok(value)
+            kind = self.option[key].kind
+            if not err and kind is not None:
+                err = kind.check(value)
             if err:
                 return err
         self.values[key] = value
@@ -262,6 +375,13 @@ class Model:
     def reset(self, key):
         o = self.option[key]
         self.values[key] = o.halos_value
+
+    def problem(self, key):
+        """Why the value now set isn't accepted, or None (a file edited by hand may hold anything)."""
+        v, kind = self.values[key], self.option[key].kind
+        if v is None:
+            return None
+        return value_ok(v) or (kind.check(v) if kind else None)
 
     def flash_choices(self):
         """(name, selectable, note), the official checkpoint first."""
@@ -404,6 +524,26 @@ def run_batch(model, lines):
         if err:
             print("settings-tui: %s: %s" % (shown(line), err), file=sys.stderr)
             sys.exit(2)
+
+
+def check_kinds(model, problems):
+    """option-kinds against this edition: a line for every option, presets and halOS's values it
+    accepts. Returns the problems found."""
+    out = list(problems)
+    for k in sorted(model.allowed - {NPU_KEY}):
+        if k not in model.option:
+            continue        # not in the template: the screen doesn't show it
+        o = model.option[k]
+        if o.kind is None:
+            out.append("%s: no line in option-kinds" % k)
+            continue
+        for p in o.kind.presets + [v for v, _ in o.kind.choices]:
+            err = value_ok(p) or o.kind.check(p)
+            if err:
+                out.append("%s: the preset %s %s" % (k, p, err))
+        if o.halos_value is not None and o.kind.check(o.halos_value):
+            out.append("%s: halOS's value %s %s" % (k, o.halos_value, o.kind.check(o.halos_value)))
+    return out
 
 
 # ----------------------------------------------------------------------------- the screen
@@ -805,6 +945,11 @@ class Screen:
             w = self.s.getmaxyx()[1] - 3
             out = self.wrap(o.desc, w, 2)
             out.append(shown("%s. Default: %s" % (k, o.default_text()))[:w])
+            if o.kind:
+                out += self.wrap("Takes %s%s" % (o.kind.describe(), "; " + o.kind.hint if o.kind.hint else ""), w, 2)
+            bad = self.m.problem(k)
+            if bad:
+                out.append(shown("Your file's value %s: Enter to choose another" % bad)[:w])
             return out
 
         def act(k, pos):
@@ -816,20 +961,8 @@ class Screen:
                 return None
             if not key:
                 return None
-            o = self.m.option[key]
             if k == "enter":
-                cur = self.m.values[key]
-                v = self.ask_line("%s (Enter keeps it; empty = the default, %s; Esc cancels):"
-                                  % (key, o.default_text()), cur if cur is not None else "")
-                if v is None:
-                    return None
-                v = v.strip()
-                if v == "":
-                    self.m.reset(key)
-                else:
-                    err = self.m.set_value(key, v)
-                    if err:
-                        self.msg = "Not changed: the value " + err
+                self.edit_option(key)
             elif k in ("r", curses.KEY_DC):
                 self.m.reset(key)
                 self.msg = "%s back to its default." % key
@@ -840,6 +973,89 @@ class Screen:
 
         self.pick(title, rows, on_key=act, detail=detail,
                   footer="Enter edit  r default  u undo  / search  q back")
+
+    def edit_option(self, key):
+        """On/off and choices: a list to pick from. Numbers and forms: presets, or type one.
+        Text, or an option option-kinds doesn't know: type it."""
+        o = self.m.option[key]
+        kind = o.kind
+        if kind is None or kind.kind == "text":
+            self.type_value(key)
+            return
+        cur = self.m.values[key]
+        entries = [("default", None)]
+        if kind.choices:
+            entries += [("value", v) for v, _ in kind.choices]
+        else:
+            entries += [("value", p) for p in kind.presets]
+            if cur is not None and cur not in kind.presets and not self.m.problem(key):
+                entries.append(("value", cur))
+            entries.append(("type", None))
+
+        def is_default():
+            return cur is None or cur == o.halos_value
+
+        def rows():
+            out = []
+            for what, v in entries:
+                if what == "default":
+                    text = "default: %s" % o.default_text()
+                    on = is_default()
+                elif what == "type":
+                    text = "type a value (%s)" % kind.describe()
+                    on = False
+                else:
+                    label = kind.label(v)
+                    text = "%-10s %s" % (v, label) if label else v
+                    on = v == cur
+                out.append(("(%s) %s" % ("*" if on else " ", text), self.attr(3) if on else 0, True))
+            return out
+
+        def header():
+            w = self.s.getmaxyx()[1] - 3
+            out = self.wrap(o.desc, w, 3)
+            if kind.hint:
+                out += self.wrap(kind.hint, w, 2)
+            bad = self.m.problem(key)
+            if bad:
+                out.append(shown("Your file has %s, which %s." % (cur, bad))[:w])
+            return out
+
+        start = next((i for i, (what, v) in enumerate(entries) if what == "value" and v == cur), 0)
+        r = self.pick(key, rows, header=header, start=start,
+                      footer="Up/Down move  Enter choose  q back without a change")
+        if r is None:
+            return
+        what, v = entries[r]
+        if what == "default":
+            self.m.reset(key)
+        elif what == "type":
+            self.type_value(key)
+        else:
+            err = self.m.set_value(key, v)
+            if err:
+                self.msg = "Not changed: the value " + err
+
+    def type_value(self, key):
+        """A typed value, checked before it is taken: asked again until it is, or Esc."""
+        o = self.m.option[key]
+        cur = self.m.values[key]
+        takes = (o.kind.describe() + "; ") if o.kind else ""
+        prompt = "%s (%sempty = the default, %s; Esc cancels):" % (key, takes, o.default_text())
+        text = cur if cur is not None else ""
+        while True:
+            v = self.ask_line(prompt, text)
+            if v is None:
+                return
+            v = v.strip()
+            if v == "":
+                self.m.reset(key)
+                return
+            err = self.m.set_value(key, v)
+            if not err:
+                return
+            prompt = "Not taken: %s %s. Try again (Esc cancels):" % (v if len(v) <= 30 else v[:27] + "...", err)
+            text = v
 
     def review(self):
         changes = self.m.changes()
@@ -886,13 +1102,22 @@ def main():
     ap.add_argument("--template", required=True)
     ap.add_argument("--allowed", required=True)
     ap.add_argument("--catalog", required=True)
+    ap.add_argument("--kinds", default="/usr/share/halogen/option-kinds",
+                    help="what each option takes (option-kinds); without it every value is typed")
     ap.add_argument("--no-restart", action="store_true")
     ap.add_argument("--batch", action="store_true")
+    ap.add_argument("--check-kinds", action="store_true")
     a = ap.parse_args()
     allowed = [l.strip() for l in read_text(a.allowed).splitlines() if KEY.match(l.strip())]
     template = read_text(a.template)
+    kinds, problems = parse_kinds(read_text(a.kinds))
+    if a.check_kinds:
+        found = check_kinds(Model("", template, allowed, "", "", kinds=kinds), problems)
+        for p in found:
+            print("option-kinds: " + shown(p), file=sys.stderr)
+        return 1 if found else 0
     model = Model(read_text(os.path.join(a.dir, "env")), template, allowed, read_text(a.catalog),
-                  read_text(os.path.join(a.dir, "state")), a.no_restart)
+                  read_text(os.path.join(a.dir, "state")), a.no_restart, kinds)
     m = re.search(r"^%s=(.*)$" % NPU_KEY, template, re.M)
     model.npu_default = m.group(1) if m else ""
     for name in ("env.new", "choices"):

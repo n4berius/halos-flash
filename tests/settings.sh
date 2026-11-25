@@ -11,6 +11,7 @@ tui="$repo/files/usr/libexec/halogen/settings-tui"
 tmpl="$repo/variants/npu/usr/share/halogen/halogen.env.default"
 allowed="$repo/variants/npu/usr/share/halogen/options.allowed"
 catalog="$repo/files/usr/share/halogen/npu-models.list"
+kinds="$repo/files/usr/share/halogen/option-kinds"
 ok() { echo "ok: $*"; }
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
@@ -18,7 +19,7 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 d="$work/t"; mkdir -p "$d"
 batch() { # <env file> <state> <commands>, then: rc in $rc
   cp "$1" "$d/env"; printf '%s' "$2" > "$d/state"; rc=0
-  printf '%s\n' "$3" | python3 -I "$tui" --dir "$d" --template "$tmpl" --allowed "$allowed" --catalog "$catalog" --batch \
+  printf '%s\n' "$3" | python3 -I "$tui" --dir "$d" --template "$tmpl" --allowed "$allowed" --catalog "$catalog" --kinds "$kinds" --batch \
     > "$d/out" 2>&1 || rc=$?
 }
 cp "$tmpl" "$work/env"
@@ -112,11 +113,66 @@ batch "$work/env" "$evil" 'flash bad'
 [ "$rc" = 2 ] || fail "a checkpoint name with an escape was offered"
 [ ! -e "$work/pwned" ] || fail "a name ran a command"
 # The no-NPU edition has no NPU list and never touches it.
-batch "$work/env" "$state" 'set HALOGEN_CTX 5'
+batch "$work/env" "$state" 'set HALOGEN_CTX 65536'
 python3 -I "$tui" --dir "$d" --template "$repo/variants/no-npu/usr/share/halogen/halogen.env.default" \
-  --allowed "$repo/variants/no-npu/usr/share/halogen/options.allowed" --catalog "$catalog" --batch <<< 'npu on d3-lite' > /dev/null 2>&1 \
+  --allowed "$repo/variants/no-npu/usr/share/halogen/options.allowed" --catalog "$catalog" --kinds "$kinds" --batch <<< 'npu on d3-lite' > /dev/null 2>&1 \
   && fail "the no-NPU edition offered NPU models"
 ok "only plain names from halogen's folders are offered, and the no-NPU edition has no NPU list"
+
+# --- what each option takes (option-kinds, from Halogen's FLAGS.md)
+for e in npu no-npu; do
+  rc=0
+  python3 -I "$tui" --dir "$d" --template "$repo/variants/$e/usr/share/halogen/halogen.env.default" \
+    --allowed "$repo/variants/$e/usr/share/halogen/options.allowed" --catalog "$catalog" --kinds "$kinds" \
+    --check-kinds > "$d/out" 2>&1 || rc=$?
+  [ "$rc" = 0 ] || { cat "$d/out" >&2; fail "option-kinds doesn't fit the $e edition"; }
+done
+# No line for an option neither edition allows (one left from an older Halogen).
+cut -f1 "$repo"/variants/*/usr/share/halogen/options.allowed | sort -u > "$d/allowed-all"
+grep -v '^#' "$kinds" | cut -f1 | sort > "$d/kinds-names"
+[ -z "$(comm -23 "$d/kinds-names" "$d/allowed-all")" ] || fail "option-kinds names options no edition allows: $(comm -23 "$d/kinds-names" "$d/allowed-all" | tr '\n' ' ')"
+[ -z "$(uniq -d "$d/kinds-names")" ] || fail "option-kinds names an option twice"
+# A broken file is found: a missing option, a preset outside its range, a regular expression that
+# doesn't compile.
+grep -v '^HALOGEN_KV8	' "$kinds" > "$d/k1"
+printf 'HALOGEN_KV_SLOTS\tint\t1..64\t1|128\tx\n' >> "$d/k1"
+printf 'HALOGEN_PLD\tform\t([0-9]\t0\tx\n' >> "$d/k1"
+rc=0
+python3 -I "$tui" --dir "$d" --template "$tmpl" --allowed "$allowed" --catalog "$catalog" --kinds "$d/k1" --check-kinds > "$d/out" 2>&1 || rc=$?
+if [ "$rc" != 1 ] || ! grep -q 'HALOGEN_KV8: no line' "$d/out" || ! grep -q 'preset 128 is outside 1 to 64' "$d/out" \
+  || ! grep -q '(HALOGEN_PLD)' "$d/out"; then cat "$d/out" >&2; fail "--check-kinds missed a broken option-kinds"; fi
+ok "option-kinds has a line for every option of both editions, its presets and halOS's values pass, and a broken file is found"
+
+# Typed values are checked against it: each refused one exits 2, and the accepted ones are saved.
+long="$(printf '%0201d' 0)"
+for bad in 'HALOGEN_KV8 2' 'HALOGEN_KV8 true' 'HALOGEN_CTX abc' 'HALOGEN_CTX 512' 'HALOGEN_CTX 2000000' \
+  'HALOGEN_KV_SLOTS 1.5' 'HALOGEN_TEMPERATURE 0,7' 'HALOGEN_TEMPERATURE 3' 'HALOGEN_REASONING_EFFORT huge' \
+  'HALOGEN_PLD 3' 'HALOGEN_MODEL_ID a b' 'HALOGEN_RECORD_TEXT prompt,everything' \
+  "HALOGEN_THINKING_BUDGET_MESSAGE $long" 'HALOGEN_FREQUENCY_PENALTY -3'; do
+  batch "$work/env" "$state" "set $bad"
+  if [ "$rc" != 2 ] || [ -e "$d/env.new" ]; then fail "set ${bad:0:60} was taken (exit $rc)"; fi
+done
+batch "$work/env" "$state" 'set HALOGEN_KV8 1
+set HALOGEN_CTX 1048576
+set HALOGEN_TEMPERATURE .6
+set HALOGEN_FREQUENCY_PENALTY -0.5
+set HALOGEN_REASONING_EFFORT max
+set HALOGEN_PLD 3,3
+set HALOGEN_RECORD_TEXT prompt,reply
+set HALOGEN_MODEL_ID my/model:1
+set HALOGEN_THINKING_BUDGET_MESSAGE Time to answer now.'
+[ "$rc" = 0 ] || { cat "$d/out" >&2; fail "accepted values were refused (exit $rc)"; }
+for l in HALOGEN_KV8=1 HALOGEN_CTX=1048576 HALOGEN_TEMPERATURE=.6 HALOGEN_FREQUENCY_PENALTY=-0.5 \
+  HALOGEN_REASONING_EFFORT=max HALOGEN_PLD=3,3 HALOGEN_RECORD_TEXT=prompt,reply HALOGEN_MODEL_ID=my/model:1 \
+  'HALOGEN_THINKING_BUDGET_MESSAGE=Time to answer now.'; do
+  grep -qxF "$l" "$d/env.new" || fail "$l wasn't saved"
+done
+# Without option-kinds (an older image's settings-tui path, say) values are still taken as typed.
+cp "$work/env" "$d/env"; printf '' > "$d/state"; rc=0
+python3 -I "$tui" --dir "$d" --template "$tmpl" --allowed "$allowed" --catalog "$catalog" --kinds "$d/none" --batch \
+  <<< 'set HALOGEN_CTX 512' > "$d/out" 2>&1 || rc=$?
+[ "$rc" = 0 ] || fail "without option-kinds a plain value was refused"
+ok "values are checked: on/off, choices, number ranges, forms and text length; good ones are saved"
 
 # --- the screen itself, in a pseudo-terminal: keys as a person types them.
 if python3 -c 'import curses; curses.setupterm("xterm")' 2> /dev/null; then
@@ -149,28 +205,32 @@ sys.exit(os.waitstatus_to_exitcode(st))
 EOF
   cp "$tmpl" "$d/env"; printf '%s' "$state" > "$d/state"; rm -f "$d/env.new" "$d/choices"
   # Menu: Flash checkpoint (Enter), down to "mine", Space, back; down twice to NPU models, Space on
-  # the second (decider-4b), back; Common settings, Enter on the first (CTX), type 4096, back;
-  # Review and save, first choice (save and restart).
+  # the second (decider-4b), back; Common settings, Enter on the first (CTX): its list of presets,
+  # down seven to "type a value", type abc (refused, asked again), clear, type 4096; down to
+  # KV_SLOTS, Enter, pick the third preset (4); back; Review and save, first choice (save and restart).
   rc=0
-  python3 "$work/drive.py" '\n|j|j| |q|j|j|\n|j| |q|j|\n|\n|4096\n|q|j|j|\n|\n' \
-    python3 -I "$tui" --dir "$d" --template "$tmpl" --allowed "$allowed" --catalog "$catalog" || rc=$?
+  python3 "$work/drive.py" '\n|j|j| |q|j|j|\n|j| |q|j|\n|\n|j|j|j|j|j|j|j|\n|abc\n|\x15|4096\n|j|\n|j|j|j|\n|q|j|j|\n|\n' \
+    python3 -I "$tui" --dir "$d" --template "$tmpl" --allowed "$allowed" --catalog "$catalog" --kinds "$kinds" || rc=$?
   [ "$rc" = 0 ] || fail "the screen exited $rc"
   grep -qx 'HALOGEN_CTX=4096' "$d/env.new" || fail "the typed value wasn't saved"
+  grep -qx 'HALOGEN_KV_SLOTS=4' "$d/env.new" || fail "the value picked from the presets wasn't saved"
+  if grep -q '^HALOGEN_CTX=abc' "$d/env.new"; then fail "a value that isn't a number was taken"; fi
   grep -qx 'HALOGEN_NPU_MODELS=decider-0.8b,qwen3-embedding-0.6b,qwen3-reranker-0.6b,qwen3guard-gen-0.6b,qwen3.5-2b,decider-4b' "$d/env.new" \
     || { grep NPU_MODELS= "$d/env.new" >&2; fail "the ticked model wasn't added"; }
   printf 'flash mine\nrestart yes\n' | diff "$d/choices" - || fail "the screen's choices"
-  # Clearing KV_POOL_POSITIONS (Common settings, third line) means its default, halOS's 262144:
-  # nothing changes, so "Review and save" (twice) has nothing to save, and q quits with exit 3.
+  # KV_POOL_POSITIONS (Common settings, third line): pick the next preset, then open it again and
+  # go up to "default", halOS's 262144: nothing changes, so "Review and save" (twice) has nothing
+  # to save, and q quits with exit 3.
   rm -f "$d/env.new" "$d/choices"; rc=0
-  python3 "$work/drive.py" 'j|j|j|\n|j|j|\n|\x15|\n|q|j|j|\n|\n|q' \
-    python3 -I "$tui" --dir "$d" --template "$tmpl" --allowed "$allowed" --catalog "$catalog" || rc=$?
-  if [ "$rc" != 3 ] || [ -e "$d/env.new" ]; then fail "an empty value didn't mean halOS's default (exit $rc)"; fi
+  python3 "$work/drive.py" 'j|j|j|\n|j|j|\n|j|\n|\n|k|k|\n|q|j|j|\n|\n|q' \
+    python3 -I "$tui" --dir "$d" --template "$tmpl" --allowed "$allowed" --catalog "$catalog" --kinds "$kinds" || rc=$?
+  if [ "$rc" != 3 ] || [ -e "$d/env.new" ]; then fail "default didn't mean halOS's default (exit $rc)"; fi
   # q on the menu with changes asks; n stays, then q y leaves without saving.
   rm -f "$d/env.new" "$d/choices"; rc=0
   python3 "$work/drive.py" 'j|j|\n| |q|q|n|q|y' \
-    python3 -I "$tui" --dir "$d" --template "$tmpl" --allowed "$allowed" --catalog "$catalog" || rc=$?
+    python3 -I "$tui" --dir "$d" --template "$tmpl" --allowed "$allowed" --catalog "$catalog" --kinds "$kinds" || rc=$?
   if [ "$rc" != 3 ] || [ -e "$d/env.new" ]; then fail "quitting saved something (exit $rc)"; fi
-  ok "the screen works with keys: checkpoint, NPU checklist, a typed value, review and save; quitting asks and saves nothing"
+  ok "the screen works with keys: checkpoint, NPU checklist, a typed value (checked), a preset, default, review and save; quitting asks and saves nothing"
 else
   echo "skip: no xterm terminfo here, so the screen itself isn't driven"
 fi
@@ -189,7 +249,7 @@ f tui 'echo "tui $*" >> "$FAKE/log"; [ -z "${FAKE_MEANWHILE:-}" ] || echo "# cha
 printf 'verified=pass\ndrafter=mine-drafter.hgn\nrepo=x\n' > "$work/models/flash/mine/halos.info"
 export PATH="$work/bin:$PATH" HALOGEN_CONFIGS_DIR="$work/configs" HALOGEN_MODELS_DIR="$work/models" FAKE_TUI="$tui" \
   HALOS_LOCK_DIR="$work/locks" HALOGEN_STATE_DIR="$work/hstate" HALOGEN_SETTINGS_TUI="$work/bin/tui" \
-  HALOGEN_ENV_TEMPLATE="$tmpl" HALOGEN_ALLOWED_FILE="$allowed" HALOGEN_NPU_CATALOG="$catalog"
+  HALOGEN_ENV_TEMPLATE="$tmpl" HALOGEN_ALLOWED_FILE="$allowed" HALOGEN_NPU_CATALOG="$catalog" HALOGEN_OPTION_KINDS="$kinds"
 ctl="$repo/files/usr/bin/halogenctl"
 cp "$tmpl" "$work/configs/halogen.env"; chmod 0640 "$work/configs/halogen.env"
 run() { : > "$work/log"; rc=0; script -qec "$ctl settings $*" /dev/null > "$work/out" 2>&1 || rc=$?; }

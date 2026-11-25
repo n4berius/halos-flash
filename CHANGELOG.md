@@ -10,6 +10,11 @@ it promotes.
 
 ## Unreleased
 
+- The settings screen is easier to use (#179). Settings that are on or off, or that have a fixed
+  set of values, show a list to choose from, with what each value does. Numbers show a list of
+  usual values, or you type your own. The screen shows which values each setting takes and an
+  example, and refuses a value that Halogen would not accept (a word where a number goes, a number
+  out of range). The values come from Halogen's own list of settings (FLAGS.md).
 - The settings screen's NPU model checklist no longer lists `halogen-spotter-0.6b`. Only the
   agent guard uses it, and the `HALOGEN_AGENT_GUARD` setting (`watch` or `hold`) already adds it
   (#176).

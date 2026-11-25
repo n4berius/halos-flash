@@ -55,7 +55,7 @@ name, but allows saying halOS runs Halogen.
 | `files/` | Copied into both editions: systemd units, `halosctl`, `halogenctl`, `halogen-enroll-tpm` (bash completion for all three in `usr/share/bash-completion/completions/`; `tests/completion.sh` fails when a tool gains a top-level command, or a `flash`/`model` subcommand, its completion doesn't offer; checkpoint folder names are written by halogen and its containers, so they are never passed to `compgen -W`, which expands `$(...)`: only plain names, matched by hand; under sudo completion runs as the admin, who can't read `/srv/models` (0750), so the names come from `/run/halos/model-names` (`model-names`, root, run by login-status every 30 s and by halogenctl's `names_now` after a pull or removal: `find` as halogen with setpriv, folder and `*drafter*.hgn` names only, never file contents; plain names, no line breaks; each `find` under root's `timeout -k` and cut at 1000 entries, one per folder; start points are the folders, so a link at `flash` is never followed; 0640 group wheel), while a root shell reads the folders directly), `/usr/libexec/halogen/*` (`flash-checkpoint` and `model-pull` download your own checkpoints) |
 | `variants/npu`, `variants/no-npu` | Per-edition kernel arguments, Quadlet drop-ins, the allowed-options list and default `halogen.env` |
 | `scripts/` | `build.sh`, `build-helpers.sh`, `build-info.sh` (an image's build record, #121), `build-iso.sh`, `package-iso.sh` (single-file release ISO), `release-info.sh`, `gen-options.py` (options from upstream `FLAGS.md`), `halogen-update.sh` (pins a new Halogen release), `size-report.sh`, `channels.sh` (which channel tags a release moves), `next-tag.sh` (the next release tag), `push-image.sh`, `sign-image.sh` (cosign signing), `kernel-next-update.sh` (moves kernel-next's pin to Fedora's newest plain build), `go-test.sh` (the Go tests of `src/caddy` without an image build; needs network; CI's `check` job in `build.yml` runs it and `tests/run.sh` once, and both edition builds wait for it, #123) |
-| `files/usr/libexec/halogen/settings-tui`, `files/usr/share/halogen/npu-models.list` | The settings screen behind `halogenctl settings` (Python curses) and its list of Halogen's NPU models |
+| `files/usr/libexec/halogen/settings-tui`, `files/usr/share/halogen/npu-models.list`, `files/usr/share/halogen/option-kinds` | The settings screen behind `halogenctl settings` (Python curses), its list of Halogen's NPU models, and what each option takes (from FLAGS.md; check it with every Halogen pin) |
 | `docs/` | `GUIDE.md` (using the machine: settings, updates, each feature and its reasons; INSTALL.md holds only the installation, first boot and disk unlock), `CLI.md` (every command; update it with a command or option), `CLIENTS.md` (connecting apps and coding agents, and trusting the certificate per agent, from each project's docs and source) |
 | `CHANGELOG.md`, `ROADMAP.md` | What each release changed (PRs add to Unreleased), and the order of the work ahead |
 | `src/` | halOS's own source: `dashboard-nodump.c` (built in `Containerfile.helpers`' dashboard stage), `authenticode-check.py` (kernel-next's Secure Boot check at build time) and `caddy/` (`main.go`, `go.mod`, `go.sum`: Caddy with the DNS providers, built in the caddy stage; Dependabot `gomod`) |
@@ -131,7 +131,18 @@ name, but allows saying halOS runs Halogen.
   defaults are parsed from the edition's template (`Default:` in the line above each option);
   `COMMON` lists the "Common settings". `--batch` (stdin commands) is for `tests/settings.sh`, which
   also drives the real screen in a pty (`xterm` keypad sends `ESC O B`, so the test types `j`).
-  `--editor` is setup's old step 3 (sudoedit-style). `halosctl setup` step 3 runs `halogenctl
+  `--editor` is setup's old step 3 (sudoedit-style).
+  What each option takes (#179): `files/usr/share/halogen/option-kinds` (tab-separated: name, kind
+  `onoff|choice|int|dec|form|text`, accepted values/range/regex/length, presets, hint), read by hand
+  from FLAGS.md 0.20.7 and passed as `--kinds` (halogenctl: `HALOGEN_OPTION_KINDS` test hook).
+  On/off and choices open a pick list (with `default`), numbers and forms a list of presets plus
+  `type a value`, text the line editor; a typed value is asked again until `Kind.check` accepts it,
+  and batch `set` exits 2 on a refused one. A value already in the file that fails is shown with
+  its reason and left alone. Without the file every value is typed and checked only for one line.
+  `--check-kinds` (in `tests/settings.sh`, both editions) needs a line for every template option,
+  presets and halOS's template values that pass; the test also refuses lines for options no edition
+  allows. So a Halogen pin that adds an option fails the tests until option-kinds has its line.
+  `halosctl setup` step 3 runs `halogenctl
   settings --no-restart` (Enter = yes while setup is pending) and asks to restart at its end.
 - Settings: users edit `/srv/configs/halogen.env` (or use the settings screen above). `render-config` keeps only the names in
   `options.allowed`, and `locked.env` wins over it. `halogenctl config` shows the result.

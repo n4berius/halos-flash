@@ -114,7 +114,7 @@ after a change, halOS puts back the previous setting automatically.
 
 | Command | What it does |
 |---|---|
-| `halogenctl settings [--editor] [--no-restart]` | Opens the settings screen: the Flash checkpoint, the draft heads, a checklist of NPU models, and Halogen's settings, each with its default. It saves all changes together, then restarts Halogen one time if you choose that. `--editor` opens `halogen.env` in an editor instead. `--no-restart` saves only (`halosctl setup` uses it). See [the settings screen](GUIDE.md#the-settings-screen). |
+| `halogenctl settings [--editor] [--no-restart]` | Opens the settings screen: the Flash checkpoint, the draft heads, a checklist of NPU models, and Halogen's settings, each with its default. You pick on/off settings, choices and usual numbers from a list, and the screen checks each value that you type. It saves all changes together, then restarts Halogen one time if you choose that. `--editor` opens `halogen.env` in an editor instead. `--no-restart` saves only (`halosctl setup` uses it). See [the settings screen](GUIDE.md#the-settings-screen). |
 | `halogenctl config` | Shows the settings that Halogen gets: your allowed settings from `/srv/configs/halogen.env`, then the settings that halOS locks. |
 | `halogenctl options [--new]` | Shows each option of this release, and if it is set, commented out or new in your file. `--new` shows only the options that your file doesn't mention. |
 | `halogenctl doctor` | Checks the settings and the machine before a start (halOS's own checks), and tells what to change. |
