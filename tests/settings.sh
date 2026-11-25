@@ -79,7 +79,7 @@ for c in "set HALOGEN_CTX $(printf 'a\033[2Jb')" 'set HALOGEN_NOT_AN_OPTION 1' '
          'flash ../../etc' 'drafter mine other.hgn' 'npu on not-a-model' 'set HALOGEN_NPU_MODELS x'; do
   batch "$work/env" "$state" "$c"
   [ "$rc" = 2 ] || fail "'$c' was taken (exit $rc)"
-  [ ! -e "$d/env.new" ] && [ ! -e "$d/choices" ] || fail "'$c' wrote an answer"
+  if [ -e "$d/env.new" ] || [ -e "$d/choices" ]; then fail "'$c' wrote an answer"; fi
 done
 batch "$work/env" "$state" ''
 [ "$rc" = 3 ] || fail "no change didn't exit 3"
@@ -143,7 +143,7 @@ EOF
   rm -f "$d/env.new" "$d/choices"; rc=0
   python3 "$work/drive.py" 'j|j|\n| |q|q|n|q|y' \
     python3 -I "$tui" --dir "$d" --template "$tmpl" --allowed "$allowed" --catalog "$catalog" || rc=$?
-  [ "$rc" = 3 ] && [ ! -e "$d/env.new" ] || fail "quitting saved something (exit $rc)"
+  if [ "$rc" != 3 ] || [ -e "$d/env.new" ]; then fail "quitting saved something (exit $rc)"; fi
   ok "the screen works with keys: checkpoint, NPU checklist, a typed value, review and save; quitting asks and saves nothing"
 else
   echo "skip: no xterm terminfo here, so the screen itself isn't driven"
@@ -175,8 +175,9 @@ grep -qx 'HALOGEN_CTX=65536' "$work/configs/halogen.env" || fail "the new haloge
 [ "$(stat -c %a "$work/configs/halogen.env")" = 640 ] || fail "halogen.env lost its 0640 mode"
 grep -q 'runuser -u halogen -- env -C / sh -c' "$work/log" || fail "halogen.env wasn't written as halogen"
 grep -q 'runuser -u halogen -- env -C / cat' "$work/log" || fail "halogen.env wasn't read as halogen"
-grep -q 'flash-checkpoint drafter mine off' "$work/log" && grep -q 'flash-checkpoint use mine' "$work/log" \
-  || { cat "$work/log" >&2; fail "the checkpoint or draft head wasn't set through flash-checkpoint"; }
+if ! grep -q 'flash-checkpoint drafter mine off' "$work/log" || ! grep -q 'flash-checkpoint use mine' "$work/log"; then
+  cat "$work/log" >&2; fail "the checkpoint or draft head wasn't set through flash-checkpoint"
+fi
 [ "$(grep -c 'restart halogen.service' "$work/log")" = 1 ] || { cat "$work/log" >&2; fail "not exactly one restart"; }
 grep -q 'note from render' "$work/out" || fail "render-config's notes weren't shown"
 ok "settings saves halogen.env as halogen, sets the checkpoint and draft head through flash-checkpoint, and restarts once"
@@ -185,23 +186,23 @@ printf 'set HALOGEN_CTX 1024\nrestart no\n' > "$work/cmds"; run
 if grep -q 'restart halogen.service' "$work/log"; then fail "restart no restarted"; fi
 grep -q 'next start' "$work/out" || fail "no hint to restart later"
 printf 'set HALOGEN_CTX 2048\n' > "$work/cmds"; run --no-restart
-[ "$rc" = 0 ] && grep -q -- '--no-restart' "$work/log" || fail "--no-restart wasn't passed to the screen"
+if [ "$rc" != 0 ] || ! grep -q -- '--no-restart' "$work/log"; then fail "--no-restart wasn't passed to the screen"; fi
 if grep -q 'restart halogen.service' "$work/log"; then fail "--no-restart restarted"; fi
 grep -qx 'HALOGEN_CTX=2048' "$work/configs/halogen.env" || fail "--no-restart didn't save"
 ok "it restarts only when asked, and --no-restart (setup) only saves"
 
 cp "$work/configs/halogen.env" "$work/keep"
 printf 'set HALOGEN_CTX 3000\n' > "$work/cmds"; FAKE_MEANWHILE=1 run
-[ "$rc" = 1 ] && grep -q 'changed while you were editing' "$work/out" || { cat "$work/out" >&2; fail "a file changed meanwhile was overwritten"; }
+if [ "$rc" != 1 ] || ! grep -q 'changed while you were editing' "$work/out"; then cat "$work/out" >&2; fail "a file changed meanwhile was overwritten"; fi
 grep -q 'HALOGEN_CTX=3000' "$work/configs/halogen.env" && fail "the edit replaced another's change"
 cp "$work/keep" "$work/configs/halogen.env"
 : > "$work/cmds"; run
-[ "$rc" = 0 ] && grep -q 'Nothing changed' "$work/out" || fail "no answer wasn't 'Nothing changed'"
+if [ "$rc" != 0 ] || ! grep -q 'Nothing changed' "$work/out"; then fail "no answer wasn't 'Nothing changed'"; fi
 if grep -q 'restart halogen.service\|sh -c' "$work/log"; then fail "no answer still wrote or restarted"; fi
 printf 'set HALOGEN_CTX 4000\nflash bad\n' > "$work/cmds"; run
 [ "$rc" = 2 ] || [ "$rc" = 1 ] || fail "a refused command passed"
 rc=0; "$ctl" settings < /dev/null > "$work/out" 2>&1 || rc=$?
-[ "$rc" = 1 ] && grep -q 'needs a terminal' "$work/out" || fail "it ran without a terminal"
+if [ "$rc" != 1 ] || ! grep -q 'needs a terminal' "$work/out"; then fail "it ran without a terminal"; fi
 ok "a file changed meanwhile isn't overwritten, no answer changes nothing, and it needs a terminal"
 
 # --editor: root edits a private copy; the result goes back as halogen.

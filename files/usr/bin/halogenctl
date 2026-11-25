@@ -157,7 +157,7 @@ case "${1:-status}" in
         *) echo "usage: halogenctl settings [--editor] [--no-restart]" >&2; exit 2 ;;
       esac
     done
-    [ -t 0 ] && [ -t 1 ] || { echo "settings needs a terminal. Edit the file instead: sudo nano $configs/halogen.env" >&2; exit 1; }
+    if [ ! -t 0 ] || [ ! -t 1 ]; then echo "settings needs a terminal. Edit the file instead: sudo nano $configs/halogen.env" >&2; exit 1; fi
     as_owner test -r "$configs/halogen.env" 2>/dev/null \
       || { echo "Cannot read $configs/halogen.env. Run it with sudo: sudo halogenctl settings" >&2; exit 1; }
     # Root's private copies (as sudoedit does): nothing of halogen's runs on root's terminal, and
