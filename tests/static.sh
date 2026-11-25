@@ -353,6 +353,13 @@ rules = open("files/usr/share/polkit-1/rules.d/10-halos-udisks2.rules").read()
 assert 'org.freedesktop.udisks2.' in rules and 'subject.user != "root"' in rules and "polkit.Result.NO" in rules, "the udisks2 polkit rule is missing"
 bus = open("files/usr/share/dbus-1/system.d/halos-udisks2.conf").read()
 assert '<policy user="halogen">' in bus and '<deny send_destination="org.freedesktop.UDisks2"/>' in bus, "the udisks2 D-Bus policy for halogen is missing"
+# An initramfs one-shot that the switch to the real system stops (Conflicts=initrd-switch-root.target)
+# must count SIGTERM as success, or every login lists it under "Failed Units".
+for unit in glob.glob("files/usr/lib/dracut/modules.d/*/*.service"):
+    text = open(unit).read()
+    if re.search(r"^Type=oneshot$", text, re.M) and re.search(r"^Conflicts=.*\binitrd-switch-root\.target\b", text, re.M):
+        assert re.search(r"^SuccessExitStatus=.*\bSIGTERM\b", text, re.M), f"{unit}: a stop at switch-root would read as failed"
+
 print("static checks ok")
 P
 python3 -c "import glob, yaml; [yaml.safe_load(open(f)) for f in glob.glob('.github/**/*.yml', recursive=True)]"
