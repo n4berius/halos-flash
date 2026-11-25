@@ -12,8 +12,9 @@
 # Halogen's own draft head file (qwen38-flash-next-drafter-r2-ht4.hgn) drafts beside the official
 # checkpoint on its own, and halOS names it for your own checkpoints too (HALOGEN_CK_OVERLAY, with
 # the two rules Halogen's entrypoint sets beside it), unless /srv/configs/flash-drafter (sudo
-# halogenctl flash drafter <name> ...) says off (the checkpoint's built-in head) or names a draft
-# head file the checkpoint's repository ships.
+# halogenctl flash drafter <name> ...) says off (the checkpoint's built-in head), official-r2
+# (Halogen 0.20.6's qwen38-flash-next-drafter-r2.hgn, still in /srv/models) or names a draft head
+# file the checkpoint's repository ships.
 # Prints the path of the result. With --show, prints its contents instead.
 set -uo pipefail
 config="${HALOGEN_CONFIG_FILE:-/srv/configs/halogen.env}"
@@ -135,7 +136,16 @@ if [ -n "${own_dir:-}" ]; then
   elif [ "$(sed -n 's/^own_precision=//p' "$own_dir/halos.info" 2>/dev/null | tail -n 1)" != 1 ]; then
     echo "halogen-config: $choice: halOS doesn't know yet whether it carries its own precision, so its built-in head drafts (sudo halogenctl flash verify $choice finds out)" >&2
   else
-    if [ "$want" != official ]; then
+    if [ "$want" = official-r2 ]; then
+      # Halogen 0.20.6's official draft head, if it is still in /srv/models (the fetch checks its
+      # hash like the other official files); else the current one.
+      if [ ! -L "$models/qwen38-flash-next-drafter-r2.hgn" ] && [ -f "$models/qwen38-flash-next-drafter-r2.hgn" ] \
+         && [ "$(timeout 5 head -c 4 -- "$models/qwen38-flash-next-drafter-r2.hgn" 2>/dev/null)" = HGN1 ]; then
+        head_path=/models/qwen38-flash-next-drafter-r2.hgn
+      else
+        echo "halogen-config: $choice: Halogen 0.20.6's draft head (qwen38-flash-next-drafter-r2.hgn) isn't there, so the official one drafts" >&2
+      fi
+    elif [ "$want" != official ]; then
       # Only a file the pull listed and checked, a plain file in the checkpoint's own folder that
       # starts as a draft head does (HGN1, as Halogen checks); else the official one.
       if [[ "$want" =~ ^[A-Za-z0-9._-]*drafter[A-Za-z0-9._-]*\.hgn$ ]] && [ "$want" != "$own_file" ] \

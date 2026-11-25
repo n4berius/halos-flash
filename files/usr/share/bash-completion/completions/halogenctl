@@ -56,13 +56,14 @@ _halogenctl() {
       elif [ "$cword" -eq 3 ]; then
         case "${words[2]}" in
           use) _halogenctl_names "$models/flash"; [[ official == "$cur"* ]] && COMPREPLY+=(official) ;;
-          drafter|verify|check|remove) _halogenctl_names "$models/flash" ;;
+          drafter) _halogenctl_names "$models/flash"; for c in official official-r2 off; do [[ $c == "$cur"* ]] && COMPREPLY+=("$c"); done ;;
+          verify|check|remove) _halogenctl_names "$models/flash" ;;
           convert-stop) _halogenctl_names "$models/flash/.convert" ;;
         esac
       else
         case "${words[2]}" in
           pull) _halogenctl_offer "--revision --as --file --keep-gguf" ;;
-          drafter) if [ "$cword" -eq 4 ]; then _halogenctl_offer "official off"; else _halogenctl_offer "--yes"; fi ;;
+          drafter) if [ "$cword" -eq 4 ]; then _halogenctl_offer "official official-r2 off"; else _halogenctl_offer "--yes"; fi ;;
           convert) _halogenctl_offer "--revision --as --threads --keep-source --yes" ;;
           convert-stop) _halogenctl_offer "--yes" ;;
           use|check|remove) _halogenctl_offer "--yes" ;;
