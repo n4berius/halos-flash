@@ -10,7 +10,7 @@ it promotes.
 
 ## Unreleased
 
-- The documentation is shorter and easier to find your way in (#PR). INSTALL.md now holds only
+- The documentation is shorter and easier to find your way in (#172). INSTALL.md now holds only
   the installation, the first boot and the disk unlock. Everything about using the machine
   (settings, updates, HTTPS, the dashboard, benchmarks, your own checkpoints, logs) moved to the
   new [docs/GUIDE.md](docs/GUIDE.md), without the text that was there twice. README.md is now a
