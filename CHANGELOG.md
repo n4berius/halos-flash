@@ -15,6 +15,11 @@ it promotes.
   (settings, updates, HTTPS, the dashboard, benchmarks, your own checkpoints, logs) moved to the
   new [docs/GUIDE.md](docs/GUIDE.md), without the text that was there twice. README.md is now a
   short overview. Version numbers and release names in the examples are up to date.
+- `halogenctl flash drafter` takes a draft head by the file name you see in `/srv/models`, or by
+  its full path, as well as `official`, `off` and the checkpoint's own files. `official-r2` picks
+  Halogen 0.20.6's draft head when it is still on disk. Without a checkpoint name it sets the one
+  Halogen serves. When a name doesn't match, it lists what you can choose, and it says when a
+  checkpoint needs `flash verify` before any draft head is used (#170).
 - The login screen no longer lists `halos-tang-unlock.service` under "Failed Units". The early-boot
   check was stopped when the TPM unlocked the disk before it finished looking, and systemd
   counted that stop as a failure (#169).
