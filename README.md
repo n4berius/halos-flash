@@ -1,6 +1,23 @@
-# halOS
+<div align="center">
 
-An operating system made for one job: to run Halogen.
+<img src="docs/images/halos-flash.png" alt="halOS-flash logo: a dark tile with a lightning bolt, circled by a blue ring" width="560">
+
+**An operating system made for one job: to run Halogen.**
+
+[![Build OS image](https://github.com/n4berius/halos-flash/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/n4berius/halos-flash/actions/workflows/build.yml)
+[![USB installer test](https://github.com/n4berius/halos-flash/actions/workflows/iso.yml/badge.svg?branch=main)](https://github.com/n4berius/halos-flash/actions/workflows/iso.yml)
+[![Latest release](https://img.shields.io/github/v/release/n4berius/halos-flash?include_prereleases&sort=date&label=release)](https://github.com/n4berius/halos-flash/releases)
+[![Image on ghcr.io](https://img.shields.io/badge/image-ghcr.io%2Fn4berius%2Fhalos--flash-2b7bd6?logo=github)](https://github.com/n4berius/halos-flash/pkgs/container/halos-flash)
+[![Fedora 45 bootc](https://img.shields.io/badge/Fedora-45%20bootc-51a2da?logo=fedora&logoColor=white)](https://docs.fedoraproject.org/en-US/bootc/)
+[![License: MIT](https://img.shields.io/github/license/n4berius/halos-flash?color=1c2541)](LICENSE)
+
+[![Install guide](https://img.shields.io/badge/Install_guide-2b7bd6?style=for-the-badge&logo=fedora&logoColor=white)](INSTALL.md)
+[![User guide](https://img.shields.io/badge/User_guide-1c2541?style=for-the-badge&logo=readthedocs&logoColor=white)](docs/GUIDE.md)
+[![Commands](https://img.shields.io/badge/Commands-1c2541?style=for-the-badge&logo=gnubash&logoColor=white)](docs/CLI.md)
+[![Connect apps](https://img.shields.io/badge/Connect_apps-1c2541?style=for-the-badge&logo=openapiinitiative&logoColor=white)](docs/CLIENTS.md)
+[![Download](https://img.shields.io/badge/Download_ISO-2b7bd6?style=for-the-badge&logo=github&logoColor=white)](https://github.com/n4berius/halos-flash/releases)
+
+</div>
 
 halOS is an image-based Fedora 45 appliance for one 128 GB AMD Strix Halo machine. You install
 it from USB. It starts with Secure Boot on and runs
@@ -8,6 +25,19 @@ it from USB. It starts with Secure Boot on and runs
 pinned release, with or without its NPU models. The host is already configured. There is no
 desktop after the installation.
 
+## Highlights
+
+- 🔒 **Secure from the start:** Secure Boot, a LUKS-encrypted disk that unlocks with the TPM, a
+  tang server or SSH, and signed images that the machine checks before each update.
+- 🔁 **Safe updates:** `sudo halosctl upgrade` installs a new image, and
+  `sudo halosctl rollback` goes back to the previous one.
+- 🧠 **Flash and NPU models:** the pinned Halogen release, its models, and your own checkpoints.
+- 🌐 **Ready for clients:** an OpenAI-compatible API on port 8731, with HTTPS when you want it.
+- 📊 **Live dashboard** on port 8732, and a `halogenctl selftest` for the hardware.
+- 🛡️ **Hardened:** fail2ban, audit logs, and Halogen in a rootless container with no network
+  access out.
+
+> [!NOTE]
 > **Status:** both editions build, install and boot in a virtual machine with Secure Boot on.
 > Since `v0.20.0`, both editions also run on a real Strix Halo machine, with the GPU, the NPU
 > and the model download. LUKS with TPM unlock works there too. For the details, see
@@ -22,12 +52,13 @@ reproduce them on a supported host.
 
 ## AI usage disclaimer
 
-The code, tests, CI workflows and documentation in this repository were written entirely by
-[Claude](https://claude.ai), Anthropic's AI model, working from direction given by the
-repository owner, [n4berius](https://github.com/n4berius). n4berius reviewed and merged the
-code. AI-written software can contain mistakes. Read it and test it on your own hardware
-before you rely on it. This software comes with no warranty, as stated in the
-[license](LICENSE).
+> [!IMPORTANT]
+> The code, tests, CI workflows and documentation in this repository were written entirely by
+> [Claude](https://claude.ai), Anthropic's AI model, working from direction given by the
+> repository owner, [n4berius](https://github.com/n4berius). n4berius reviewed and merged the
+> code. AI-written software can contain mistakes. Read it and test it on your own hardware
+> before you rely on it. This software comes with no warranty, as stated in the
+> [license](LICENSE).
 
 ## Install
 
@@ -107,6 +138,9 @@ Halogen's own documentation is the reference for each setting and for how the se
 This repository gives only what halOS adds or changes. If the two disagree about Halogen, follow
 Halogen's documentation for your version:
 
+<details>
+<summary>Halogen's official documentation</summary>
+
 | Topic | Official documentation |
 |---|---|
 | Every setting | [`docs/FLAGS.md`](https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/FLAGS.md) |
@@ -119,6 +153,8 @@ Halogen's documentation for your version:
 
 These links show Halogen's newest code, which can be newer than the version that halOS pins.
 For an exact match, open the same file at the commit in `versions.env`.
+
+</details>
 
 Base image: Fedora's official `quay.io/fedora/fedora-bootc:45`. Fedora has no separate
 image-based Server edition, so halOS adds only what the appliance needs. Each build records the
