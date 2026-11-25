@@ -35,7 +35,8 @@ FAKE
 # shellcheck disable=SC2016 # the fake's own $1
 printf '#!/bin/bash\ncase "$1" in rev-parse) echo 0123abc ;; esac\n' > "$work/bin/git"
 chmod +x "$work"/bin/* "$work/src/scripts/"*
-build() { sed -i "s|^FEDORA_BOOTC_IMAGE=.*|FEDORA_BOOTC_IMAGE=$1|" "$work/src/versions.env"; PATH="$work/bin:$PATH" "$work/src/scripts/build.sh" > "$work/out" 2>&1; }
+# Without the release job's settings (HALOGEN_VARIANT=no-npu would name another record file).
+build() { sed -i "s|^FEDORA_BOOTC_IMAGE=.*|FEDORA_BOOTC_IMAGE=$1|" "$work/src/versions.env"; env -u HALOGEN_VARIANT -u KERNEL_TRACK -u IMAGE_TAG -u IMAGE_NAME -u HALOS_RELEASE -u HALOS_HELPERS PATH="$work/bin:$PATH" "$work/src/scripts/build.sh" > "$work/out" 2>&1; }
 has() { grep -qxF -- "$1" "$work/podman" || { echo "podman wasn't given: $1" >&2; cat "$work/podman" >&2; exit 1; }; }
 
 build quay.io/fedora/fedora-bootc:45

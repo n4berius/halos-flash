@@ -31,7 +31,7 @@ kl=fedora; case "$ref" in *:kernel-next*) kl=next ;; esac
 case "$ref" in
   *@sha256:*) [ -z "${FAKE_STAGED_FAILS:-}" ] || { echo "Error: network unreachable" >&2; exit 1; }
     case "$*" in *"{{.Digest}}"*) printf "%s %s %s 0.19.0-beta.1\n" "${ref#*@}" "${FAKE_STAGED_EDITION:-}" "${FAKE_STAGED_KERNEL:-}" ;; *) echo "${FAKE_STAGED_EDITION:-}" ;; esac ;;
-  *:beta|*:kernel-next|*:kernel-next-no-npu|*:stable-no-npu|*:0.19.0-alpha.1|*:beta-no-npu|*:0.19.0-alpha.1-no-npu|*:0.19.0-no-npu|*:0.19.0-beta.1) printf "%s %s %s 0.19.0-beta.1%s\n" "sha256:fefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefe" "${FAKE_EDITION-$ed}" "${FAKE_KERNEL-$kl}" "${FAKE_LABEL_TAIL:-}" ;;
+  *:beta|*:kernel-next|*:kernel-next-no-npu|*:stable-no-npu|*:0.19.0-alpha.1|*:beta-no-npu|*:0.19.0-alpha.1-no-npu|*:0.19.0-no-npu|*:0.19.0-beta.1|*:0.20.7-2-stable|*:0.20.7-2-stable-no-npu|*:0.20.7-3-alpha|*:0.20.7) printf "%s %s %s 0.19.0-beta.1%s\n" "sha256:fefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefe" "${FAKE_EDITION-$ed}" "${FAKE_KERNEL-$kl}" "${FAKE_LABEL_TAIL:-}" ;;
   *:edge) echo "Error: reading manifest edge: 403 Forbidden" >&2; exit 1 ;;
   *) echo "Error: manifest unknown" >&2; exit 1 ;; esac'
 f systemctl 'echo "systemctl $*" >> "$FAKE/log"; case "$*" in *is-active*) echo "${FAKE_FETCH:-inactive}" ;; esac'
@@ -156,6 +156,34 @@ has '^bootc switch --enforce-container-sigpolicy ghcr.io/n4berius/halos-flash@sh
 host "$(dep ghcr.io/n4berius/halos-flash:0.19.0-alpha.1 0.19.0 sha256:aaa)" > "$work/status.json"
 if "$ctl" rollback --yes > "$work/out" 2>&1; then echo "rolled back to nothing" >&2; exit 1; fi
 has 'no previous image' "$work/out"
+# Release names since November 2026 (<Halogen>-<halOS number>-<stage>): --to takes them, and a
+# machine pinned to one keeps its exact release in the other edition. The history is put back after.
+cp "$work/history" "$work/history.keep"
+host "$(dep ghcr.io/n4berius/halos-flash:stable 0.20.7-1-stable sha256:aaa)" > "$work/status.json"
+: > "$work/log"; "$ctl" rollback --to 0.20.7-3-alpha --yes > "$work/out"
+has 'skopeo .*docker://ghcr.io/n4berius/halos-flash:0.20.7-3-alpha$' "$work/log"
+has '^bootc switch --enforce-container-sigpolicy ghcr.io/n4berius/halos-flash@sha256:fefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefe$' "$work/log"
+host "$(dep ghcr.io/n4berius/halos-flash:stable 0.20.7-1-stable sha256:aaa)" > "$work/status.json"
+for bad in 0.20.7-r2 0.20.7-0-alpha 0.20.7-2-beta 0.20.7-2; do
+  if "$ctl" rollback --to "$bad" --yes > "$work/out" 2>&1; then echo "took rollback --to $bad" >&2; exit 1; fi
+  has 'not a release' "$work/out"
+done
+host "$(dep ghcr.io/n4berius/halos-flash:0.20.7-2-stable 0.20.7-2-stable sha256:aaa)" > "$work/status.json"
+: > "$work/log"; "$ctl" npu off --yes > "$work/out"
+has 'skopeo .*docker://ghcr.io/n4berius/halos-flash:0.20.7-2-stable-no-npu' "$work/log"
+has '^bootc switch --enforce-container-sigpolicy ghcr.io/n4berius/halos-flash@sha256:fefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefe$' "$work/log"
+# Pinned by digest to an exact stable (what rollback --to does): npu off keeps that exact release.
+host "$(dep ghcr.io/n4berius/halos-flash@sha256:aaa 0.20.7-2-stable sha256:aaa)" > "$work/status.json"
+: > "$work/log"; "$ctl" npu off --yes > "$work/out"
+has 'skopeo .*docker://ghcr.io/n4berius/halos-flash:0.20.7-2-stable-no-npu' "$work/log"
+has '^bootc switch --enforce-container-sigpolicy ghcr.io/n4berius/halos-flash@sha256:fefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefe$' "$work/log"
+# rollback --to an exact stable warns it gets no weekly fixes; the plain version is followed, not pinned.
+host "$(dep ghcr.io/n4berius/halos-flash:stable 0.20.7-1-stable sha256:aaa)" > "$work/status.json"
+"$ctl" rollback --to 0.20.7-2-stable --yes > "$work/out"; has 'no weekly Fedora fixes.*rollback --to 0\.20\.7$' "$work/out"
+host "$(dep ghcr.io/n4berius/halos-flash:stable 0.20.7-1-stable sha256:aaa)" > "$work/status.json"
+: > "$work/log"; "$ctl" rollback --to 0.20.7 --yes > "$work/out"; has '^This follows 0\.20\.7' "$work/out"
+has '^bootc switch --enforce-container-sigpolicy ghcr.io/n4berius/halos-flash:0.20.7$' "$work/log"
+mv "$work/history.keep" "$work/history"
 ok "a queued rollback is shown and not undone by a second one; a dropped staged update is named"
 ok "rollback goes to the previous image, --to pins an exact release by digest, and says when there is none"
 
