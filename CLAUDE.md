@@ -56,7 +56,7 @@ name, but allows saying halOS runs Halogen.
 | `variants/npu`, `variants/no-npu` | Per-edition kernel arguments, Quadlet drop-ins, the allowed-options list and default `halogen.env` |
 | `scripts/` | `build.sh`, `build-helpers.sh`, `build-info.sh` (an image's build record, #121), `build-iso.sh`, `package-iso.sh` (single-file release ISO), `release-info.sh`, `gen-options.py` (options from upstream `FLAGS.md`), `halogen-update.sh` (pins a new Halogen release), `size-report.sh`, `channels.sh` (which channel tags a release moves), `next-tag.sh` (the next release tag), `push-image.sh`, `sign-image.sh` (cosign signing), `kernel-next-update.sh` (moves kernel-next's pin to Fedora's newest plain build), `go-test.sh` (the Go tests of `src/caddy` without an image build; needs network; CI's `check` job in `build.yml` runs it and `tests/run.sh` once, and both edition builds wait for it, #123) |
 | `files/usr/libexec/halogen/settings-tui`, `files/usr/share/halogen/npu-models.list` | The settings screen behind `halogenctl settings` (Python curses) and its list of Halogen's NPU models |
-| `docs/` | `CLI.md` (every command; update it with a command or option), `CLIENTS.md` (connecting apps and coding agents, and trusting the certificate per agent, from each project's docs and source) |
+| `docs/` | `GUIDE.md` (using the machine: settings, updates, each feature and its reasons; INSTALL.md holds only the installation, first boot and disk unlock), `CLI.md` (every command; update it with a command or option), `CLIENTS.md` (connecting apps and coding agents, and trusting the certificate per agent, from each project's docs and source) |
 | `CHANGELOG.md`, `ROADMAP.md` | What each release changed (PRs add to Unreleased), and the order of the work ahead |
 | `src/` | halOS's own source: `dashboard-nodump.c` (built in `Containerfile.helpers`' dashboard stage), `authenticode-check.py` (kernel-next's Secure Boot check at build time) and `caddy/` (`main.go`, `go.mod`, `go.sum`: Caddy with the DNS providers, built in the caddy stage; Dependabot `gomod`) |
 | `tests/` | `run.sh` (fast checks, no GPU or network), `iso-install.sh` + `vm-login.py` (QEMU install test) |
@@ -101,7 +101,7 @@ name, but allows saying halOS runs Halogen.
   switch with its revert if Caddy doesn't come up; only the front door restarts), and a failure
   doesn't stop setup: it reads the mode again and says off, on-but-something-failed, or other;
   `invalid` gets its own line; any other mode is left alone; `--skip` never touches HTTPS. `show`
-  now says to trust the authority per app, not in the system store (INSTALL's advice).
+  now says to trust the authority per app, not in the system store (the guide's advice).
   `tests/setup.sh` pads every answer list with two closing `n` lines: `script` never passes the
   end of input on, so a question a test doesn't name would wait forever. The VM test still skips
   setup and turns self-signed on with its own step. The VM
@@ -586,7 +586,7 @@ name, but allows saying halOS runs Halogen.
   sandboxed) runs `https refresh`, which in self-signed mode try-restarts halos-proxy only when an
   address isn't covered (Caddy now waits for `network-online.target`, but Tailscale and new leases
   come later: code review found IP clients without SNI failed after a reboot); its API-over-Caddy and dashboard checks use the mode's scheme
-  with `-k`; login-status and `halosctl dashboard` show `https://`. INSTALL advises trusting the
+  with `-k`; login-status and `halosctl dashboard` show `https://`. GUIDE.md advises trusting the
   authority per app, not system-wide (it isn't name-constrained). The VM test turns self-signed on,
   curls with the authority (Caddy's 503 note, Halogen being down), checks the 308, the selftest
   lines, and `off`. Not done, for the owner to agree (security audit): a name-constrained root kept
@@ -618,14 +618,14 @@ name, but allows saying halOS runs Halogen.
   and otherwise prints Caddy's last errors and restores the mode and credentials. The selftest
   checks the name against the system trust store (WARN staging or within 10 days, FAIL none or
   ended). Namecheap's API replaces a domain's whole record list (libdns/namecheap `SetHosts`):
-  INSTALL warns. Review and audit fixes: `dns_value_ok` (provider shapes) runs in `dns-stage` and
+  GUIDE.md warns. Review and audit fixes: `dns_value_ok` (provider shapes) runs in `dns-stage` and
   again in `env` (a hand-edited token never reaches Caddy); `dns-stage` never echoes a line without
   `field=`; `halosctl` runs `https set --check` (names, email) before asking for any secret, puts
   back the credentials if `set` refuses, traps INT/TERM/HUP during the wait to revert, reads
   Caddy's errors with `jq` (escaped quotes), and drops `.prev` once the new credentials work
   (`https forget-dns` removes them all, refused while in use); `set self-signed` alone doesn't keep
   the Let's Encrypt names. A new credential is first used at Caddy's next renewal when the name
-  already has a valid certificate (INSTALL says so). Real issuance can't run in CI; first checked
+  already has a valid certificate (GUIDE.md says so). Real issuance can't run in CI; first checked
   on freyja.
 
 - udisks2 (kept for fwupd's EFI partition lookup, #106; disabled, D-Bus activated) is root's alone
@@ -820,7 +820,7 @@ name, but allows saying halOS runs Halogen.
   handling leaves a leading space) and also runs `fail2ban-regex systemd-journal` (`F2BJ`).
   `usedns = no`, `maxmatches = 1`, `dbmaxmatches = 0`, `loglevel = NOTICE` (the audit measured
   about 5 KB per failing address and 17 KB per ban with the defaults, and one journal line per
-  401), and `CPUQuota=50%`, `Nice=10`, `TasksMax=64` in the drop-in. Known limits, in INSTALL:
+  401), and `CPUQuota=50%`, `Nice=10`, `TasksMax=64` in the drop-in. Known limits, in GUIDE.md:
   rich rules sit after firewalld's established-accept, so an open connection survives a ban;
   bans are per address (IPv6 /64); shared addresses and proxies; `firewall-cmd --reload` drops
   the rules unnoticed; with hundreds of bans `off` can leave rules (halosctl counts them).
@@ -1359,7 +1359,7 @@ and tracked on the owner's project board. [ROADMAP.md](ROADMAP.md) holds the ord
   OvisOCR3 (`ATH-MaaS/OvisOCR3`, 1.7 GB safetensors) goes through `model pull` into `custom` (the
   probe's base is `ovisocr3`, confirmed on freyja, not LFM or decider; its NPU programs in `models.txt` have no pinned revision, like
   `halogen-spotter-0.6b`, so an upstream push to them breaks the fetch's hash check), served as
-  `OvisOCR3` from `/models/custom/OvisOCR3`; INSTALL mentions `HALOGEN_WEIGHTS_LOCK=1` (already
+  `OvisOCR3` from `/models/custom/OvisOCR3`; GUIDE.md mentions `HALOGEN_WEIGHTS_LOCK=1` (already
   allowed) beside it.
 - **Halogen 0.20.1** (#95, on edge, not yet released): reply-end prompt-cache entries by default
   (one more entry per slot, about 112 MiB each; `HALOGEN_CACHE_REPLY` is read by
