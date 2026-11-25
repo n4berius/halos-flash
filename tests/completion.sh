@@ -55,7 +55,8 @@ echo "ok: every command and subcommand of halogenctl and halosctl is offered, an
 expect "flash" _halogenctl halogenctl fl
 expect "--quick tools" _halogenctl halogenctl bench ''
 expect "--quick" _halogenctl halogenctl bench tools ''
-sed "s|local models=/srv/models|local models=$work|" "$dir/halogenctl" > "$work/c"
+sed "s|local models=/srv/models names=/run/halos/model-names|local models=$work names=$work/none|" "$dir/halogenctl" > "$work/c"
+grep -q "local models=$work names=" "$work/c" || fail "the test couldn't point completion at its folder"
 # Names a container could create: run in $work, they would leave pwned files there.
 mkdir -p "$work/flash/mine" "$work/flash/.check" "$work/LFM/LFM3-1.7B" "$work/flash/\$(touch\${IFS}pwned)" \
   "$work/LFM/\`touch pwned2\`" "$work/flash/a b" "$work/flash/"$'a\nofficial'
@@ -71,7 +72,53 @@ expect "mine" _halogenctl halogenctl flash remove m
 expect "LFM3-1.7B" _halogenctl halogenctl model remove ''
 expect "--yes" _halogenctl halogenctl flash check mine ''
 expect "" _halogenctl halogenctl flash pull x --revision ''
+mkdir -p "$work/custom/OvisOCR3"; : > "$work/flash/mine/their-drafter.hgn"; : > "$work/flash/mine/model.hgn"
+expect "LFM3-1.7B OvisOCR3" _halogenctl halogenctl model pull x --as ''
+expect "mine" _halogenctl halogenctl flash pull x --as m
+expect "" _halogenctl halogenctl flash convert x --as ''
+expect "off official official-r2 their-drafter.hgn" _halogenctl halogenctl flash drafter mine ''
 echo "ok: halogenctl offers options and the plain names of your own checkpoints; a crafted folder name never runs"
+
+# Under sudo, completion runs as you and can't read /srv/models: the names come from the list
+# root's model-names writes, built here from the same folders (setpriv stands in as a pass-through).
+mkdir -p "$work/bin" "$work/LFM/"$'LFM3\nflash evil' "$work/flash/.convert/bigone" "$work/flash/.check"
+# shellcheck disable=SC2016 # expanded when the fake runs
+printf '#!/bin/bash\n[ "$1 $2 $3 $4" = "--reuid=970 --regid=970 --clear-groups --" ] || exit 9\nshift 4; exec "$@"\n' > "$work/bin/setpriv"
+chmod +x "$work/bin/setpriv"
+PATH="$work/bin:$PATH" HALOGEN_MODELS_DIR="$work" HALOS_NAMES_GROUP="$(id -gn)" "$repo/files/usr/libexec/halogen/model-names" "$work/names"
+for l in "flash mine" "drafter mine their-drafter.hgn" "convert bigone" "own LFM LFM3-1.7B" "own custom OvisOCR3"; do
+  grep -qxF -- "$l" "$work/names" || { cat "$work/names" >&2; fail "model-names didn't list '$l'"; }
+done
+if grep -vE '^(flash|convert) [A-Za-z0-9][A-Za-z0-9._-]*$|^(own [A-Za-z]+|drafter [A-Za-z0-9][A-Za-z0-9._-]*) [A-Za-z0-9][A-Za-z0-9._-]*$' "$work/names"; then
+  fail "model-names wrote a line that isn't a plain name"
+fi
+if grep -qx 'own LFM LFM3' "$work/names"; then fail "a folder name with a line break became a name"; fi
+[ "$(stat -c %a "$work/names")" = 640 ] || fail "the names list isn't 0640"
+cp -p "$work/names" "$work/names.before"; sleep 1
+PATH="$work/bin:$PATH" HALOGEN_MODELS_DIR="$work" HALOS_NAMES_GROUP="$(id -gn)" "$repo/files/usr/libexec/halogen/model-names" "$work/names"
+[ "$work/names" -ot "$work/names.before" ] || [ ! "$work/names" -nt "$work/names.before" ] || fail "model-names rewrote an unchanged list"
+# A flooded folder is cut before root's loop, and a link at flash is never followed to .convert.
+mkdir -p "$work/flood/flash/.convert" "$work/flood/elsewhere/.convert/secret" "$work/flood/custom" "$work/flood/decider/keep"
+(cd "$work/flood/custom" && mkdir $(seq -f 'm%g' 1 6000))
+mv "$work/flood/flash" "$work/flood/flash.real"; ln -s elsewhere "$work/flood/flash"
+PATH="$work/bin:$PATH" HALOGEN_MODELS_DIR="$work/flood" HALOS_NAMES_GROUP="$(id -gn)" "$repo/files/usr/libexec/halogen/model-names" "$work/flood.names"
+if grep -q secret "$work/flood.names"; then fail "model-names followed a link at flash"; fi
+n="$(grep -c '^own custom ' "$work/flood.names")"; [ "$n" -le 1000 ] || fail "model-names kept $n names from one folder"
+grep -qx 'own decider keep' "$work/flood.names" || fail "a flood in one folder pushed out another's names"
+sed "s|local models=/srv/models names=/run/halos/model-names|local models=$work/unreadable names=$work/names|" "$dir/halogenctl" > "$work/c2"
+# A crafted line in the list (the folders are halogen's) still never runs.
+# shellcheck disable=SC2016 # meant literally
+printf '%s\n' 'flash $(touch${IFS}pwned4)' 'own custom `touch pwned5`' >> "$work/names"
+# shellcheck source=/dev/null
+. "$work/c2"
+expect "mine official" _halogenctl halogenctl flash use ''
+expect "bigone" _halogenctl halogenctl flash convert-stop ''
+expect "LFM3-1.7B OvisOCR3" _halogenctl halogenctl model remove ''
+expect "OvisOCR3" _halogenctl halogenctl model pull x --as O
+expect "off official official-r2 their-drafter.hgn" _halogenctl halogenctl flash drafter mine ''
+expect "off official official-r2" _halogenctl halogenctl flash drafter other ''
+if [ -e "$work/pwned4" ] || [ -e "$work/pwned5" ]; then fail "a listed name ran as a command during completion"; fi
+echo "ok: under sudo the names come from root's list, which keeps only plain names"
 
 expect "alpha edge kernel-next rc release" _halosctl halosctl switch ''
 expect "--reboot --to --yes" _halosctl halosctl rollback ''

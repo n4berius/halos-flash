@@ -74,6 +74,11 @@ duplicate_settings() {
     | { grep -xF -f "${HALOGEN_ALLOWED_FILE:-/usr/share/halogen/options.allowed}" || true; } | tr '\n' ' ')"
   [ -z "$d" ] || printf '\nSet more than once in halogen.env (only the last line counts): %s\nDelete the older lines (sudo nano %s/halogen.env), then: sudo halogenctl restart\n' "${d% }" "$configs"
 }
+# Tab completion reads your model names from /run/halos/model-names (sudo runs it as you, and
+# /srv/models is halogen's). halos-status refreshes that list every 30 s; after a pull or a
+# removal it is started now, so the new name usually completes at once (if a run is already
+# under way, by the next one). Never waited for, and never an error.
+names_now() { systemctl start --no-block halos-status.service > /dev/null 2>&1 || true; }
 flash_info() { as_owner sed -n "s/^$2=//p" "$models/flash/$1/halos.info" 2>/dev/null | tail -n 1 | tr -cd '[:print:]' || true; }
 
 case "${1:-status}" in
@@ -356,6 +361,7 @@ case "${1:-status}" in
         name="$(sed -n 's/^name=//p' <<< "$out" | tail -n 1)"
         valid "$name" || exit 1
         echo
+        names_now
         echo "To serve it: sudo halogenctl flash use $name"
         ;;
       verify)
@@ -616,6 +622,7 @@ case "${1:-status}" in
             [ "$answer" = y ] || [ "$answer" = Y ] || exit 0
           fi
           as_halogen /usr/libexec/halogen/flash-checkpoint convert-clear "$name" || exit 1
+          names_now
           as_owner find "$models/flash" -maxdepth 1 -name '.bf16-to-hgn-*' -exec rm -rf -- {} + 2> /dev/null || true
         fi
         ;;
@@ -635,6 +642,7 @@ case "${1:-status}" in
         # planted by a container must not let root delete through it), and not chosen while you
         # were asked (#119).
         as_halogen /usr/libexec/halogen/flash-checkpoint remove "$name" || exit 1
+        names_now
         ;;
       *) echo "usage: halogenctl flash pull <hf-repo> [--revision <rev>] [--as <name>] [--file <checkpoint.hgn|build.gguf>] [--keep-gguf] | convert <hf-repo> [--revision <rev>] [--as <name>] [--threads <n>] [--keep-source] [--yes] | convert-logs [lines] | convert-stop [<name>] [--yes] | list | use <name>|official [--yes] | drafter [<name>] [official|official-r2|off|<file>] [--yes] | verify <name> | check <name> [--yes] | remove <name> [--yes]" >&2; exit 2 ;;
     esac
@@ -652,6 +660,7 @@ case "${1:-status}" in
         out="$(as_halogen /usr/libexec/halogen/model-pull "$@" | tee /dev/stderr)" || rc=$?
         path="$(sed -n 's/^path=//p' <<< "$out" | tail -n 1)"
         [[ "$path" =~ ^/models/(decider|LFM|custom)/[A-Za-z0-9._-]+$ ]] || exit 1
+        names_now
         entry="$path"; ! grep -qx 'fast=1' <<< "$out" || entry="$path or $path:fast (faster, small quality cost)"
         # Liquid's own 4-bit file (model pull --qad, Halogen 0.20.6): the fastest form, its weights Liquid's.
         ! grep -qx 'qad=1' <<< "$out" || entry="$entry, or $path:qad (fastest: Liquid's own 4-bit weights, not your checkpoint's)"
@@ -754,6 +763,7 @@ case "${1:-status}" in
         # by a container must not let root delete through it), and not added to
         # HALOGEN_NPU_MODELS while you were asked (#119). Only the folder you were asked about.
         as_halogen /usr/libexec/halogen/model-pull --remove "$kind" "$name" || exit 1
+        names_now
         ;;
       *) echo "usage: halogenctl model pull <hf-repo> [--revision <rev>] [--as <name>] [--qad] | list | remove <name>" >&2; exit 2 ;;
     esac

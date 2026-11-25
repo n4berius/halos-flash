@@ -1,31 +1,66 @@
-# bash completion for halogenctl (halOS). Names of your own checkpoints complete only where
-# you can read /srv/models (as root, or in the halogen group): sudo runs completion as you.
+# bash completion for halogenctl (halOS). The names of your models and checkpoints complete
+# under sudo too: sudo runs completion as you, and /srv/models is the halogen user's, so they come
+# from /run/halos/model-names (written by root every 30 s and after a pull or a removal; readable
+# by the wheel group). Where /srv/models can be read (a root shell), it is read directly.
 # Those folders can be written by the halogen user and its containers, so their names are never
 # put through compgen -W (which expands $(...) in its words): only plain names, matched by hand.
 _halogenctl_offer() { mapfile -t COMPREPLY < <(compgen -W "$1" -- "$cur"); }
+# Add one word to the offers if it is plain and starts with what was typed.
+_halogenctl_add() {
+  [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || return 0
+  [[ "$1" == "$cur"* ]] && COMPREPLY+=("$1")
+  return 0
+}
+# The names of one kind, as /run/halos/model-names lists them (see model-names):
+#   flash | convert | own [<kind>] | drafter <checkpoint>
 _halogenctl_names() {
-  local d n
-  COMPREPLY=()
-  for d in "$@"; do
-    [ -d "$d" ] || continue
-    while IFS= read -r -d '' n; do
-      [[ "$n" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || continue
-      [[ "$n" == "$cur"* ]] && COMPREPLY+=("$n")
-    done < <(find "$d" -mindepth 1 -maxdepth 1 -type d -printf '%f\0' 2>/dev/null)
-  done
+  local kind="$1" sel="${2:-}" d n k a b c
+  if [ -r "$models" ] && [ -x "$models" ]; then
+    local dirs=()
+    case "$kind" in
+      flash) dirs=("$models/flash") ;;
+      convert) dirs=("$models/flash/.convert") ;;
+      own) if [ -n "$sel" ]; then dirs=("$models/$sel"); else dirs=("$models/decider" "$models/LFM" "$models/custom"); fi ;;
+      drafter)
+        [[ "$sel" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || return 0
+        while IFS= read -r -d '' n; do _halogenctl_add "$n"; done \
+          < <(find "$models/flash/$sel" -mindepth 1 -maxdepth 1 -type f -name '*drafter*.hgn' -printf '%f\0' 2>/dev/null | head -z -n 500)
+        return 0 ;;
+    esac
+    for d in "${dirs[@]}"; do
+      [ -d "$d" ] || continue
+      while IFS= read -r -d '' n; do _halogenctl_add "$n"; done < <(find "$d" -mindepth 1 -maxdepth 1 -type d -printf '%f\0' 2>/dev/null | head -z -n 500)
+    done
+    return 0
+  fi
+  [ -r "$names" ] || return 0
+  while read -r k a b c; do
+    [ "$k" = "$kind" ] || continue
+    case "$kind" in
+      flash|convert) [ -z "$b" ] && _halogenctl_add "$a" ;;
+      own) [ -z "$c" ] && { [ -z "$sel" ] || [ "$a" = "$sel" ]; } && _halogenctl_add "$b" ;;
+      drafter) [ -z "$c" ] && [ "$a" = "$sel" ] && _halogenctl_add "$b" ;;
+    esac
+  done < "$names"
+  return 0
 }
 _halogenctl() {
   # shellcheck disable=SC2034 # prev is set by _init_completion
   local cur prev words cword
   if declare -F _init_completion > /dev/null; then _init_completion || return
   else cur="${COMP_WORDS[COMP_CWORD]}"; words=("${COMP_WORDS[@]}"); cword=$COMP_CWORD; fi
-  local models=/srv/models
+  local models=/srv/models names=/run/halos/model-names
   if [ "$cword" -eq 1 ]; then
     _halogenctl_offer "status start stop restart logs fetch-logs doctor selftest bench config options settings api-key hf-token records cache model flash"
     return
   fi
   # After an option that takes a value, there is nothing to offer.
-  case "${words[cword-1]}" in --revision|--as|--file|--days|--gib|--session|--unit) return ;; esac
+  # After --as of a pull, the names you already have: pulling one again updates it.
+  if [ "${words[cword-1]}" = --as ] && [ "${words[2]:-}" = pull ]; then
+    case "${words[1]}" in flash) _halogenctl_names flash ;; model) _halogenctl_names own ;; esac
+    return
+  fi
+  case "${words[cword-1]}" in --revision|--as|--file|--days|--gib|--session|--unit|--threads) return ;; esac
   case "${words[1]}" in
     options) [ "$cword" -eq 2 ] && _halogenctl_offer "--new" ;;
     settings) _halogenctl_offer "--editor --no-restart" ;;
@@ -49,22 +84,24 @@ _halogenctl() {
       fi ;;
     model)
       if [ "$cword" -eq 2 ]; then _halogenctl_offer "pull list remove"
-      elif [ "${words[2]}" = remove ] && [ "$cword" -eq 3 ]; then _halogenctl_names "$models/decider" "$models/LFM" "$models/custom"
+      elif [ "${words[2]}" = remove ] && [ "$cword" -eq 3 ]; then _halogenctl_names own
       elif [ "${words[2]}" = pull ] && [ "$cword" -ge 4 ]; then _halogenctl_offer "--revision --as --qad"
       fi ;;
     flash)
       if [ "$cword" -eq 2 ]; then _halogenctl_offer "pull convert convert-logs convert-stop list use drafter verify check remove"
       elif [ "$cword" -eq 3 ]; then
         case "${words[2]}" in
-          use) _halogenctl_names "$models/flash"; [[ official == "$cur"* ]] && COMPREPLY+=(official) ;;
-          drafter) _halogenctl_names "$models/flash"; for c in official official-r2 off; do [[ $c == "$cur"* ]] && COMPREPLY+=("$c"); done ;;
-          verify|check|remove) _halogenctl_names "$models/flash" ;;
-          convert-stop) _halogenctl_names "$models/flash/.convert" ;;
+          use) _halogenctl_names flash; _halogenctl_add official ;;
+          drafter) _halogenctl_names flash; _halogenctl_add official; _halogenctl_add official-r2; _halogenctl_add off ;;
+          verify|check|remove) _halogenctl_names flash ;;
+          convert-stop) _halogenctl_names convert ;;
         esac
       else
         case "${words[2]}" in
           pull) _halogenctl_offer "--revision --as --file --keep-gguf" ;;
-          drafter) if [ "$cword" -eq 4 ]; then _halogenctl_offer "official official-r2 off"; else _halogenctl_offer "--yes"; fi ;;
+          drafter)
+            if [ "$cword" -eq 4 ]; then _halogenctl_offer "official official-r2 off"; _halogenctl_names drafter "${words[3]}"
+            else _halogenctl_offer "--yes"; fi ;;
           convert) _halogenctl_offer "--revision --as --threads --keep-source --yes" ;;
           convert-stop) _halogenctl_offer "--yes" ;;
           use|check|remove) _halogenctl_offer "--yes" ;;

@@ -10,11 +10,21 @@ it promotes.
 
 ## Unreleased
 
+- Tab completion of `halogenctl` now completes the names of your checkpoints and models after
+  `sudo` too (before, it found them only in a root shell). It also completes the draft head files
+  for `flash drafter <name>` and your existing names after `--as` of `flash pull` and
+  `model pull`, to update one. The names come from a list that halOS keeps in
+  `/run/halos/model-names` for administrators (#174).
 - The documentation is shorter and easier to find your way in (#172). INSTALL.md now holds only
   the installation, the first boot and the disk unlock. Everything about using the machine
   (settings, updates, HTTPS, the dashboard, benchmarks, your own checkpoints, logs) moved to the
   new [docs/GUIDE.md](docs/GUIDE.md), without the text that was there twice. README.md is now a
   short overview. Version numbers and release names in the examples are up to date.
+- `sudo halogenctl bench` is easier to read: a one-line summary, then a table for reading the
+  prompt and one for writing the answer, with the speed, the spread, the time each length takes
+  and the change since your last run (faster, slower or about the same). It also tells what
+  changed in the setup since that run. The list of settings is now only in the saved report
+  (#171).
 - New: `sudo halogenctl bench tools` measures how well the model calls tools, with
   tool-eval-bench (MIT): 69 conversations with fake tools, three times each, at the settings of
   the public Qwen3.8 Flash Next tool-calling leaderboard, so the score compares with that table.
