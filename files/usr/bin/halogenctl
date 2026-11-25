@@ -1,6 +1,11 @@
 #!/bin/bash -p
 # Admin wrapper for the rootless Halogen service. Run with sudo.
 set -euo pipefail
+# Test hooks (HALOS_*, HALOGEN_* paths and helpers) are for the tests only: under sudo (sudo -E,
+# an env_keep) none is taken from outside.
+if [ -n "${SUDO_COMMAND:-}" ]; then
+  while read -r v; do unset "$v"; done < <(compgen -v | grep -E '^HALO(S|GEN)_' || true)
+fi
 unit() { systemctl --user --machine=halogen@.host "$@"; }
 # A start you ask for always runs. halogen.service allows 3 starts in 15 minutes so a crashing
 # GPU can't restart forever, but your own restarts counted towards that too, and a few in a row

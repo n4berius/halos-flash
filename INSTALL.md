@@ -1165,7 +1165,8 @@ sudo systemctl reboot
 ```
 
 Keep the passphrase as your recovery key. TPM unlock uses PCR 7, which records the Secure Boot
-state. OS updates and rollbacks don't change it. These events change it:
+state. So `halogen-enroll-tpm` refuses when Secure Boot is off: then PCR 7 does not stop a changed
+boot loader from getting the key. Turn Secure Boot on first. OS updates and rollbacks don't change it. These events change it:
 
 - You turn Secure Boot off or on.
 - You change the Secure Boot keys.
@@ -1328,7 +1329,8 @@ halOS refuses it. The
 network at boot is wired, with DHCP, as for the SSH unlock. You can give more than one server. Then
 each of them can unlock the disk alone. The command replaces all servers from before.
 
-`--tpm` selects how tang and the TPM work together:
+`--tpm` selects how tang and the TPM work together (`and` and `or` need Secure Boot on, as the TPM
+unlock does):
 
 - `--tpm and` (the default when the machine has a TPM): the disk unlocks only when the TPM of this
   machine agrees (Secure Boot and the BIOS did not change) **and** a tang server answers. halOS
@@ -1351,7 +1353,9 @@ would then unlock away from your network.
 
 The passphrase always works too: at the keyboard, or over SSH (see above). halOS never removes the
 passphrase slot. `sudo halosctl tang-unlock` shows the current setup. `sudo halosctl tang-unlock
-renew` binds again to the same servers (for example after you change the keys of the tang server).
+renew` binds again to the same servers, with the keys they had (halOS records them). If a server
+now signs with another key, `renew` stops. If you changed the key yourself, set it up again with the
+new key and the same `--tpm` mode: `sudo halosctl tang-unlock on <server> --tpm <mode> --thp <key>`.
 `sudo halosctl tang-unlock off` removes it. The `luks-tang` line of the selftest tells if the
 servers answer now.
 

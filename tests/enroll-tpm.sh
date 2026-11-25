@@ -7,7 +7,8 @@ work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
 mkdir "$work/bin"
 printf '#!/bin/sh\necho "cryptenroll $*" >> "%s/log"\n' "$work" > "$work/bin/systemd-cryptenroll"; chmod +x "$work/bin/systemd-cryptenroll"
 # No tang binding (#44): the helper reads none.
-printf '#!/bin/sh\nexit 0\n' > "$work/bin/tang-unlock"; chmod +x "$work/bin/tang-unlock"
+# shellcheck disable=SC2016
+printf '#!/bin/sh\n[ "$1" != secure-boot ] || [ -z "$FAKE_SB_OFF" ]\n' > "$work/bin/tang-unlock"; chmod +x "$work/bin/tang-unlock"
 run() { PATH="$work/bin:$PATH" HALOS_CRYPTTAB="$work/crypttab" HALOS_TANG_UNLOCK="$work/bin/tang-unlock" "$repo/files/usr/bin/halogen-enroll-tpm" "$@" > "$work/out" 2>&1; }
 for tab in missing empty comments; do
   case "$tab" in missing) rm -f "$work/crypttab" ;; empty) : > "$work/crypttab" ;; comments) printf '# none\n\n' > "$work/crypttab" ;; esac
@@ -22,6 +23,14 @@ grep -q 'cryptenroll .*/dev/disk/by-uuid/1234-abcd$' "$work/log" || { cat "$work
 : > "$work/crypttab"; run /dev/sdz2 || { cat "$work/out" >&2; exit 1; }
 grep -q 'cryptenroll .*/dev/sdz2$' "$work/log" || { echo "the device given wasn't used" >&2; exit 1; }
 echo "ok: halogen-enroll-tpm binds crypttab's first volume, or the device given"
+printf 'luks-abc UUID=1234-abcd none\n' > "$work/crypttab"; : > "$work/log"
+if FAKE_SB_OFF=1 run; then echo "enrolled with Secure Boot off" >&2; exit 1; fi
+grep -q "Secure Boot is off" "$work/out" || { cat "$work/out" >&2; exit 1; }
+[ ! -s "$work/log" ] || { echo "cryptenroll ran with Secure Boot off" >&2; exit 1; }
+# Under sudo the test hooks are ignored: the real crypttab and helper are used, not the test's.
+if SUDO_COMMAND=/usr/bin/halogen-enroll-tpm run; then :; fi
+if grep -q 1234-abcd "$work/log"; then echo "took a test hook under sudo" >&2; exit 1; fi
+echo "ok: with Secure Boot off it enrolls nothing, and under sudo it ignores the test hooks"
 if [ "$(id -u)" != 0 ]; then
   printf 'luks-abc UUID=1234-abcd none\n' > "$work/crypttab"; chmod 000 "$work/crypttab"
   if run; then echo "enrolled from an unreadable crypttab" >&2; exit 1; fi

@@ -231,9 +231,17 @@ else
   case "${ts[0]:-}" in
     on)
       case "${ts[1]:-}" in and) how="when the TPM agrees and a tang server answers" ;; or) how="with the TPM, or else from a tang server" ;; *) how="when a tang server answers" ;; esac
-      down=()
-      for u in "${ts[@]:2}"; do run "$tang" thumbprints "$u" > /dev/null || down+=("$u"); done
-      if [ "${#down[@]}" = 0 ]; then say PASS luks-tang "unlocks at boot $how (${ts[*]:2}); every server answers now"
+      down=(); rekeyed=()
+      # Each server must answer and still sign with the key it was bound to (recorded at bind;
+      # tang-unlock fetches and reads the answer as nobody).
+      bound_keys="$(run "$tang" bound)"
+      for u in "${ts[@]:2}"; do
+        if ! now="$(run "$tang" thumbprints "$u")"; then down+=("$u"); continue; fi
+        k="$(awk -v u="$u" '$1 == u { print $2; exit }' <<< "$bound_keys")"
+        [ -z "$k" ] || grep -qxF -- "$k" <<< "$now" || rekeyed+=("$u")
+      done
+      if [ "${#rekeyed[@]}" -gt 0 ]; then say WARN luks-tang "unlocks at boot $how, but ${rekeyed[*]} no longer signs with the key bound to it, so it can't unlock the disk; if the key was changed on purpose: sudo halosctl tang-unlock on <server> --tpm ${ts[1]} --thp <new key>"
+      elif [ "${#down[@]}" = 0 ]; then say PASS luks-tang "unlocks at boot $how (${ts[*]:2}); every server answers now"
       elif [ "${#down[@]}" -lt "$((${#ts[@]} - 2))" ]; then say WARN luks-tang "unlocks at boot $how; not answering now: ${down[*]}"
       elif [ "${ts[1]:-}" = or ]; then say WARN luks-tang "unlocks at boot $how, but no tang server answers now (${down[*]}): only the TPM would unlock the next boot"
       else say WARN luks-tang "unlocks at boot $how, but no tang server answers now (${down[*]}), so the next boot would ask for the passphrase"; fi ;;

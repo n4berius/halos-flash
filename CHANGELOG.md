@@ -10,6 +10,20 @@ it promotes.
 
 ## Unreleased
 
+- Hardening from the same review (#166):
+  - Unlocking from a tang server: `halosctl tang-unlock on` with `--tpm and` or `--tpm or`, and
+    `halogen-enroll-tpm`, refuse while Secure Boot is off, since the TPM's check then doesn't stop
+    a changed boot loader. Only SHA-256 server keys are taken (the 43-character ones
+    `tang-show-keys` prints). The keys bound are recorded, so `tang-unlock renew` reuses them
+    without asking and stops if a server now signs with another key; the selftest warns about
+    such a server. The server's answer is read as the unprivileged `nobody` user. A bind stopped
+    with Ctrl-C undoes what it had made.
+  - `halosctl` and `halogenctl` ignore their test settings (`HALOS_*`, `HALOGEN_*`) when run with
+    `sudo`, and start without reading any startup file from the environment.
+  - A GGUF conversion (`halogenctl flash pull`) and `halogenctl flash check` no longer use the GPU
+    at the same time: the check refuses while a conversion runs, and a conversion waits for a check.
+  - CI: builds of pull requests and other branches run without the right to push packages or to
+    sign. Only main's build has it.
 - More hardening from the whole-image review, tried on a real machine before release (#167):
   - The conversion of a GGUF download (`halogenctl flash pull`) sees only its own download, with
     the rest of the system read-only, not every model.

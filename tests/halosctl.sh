@@ -206,6 +206,12 @@ host "$(dep ghcr.io/n4berius/halos-flash:beta 0.19.0-beta.2 sha256:new)" \
   "$(dep ghcr.io/n4berius/halos-flash:beta 0.19.0-beta.1 sha256:bbb | sed 's/2026-11-05T16/2026-11-01T16/')" > "$work/next.json"
 "$ctl" upgrade --yes > "$work/out"; has 'Warning: the staged image was built before' "$work/out"
 ok "upgrade stages the channel's newest release and records it; history lists every change; an old-name install switches to halos-flash"
+# Under sudo the test hooks are ignored: the history the test points at is never read.
+echo "TESTHOOK-HISTORY" > "$work/hook-history"
+HALOS_HISTORY="$work/hook-history" SUDO_COMMAND=/usr/bin/halosctl "$ctl" history > "$work/out" 2>&1 || true
+if grep -q TESTHOOK-HISTORY "$work/out"; then echo "halosctl took a test hook under sudo" >&2; exit 1; fi
+HALOS_HISTORY="$work/hook-history" "$ctl" history > "$work/out" 2>&1; grep -q TESTHOOK-HISTORY "$work/out" || { echo "the hook check itself didn't work" >&2; exit 1; }
+ok "under sudo halosctl ignores its test hooks"
 
 # Signatures (#46): an install from before the check has an "insecure" spec. Its first upgrade is a
 # switch to the same name with the check on, which also fetches the newest image of that name.

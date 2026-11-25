@@ -61,7 +61,7 @@ name, but allows saying halOS runs Halogen.
 | `tests/` | `run.sh` (fast checks, no GPU or network), `iso-install.sh` + `vm-login.py` (QEMU install test) |
 | `.claude/skills/ste100/` | Write or rewrite user documentation in ASD-STE100 Simplified Technical English (#152): the rules, what never changes, and `check.py` (code, inline code, links and numbers as on main; every `#anchor` link resolves). Not for CLAUDE.md or `.claude/agents` |
 | `.claude/agents/` | Subagents: `code-reviewer` (QA review before merge) and `security-auditor` (audit, zero-cost hardening ideas). Both only read and report |
-| `.github/workflows/` | `build.yml` (image, edge tag; also weekly, Thursday 05:37 UTC), `iso.yml` (ISO + VM install test), `release.yml`, `refresh.yml` (weekly rebuild of stable), `halogen-update.yml` (daily: opens a PR for a new Halogen release), `kernel-next-update.yml` (weekly: a PR for a newer test kernel) |
+| `.github/workflows/` | `build.yml` (image, edge tag; also weekly, Thursday 05:37 UTC; pull requests and other branches run job `build`, read-only; main runs `publish`, the same steps by YAML anchors plus Push and Sign, with `packages`/`id-token: write` and the signing environment), `iso.yml` (ISO + VM install test), `release.yml`, `refresh.yml` (weekly rebuild of stable), `halogen-update.yml` (daily: opens a PR for a new Halogen release), `kernel-next-update.yml` (weekly: a PR for a newer test kernel) |
 
 ## How the running system works
 
@@ -196,7 +196,11 @@ name, but allows saying halOS runs Halogen.
   `HALOGEN_MTP_HEAD=/models/head/…`; GPU devices and `--ipc=host` stay (whether repack needs them:
   freyja). `tests/static.sh` exempts that
   one line from the prompt-cache mount rule. Left for the owner (security audit of #160): the draft
-  head's sha256 in `weights.sha256`, and the GPU lock against an overlapping `flash check`.
+  head's sha256 in `weights.sha256` (needs huggingface.co, which the review session couldn't reach).
+  GPU: `flash-checkpoint`'s `gpu_work` (halogen's
+  `$HALOGEN_STATE_DIR/gpu-work.lock`, fd 6, closed for podman like fd 9): a conversion waits for
+  it, `check-prepare` and `check` refuse with 75 while a conversion holds it (halogenctl's
+  `gpu_lock` is root's and covers only its own commands).
 - Draft heads for own Flash checkpoints (owner's choice: official by default, a third party's when
   chosen): Halogen 0.20.7's entrypoint (`drafter_head`) uses `qwen38-flash-next-drafter-r2-ht4.hgn`
   beside the checkpoint only when `HALOGEN_CK_OVERLAY` is unset and the checkpoint's basename is
@@ -257,9 +261,29 @@ name, but allows saying halOS runs Halogen.
   and not documented for users (sudo argv); the initramfs counts only non-removable, non-USB LUKS
   devices (USB asked with `lsblk -rsno TRAN`, the device and every device under it: lsblk reads TRAN
   through a `device` link a partition lacks, so a partition's own was always empty and USB
-  partitions passed; whole-image audit, #165; SSH unlock's module and helper the same). Left for the owner (audit): a Secure Boot state check before `on`/`renew`/enroll, `renew`
-  reusing the bound thumbprints, the selftest's `/adv` fetch as nobody and checking the bound key,
-  a trap in `bind`, S256-only thumbprints.
+  partitions passed; whole-image audit, #165; SSH unlock's module and helper the same). Hardening
+  (owner agreed, after #165's audit): `bind` with `and`/`or` and `halogen-enroll-tpm` refuse while
+  Secure Boot is off (`tang-unlock secure-boot` reads the `SecureBoot-8be4df61-…` efivar's byte 5,
+  `HALOS_EFIVARS` hook); only S256 thumbprints (43 base64url characters; `thumbprints` prints S256
+  only); `bind` writes `/var/lib/halos/tang-unlock.keys` (`<url> <thp>` per line, root, 0600)
+  after success, since `clevis luks list` shows only the url; `tang-unlock bound` prints it only
+  while its url set equals the bound one; `renew` takes those keys without asking and refuses a
+  server whose `/adv` no longer lists one (hint: `on` with the new key); the selftest's
+  `luks-tang` WARNs on such a server; `/adv` is fetched and read by curl and jose as nobody
+  (`setpriv --reuid=65534 … --no-new-privs`, skipped with `HALOS_FETCH_AS_ROOT=1` for the tests);
+  an INT/TERM/HUP during `bind` unbinds what this run made (`undo_new`, plus a TPM token an `or`
+  bind added) and keeps the old; after the new bindings are made, signals are ignored until the
+  old slots and the TPM-only unlock are gone. Review fixes: every pair is checked before the first
+  bind; `bind`/`remove` take `flock -n` on `<record>.lock` (two admins at once would remove each
+  other's slots); the nobody fetch runs under `setsid -w` with no terminal on any fd (a hijacked
+  curl/jose could otherwise take root's tty and read the passphrase typed next); clevis itself
+  still fetches `/adv` as root at bind; a failed record write deletes the record; setup skips the
+  TPM offer and binds tang alone while Secure Boot is off; every "key changed" hint names the
+  current `--tpm` mode.
+  Test hooks under sudo: `tang-unlock` and `halogen-enroll-tpm` unset theirs, and `halosctl` and
+  `halogenctl` unset every `HALOS_*`/`HALOGEN_*` variable, when `SUDO_COMMAND` is set (sudo's
+  env_reset already drops them; this covers a sudoers `env_keep`); `halosctl` and
+  `halogen-enroll-tpm` are `#!/bin/bash -p` like halogenctl.
 - `halosctl power [low-power|balanced|performance]` (#83) saves the firmware's ACPI platform profile in
   `/etc/halos/platform-profile` and sets it at once; `halos-platform-profile.service` (root, oneshot,
   at boot and after resume, skipped without `/sys/firmware/acpi/platform_profile`) runs
