@@ -10,6 +10,11 @@ it promotes.
 
 ## Unreleased
 
+- The documentation is shorter and easier to find your way in (#172). INSTALL.md now holds only
+  the installation, the first boot and the disk unlock. Everything about using the machine
+  (settings, updates, HTTPS, the dashboard, benchmarks, your own checkpoints, logs) moved to the
+  new [docs/GUIDE.md](docs/GUIDE.md), without the text that was there twice. README.md is now a
+  short overview. Version numbers and release names in the examples are up to date.
 - New: `sudo halogenctl bench tools` measures how well the model calls tools, with
   tool-eval-bench (MIT): 69 conversations with fake tools, three times each, at the settings of
   the public Qwen3.8 Flash Next tool-calling leaderboard, so the score compares with that table.
@@ -571,7 +576,7 @@ No change for users: the project notes and roadmap are now up to date (#79).
   official one always stays downloaded. A pull fetches only what Halogen loads, at an exact
   commit. It checks every file against the repository's hashes and with Halogen's `verify`, and
   halOS checks the checkpoint again after each Halogen update. See
-  [INSTALL.md](INSTALL.md#your-own-flash-checkpoint). (#60)
+  [docs/GUIDE.md](docs/GUIDE.md#your-own-flash-checkpoint). (#60)
 - The model download and `model pull` no longer get the NPU device. (#60)
 
 ## v0.19.1-alpha.1 (2026-11-06)
