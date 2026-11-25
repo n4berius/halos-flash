@@ -21,8 +21,9 @@ vm=$!
 trap 'kill "$vm" 2>/dev/null || true' EXIT
 
 reached=0
-for t in 60 120 180 240 300 360 420 480; do
-  sleep 60
+# A look about every 15 s (it was every 60 s), so the step ends soon after the installer is up.
+for t in $(seq 15 15 480); do
+  sleep 13
   printf 'screendump %s/screen-%ss.png -f png\n' "$out" "$t" | python3 -c '
 import socket, sys, time
 s = socket.socket(socket.AF_UNIX); s.connect(sys.argv[1]); s.send(sys.stdin.buffer.read()); time.sleep(2)

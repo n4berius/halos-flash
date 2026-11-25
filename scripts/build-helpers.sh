@@ -9,6 +9,9 @@
 # whose inputs differ from its checkout's.
 # Usage: scripts/build-helpers.sh <dir>          build into <dir> (missing or empty)
 #        scripts/build-helpers.sh --check <dir>  exit 1 unless <dir> matches this checkout
+#        scripts/build-helpers.sh --resolve      print the base by digest and its version label
+# HALOS_BASE=<repository@sha256:...>: build on that base, as --resolve printed it, instead of
+# resolving the tag again (the ISO workflow starts the installer on it meanwhile, so both share it).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 # shellcheck source=versions.env
@@ -66,27 +69,50 @@ check() { # $1: dir
   done
 }
 
-if [ "${1:-}" = --check ]; then
-  [ "$#" = 2 ] || { echo "usage: $0 --check <dir>" >&2; exit 2; }
-  check "$2"
-  exit
-fi
-[ "$#" = 1 ] || { echo "usage: $0 <dir> | --check <dir>" >&2; exit 2; }
+# Fedora's base is a moving tag (#121): it is resolved once to the digest the helpers and every
+# image built from them use, so they share one base even if the tag moves during the run.
+# A digest in versions.env (repository@sha256:...) rebuilds on that exact base.
+resolve() { # $1: what to ask for; sets base and version
+  local ask="$1" digest=""
+  version=""
+  read -r digest version < <(skopeo inspect --retry-times 3 \
+    --format '{{.Digest}} {{index .Labels "org.opencontainers.image.version"}}' "docker://$ask") || true
+  [[ "${digest:-}" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "no digest for $ask: ${digest:-}" >&2; exit 1; }
+  case "$ask" in
+    *@*) [ "${ask##*@}" = "$digest" ] || { echo "$ask answered with $digest" >&2; exit 1; } ;;
+  esac
+  [[ "${version:-}" =~ ^[A-Za-z0-9._+-]+$ ]] || version=unknown
+  base="$BASE_REPO@$digest"
+}
+
+case "${1:-}" in
+  --check)
+    [ "$#" = 2 ] || { echo "usage: $0 --check <dir>" >&2; exit 2; }
+    check "$2"
+    exit ;;
+  --resolve)
+    [ "$#" = 1 ] || { echo "usage: $0 --resolve" >&2; exit 2; }
+    resolve "$BASE_ASK"
+    echo "$base $version"
+    exit ;;
+esac
+[ "$#" = 1 ] || { echo "usage: $0 <dir> | --check <dir> | --resolve" >&2; exit 2; }
 DIR="$1"
 mkdir -p "$DIR"
 [ -z "$(ls -A "$DIR")" ] || { echo "$DIR is not empty" >&2; exit 1; }
 
-# Fedora's base is a moving tag (#121): it is resolved once, here, to the digest the helpers and
-# every image built from them use, so they share one base even if the tag moves during the run.
-# A digest in versions.env (repository@sha256:…) rebuilds on that exact base.
-read -r digest version < <(skopeo inspect --retry-times 3 \
-  --format '{{.Digest}} {{index .Labels "org.opencontainers.image.version"}}' "docker://$BASE_ASK") || true
-[[ "${digest:-}" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "no digest for $BASE_ASK: ${digest:-}" >&2; exit 1; }
-case "$BASE_ASK" in
-  *@*) [ "${BASE_ASK##*@}" = "$digest" ] || { echo "$BASE_ASK answered with $digest" >&2; exit 1; } ;;
-esac
-[[ "${version:-}" =~ ^[A-Za-z0-9._+-]+$ ]] || version=unknown
-base="$BASE_REPO@$digest"
+if [ -n "${HALOS_BASE:-}" ]; then
+  # Already resolved (--resolve): only the same repository by digest, and a pinned digest only as itself.
+  if ! [[ "$HALOS_BASE" =~ ^.+@sha256:[0-9a-f]{64}$ ]] || [ "${HALOS_BASE%@*}" != "$BASE_REPO" ]; then
+    echo "HALOS_BASE names an unexpected base: $HALOS_BASE" >&2; exit 1
+  fi
+  case "$BASE_ASK" in
+    *@*) [ "$HALOS_BASE" = "$BASE_ASK" ] || { echo "HALOS_BASE $HALOS_BASE isn't the pinned $BASE_ASK" >&2; exit 1; } ;;
+  esac
+  resolve "$HALOS_BASE"
+else
+  resolve "$BASE_ASK"
+fi
 echo "Building the helpers on $FEDORA_BOOTC_IMAGE ($base, version $version)"
 
 # --jobs 4: the four helper stages don't depend on each other, so they build side by side.
