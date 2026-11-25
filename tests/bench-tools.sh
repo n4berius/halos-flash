@@ -11,7 +11,10 @@ f() { printf '#!/bin/bash\n%s\n' "$2" > "$work/bin/$1"; chmod +x "$work/bin/$1";
 # writes a result like tool-eval-bench 3.1.0's (--json-file). FAKE_SCORE sets the score,
 # FAKE_ERROR makes it report a failure, FAKE_DIE makes it stop with nothing written.
 f teb 'printf "%s\n" "$*" >> "$FAKE/teb.log"; echo "cwd=$PWD key=${TOOL_EVAL_API_KEY:-}" >> "$FAKE/teb.log"
+echo "env proxy=${HTTP_PROXY:-}${http_proxy:-}${ALL_PROXY:-} no_proxy=${NO_PROXY:-}/${no_proxy:-} headers=${TOOL_EVAL_HEADERS:-}" >> "$FAKE/teb.log"
 [ -z "${FAKE_DIE:-}" ] || exit 2
+echo "DeprecationWarning: not a JSON line" >&2
+mkdir -p runs/2026/11; printf "model said \033]0;x\007 \033[2J and \302\233 bye\n" > runs/2026/11/r1.md
 out=; for a in "$@"; do [ "${p:-}" = --json-file ] && out="$a"; p="$a"; done
 runs=1; case " $* " in *" --trials 3 "*) runs=3 ;; esac
 for _ in $(seq "$runs"); do i=0
@@ -37,6 +40,7 @@ cat > "$out" <<EOF
    "per_scenario":{"TC-01":{"mean":2},"TC-02":{"mean":1.5},"TC-03":{"mean":0}}}}
 EOF'
 f curl '[ -z "${FAKE_DOWN:-}" ]'
+f df 'printf "Filesystem 1024-blocks Used Available Capacity Mounted\nx 1000000 1 ${FAKE_FREE:-900000} 1%% /\n"'
 f render 'printf "HALOGEN_CHECKPOINT=/models/flash/mine/model.hgn\nHALOGEN_KV8=${FAKE_KV8:-1}\nHALOGEN_API_KEY_FILE=/run/secrets/x\n"'
 printf 'HALOGEN_VERSION=0.20.7\nHALOGEN_VARIANT=npu\nHALOS_RELEASE=0.20.7-1-alpha\nTOOL_EVAL_BENCH_VERSION=3.1.0\n' > "$work/release.env"
 echo 'secret-key-123' > "$work/configs/api-key"
@@ -48,7 +52,11 @@ ok() { echo "ok: $*"; }
 fail() { echo "$*" >&2; [ ! -f "$work/out" ] || cat "$work/out" >&2; exit 1; }
 has() { grep -qE -- "$1" "$2" || fail "expected '$1' in $2"; }
 
-"$bench" > "$work/out" 2>&1 || fail "the full run failed"
+HTTP_PROXY=http://198.51.100.1:3128 http_proxy=http://198.51.100.1:3128 TOOL_EVAL_HEADERS='X-Leak=1' \
+  "$bench" > "$work/out" 2>&1 || fail "the full run failed"
+has '^env proxy= no_proxy=\*/\* headers=$' "$work/teb.log"
+if grep -q $'[\e\a]\|\xc2\x9b' "$dir/runs/2026/11/r1.md"; then fail "the tool's own report kept the model's escape codes"; fi
+has '^model said \]0;x \[2J and  bye$' "$dir/runs/2026/11/r1.md"
 has '--trials 3 --temperature 1\.0 --seed 42 --base-url http://127\.0\.0\.1:18731 --backend halogen --json-file ' "$work/teb.log"
 has "^cwd=$dir key=secret-key-123\$" "$work/teb.log"
 if grep -v '^cwd=' "$work/teb.log" | grep -q 'secret-key-123'; then fail "the key was on the command line"; fi
@@ -72,7 +80,7 @@ if [ "$(jq -r '.score' "$json")" != 67 ] || [ "$(jq -r '.system.tool_eval_bench'
   fail "the JSON lost the score or the versions"
 fi
 [ -z "$(find "$dir" -maxdepth 1 -name '.*' -type f)" ] || fail "temporary files were left behind"
-ok "a full run uses the leaderboard's settings, gets the key only through its environment, and saves a readable report"
+ok "a full run uses the leaderboard's settings, gets the key only through its environment, no proxy, and saves a readable report"
 
 : > "$work/teb.log"
 sleep 1
@@ -110,5 +118,7 @@ has 'the benchmark failed: timeout' "$work/out"
 if FAKE_DIE=1 "$bench" > "$work/out" 2>&1; then fail "a benchmark that stopped passed"; fi
 has 'stopped before it gave a result' "$work/out"
 if "$bench" --long > "$work/out" 2>&1; then fail "took an unknown option"; fi
+if FAKE_FREE=100000 "$bench" > "$work/out" 2>&1; then fail "ran with the configs volume almost full"; fi
+has 'less than 200 MB free' "$work/out"
 [ "$(find "$dir" -mindepth 1 -maxdepth 1 | wc -l)" = "$n" ] || fail "a failed run left a report or a temporary file"
-ok "it refuses a silent server, an unknown option, and a failed or stopped benchmark leaves nothing behind"
+ok "it refuses a silent server, an unknown option, a full volume, and a failed or stopped benchmark leaves nothing behind"

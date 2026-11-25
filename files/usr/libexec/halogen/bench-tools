@@ -26,6 +26,11 @@ esac
 [ -x "$teb" ] || die "this halOS image has no tool-eval-bench"
 curl -sf -m 5 -o /dev/null "$api/health" || die "Halogen isn't answering on $api. Check: sudo halogenctl status"
 [ -r "$configs/api-key" ] || die "cannot read $configs/api-key"
+# Only Halogen is asked, directly: no proxy (httpx would send the key through one for 127.0.0.1
+# too) and no extra headers or providers from the environment (security audit of #173).
+unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy
+export NO_PROXY='*' no_proxy='*'
+while IFS= read -r v; do unset "$v"; done < <(compgen -e | grep '^TOOL_EVAL_' || true)
 
 settings="$("$render" --show 2>/dev/null | grep -E '^HALOGEN_[A-Z0-9_]+=' | grep -vE '_(KEY|TOKEN)[A-Z_]*=' | tr -cd '[:print:]\n' || true)"
 checkpoint="$(sed -n 's/^HALOGEN_CHECKPOINT=//p' <<< "$settings" | tail -n 1)"
@@ -35,11 +40,16 @@ stamp="$(date -u +%Y%m%d-%H%M%S)"
 dir="$configs/bench/tools"
 umask 027
 mkdir -p "$dir"
+# Its records grow with every run, on the small configs volume that halOS's own settings share:
+# keep 200 MB free.
+free="$(df -Pk "$dir" 2>/dev/null | awk 'NR == 2 { print $4 }')"
+[ "${free:-0}" -ge 204800 ] || die "less than 200 MB free in $dir; delete old runs there first (runs/, data/)"
 # tool-eval-bench keeps its own records (runs/<year>/<month>/*.md with every conversation, and
 # data/benchmarks.sqlite) under the folder it runs in. It also reads a .env file there or above;
 # none is expected, and halOS never writes one.
-raw="$dir/.$stamp.raw.json"; events="$dir/.$stamp.events"
-trap 'rm -f "$raw" "$events"' EXIT
+raw="$dir/.$stamp.raw.json"; events="$dir/.$stamp.events"; started="$dir/.$stamp.start"
+trap 'rm -f "$raw" "$events" "$started"' EXIT
+touch "$started"
 
 if [ "$kind" = full ]; then
   echo "Measuring how Halogen calls tools: 69 scenarios, 3 times each, as on the public leaderboard."
@@ -51,9 +61,9 @@ fi
 # The key goes in through the environment, not the command line, so ps never shows it. Progress
 # comes as one JSON event per line on stderr: show one line per finished scenario.
 progress() {
-  tee "$events" | jq -rn --unbuffered --argjson runs "$runs" '
+  tee "$events" | jq -rRn --unbuffered --argjson runs "$runs" '
     def c: tostring | gsub("[[:cntrl:]]"; "");
-    foreach (inputs | select(type == "object" and .event == "scenario_result")) as $e (0; . + 1;
+    foreach (inputs | fromjson? | select(type == "object" and .event == "scenario_result")) as $e (0; . + 1;
       ($e.total | if type == "number" and . > 0 then . else 1 end) as $t
       | "  " + (if $runs > 1 then "run \(((. - 1) / $t | floor) + 1) of \($runs), " else "" end)
         + "\($e.index + 1 | c)/\($e.total | c) \($e.scenario_id | c): \($e.status | c)")' 2>/dev/null || true
@@ -63,6 +73,10 @@ rc=0
   "$teb" "${args[@]}" --seed 42 --base-url "$api" --backend halogen --json-file "$raw") \
   2> >(progress) > /dev/null || rc=$?
 wait
+# Its own Markdown reports keep the model's text as it came, escape codes included: take control
+# characters out (C0 but tab and newline, DEL, and C1 in UTF-8), so they are safe to cat.
+find "$dir/runs" -type f -name '*.md' -newer "$started" -exec \
+  env LC_ALL=C sed -i -e 's/[\x00-\x08\x0b-\x1f\x7f]//g' -e 's/\xc2[\x80-\x9f]//g' {} + 2>/dev/null || true
 [ -s "$raw" ] || die "the benchmark stopped before it gave a result (exit $rc); see sudo halogenctl logs"
 # Every string loses its control characters: the text came from the model and ends up on root's
 # terminal.
@@ -76,7 +90,8 @@ jq -e '(.final_score | type) == "number" and (.scores.category_scores | type == 
 
 # Scenario id -> category, from the progress events, so scores over three runs can be put back
 # into their categories.
-cats="$(jq -c -s 'map(select(.event == "scenario_start") | {(.scenario_id | tostring): (.category | tostring)}) | add // {}' "$events" 2>/dev/null || echo '{}')"
+cats="$(jq -c -R -s '[split("\n")[] | fromjson? | select(type == "object" and .event == "scenario_start")
+  | {(.scenario_id | tostring): (.category | tostring)}] | add // {}' "$events" 2>/dev/null || echo '{}')"
 
 # The newest earlier result of the same kind, to compare with (regular files that parse only:
 # they are halogen's own files).
