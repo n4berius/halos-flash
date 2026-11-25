@@ -347,6 +347,23 @@ printf 'spare\n' > "$work/configs/flash-checkpoint"
 "$ctl" flash drafter > "$work/out" 2>&1; grep -q '^spare drafts with their-drafter.hgn' "$work/out" || { cat "$work/out" >&2; echo "drafter alone doesn't show the served checkpoint" >&2; exit 1; }
 "$ctl" flash drafter official --yes > /dev/null 2>&1
 [ ! -s "$work/configs/flash-drafter" ] || { echo "drafter official didn't set the served checkpoint" >&2; exit 1; }
+# A checkpoint that lists its own file under an official name: the bare name picks that one, the
+# path under /srv/models the official one. own_precision=0 gets its own note.
+printf 'drafter=qwen38-flash-next-drafter-r2.hgn\nown_precision=0\n' >> "$fm/flash/spare/halos.info"; printf 'HGN1' > "$fm/flash/spare/qwen38-flash-next-drafter-r2.hgn"
+"$ctl" flash drafter spare qwen38-flash-next-drafter-r2.hgn --yes > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+[ "$(cat "$work/configs/flash-drafter")" = spare=qwen38-flash-next-drafter-r2.hgn ] || { echo "the bare name didn't pick the checkpoint's own file" >&2; exit 1; }
+grep -q "doesn't carry its own precision" "$work/out" || { cat "$work/out" >&2; echo "no note for own_precision=0" >&2; exit 1; }
+"$ctl" flash drafter spare /srv/models/qwen38-flash-next-drafter-r2.hgn --yes > /dev/null 2>&1
+[ "$(cat "$work/configs/flash-drafter")" = spare=official-r2 ] || { echo "the path didn't pick the official file" >&2; exit 1; }
+# Under the lock, flash-checkpoint itself refuses official-r2 when a link stands at its name.
+rm "$fm/qwen38-flash-next-drafter-r2.hgn"; ln -s "$fm/flash/spare/their-drafter.hgn" "$fm/qwen38-flash-next-drafter-r2.hgn"
+if HALOGEN_DRAFTER_CHOICE_FILE="$work/configs/flash-drafter" "$repo/files/usr/libexec/halogen/flash-checkpoint" drafter spare off > "$work/out" 2>&1 \
+   && HALOGEN_DRAFTER_CHOICE_FILE="$work/configs/flash-drafter" "$repo/files/usr/libexec/halogen/flash-checkpoint" drafter spare official-r2 > "$work/out" 2>&1; then
+  echo "flash-checkpoint took official-r2 through a link" >&2; exit 1
+fi
+grep -q "official-r2 can't be chosen" "$work/out" || { cat "$work/out" >&2; echo "flash-checkpoint didn't say why" >&2; exit 1; }
+sed -i '/^drafter=qwen38-flash-next-drafter-r2.hgn$/d; /^own_precision=0$/d' "$fm/flash/spare/halos.info"; rm "$fm/flash/spare/qwen38-flash-next-drafter-r2.hgn"
+"$ctl" flash drafter spare their-drafter.hgn --yes > /dev/null 2>&1
 rm "$fm/qwen38-flash-next-drafter-r2-ht4.hgn" "$fm/qwen38-flash-next-drafter-r2.hgn"
 printf 'official\n' > "$work/configs/flash-checkpoint"
 "$ctl" flash drafter spare off > /dev/null 2>&1

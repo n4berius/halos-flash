@@ -60,7 +60,8 @@ flash_choice="${HALOGEN_FLASH_FILE:-${HALOGEN_CONFIGS_DIR:-/srv/configs}/flash-c
 drafter_choice="${HALOGEN_DRAFTER_CHOICE_FILE:-${HALOGEN_CONFIGS_DIR:-/srv/configs}/flash-drafter}"
 valid_name() {
   case "$1" in [A-Za-z0-9]*) ;; *) return 1 ;; esac
-  case "$1" in *[!A-Za-z0-9._-]*|official) return 1 ;; esac
+  # off and official-r2 are flash drafter choices: a checkpoint of that name would be read as one.
+  case "$1" in *[!A-Za-z0-9._-]*|official|off|official-r2) return 1 ;; esac
 }
 case "${1:-}" in
   sandbox-check|use|remove|drafter|convert-clear) ;;

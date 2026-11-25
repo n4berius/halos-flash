@@ -411,10 +411,11 @@ case "${1:-status}" in
             /models/"$r2") want="official-r2" ;;
             *) want="" ;;
           esac
-        elif [ "$want" = "$ht4" ]; then want=official
-        # The checkpoint's own file of that name (a pull reflink-copies an identical one) comes
-        # first; its full path under /srv/models picks the one there.
-        elif [ "$want" = "$r2" ] && ! grep -qxF -- "$r2" <<< "${own// /$'\n'}"; then want="official-r2"
+        # For either official name, the checkpoint's own listed file of that name (a pull
+        # reflink-copies an identical one) comes first; the full path under /srv/models picks the
+        # official one.
+        elif ! grep -qxF -- "$want" <<< "${own// /$'\n'}"; then
+          if [ "$want" = "$ht4" ]; then want=official; elif [ "$want" = "$r2" ]; then want="official-r2"; fi
         fi
         case "$want" in
           official|off) ;;
@@ -428,8 +429,13 @@ case "${1:-status}" in
         fi
         # render-config names a draft head only for a checkpoint whose own precision Halogen's
         # verify recorded; say so now, not after a restart that changes nothing.
-        if [ "$want" != off ] && [ "$(flash_info "$name" own_precision)" != 1 ]; then
-          echo "Note: halOS doesn't know yet whether $name carries its own precision, so it drafts with its built-in head until you run: sudo halogenctl flash verify $name"
+        if [ "$want" != off ]; then
+          case "$(flash_info "$name" own_precision)" in
+            1) ;;
+            # A w4b-style checkpoint: HALOGEN_CK_OVERLAY would pick its precision sidecar instead.
+            0) echo "Note: $name doesn't carry its own precision, so no draft head file can be given to it; its built-in head drafts." ;;
+            *) echo "Note: halOS doesn't know yet whether $name carries its own precision, so it drafts with its built-in head until you run: sudo halogenctl flash verify $name" ;;
+          esac
         fi
         if [ "$want" = "$now" ]; then echo "$name already drafts with $want."; exit 0; fi
         if [ "$name" = "$(chosen_flash)" ]; then

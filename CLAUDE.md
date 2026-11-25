@@ -216,6 +216,12 @@ name, but allows saying halOS runs Halogen.
   missing/linked official file, or `HALOGEN_CK_OVERLAY=none` in halogen.env (wins). `flash drafter
   <name> [official|off|<file>]` writes the line through `flash-checkpoint drafter` (name lock plus
   `flash-drafter.lock` for the shared list; `official` drops the line); `flash remove` drops it.
+  #170: the name is optional (one argument that isn't a checkpoint is the choice for the served
+  one); `official-r2` (stored as is) names 0.20.6's `qwen38-flash-next-drafter-r2.hgn` left in
+  `/srv/models` (render-config: plain file, `HGN1`, else the official one); halogenctl maps file
+  names and paths (`/srv/models/<official name>`, `/srv/models/flash/<name>/<listed file>`, `/var`
+  prefix too) to choices, a bare official name preferring the checkpoint's own listed file, and
+  refuses anything else with the choices; `valid_name` refuses `off` and `official-r2` as names.
   With an explicit `CK_OVERLAY` path the entrypoint prints `overlay <path>`, not `draft head`; the
   selftest's `draft-head` reads Halogen's journal since `ExecMainStartTimestamp` (`--timestamp=unix`).
   Also skipped unless `halos.info` has `own_precision=1` (`verify_dir` records `flash_serve
