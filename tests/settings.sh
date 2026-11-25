@@ -81,7 +81,15 @@ batch "$work/env4" "" 'npu on decider-0.8b'
 grep -qx 'HALOGEN_NPU_MODELS=halogen-spotter-0.6b,qwen3.5-2b,decider-0.8b' "$d/env.new" || { cat "$d/env.new" >&2; fail "a spotter in the file was lost"; }
 batch "$work/env4" "" 'npu on halogen-spotter-0.6b'
 [ "$rc" != 0 ] || fail "the spotter could be ticked"
-ok "the agent guard's spotter isn't in the NPU checklist, and a file that names it keeps it"
+# d (the default list) keeps it too, and a file that already had the default list with it
+# keeps its order: nothing to save.
+dflt=$(sed -n 's/^HALOGEN_NPU_MODELS=//p' "$tmpl")
+batch "$work/env4" "" 'npu default'
+grep -qx "HALOGEN_NPU_MODELS=$dflt,halogen-spotter-0.6b" "$d/env.new" || { cat "$d/env.new" >&2; fail "d lost the spotter"; }
+printf 'HALOGEN_NPU_MODELS=halogen-spotter-0.6b,%s\n' "$dflt" > "$work/env5"
+batch "$work/env5" "" 'npu default'
+[ "$rc" = 3 ] || { cat "$d/out" >&2; fail "d reordered a file that had the default list (exit $rc)"; }
+ok "the agent guard's spotter isn't in the NPU checklist, and a file that names it keeps it, also through d"
 
 # Refusals: nothing is written.
 for c in "set HALOGEN_CTX $(printf 'a\033[2Jb')" 'set HALOGEN_NOT_AN_OPTION 1' 'set HALOGEN_CTX  padded ' 'flash half' \

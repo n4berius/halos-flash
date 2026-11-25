@@ -241,6 +241,13 @@ class Model:
     def npu_shown_on(self):
         return [i for i in self.npu_on if i not in GUARD_ONLY]
 
+    def npu_to_default(self):
+        """Back to the template's list. A guard-only name your file has stays: it isn't in the
+        checklist to tick again. When that gives the file's own models, its order stays too."""
+        new = self.npu_list(self.npu_default)
+        new += [i for i in self.npu_on if i in GUARD_ONLY and i not in new]
+        self.npu_on = list(self.orig_npu) if set(new) == set(self.orig_npu) else new
+
     def set_value(self, key, value):
         """value None = back to the default. Returns an error or None."""
         if key not in self.option:
@@ -347,7 +354,7 @@ class Model:
 
 def run_batch(model, lines):
     """One command per line: set K V | reset K | default K | npu on|off ID | flash NAME |
-    drafter NAME VALUE | restart yes|no. Errors go to stderr and stop with exit 2."""
+    drafter NAME VALUE | restart yes|no | npu default (the d key). Errors go to stderr and stop with exit 2."""
     for raw in lines:
         line = raw.rstrip("\n")
         if not line.strip() or line.startswith("#"):
@@ -362,6 +369,9 @@ def run_batch(model, lines):
             err = None if rest in model.option else "not an option of this release"
             if not err:
                 model.reset(rest)
+        elif cmd == "npu" and rest == "default":
+            model.npu_to_default()
+            err = None
         elif cmd == "npu":
             how, _, ident = rest.partition(" ")
             if not any(i.ident == ident for i in model.npu):
@@ -736,9 +746,7 @@ class Screen:
             if k in ("enter", " "):
                 self.m.toggle_npu(items[pos].ident)
             elif k == "d":
-                # A guard-only name your file has stays: it isn't in the list to tick again.
-                self.m.npu_on = list(self.default_npu()) + [i for i in self.m.npu_on
-                                                            if i in GUARD_ONLY and i not in self.default_npu()]
+                self.m.npu_to_default()
                 self.msg = "Back to halOS's default list."
             return None
 
