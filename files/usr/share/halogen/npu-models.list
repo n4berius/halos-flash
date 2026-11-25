@@ -1,7 +1,8 @@
 # Halogen's NPU models, for the NPU model checklist of sudo halogenctl settings.
 # From Halogen's docs/NPU.md (0.20.7): id, what it does, memory as the docs give it (GiB or GB) (blank if the docs
 # don't say). Tab-separated. A model missing here can still be named in HALOGEN_NPU_MODELS by hand;
-# the checklist keeps any name your file already has.
+# the checklist keeps any name your file already has. halogen-spotter-0.6b is left out: only the agent
+# guard uses it, and HALOGEN_AGENT_GUARD adds it.
 decider-0.8b	Decisions: a probability for each option (Qwen3.5-0.8B)	
 decider-4b	Decisions, better on harder questions (Qwen3.5-4B)	5.5 GiB
 d3-lite	Decisions over text and pictures (Decision 3.0, 0.8B)	
@@ -20,4 +21,3 @@ qwen3-asr-0.6b	Speech to text (Qwen3-ASR-0.6B)	1.6 GB
 qwen3-asr-1.7b	Speech to text, larger (Qwen3-ASR-1.7B)	4 GB
 qwen3-tts-0.6b-customvoice	Text to speech, nine voices (Qwen3-TTS-0.6B)	4 GB
 qwen3-tts-1.7b-customvoice	Text to speech, larger (Qwen3-TTS-1.7B)	5 GB
-halogen-spotter-0.6b	Reads tool results for the agent guard (a preview; HALOGEN_AGENT_GUARD adds it)	

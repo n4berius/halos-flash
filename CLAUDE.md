@@ -124,7 +124,9 @@ name, but allows saying halOS runs Halogen.
   and checks); then `gpu_lock` and one `start_halogen restart` when asked. Exit 3 = nothing to save.
   The NPU checklist comes from `files/usr/share/halogen/npu-models.list` (from Halogen's NPU.md:
   update it with a Halogen pin that adds models) plus own checkpoints and any name the file already
-  has (kept, never dropped); no `:fast`/`:qad` forms yet. Options, sections, descriptions and
+  has (kept, never dropped); no `:fast`/`:qad` forms yet. `halogen-spotter-0.6b` is left out
+  (`GUARD_ONLY`: only the agent guard uses it, and `HALOGEN_AGENT_GUARD` adds it at start); a file
+  that names it keeps it, unshown, also through `d`. Options, sections, descriptions and
   defaults are parsed from the edition's template (`Default:` in the line above each option);
   `COMMON` lists the "Common settings". `--batch` (stdin commands) is for `tests/settings.sh`, which
   also drives the real screen in a pty (`xterm` keypad sends `ESC O B`, so the test types `j`).

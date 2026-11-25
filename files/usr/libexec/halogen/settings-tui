@@ -24,6 +24,10 @@ NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 OWN = re.compile(r"^/models/(decider|LFM|custom)/[A-Za-z0-9][A-Za-z0-9._-]*$")
 KEY = re.compile(r"^HALOGEN_[A-Z0-9_]+$")
 NPU_KEY = "HALOGEN_NPU_MODELS"
+# Models only the agent guard uses: HALOGEN_AGENT_GUARD (watch or hold) adds them at Halogen's start,
+# and halOS's fetch downloads them then (Halogen's FLAGS.md). They aren't in the checklist; one your
+# file already names is kept as it is.
+GUARD_ONLY = {"halogen-spotter-0.6b"}
 MAX_VALUE = 4096
 # Shown first, in this order, when the template has them: what most people change.
 COMMON = [
@@ -204,14 +208,14 @@ class Model:
             if not line or line.startswith("#"):
                 continue
             f = line.split("\t")
-            if NAME.match(f[0]):
+            if NAME.match(f[0]) and f[0] not in GUARD_ONLY:
                 self.npu.append(NpuItem(f[0], f[1] if len(f) > 1 else "", f[2] if len(f) > 2 else "",
                                         f[0] in downloaded))
         for p in own:
             self.npu.append(NpuItem(p, "your own checkpoint (%s)" % p.split("/")[2], "", True))
         current = self.npu_list(self.env.get(NPU_KEY))
         for ident in current:
-            if not any(i.ident == ident for i in self.npu):
+            if ident not in GUARD_ONLY and not any(i.ident == ident for i in self.npu):
                 self.npu.append(NpuItem(ident, "in your file, not in halOS's list", "", ident in downloaded, False))
         self.orig_npu = current
         self.npu_on = list(current)  # in the file's order; new ones go at the end
@@ -233,6 +237,9 @@ class Model:
 
     def is_on(self, ident):
         return ident in self.npu_on
+
+    def npu_shown_on(self):
+        return [i for i in self.npu_on if i not in GUARD_ONLY]
 
     def set_value(self, key, value):
         """value None = back to the default. Returns an error or None."""
@@ -623,7 +630,7 @@ class Screen:
             if what == "drafter":
                 return "%d of your own checkpoints" % len(m.flash) if m.flash else "none of your own checkpoints yet"
             if what == "npu":
-                return "%d on" % len(m.npu_on)
+                return "%d on" % len(m.npu_shown_on())
             if what in ("common", "all"):
                 keys = [k for k in self.common_keys()] if what == "common" else list(m.values)
                 n = sum(1 for k in keys if m.values[k] is not None)
@@ -729,7 +736,9 @@ class Screen:
             if k in ("enter", " "):
                 self.m.toggle_npu(items[pos].ident)
             elif k == "d":
-                self.m.npu_on = list(self.default_npu())
+                # A guard-only name your file has stays: it isn't in the list to tick again.
+                self.m.npu_on = list(self.default_npu()) + [i for i in self.m.npu_on
+                                                            if i in GUARD_ONLY and i not in self.default_npu()]
                 self.msg = "Back to halOS's default list."
             return None
 
@@ -737,8 +746,9 @@ class Screen:
             return ["Small models that run on the NPU beside the Flash model, on the same port.",
                     "Default: %s" % (", ".join(self.default_npu()) or "none"),
                     "Each takes host memory while in use; tick only the ones you use. \"to fetch\": downloaded",
-                    "before Halogen's next start."]
-        self.pick("NPU models (%d on)" % len(self.m.npu_on), rows, on_key=act, header=header,
+                    "before Halogen's next start. halogen-spotter-0.6b isn't here: HALOGEN_AGENT_GUARD",
+                    "(watch or hold, under All settings) adds it, and hold also decider-4b."]
+        self.pick("NPU models (%d on)" % len(self.m.npu_shown_on()), rows, on_key=act, header=header,
                   footer="Up/Down move  Space tick  d default list  q back")
 
     def default_npu(self):
