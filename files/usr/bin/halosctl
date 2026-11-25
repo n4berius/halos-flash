@@ -834,7 +834,7 @@ case "$cmd" in
             echo "  Authority's fingerprint (SHA-256): $(fact ca)"
             echo "  Valid until $(fact ca_until). Apps and browsers must trust it once:"
             echo "  sudo halosctl https ca > halos-ca.crt, then add halos-ca.crt to each app (not to your"
-            echo "  computer's own trust store: INSTALL.md, HTTPS)."
+            echo "  computer's own trust store: docs/GUIDE.md, HTTPS)."
           fi
           echo "  Names and addresses covered: $(fact names)"
           echo "  Other names (they replace the earlier ones; alone it keeps them): sudo halosctl https self-signed <name>..."
@@ -986,7 +986,7 @@ case "$cmd" in
           cloudflare|duckdns) fields=(api_token) ;;
           porkbun) fields=(api_key api_secret_key) ;;
           namecheap) fields=(api_key user client_ip) ;;
-          *) die "the DNS provider must be cloudflare, duckdns, porkbun or namecheap (how to make each one's key: INSTALL.md, HTTPS)" ;;
+          *) die "the DNS provider must be cloudflare, duckdns, porkbun or namecheap (how to make each one's key: docs/GUIDE.md, HTTPS)" ;;
         esac
         old="$("$https" mode)"
         set_args=(letsencrypt "$p")

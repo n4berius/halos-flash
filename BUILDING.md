@@ -145,7 +145,7 @@ make machines check your own key, do these steps:
 | The Halogen version | `versions.env`, as [RELEASING.md](RELEASING.md) describes |
 
 Put the settings that Halogen reads at run time in `/srv/configs/halogen.env` on the machine,
-not in the image. See [Configure](README.md#configure).
+not in the image. See [Settings](docs/GUIDE.md#settings).
 
 ## Testing an ISO in a VM
 

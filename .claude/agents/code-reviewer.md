@@ -59,7 +59,7 @@ Repository conventions
   exists.
 - No secrets, tokens or personal data in the diff, logs or test fixtures.
 - Docs: plain language for a non-programmer owner, links to upstream docs instead of guesses,
-  and README/INSTALL/CLAUDE.md updated when behaviour they describe changes.
+  and README/INSTALL/docs/GUIDE.md/CLAUDE.md updated when behaviour they describe changes.
 - Commit messages explain why. The PR description follows `.github/pull_request_template.md`:
   Summary, Testing with checkboxes, whether real hardware was used, and the Halogen version box.
 - CI cost: a push cancels a running ISO install test (25 to 40 minutes). Point out pushes that
