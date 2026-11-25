@@ -255,7 +255,9 @@ name, but allows saying halOS runs Halogen.
   `cryptsetup.target.wants/clevis-luks-askpass.path`, so other machines boot as before;
   `halos-tang-unlock.service` waits up to 60 s for a crypto_LUKS device, greps `clevis luks list`
   for `tang`, then `halos-initrd-net up` and starts `clevis-luks-askpass.path`, whose agent retries
-  every 0.5 s while the prompt waits). No kernel arguments. The Containerfile installs clevis,
+  every 0.5 s while the prompt waits; `SuccessExitStatus=SIGTERM`: switch-root stops it, often within a second
+  on freyja's TPM unlock, and a oneshot killed by SIGTERM is otherwise "failed", listed at every login;
+  `tests/static.sh` checks every initramfs oneshot that conflicts with switch-root). No kernel arguments. The Containerfile installs clevis,
   clevis-luks, clevis-dracut, clevis-systemd and tpm2-tools and checks the initramfs. VM test
   (NPU, LUKS): Debian's tangd as QEMU `guestfwd=tcp:10.0.2.100:80-cmd:tangd <keys>`, keys made by
   `tangd-keygen` on the runner, through a wrapper that sends tangd's stderr to `tang.log` (QEMU's `cmd:`
