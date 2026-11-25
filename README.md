@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/images/halos-flash.png" alt="halOS-flash logo: a dark tile with a lightning bolt, circled by a blue ring" width="560">
+<img src="docs/images/halos-flash.png" alt="halOS logo: a dark tile with a lightning bolt, circled by a blue ring" width="560">
 
 **An operating system made for one job: to run Halogen.**
 
@@ -27,8 +27,8 @@ desktop after the installation.
 
 ## Highlights
 
-- 🔒 **Secure from the start:** Secure Boot, a LUKS-encrypted disk that unlocks with the TPM, a
-  tang server or SSH, and signed images that the machine checks before each update.
+- 🔒 **Secure from the start:** Secure Boot, optional disk encryption (LUKS) that unlocks with the TPM,
+  a tang server or SSH, and signed images that the machine checks before each update.
 - 🔁 **Safe updates:** `sudo halosctl upgrade` installs a new image, and
   `sudo halosctl rollback` goes back to the previous one.
 - 🧠 **Flash and NPU models:** the pinned Halogen release, its models, and your own checkpoints.
