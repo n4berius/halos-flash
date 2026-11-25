@@ -68,7 +68,8 @@ def value_ok(value):
 
 
 INT = re.compile(r"^-?[0-9]+$")
-DEC = re.compile(r"^-?([0-9]+(\.[0-9]*)?|\.[0-9]+)$")
+# As render-config reads numbers: digits on both sides of the dot.
+DEC = re.compile(r"^-?[0-9]+(\.[0-9]+)?$")
 
 
 class Kind:
@@ -112,8 +113,10 @@ class Kind:
             if self.kind == "dec" and not DEC.match(value):
                 return "isn't a number (a dot for decimals, such as 0.7)"
             n = int(value) if self.kind == "int" else float(value)
-            if (self.lo is not None and n < self.lo) or (self.hi is not None and n > self.hi):
-                return "is outside " + self.range_text()
+            if self.lo is not None and (n < self.lo or (self.lo >= 0 and value.startswith("-"))):
+                return "is below %s" % self.lo_text
+            if self.hi is not None and n > self.hi:
+                return "is above %s" % self.hi_text
         elif self.form is not None:
             if not self.form.match(value):
                 return "doesn't have the right form" + (", such as " + self.presets[0] if self.presets else "")
@@ -993,7 +996,8 @@ class Screen:
             entries.append(("type", None))
 
         def is_default():
-            return cur is None or cur == o.halos_value
+            # The template's value (or unset, when it sets none): what r and "default" give.
+            return cur == o.halos_value
 
         def rows():
             out = []
@@ -1041,7 +1045,8 @@ class Screen:
         o = self.m.option[key]
         cur = self.m.values[key]
         takes = (o.kind.describe() + "; ") if o.kind else ""
-        prompt = "%s (%sempty = the default, %s; Esc cancels):" % (key, takes, o.default_text())
+        name = key[len("HALOGEN_"):]
+        prompt = "%s (%sempty = default; Esc cancels):" % (name, takes)
         text = cur if cur is not None else ""
         while True:
             v = self.ask_line(prompt, text)
@@ -1054,7 +1059,8 @@ class Screen:
             err = self.m.set_value(key, v)
             if not err:
                 return
-            prompt = "Not taken: %s %s. Try again (Esc cancels):" % (v if len(v) <= 30 else v[:27] + "...", err)
+            prompt = "Not taken: %s %s. Again (empty = default, Esc cancels):" % (
+                v if len(v) <= 30 else v[:27] + "...", err)
             text = v
 
     def review(self):

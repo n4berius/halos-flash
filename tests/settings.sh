@@ -139,34 +139,50 @@ printf 'HALOGEN_KV_SLOTS\tint\t1..64\t1|128\tx\n' >> "$d/k1"
 printf 'HALOGEN_PLD\tform\t([0-9]\t0\tx\n' >> "$d/k1"
 rc=0
 python3 -I "$tui" --dir "$d" --template "$tmpl" --allowed "$allowed" --catalog "$catalog" --kinds "$d/k1" --check-kinds > "$d/out" 2>&1 || rc=$?
-if [ "$rc" != 1 ] || ! grep -q 'HALOGEN_KV8: no line' "$d/out" || ! grep -q 'preset 128 is outside 1 to 64' "$d/out" \
+if [ "$rc" != 1 ] || ! grep -q 'HALOGEN_KV8: no line' "$d/out" || ! grep -q 'preset 128 is above 64' "$d/out" \
   || ! grep -q '(HALOGEN_PLD)' "$d/out"; then cat "$d/out" >&2; fail "--check-kinds missed a broken option-kinds"; fi
 ok "option-kinds has a line for every option of both editions, its presets and halOS's values pass, and a broken file is found"
 
 # Typed values are checked against it: each refused one exits 2, and the accepted ones are saved.
-long="$(printf '%0201d' 0)"
-for bad in 'HALOGEN_KV8 2' 'HALOGEN_KV8 true' 'HALOGEN_CTX abc' 'HALOGEN_CTX 512' 'HALOGEN_CTX 2000000' \
+# Each limit is FLAGS.md's (PLD's K up to 7, RETRY_GRACE_S at most 120, no chat markers in the
+# thinking message: Halogen refuses to start otherwise), and decimals as render-config reads them.
+long="$(printf '%02001d' 0)"
+for bad in 'HALOGEN_KV8 2' 'HALOGEN_KV8 true' 'HALOGEN_CTX abc' 'HALOGEN_CTX 0' 'HALOGEN_CTX 2000000' \
   'HALOGEN_KV_SLOTS 1.5' 'HALOGEN_TEMPERATURE 0,7' 'HALOGEN_TEMPERATURE 3' 'HALOGEN_REASONING_EFFORT huge' \
-  'HALOGEN_PLD 3' 'HALOGEN_MODEL_ID a b' 'HALOGEN_RECORD_TEXT prompt,everything' \
+  'HALOGEN_PLD 3' 'HALOGEN_PLD 3,9' 'HALOGEN_RECORD_TEXT prompt,everything' 'HALOGEN_RETRY_GRACE_S 500' \
+  'HALOGEN_THINKING_BUDGET_MESSAGE Stop<|im_end|>' 'HALOGEN_THINKING_BUDGET_MESSAGE Done.</think>' \
+  'HALOGEN_RECORD_GIB .5' 'HALOGEN_RECORD_GIB 2.' 'HALOGEN_RECORD_DAYS -0' 'HALOGEN_ADMIT_CHUNK -2' \
   "HALOGEN_THINKING_BUDGET_MESSAGE $long" 'HALOGEN_FREQUENCY_PENALTY -3'; do
   batch "$work/env" "$state" "set $bad"
   if [ "$rc" != 2 ] || [ -e "$d/env.new" ]; then fail "set ${bad:0:60} was taken (exit $rc)"; fi
 done
 batch "$work/env" "$state" 'set HALOGEN_KV8 1
 set HALOGEN_CTX 1048576
-set HALOGEN_TEMPERATURE .6
+set HALOGEN_TEMPERATURE 0.6
 set HALOGEN_FREQUENCY_PENALTY -0.5
 set HALOGEN_REASONING_EFFORT max
 set HALOGEN_PLD 3,3
 set HALOGEN_RECORD_TEXT prompt,reply
-set HALOGEN_MODEL_ID my/model:1
-set HALOGEN_THINKING_BUDGET_MESSAGE Time to answer now.'
+set HALOGEN_MODEL_ID Qwen 3.8 Flash
+set HALOGEN_THINKING_BUDGET_MESSAGE Time to answer now.
+set HALOGEN_ADMIT_CHUNK -1
+set HALOGEN_SSE_KEEPALIVE_S 0
+set HALOGEN_FRAG_WARN_STALLS -1
+set HALOGEN_DMALLOC_LOG 4096
+set HALOGEN_RECORD_GIB 0.5'
 [ "$rc" = 0 ] || { cat "$d/out" >&2; fail "accepted values were refused (exit $rc)"; }
-for l in HALOGEN_KV8=1 HALOGEN_CTX=1048576 HALOGEN_TEMPERATURE=.6 HALOGEN_FREQUENCY_PENALTY=-0.5 \
-  HALOGEN_REASONING_EFFORT=max HALOGEN_PLD=3,3 HALOGEN_RECORD_TEXT=prompt,reply HALOGEN_MODEL_ID=my/model:1 \
-  'HALOGEN_THINKING_BUDGET_MESSAGE=Time to answer now.'; do
+for l in HALOGEN_KV8=1 HALOGEN_CTX=1048576 HALOGEN_TEMPERATURE=0.6 HALOGEN_FREQUENCY_PENALTY=-0.5 \
+  HALOGEN_REASONING_EFFORT=max HALOGEN_PLD=3,3 HALOGEN_RECORD_TEXT=prompt,reply 'HALOGEN_MODEL_ID=Qwen 3.8 Flash' \
+  'HALOGEN_THINKING_BUDGET_MESSAGE=Time to answer now.' HALOGEN_ADMIT_CHUNK=-1 HALOGEN_SSE_KEEPALIVE_S=0 \
+  HALOGEN_FRAG_WARN_STALLS=-1 HALOGEN_DMALLOC_LOG=4096 HALOGEN_RECORD_GIB=0.5; do
   grep -qxF "$l" "$d/env.new" || fail "$l wasn't saved"
 done
+# A value in the file that the screen doesn't accept stays as it is when other settings change.
+cp "$work/env" "$work/env-bad"; printf 'HALOGEN_KV8=yes\nHALOGEN_TOP_K=lots\n' >> "$work/env-bad"
+batch "$work/env-bad" "$state" 'set HALOGEN_CTX 65536'
+[ "$rc" = 0 ] || { cat "$d/out" >&2; fail "a file with refused values couldn't be edited (exit $rc)"; }
+grep -qx 'HALOGEN_KV8=yes' "$d/env.new" || fail "a value the screen refuses was changed"
+grep -qx 'HALOGEN_TOP_K=lots' "$d/env.new" || fail "a value the screen refuses was changed"
 # Without option-kinds (an older image's settings-tui path, say) values are still taken as typed.
 cp "$work/env" "$d/env"; printf '' > "$d/state"; rc=0
 python3 -I "$tui" --dir "$d" --template "$tmpl" --allowed "$allowed" --catalog "$catalog" --kinds "$d/none" --batch \
@@ -207,13 +223,15 @@ EOF
   # Menu: Flash checkpoint (Enter), down to "mine", Space, back; down twice to NPU models, Space on
   # the second (decider-4b), back; Common settings, Enter on the first (CTX): its list of presets,
   # down seven to "type a value", type abc (refused, asked again), clear, type 4096; down to
-  # KV_SLOTS, Enter, pick the third preset (4); back; Review and save, first choice (save and restart).
+  # KV_SLOTS, Enter, pick the third preset (4); down six to ENABLE_THINKING, its on/off list: 1;
+  # back; Review and save, first choice (save and restart).
   rc=0
-  python3 "$work/drive.py" '\n|j|j| |q|j|j|\n|j| |q|j|\n|\n|j|j|j|j|j|j|j|\n|abc\n|\x15|4096\n|j|\n|j|j|j|\n|q|j|j|\n|\n' \
+  python3 "$work/drive.py" '\n|j|j| |q|j|j|\n|j| |q|j|\n|\n|j|j|j|j|j|j|j|\n|abc\n|\x15|4096\n|j|\n|j|j|j|\n|j|j|j|j|j|j|\n|j|j|\n|q|j|j|\n|\n' \
     python3 -I "$tui" --dir "$d" --template "$tmpl" --allowed "$allowed" --catalog "$catalog" --kinds "$kinds" || rc=$?
   [ "$rc" = 0 ] || fail "the screen exited $rc"
   grep -qx 'HALOGEN_CTX=4096' "$d/env.new" || fail "the typed value wasn't saved"
   grep -qx 'HALOGEN_KV_SLOTS=4' "$d/env.new" || fail "the value picked from the presets wasn't saved"
+  grep -qx 'HALOGEN_ENABLE_THINKING=1' "$d/env.new" || fail "the value picked from the on/off list wasn't saved"
   if grep -q '^HALOGEN_CTX=abc' "$d/env.new"; then fail "a value that isn't a number was taken"; fi
   grep -qx 'HALOGEN_NPU_MODELS=decider-0.8b,qwen3-embedding-0.6b,qwen3-reranker-0.6b,qwen3guard-gen-0.6b,qwen3.5-2b,decider-4b' "$d/env.new" \
     || { grep NPU_MODELS= "$d/env.new" >&2; fail "the ticked model wasn't added"; }
@@ -230,7 +248,7 @@ EOF
   python3 "$work/drive.py" 'j|j|\n| |q|q|n|q|y' \
     python3 -I "$tui" --dir "$d" --template "$tmpl" --allowed "$allowed" --catalog "$catalog" --kinds "$kinds" || rc=$?
   if [ "$rc" != 3 ] || [ -e "$d/env.new" ]; then fail "quitting saved something (exit $rc)"; fi
-  ok "the screen works with keys: checkpoint, NPU checklist, a typed value (checked), a preset, default, review and save; quitting asks and saves nothing"
+  ok "the screen works with keys: checkpoint, NPU checklist, a typed value (checked), a preset, an on/off list, default, review and save; quitting asks and saves nothing"
 else
   echo "skip: no xterm terminfo here, so the screen itself isn't driven"
 fi

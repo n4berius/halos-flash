@@ -10,7 +10,7 @@
 #   text    any printable text up to accepted characters.
 # The hint is shown under the entry: an example, a unit or what 0 means.
 HALOGEN_ACCESS_LOG	choice	quiet=every request but health and metrics polls|all=every request|off=no request lines (errors still print)
-HALOGEN_ADMIT_CHUNK	int	0..	0|8192|16384	tokens per piece; 0 = the prefill call size (HALOGEN_MAX_TOK)
+HALOGEN_ADMIT_CHUNK	int	-1..	0|8192|16384|-1	tokens per piece; 0 = the prefill call size (HALOGEN_MAX_TOK); -1 = the whole prompt in one call
 HALOGEN_ADMIT_NEST	onoff	0=off: wait for the piece being read|1=on: start short requests at once
 HALOGEN_ADMIT_NEST_MAX	int	0..	512|1024|2048|4096	tokens, e.g. 1024
 HALOGEN_ADMIT_SPLICE_FOR	choice	all=every streaming reply, agents too|h=only replies to a person's message
@@ -34,8 +34,8 @@ HALOGEN_COMPOSABLE_CONTEXT	onoff	0=off|1=on (preview)
 HALOGEN_COMPOSABLE_CONTEXT_BYTES	int	0..	2147483648|4294967296|8589934592	bytes of host memory, e.g. 4294967296 (4 GiB)
 HALOGEN_COMPOSABLE_CONTEXT_FLOOR	int	1..	1024|2048|4096	tokens, e.g. 2048
 HALOGEN_CONC_MODE	choice	0=the previous default mode|1=concurrency mode (refused where it can't run)
-HALOGEN_CTX	int	1024..1048576	32768|65536|131072|262144|524288|1048576	tokens one request may use; past 262144 also needs HALOGEN_ROPE_YARN
-HALOGEN_DMALLOC_LOG	onoff	0=off|1=print large device allocations
+HALOGEN_CTX	int	1..1048576	32768|65536|131072|262144|524288|1048576	tokens one request may use; past 262144 also needs HALOGEN_ROPE_YARN
+HALOGEN_DMALLOC_LOG	int	0..	0|1|4096	0 = off, 1 = large device allocations, 2 or more = allocations of at least that many bytes
 HALOGEN_DN_STATE	choice	fp32=0.20.4's form
 HALOGEN_DRAFTER_DEFAULT	onoff	0=batched serial|1=the model's own MTP head
 HALOGEN_ENABLE_THINKING	onoff	0=no thinking: answer directly|1=thinking on
@@ -43,14 +43,14 @@ HALOGEN_ENGINE_WAIT_S	int	0..	0|600|1800|3600	seconds; 0 = wait as long as the l
 HALOGEN_ENGINE_WATCHDOG_DEFER_S	int	0..	300|900|1800	seconds; 0 = no cap
 HALOGEN_ENGINE_WATCHDOG_S	int	0..	0|60|180|300	seconds; 0 = off
 HALOGEN_EOS_GUARD	onoff	0=off|1=on
-HALOGEN_FLASH_PIN_TRUNK	onoff	0=don't lock the weights|1=lock the weights in memory
+HALOGEN_FLASH_PIN_TRUNK	onoff	0=don't lock the weights|1=lock the weights in memory		the default checkpoint (v2) refuses 0 at start
 HALOGEN_FORK	onoff	0=off|1=on: clients can keep named states
 HALOGEN_FORK_GIB	dec	0..	1|2|4|8	GiB of host memory, e.g. 2
 HALOGEN_FORK_HANDLES	int	1..	4|8|16|32	names kept at once, e.g. 8
 HALOGEN_FORK_MAP	choice	claude-code=keep each Claude Code thread's state (needs HALOGEN_FORK=1)|0=off
 HALOGEN_FORK_TTL_S	int	1..	300|600|1800|3600	seconds, e.g. 600
 HALOGEN_FRAG_WARN_BLOCKS	int	0..	256|512|1024	free large blocks, e.g. 512
-HALOGEN_FRAG_WARN_STALLS	int	0..	500|1000|5000	stalls, e.g. 1000
+HALOGEN_FRAG_WARN_STALLS	int	..	500|1000|5000|-1	stalls, e.g. 1000; a negative number = off
 HALOGEN_FREQUENCY_PENALTY	dec	-2..2	0|0.5|1	from -2 to 2, e.g. 0.5
 HALOGEN_GPU_DEVICE	form	auto|first|[0-9]+	auto|first|0|1	auto (the Strix Halo GPU), first, or ROCm's device number
 HALOGEN_GRAMMAR	onoff	0=off|1=enforce JSON schemas while decoding
@@ -63,14 +63,14 @@ HALOGEN_INDEXER_BUDGET	int	2048..8192	2048|4096|8192	tokens, 2048 to 8192 (round
 HALOGEN_KEEPALIVE_TIMEOUT	int	0..	60|300|600	seconds, e.g. 300
 HALOGEN_KV8	onoff	0=off: 16-bit attention cache|1=8-bit attention cache (half the memory)
 HALOGEN_KV_POOL_FIT	onoff	0=allocate exactly what is asked|1=lower the pool when it doesn't fit
-HALOGEN_KV_POOL_POSITIONS	int	1024..	262144|524288|786432|1048576|2097152	positions across all conversations, e.g. 524288
+HALOGEN_KV_POOL_POSITIONS	int	1..	262144|524288|786432|1048576|2097152	positions across all conversations, e.g. 524288
 HALOGEN_KV_SLOTS	int	1..64	1|2|4|8|16	conversations generating at once, 1 to 64
 HALOGEN_MAX_THINKING_TOKENS	int	0..	1024|4096|8192|16384	tokens of thinking, e.g. 8192
-HALOGEN_MAX_TOK	int	1024..	8192|16384|32768	tokens per prefill call; don't raise it to the full context
+HALOGEN_MAX_TOK	int	1..	8192|16384|32768	tokens per prefill call; don't raise it to the full context
 HALOGEN_MAX_TOKENS_CAP	int	1..	32768|65536|131072	tokens; the default must not be above it
 HALOGEN_MAX_TOKENS_DEFAULT	int	1..	4096|8192|16384|32768	tokens; not above HALOGEN_MAX_TOKENS_CAP
 HALOGEN_MIN_P	dec	0..1	0|0.05|0.1	from 0 to 1, e.g. 0.05
-HALOGEN_MODEL_ID	form	[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}	halogen-qwen3.8-flash-next	a name for /v1/models, e.g. halogen-qwen3.8-flash-next
+HALOGEN_MODEL_ID	text	128		a name for /v1/models, e.g. halogen-qwen3.8-flash-next
 HALOGEN_MTP_DEPTH	int	1..7	1|2|3	tokens per draft chain, e.g. 2
 HALOGEN_MTP_GATE_P	dec	0..1	0|0.8|0.9|0.95	probability from 0 to 1; 0 = fixed depth
 HALOGEN_NEXT_TOKEN_S	int	1..	300|990|1800	seconds between two tokens before a 504
@@ -83,10 +83,10 @@ HALOGEN_NPU_RESTARTS	int	0..	0|3|5	restarts, e.g. 3
 HALOGEN_NPU_SPLICE	onoff	0=off|1=on: short requests run between steps of long jobs
 HALOGEN_NPU_STALL_S	int	0..	0|30|60|120	seconds; 0 = off
 HALOGEN_OOM_SCORE_ADJ	int	0..1000	0|500|1000	0 to 1000; 0 leaves it as inherited
-HALOGEN_PLD	form	0|[0-9]+,[0-9]+	3,3|2,4|4,8|0	N,K: match N tokens, propose K; 0 = off
+HALOGEN_PLD	form	0|[0-9]+,[0-7]	3,3|2,4|4,7|0	N,K: match N tokens, propose K (at most 7); 0 = off
 HALOGEN_POOL_GROW	choice	2=grow from free space, then idle conversations|1=grow in place only|0=off
 HALOGEN_PREFILL_CANCEL	onoff	0=off|1=on: stop reading a cancelled prompt
-HALOGEN_PREFILL_CHUNK	int	256..	8192|16384|32768	tokens per call, e.g. 32768
+HALOGEN_PREFILL_CHUNK	int	1..	8192|16384|32768	tokens per call, e.g. 32768
 HALOGEN_PREFILL_KEEP_TRUNK	onoff	0=off|1=keep trunk weights unpacked (about 5.5 GiB more)
 HALOGEN_PRESENCE_PENALTY	dec	-2..2	0|0.5|1|1.5	from -2 to 2, e.g. 1.5
 HALOGEN_PROMPT_CACHE	choice	2=resume anywhere|1=resume on chunk boundaries (byte-identical)|0=off
@@ -97,22 +97,22 @@ HALOGEN_RECORD_DAYS	int	0..	7|30|90|365	days; 0 keeps everything
 HALOGEN_RECORD_GIB	dec	0..	0.5|1|2|5	GiB, e.g. 2
 HALOGEN_RECORD_TEXT	form	all|none|(prompt|reply|reasoning|args|results)(,(prompt|reply|reasoning|args|results))*	none|all|prompt,reply	all, none, or a list of prompt, reply, reasoning, args, results
 HALOGEN_REPETITION_PENALTY	dec	0..	1|1.05|1.1	1 = off, e.g. 1.05
-HALOGEN_RETRY_GRACE_S	int	0..	0|20|60	seconds, e.g. 20
+HALOGEN_RETRY_GRACE_S	int	0..120	0|20|60|120	seconds, at most 120, e.g. 20
 HALOGEN_ROPE_YARN	choice	2=up to 524288 tokens|4=up to 1048576 tokens
 HALOGEN_SAMPLED_DEPTH	int	1..7	1|3|7	tokens per draft chain, e.g. 7
 HALOGEN_SAMPLED_GATE	form	[0-9.]+(,[0-9.]+)?	0.95,0.98|0.95,0.97|0	t1,t2 probabilities; 0 = no gate
 HALOGEN_SPEC_ADAPT	form	0|[0-9]+,[0-9.]+,[0-9]+	32,0.35,64|0	W,floor,R; 0 = never adapt
 HALOGEN_SPEC_GROUP	choice	4=three or four requests speculate together|3=three only|0=off
-HALOGEN_SSE_KEEPALIVE_S	int	1..	5|10|30	seconds, e.g. 10
+HALOGEN_SSE_KEEPALIVE_S	int	0..	5|10|30|0	seconds, e.g. 10; 0 = off
 HALOGEN_STARTUP_PROGRESS	onoff	0=off|1=on: show the startup steps
 HALOGEN_STRICT_TOOLS	onoff	0=off|1=enforce strict tool schemas
 HALOGEN_TEMPERATURE	dec	0..2	0|0.6|0.7|1.0	from 0 to 2; 0 = greedy
 HALOGEN_THINKING_ANSWER_ROOM	int	0..	0|1024|2048|4096	tokens left for the answer; 0 = off
-HALOGEN_THINKING_BUDGET_MESSAGE	text	200		text before </think> when the server closes thinking
+HALOGEN_THINKING_BUDGET_MESSAGE	form	(?!.*(<\||</?think>)).{1,2000}	Time to answer now.	text before </think> when the server closes thinking; no chat markers such as <|im_end|> or </think>
 HALOGEN_TOKENIZER_NATIVE	onoff	0=the earlier split|1=the checkpoint's own pattern
 HALOGEN_TOP_K	int	0..	0|20|40	0 = off, e.g. 20
 HALOGEN_TOP_P	dec	0..1	0.8|0.9|0.95|1	from 0 to 1, e.g. 0.95
 HALOGEN_VERBOSE	onoff	0=off|1=narrate the startup in full
-HALOGEN_VISION_MAX_PIXELS	int	65536..	921600|2073600|3686400	pixels, e.g. 3686400 (2560x1440)
+HALOGEN_VISION_MAX_PIXELS	int	1..	921600|2073600|3686400	pixels, e.g. 3686400 (2560x1440)
 HALOGEN_VISION_TOWER	choice	1=images on (the tower beside the checkpoint)
 HALOGEN_WEIGHTS_LOCK	onoff	0=off|1=lock the weights into RAM

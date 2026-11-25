@@ -119,9 +119,11 @@ editing `/srv/configs/halogen.env`. Each item shows its default. Nothing changes
   - Text with a set form (such as `HALOGEN_PLD`, `3,3`) shows examples and `type a value`.
   - Other text: you type it. An empty value means the default.
 
-  The screen checks a value before it takes it: a number must be a number in the range that
-  [Halogen's FLAGS.md](https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/FLAGS.md)
-  gives, and on, off and choices must be one of their values. If your file has a value that the
+  The screen checks a value before it takes it, with the limits in
+  [Halogen's FLAGS.md](https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/FLAGS.md):
+  a number must be a number in its range, on, off and choices must be one of their values, and
+  text must have the right form. Where FLAGS.md gives no lower limit for a count, the screen asks
+  for 1 or more. If your file has a value that the
   screen does not accept, the screen tells you. It does not change that value until you do.
 - **Review and save.** Shows all changes. Then save and restart Halogen one time, or save and
   restart later with `sudo halogenctl restart`.
