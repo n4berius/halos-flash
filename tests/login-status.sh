@@ -21,14 +21,19 @@ f hostname 'case "${1:-}" in -I) echo "192.0.2.7 fd00::7 " ;; -f) echo "${FAKE_F
 printf 'HALOS_RELEASE=0.19.1-beta.1\nHALOGEN_VARIANT=npu\n' > "$work/release.env"
 mkdir -p "$work/hstate"
 export HALOGEN_STATE_DIR="$work/hstate" PATH="$work/bin:$PATH" HALOGEN_RELEASE_FILE="$work/release.env" HALOGEN_MODELS_DIR="$work/models" HALOS_RUN_DIR="$work/run"
+HALOS_NAMES_GROUP="$(id -gn)"
+export HALOS_MODEL_NAMES="$repo/files/usr/libexec/halogen/model-names" HALOS_NAMES_GROUP
 status="$repo/files/usr/libexec/halogen/login-status"
 issue="$work/run/issue.d/50-halos.issue"; motd="$work/run/motd.d/50-halos"
 ok() { echo "ok: $*"; }
 expect() { grep -qF -- "$2" "$1" || { echo "expected '$2' in $1:" >&2; cat "$1" >&2; exit 1; }; }
 run() { : > "$work/log"; "$status" || { echo "login-status failed" >&2; exit 1; }; }
 
+mkdir -p "$work/models/flash/mine"
 FAKE_FETCH=activating FAKE_HAVE=50 run
 expect "$issue" 'halOS 0.19.1-beta.1 (npu edition) - downloading models 40%'
+expect "$work/run/halos/model-names" 'flash mine'
+grep -q 'setpriv --reuid=970 --regid=970 --clear-groups -- env -C / find' "$work/log" || { echo "the model names weren't read as halogen" >&2; exit 1; }
 grep -q 'setpriv --reuid=970 --regid=970 --clear-groups -- du' "$work/log" || { echo "du ran as root" >&2; exit 1; }
 grep -q 'systemctl --user is-active halogen-fetch.service halogen.service as=halogen rt=/run/user/970' "$work/log" || { echo "the service manager was not asked as halogen" >&2; exit 1; }
 if grep -qE 'runuser|--machine' "$work/log"; then echo "a login session was opened" >&2; exit 1; fi
