@@ -408,13 +408,13 @@ case "${1:-status}" in
           case "$p" in
             /models/flash/"$name"/*) want="${p#/models/flash/"$name"/}" ;;
             /models/"$ht4") want=official ;;
-            /models/"$r2") want=official-r2 ;;
+            /models/"$r2") want="official-r2" ;;
             *) want="" ;;
           esac
         elif [ "$want" = "$ht4" ]; then want=official
         # The checkpoint's own file of that name (a pull reflink-copies an identical one) comes
         # first; its full path under /srv/models picks the one there.
-        elif [ "$want" = "$r2" ] && ! grep -qxF -- "$r2" <<< "${own// /$'\n'}"; then want=official-r2
+        elif [ "$want" = "$r2" ] && ! grep -qxF -- "$r2" <<< "${own// /$'\n'}"; then want="official-r2"
         fi
         case "$want" in
           official|off) ;;
