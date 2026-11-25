@@ -75,7 +75,7 @@ mkdir -p "$work/custom/OvisOCR3"; : > "$work/flash/mine/their-drafter.hgn"; : > 
 expect "LFM3-1.7B OvisOCR3" _halogenctl halogenctl model pull x --as ''
 expect "mine" _halogenctl halogenctl flash pull x --as m
 expect "" _halogenctl halogenctl flash convert x --as ''
-expect "off official their-drafter.hgn" _halogenctl halogenctl flash drafter mine ''
+expect "off official official-r2 their-drafter.hgn" _halogenctl halogenctl flash drafter mine ''
 echo "ok: halogenctl offers options and the plain names of your own checkpoints; a crafted folder name never runs"
 
 # Under sudo, completion runs as you and can't read /srv/models: the names come from the list
@@ -114,8 +114,8 @@ expect "mine official" _halogenctl halogenctl flash use ''
 expect "bigone" _halogenctl halogenctl flash convert-stop ''
 expect "LFM3-1.7B OvisOCR3" _halogenctl halogenctl model remove ''
 expect "OvisOCR3" _halogenctl halogenctl model pull x --as O
-expect "off official their-drafter.hgn" _halogenctl halogenctl flash drafter mine ''
-expect "off official" _halogenctl halogenctl flash drafter other ''
+expect "off official official-r2 their-drafter.hgn" _halogenctl halogenctl flash drafter mine ''
+expect "off official official-r2" _halogenctl halogenctl flash drafter other ''
 if [ -e "$work/pwned4" ] || [ -e "$work/pwned5" ]; then fail "a listed name ran as a command during completion"; fi
 echo "ok: under sudo the names come from root's list, which keeps only plain names"
 
