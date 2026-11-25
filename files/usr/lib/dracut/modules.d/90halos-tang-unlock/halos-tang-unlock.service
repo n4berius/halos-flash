@@ -9,3 +9,9 @@ Before=initrd-switch-root.target shutdown.target
 [Service]
 Type=oneshot
 ExecStart=/usr/libexec/halos-tang-unlock
+# The switch to the real system stops this unit (Conflicts above) when it is still looking: the
+# TPM or a typed passphrase unlocks the disk before its next look, or no encrypted disk appears
+# within its 60 seconds. systemd counts a one-shot ended by SIGTERM as failed (a long-running
+# service's isn't), and the real system then lists it under "Failed Units" at every login.
+# Being stopped is not a failure here.
+SuccessExitStatus=SIGTERM
