@@ -15,7 +15,7 @@ f podman 'case "$1" in
        printf "halogen-bench: m, ctx 262144, reps 3, effort low\nendpoint x\n\n"
        echo "{\"model\":\"halogen-q38fn\",\"context\":262144,\"reps\":3,\"rows\":[
          {\"test\":\"pp2048\",\"drafter\":\"mtp\",\"tokens\":2049,\"mean\":${FAKE_PP:-1701.234},\"stdev\":3.21},
-         {\"test\":\"tg128\",\"drafter\":\"mt\u001b[2Jp\",\"tokens\":128,\"mean\":64.567,\"stdev\":9.1}]}" ;;
+         {\"test\":\"tg128\",\"drafter\":\"mt\u001b[2Jp\",\"tokens\":128,\"mean\":${FAKE_TG:-64.567},\"stdev\":9.1}]}" ;;
 esac'
 f curl '[ -z "${FAKE_DOWN:-}" ]'
 f clock '[ -z "${FAKE_CLOCK_LOOSE:-}" ]'
@@ -66,21 +66,35 @@ has '^  128 tokens +64\.6 tok/s +±14\.1% +2\.0 s +0\.0% +about the same$' "$wor
 has '^Last run: .* UTC \([0-9]{8}-[0-9]{6}\.json\)\. Changed since then:$' "$work/out"
 has '^  HALOGEN_KV8 1 -> 0$' "$work/out"
 latest="$(find "$work/configs/bench" -name '*.json' | sort | tail -n 1)"
-[ "$(jq -r .compared_with "$latest")" != null ] || fail "the JSON doesn't name the run it was compared with"
+first="$(find "$work/configs/bench" -name '*.json' | sort | head -n 1)"
+[ "$(jq -r .compared_with "$latest")" = "$(basename "$first")" ] || fail "the JSON doesn't name the run it was compared with"
 sleep 1
-FAKE_PP=1690 FAKE_KV8=0 "$bench" > "$work/out" 2>&1 || fail "the third full run failed"
+# Writing 5% faster is a change: its spread is mostly the prompt types, not noise between runs.
+FAKE_PP=1690 FAKE_TG=67.8 FAKE_KV8=0 "$bench" > "$work/out" 2>&1 || fail "the third full run failed"
 has '^  2K tokens +1,690 tok/s +±0\.2% +1\.2 s +-6\.2% +slower$' "$work/out"
+has '^  128 tokens +67\.8 tok/s .* \+5\.0% +faster$' "$work/out"
 has 'Nothing in the setup changed since then\.' "$work/out"
-# A link, a broken file or one with escape codes among the reports is never used or printed raw.
-ln -s "$work/configs/api-key" "$work/configs/bench/29991231-235959.json"
+sleep 1
+FAKE_PP=1720 FAKE_TG=67.8 FAKE_KV8=0 "$bench" > "$work/out" 2>&1 || fail "the fourth full run failed"
+has '^  2K tokens +1,720 tok/s .* \+1\.8% +about the same$' "$work/out"
+has '^Since the last full run: no change beyond the normal variation\.$' "$work/out"
+latest="$(find "$work/configs/bench" -name '*.json' | sort | tail -n 1)"
+# A link (even to a good report), a broken file, a report of another shape, an odd name or one
+# with escape codes among the reports is never used, never stops the run, and nothing is printed raw.
+ln -s "$latest" "$work/configs/bench/29991231-235959.json"
 echo '{' > "$work/configs/bench/29991231-235958.json"
-jq '.date = "evil\u001b[2J" | .system.halogen = "0.1\u001b]0;x\u0007"' "$latest" > "$work/configs/bench/29991231-235957.json"
+jq '.system = "x"' "$latest" > "$work/configs/bench/29991231-235957.json"
+jq -c . "$latest" | sed 's/^/{"run":"x"} /' > "$work/configs/bench/29991231-235956.json"
+cp "$latest" "$work/configs/bench/9"$'\e'"]0;x-1.json"
+jq '.date = "evil\u001b[2J" | .system.halogen = "0.1\u001b]0;x\u0007" | .bench.rows[0].mean = "1700"' \
+  "$latest" > "$work/configs/bench/29991231-235955.json"
 sleep 1
 FAKE_PP=1690 FAKE_KV8=0 "$bench" > "$work/out" 2>&1 || fail "a run beside odd reports failed"
-has '^Last run: evil\[2J \(29991231-235957\.json\)' "$work/out"
+has '^Last run: evil\[2J \(29991231-235955\.json\)' "$work/out"
 has '^  Halogen 0\.1\]0;x -> 0\.19\.1$' "$work/out"
+has '^  2K tokens +1,690 tok/s .*\(not in the last run\)$' "$work/out"
 if grep -q $'[\e\a]' "$work/out"; then fail "an escape code from an old report reached the screen"; fi
-rm "$work/configs/bench/2999"*
+rm "$work/configs/bench/2999"* "$work/configs/bench/9"*
 ok "a run is compared with the last one of its kind: faster, slower or about the same, and what changed"
 
 has '--network=host --read-only --tmpfs /tmp --cap-drop=all --security-opt no-new-privileges -e HALOGEN_API_KEY ' "$work/podman.log"
