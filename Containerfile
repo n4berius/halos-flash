@@ -182,8 +182,9 @@ RUN set -eu; \
     done; done; \
     chmod 0755 /usr/bin/halosctl /usr/bin/halogenctl /usr/bin/halogen-enroll-tpm /usr/libexec/halogen/*; \
     # tool-eval-bench must import with Fedora's libraries and list its scenarios (no server needed);
-    # compiled once here, since /usr is read-only on the machine.
-    python3 -I -m compileall -q /usr/lib/halos/tool-eval-bench; \
+    # compiled once here, since /usr is read-only on the machine (unchecked-hash: ostree sets every
+    # file's time to 0, which would make time-checked caches look stale at every run).
+    python3 -I -m compileall -q --invalidation-mode unchecked-hash /usr/lib/halos/tool-eval-bench; \
     (cd /tmp; HOME=/tmp /usr/libexec/halogen/tool-eval-bench --dry-run --short > /tmp/teb.txt); \
     grep -q 'TC-15' /tmp/teb.txt; \
     rm -f /tmp/teb.txt; \

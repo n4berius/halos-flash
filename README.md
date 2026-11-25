@@ -209,6 +209,7 @@ sudo halogenctl api-key      # print the API key
 sudo halogenctl hf-token     # save a Hugging Face token for faster model downloads
 sudo halogenctl selftest     # the hardware checklist; prints nothing private
 sudo halogenctl bench        # measure speed (--quick: under a minute); reports in /srv/configs/bench
+sudo halogenctl bench tools  # measure tool calls (--quick: 15 scenarios); reports in /srv/configs/bench/tools
 sudo halogenctl model list   # your own NPU checkpoints (NPU edition)
 sudo halogenctl flash list   # the official Flash checkpoint and your own; flash use switches
 ```

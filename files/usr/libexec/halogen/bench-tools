@@ -34,6 +34,10 @@ while IFS= read -r v; do unset "$v"; done < <(compgen -e | grep '^TOOL_EVAL_' ||
 
 settings="$("$render" --show 2>/dev/null | grep -E '^HALOGEN_[A-Z0-9_]+=' | grep -vE '_(KEY|TOKEN)[A-Z_]*=' | tr -cd '[:print:]\n' || true)"
 checkpoint="$(sed -n 's/^HALOGEN_CHECKPOINT=//p' <<< "$settings" | tail -n 1)"
+# The Flash model's name: /v1/models also lists the NPU models, and without --model the tool
+# would take the first one listed (Halogen's api.md: the default name below).
+model="$(sed -n 's/^HALOGEN_MODEL_ID=//p' <<< "$settings" | tail -n 1)"
+model="${model:-halogen-qwen3.8-flash-next}"
 case "$checkpoint" in /models/flash/*/*) flash="${checkpoint#/models/flash/}"; flash="${flash%%/*} (your own)" ;; *) flash=official ;; esac
 
 stamp="$(date -u +%Y%m%d-%H%M%S)"
@@ -69,15 +73,22 @@ progress() {
         + "\($e.index + 1 | c)/\($e.total | c) \($e.scenario_id | c): \($e.status | c)")' 2>/dev/null || true
 }
 rc=0
-(cd "$dir" && TOOL_EVAL_API_KEY="$(head -n 1 "$configs/api-key")" \
-  "$teb" "${args[@]}" --seed 42 --base-url "$api" --backend halogen --json-file "$raw") \
+# The braces put the process substitution on this shell, so wait waits for the progress reader
+# (and the events file is complete) before anything reads it.
+{ (cd "$dir" && TOOL_EVAL_API_KEY="$(head -n 1 "$configs/api-key")" \
+  "$teb" "${args[@]}" --seed 42 --base-url "$api" --backend halogen --model "$model" --json-file "$raw"); } \
   2> >(progress) > /dev/null || rc=$?
-wait
+wait $! || true
 # Its own Markdown reports keep the model's text as it came, escape codes included: take control
 # characters out (C0 but tab and newline, DEL, and C1 in UTF-8), so they are safe to cat.
 find "$dir/runs" -type f -name '*.md' -newer "$started" -exec \
   env LC_ALL=C sed -i -e 's/[\x00-\x08\x0b-\x1f\x7f]//g' -e 's/\xc2[\x80-\x9f]//g' {} + 2>/dev/null || true
-[ -s "$raw" ] || die "the benchmark stopped before it gave a result (exit $rc); see sudo halogenctl logs"
+if [ ! -s "$raw" ]; then
+  # Errors before any result (a refused key, no model list, Halogen gone) come only as an event.
+  why="$(jq -r -R -s '[split("\n")[] | fromjson? | select(type == "object" and .event == "error") | .message
+    | tostring | gsub("[[:cntrl:]]"; "")] | last // empty' "$events" 2>/dev/null | head -c 500 || true)"
+  die "the benchmark stopped before it gave a result (exit $rc)${why:+: $why}. Check: sudo halogenctl status"
+fi
 # Every string loses its control characters: the text came from the model and ends up on root's
 # terminal.
 clean_json() { jq 'walk(if type == "string" then gsub("[[:cntrl:]]"; "") else . end)' "$@"; }
@@ -87,11 +98,6 @@ err="$(jq -r '.error // empty' "$raw")"
 [ -z "$err" ] || die "the benchmark failed: $err"
 jq -e '(.final_score | type) == "number" and (.scores.category_scores | type == "array" and length > 0)' "$raw" > /dev/null 2>&1 \
   || die "the benchmark gave no scores"
-
-# Scenario id -> category, from the progress events, so scores over three runs can be put back
-# into their categories.
-cats="$(jq -c -R -s '[split("\n")[] | fromjson? | select(type == "object" and .event == "scenario_start")
-  | {(.scenario_id | tostring): (.category | tostring)}] | add // {}' "$events" 2>/dev/null || echo '{}')"
 
 # The newest earlier result of the same kind, to compare with (regular files that parse only:
 # they are halogen's own files).
@@ -112,16 +118,13 @@ prev_name=""
 jq --arg date "$(date -u '+%Y-%m-%d %H:%M UTC')" --arg kind "$kind" \
    --arg halos "${HALOS_RELEASE:-unknown}" --arg edition "${HALOGEN_VARIANT:-unknown}" \
    --arg halogen "${HALOGEN_VERSION:-unknown}" --arg teb "${TOOL_EVAL_BENCH_VERSION:-unknown}" \
-   --arg flash "$flash" --arg settings "$settings" --arg prev "$prev_name" --argjson cats "$cats" '
+   --arg flash "$flash" --arg settings "$settings" --arg prev "$prev_name" '
   (.trial_statistics // null) as $t
   | (.scores.category_scores) as $c
-  | ($c | map({(.category): .label}) | add) as $labels
-  # Each category: the mean points over the runs (2 = pass, 1 = partial, 0 = fail), as a percentage.
-  | (if $t != null and ($t.per_scenario | type) == "object" and ($cats | length) > 0 then
-       [ $t.per_scenario | to_entries[] | {cat: ($cats[.key] // "?"), mean: (.value.mean // 0)} ]
-       | group_by(.cat)
-       | map({category: .[0].cat, label: ($labels[.[0].cat] // .[0].cat), scenarios: length,
-              percent: ((map(.mean) | add) / (2 * length) * 100 | round)})
+  # Each category: over three runs, the mean of its score in each run (tool-eval-bench works it out).
+  | (if $t != null and ($t.per_category | type) == "object" and ($t.per_category | length) > 0 then
+       $t.per_category | to_entries | sort_by(.key)
+       | map({category: .key, label: (.value.label // .key), percent: (.value.mean_percent // 0 | round)})
      else
        $c | map({category, label, scenarios: (.pass_count + .partial_count + .fail_count),
                  percent, pass: .pass_count, partial: .partial_count, fail: .fail_count})
@@ -135,6 +138,8 @@ jq --arg date "$(date -u '+%Y-%m-%d %H:%M UTC')" --arg kind "$kind" \
      trials: ($t.trials // 1),
      pass_at_k: ($t.pass_at_k // null), pass_hat_k: ($t.pass_hat_k // null),
      rating, deployability, responsiveness, total_scenarios,
+     # Scenarios not graded because the server failed (timeouts, errors): left out of the score.
+     not_graded: (.scores.excluded_scenarios // []), completion_rate: (.scores.completion_rate // 100),
      safety_warnings: (.safety_warnings // []),
      categories: $categories,
      failed: [ .scores.scenario_results[]? | select(.status != "pass")
@@ -153,10 +158,10 @@ def change($old; $new): ($new - $old) as $d
 | (if $p == null then {} else ($p.categories | map(select(.percent | type == "number") | {(.category | clean): .percent}) | add // {}) end) as $old
 | "halOS tool-calling benchmark, \(.date), \(.run) run (\(.total_scenarios // "?") scenarios, \(.trials) time\(if .trials == 1 then "" else "s" end) each)",
   "",
-  "Score: \(.score | r1) out of 100\(if .score_stddev != null then " (±\(.score_stddev | r1) between runs)" else "" end), \(.rating // "" | clean | gsub("^[^A-Za-z]+"; "") | ascii_downcase)"
+  "Score: \(.score | r1) out of 100\(if .score_stddev != null then " (±\(.score_stddev | r1) between runs)" else "" end)\(if .trials == 1 then ", " + (.rating // "" | clean | gsub("^[^A-Za-z]+"; "") | ascii_downcase) else "" end)"
   + (if $p == null or ($p.score | type) != "number" then "" else "; last run \($p.score | r1) (\(change($p.score; .score)))" end),
   (if .pass_hat_k != null then
-     "Reliable (right in all \(.trials) runs): \(.pass_hat_k * 100 | round)% of scenarios; right at least once: \(.pass_at_k * 100 | round)%"
+     "Reliable (right in all \(.trials) runs): \(.pass_hat_k | round)% of scenarios; right at least once: \(.pass_at_k | round)%"
    else empty end),
   "",
   "  " + ("Category" | rpad(24)) + ("Score" | lpad(7)) + (if $p == null then "" else ("Last run" | lpad(11)) end),
@@ -165,6 +170,11 @@ def change($old; $new): ($new - $old) as $d
      + (if $p == null then "" elif $old[$k] == null then ("new" | lpad(11))
         else (change($old[$k]; .percent) | lpad(11)) end)),
   "",
+  (if (.not_graded | length) > 0 then
+     "Not graded\(if .trials > 1 then " in the last run" else "" end): \(.not_graded | length) scenario\(if (.not_graded | length) == 1 then "" else "s" end)"
+     + " (\(.not_graded | map(clean) | join(", "))), because the server timed out or failed.",
+     "They are left out of the score, so it may look better than it is. Check: sudo halogenctl logs", ""
+   else empty end),
   (if (.safety_warnings | length) > 0 then
      "Safety warnings:", (.safety_warnings[] | "  " + (. | if type == "string" then . else tojson end | clean)), ""
    else empty end),
@@ -190,7 +200,7 @@ def change($old; $new): ($new - $old) as $d
    end),
   "",
   "Setup: halOS \(.system.halos) (\(.system.edition) edition), Halogen \(.system.halogen), Flash checkpoint \(.system.flash_checkpoint),",
-  "  tool-eval-bench \(.system.tool_eval_bench).",
+  "  model \(.model // "?" | clean), tool-eval-bench \(.system.tool_eval_bench).",
   "",
   "Each scenario is a conversation with fake tools; a right answer scores 2 points, a partly right",
   "one 1. The score is the share of points, out of 100. Answers vary from run to run (temperature",

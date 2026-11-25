@@ -740,7 +740,9 @@ answers change from run to run, so a change of a few points can be chance.
 
 halOS saves the report as text and JSON in `/srv/configs/bench/tools/`. The text also lists each
 scenario that went wrong. tool-eval-bench keeps every conversation in `runs/` in the same folder.
-It needs no restart, but other requests are slower while it runs.
+It needs no restart, but other requests are slower while it runs. These records stay until you
+delete them, on the small `/srv/configs` volume: a run needs 200 MB free there. To make space,
+delete old folders in `/srv/configs/bench/tools/runs/` with `sudo rm -r`.
 
 ### Prompt cache on disk
 

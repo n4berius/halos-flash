@@ -12,7 +12,7 @@ f() { printf '#!/bin/bash\n%s\n' "$2" > "$work/bin/$1"; chmod +x "$work/bin/$1";
 # FAKE_ERROR makes it report a failure, FAKE_DIE makes it stop with nothing written.
 f teb 'printf "%s\n" "$*" >> "$FAKE/teb.log"; echo "cwd=$PWD key=${TOOL_EVAL_API_KEY:-}" >> "$FAKE/teb.log"
 echo "env proxy=${HTTP_PROXY:-}${http_proxy:-}${ALL_PROXY:-} no_proxy=${NO_PROXY:-}/${no_proxy:-} headers=${TOOL_EVAL_HEADERS:-}" >> "$FAKE/teb.log"
-[ -z "${FAKE_DIE:-}" ] || exit 2
+[ -z "${FAKE_DIE:-}" ] || { echo "{\"event\":\"error\",\"message\":\"Server returned 401. Check the URL and \\u001b[2Jkey.\"}" >&2; exit 2; }
 echo "DeprecationWarning: not a JSON line" >&2
 mkdir -p runs/2026/11; printf "model said \033]0;x\007 \033[2J and \302\233 bye\n" > runs/2026/11/r1.md
 out=; for a in "$@"; do [ "${p:-}" = --json-file ] && out="$a"; p="$a"; done
@@ -27,6 +27,13 @@ for _ in $(seq "$runs"); do i=0
 done
 if [ -n "${FAKE_ERROR:-}" ]; then echo "{\"final_score\":null,\"error\":\"timeout\"}" > "$out"; exit 1; fi
 s="${FAKE_SCORE:-67}"
+ts=null
+[ "$runs" = 1 ] || ts="$(cat <<T
+{"trials":3,"final_score_mean":$s,"final_score_stddev":4.2,"pass_at_k":66.7,"pass_hat_k":33.3,
+   "per_scenario":{"TC-01":{"mean":2},"TC-02":{"mean":1.5},"TC-03":{"mean":0}},
+   "per_category":{"B":{"label":"Parameter \u001b]0;x\u0007Precision","mean_percent":0},"A":{"label":"Tool Selection","mean_percent":87.5}}}
+T
+)"
 cat > "$out" <<EOF
 {"schema_version":"1","final_score":$s,"rating":"★★★ Good","deployability":70,"responsiveness":80,
  "total_scenarios":3,"run_id":"r1","status":"completed","report_path":"$PWD/runs/2026/11/r1.md",
@@ -34,10 +41,9 @@ cat > "$out" <<EOF
  "scores":{"final_score":$s,"category_scores":[
    {"category":"A","label":"Tool Selection","percent":100,"pass_count":2,"partial_count":0,"fail_count":0},
    {"category":"B","label":"Parameter \u001b]0;x\u0007Precision","percent":0,"pass_count":0,"partial_count":0,"fail_count":1}],
-  "scenario_results":[{"scenario_id":"TC-01","status":"pass","summary":"ok"},{"scenario_id":"TC-02","status":"pass","summary":"ok"},
+  "excluded_scenarios":${FAKE_EXCLUDED:-[]},"scenario_results":[{"scenario_id":"TC-01","status":"pass","summary":"ok"},{"scenario_id":"TC-02","status":"pass","summary":"ok"},
    {"scenario_id":"TC-03","status":"fail","summary":"Did not \u001b[31mcall it."}]},
- "trial_statistics":{"trials":3,"final_score_mean":$s,"final_score_stddev":4.2,"pass_at_k":0.667,"pass_hat_k":0.333,
-   "per_scenario":{"TC-01":{"mean":2},"TC-02":{"mean":1.5},"TC-03":{"mean":0}}}}
+ "trial_statistics":$ts}
 EOF'
 f curl '[ -z "${FAKE_DOWN:-}" ]'
 f df 'printf "Filesystem 1024-blocks Used Available Capacity Mounted\nx 1000000 1 ${FAKE_FREE:-900000} 1%% /\n"'
@@ -55,14 +61,15 @@ has() { grep -qE -- "$1" "$2" || fail "expected '$1' in $2"; }
 HTTP_PROXY=http://198.51.100.1:3128 http_proxy=http://198.51.100.1:3128 TOOL_EVAL_HEADERS='X-Leak=1' \
   "$bench" > "$work/out" 2>&1 || fail "the full run failed"
 has '^env proxy= no_proxy=\*/\* headers=$' "$work/teb.log"
+has ' --model halogen-qwen3\.8-flash-next --json-file ' "$work/teb.log"
 if grep -q $'[\e\a]\|\xc2\x9b' "$dir/runs/2026/11/r1.md"; then fail "the tool's own report kept the model's escape codes"; fi
 has '^model said \]0;x \[2J and  bye$' "$dir/runs/2026/11/r1.md"
-has '--trials 3 --temperature 1\.0 --seed 42 --base-url http://127\.0\.0\.1:18731 --backend halogen --json-file ' "$work/teb.log"
+has '--trials 3 --temperature 1\.0 --seed 42 --base-url http://127\.0\.0\.1:18731 --backend halogen --model halogen-qwen3\.8-flash-next --json-file ' "$work/teb.log"
 has "^cwd=$dir key=secret-key-123\$" "$work/teb.log"
 if grep -v '^cwd=' "$work/teb.log" | grep -q 'secret-key-123'; then fail "the key was on the command line"; fi
 has '^  run 1 of 3, 1/3 TC-01: pass$' "$work/out"
 has '^  run 3 of 3, 2/3 TC-02: pass$' "$work/out"
-has '^Score: 67 out of 100 \(±4\.2 between runs\), good$' "$work/out"
+has '^Score: 67 out of 100 \(±4\.2 between runs\)$' "$work/out"
 has '^Reliable \(right in all 3 runs\): 33% of scenarios; right at least once: 67%$' "$work/out"
 # Categories from the three runs' means: A (2 + 1.5) / 4 = 88%, B 0%.
 has '^  A Tool Selection +88%$' "$work/out"
@@ -84,7 +91,9 @@ ok "a full run uses the leaderboard's settings, gets the key only through its en
 
 : > "$work/teb.log"
 sleep 1
-FAKE_SCORE=55 FAKE_KV8=0 "$bench" --quick > "$work/out" 2>&1 || fail "the quick run failed"
+FAKE_SCORE=55 FAKE_KV8=0 FAKE_EXCLUDED='["TC-02"]' "$bench" --quick > "$work/out" 2>&1 || fail "the quick run failed"
+has '^Not graded: 1 scenario \(TC-02\), because the server timed out or failed\.$' "$work/out"
+has '^Score: 55 out of 100, good$' "$work/out"
 has '^--short --seed 42 ' "$work/teb.log"
 has '^  3/3 TC-03: fail$' "$work/out"
 has '^No earlier quick run to compare with' "$work/out"
@@ -116,7 +125,7 @@ has 'halogenctl status' "$work/out"
 if FAKE_ERROR=1 "$bench" > "$work/out" 2>&1; then fail "a failed benchmark passed"; fi
 has 'the benchmark failed: timeout' "$work/out"
 if FAKE_DIE=1 "$bench" > "$work/out" 2>&1; then fail "a benchmark that stopped passed"; fi
-has 'stopped before it gave a result' "$work/out"
+has 'stopped before it gave a result \(exit 2\): Server returned 401\. Check the URL and \[2Jkey\.' "$work/out"
 if "$bench" --long > "$work/out" 2>&1; then fail "took an unknown option"; fi
 if FAKE_FREE=100000 "$bench" > "$work/out" 2>&1; then fail "ran with the configs volume almost full"; fi
 has 'less than 200 MB free' "$work/out"

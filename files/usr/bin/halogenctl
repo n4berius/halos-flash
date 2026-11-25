@@ -824,6 +824,7 @@ case "${1:-status}" in
     # Tool calls: tool-eval-bench's scenarios; the report goes to /srv/configs/bench/tools.
     if [ "${2:-}" = tools ]; then
       case "${3:-}" in ''|--quick) ;; *) echo "usage: halogenctl bench tools [--quick]" >&2; exit 2 ;; esac
+      [ -z "${4:-}" ] || { echo "usage: halogenctl bench tools [--quick]" >&2; exit 2; }
       [ "$(id -u)" = 0 ] || { echo "Run it with sudo: sudo halogenctl bench tools ${3:-}" >&2; exit 1; }
       halogen_run /usr/libexec/halogen/bench-tools ${3:+"$3"}
     else
