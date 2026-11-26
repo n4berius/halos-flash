@@ -537,9 +537,15 @@ grep -q "Qwen3.8-27B didn't download" "$work/out" || { cat "$work/out" >&2; echo
 printf '#!/bin/bash\necho "flash-tool $*" >> "$FAKE/flash.log"\n' > "$work/flash-tool"
 # Owner's choice: such a machine doesn't download the Flash model; flash use official does.
 mkdir -p "$work/aside" "$work/models/flash/qwen3.8-27b"; mv "$work/models"/qwen38-flash-next-*.hgn "$work/models/tokenizer" "$work/aside/"
-printf 'repo=a/b\nverified=pass\nverified_with=9.9.9\n' > "$work/models/flash/qwen3.8-27b/halos.info"
+printf 'repo=a/b\ncheckpoint=model.hgn\nverified=pass\nverified_with=9.9.9\n' > "$work/models/flash/qwen3.8-27b/halos.info"
 rm -f "$work/flash-choice" "$work/hf.log" "$work/podman.log"; printf 'MemTotal:       65536000 kB\n' > "$work/meminfo"
+# render-config would fall back (no checkpoint file) to official files nothing downloaded or checked.
+if "$work/fetch" > "$work/out" 2>&1 || ! grep -q "wouldn't serve Qwen3.8-27B" "$work/out"; then cat "$work/out" >&2; echo "a small machine started on official files it didn't download" >&2; exit 1; fi
+touch "$work/models/flash/qwen3.8-27b/model.hgn"; rm -f "$work/hf.log" "$work/podman.log"
+# A new install has no stamp, so the official files are marked unchecked: kept for later, not checked now.
+rm -f "$work/state/fetch-stamp"; : > "$work/state/weights-unchecked"
 "$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; echo "a small machine without the Flash model failed the fetch" >&2; exit 1; }
+[ -e "$work/state/weights-unchecked" ] || { echo "the unchecked marker went without the Flash model being checked" >&2; exit 1; }
 if grep -qs 'qwen38-flash-next\|tokenizer' "$work/hf.log" || [ -e "$work/models/qwen38-flash-next-v2.hgn" ]; then cat "$work/hf.log" >&2; echo "a small machine downloaded the Flash model" >&2; exit 1; fi
 { grep -q 'SKIP_FLASH=1' "$work/last-run" && grep -q ':/models:ro ' "$work/last-run"; } || { cat "$work/last-run" >&2; echo "the download wasn't told to skip the Flash model, or got the top writable" >&2; exit 1; }
 if grep -q ' verify ' "$work/podman.log"; then echo "the missing Flash model was verified" >&2; exit 1; fi

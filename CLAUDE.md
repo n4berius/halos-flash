@@ -1505,7 +1505,13 @@ and tracked on the owner's project board. [ROADMAP.md](ROADMAP.md) holds the ord
   (`official_there`), `skip_flash`: the download gets `SKIP_FLASH=1` (fetch-in-container skips the
   Flash files and tokenizer) and the top `:ro`, no hash check (the `weights-unchecked` marker stays
   for the later download) or Flash verify, space 20 GiB, stamp `<want>-no-flash`, and exit 1 when
-  the 27B still isn't `verified=pass` (nothing to serve); `flash use official` saves `official`, which memory never overrides;
+  the 27B still isn't `verified=pass` or `render-config --show` doesn't name it (a fallback would
+  serve official files nobody downloaded or checked: security audit); the fetch's own settings
+  render passes `HALOGEN_MEMINFO=/dev/null` too (official); preflight's 100 GiB check fails only
+  when the rendered checkpoint's header isn't `qwen3.8-27b-*`; `flash pull` needs the official
+  tokenizer only for a Flash-Next checkpoint (checked by name, again by header), and pull/remove
+  refuse the checkpoint `render-config --show` serves (`served_name`), not only the saved choice
+  (code review); `flash remove auto` still removes an old folder of that name; `flash use official` saves `official`, which memory never overrides;
   halogenctl's `chosen_flash` works auto out (`flash_raw` is what's saved), status/list say
   "chosen by memory"; the selftest's memory line WARNs, not FAILs, under auto; and GUIDE.md has a memory table from the entrypoint's
   `kv_budget_note`: Flash 68 GiB weights + the 47.7 GiB table through the file cache, ~29 KiB per

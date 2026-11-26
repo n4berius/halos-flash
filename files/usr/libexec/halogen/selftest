@@ -523,8 +523,11 @@ elif [ -z "$flash" ] || [ "$flash" = auto ]; then
   why="$(printf '%s\n' "$rendered" | grep '^halogen-config: .*Flash model needs' | tail -n 1 | sed 's/^halogen-config: //' | tr -cd '[:print:]')"
   case "$ck" in
     /models/flash/*/*) ck="${ck#/models/flash/}"; say INFO flash "chosen by memory: serving ${ck%%/*}${why:+ ($why)}" ;;
-    *) if [ -n "$why" ]; then say WARN flash "chosen by memory: $why"
-       else say INFO flash "serving the official Flash checkpoint (chosen by memory)"; fi ;;
+    *) # Memory wanted the 27B but render-config fell back: its last reason says why.
+       last="$(printf '%s\n' "$rendered" | grep '^halogen-config: .*official one' | tail -n 1 | sed 's/^halogen-config: //' | tr -cd '[:print:]')"
+       if [ -n "$last" ]; then say WARN flash "chosen by memory, but Halogen serves the official one: $last"
+       elif [ -n "$why" ]; then say WARN flash "chosen by memory: $why"
+       else say INFO flash "serving the official Flash checkpoint"; fi ;;
   esac
 else
   from="$(as_owner sed -n 's/^repo=//p' "$models/flash/$flash/halos.info" | tail -n 1 | tr -cd '[:print:]' | cut -c1-100)"

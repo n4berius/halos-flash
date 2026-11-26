@@ -38,7 +38,8 @@ flash_tool="${HALOGEN_FLASH_TOOL:-/usr/libexec/halogen/flash-checkpoint}"
 flash_choice="${HALOGEN_FLASH_FILE:-/srv/configs/flash-checkpoint}"
 # The settings for the official checkpoint: what is fetched doesn't depend on which checkpoint
 # is chosen (the official vision tower stays, so going back downloads nothing).
-effective="$(HALOGEN_FLASH_FILE=/dev/null "$render")" || exit 1
+# (No choice now means auto, which goes by memory: an unreadable size means official.)
+effective="$(HALOGEN_FLASH_FILE=/dev/null HALOGEN_MEMINFO=/dev/null "$render")" || exit 1
 setting() { sed -n "s/^$1=//p" "$effective" | tail -n 1; }
 npu_models="$(setting HALOGEN_NPU_MODELS)"
 # The agent guard adds its models when the server starts, so fetch them now: the server itself
@@ -211,6 +212,13 @@ if [ "$small" = 1 ] && ! official_there; then
   # Then there is nothing else to serve: Halogen isn't started on files that aren't there.
   if [ "$(sed -n 's/^verified=//p' "$models/flash/qwen3.8-27b/halos.info" 2>/dev/null | tail -n 1)" != pass ]; then
     echo "halogen-fetch: Qwen3.8-27B isn't ready (above), and the Flash model isn't downloaded, so Halogen can't start. Try again: sudo halogenctl restart" >&2
+    exit 1
+  fi
+  # render-config checks more than that line (the checkpoint file, links): whatever made it fall
+  # back would serve official files this fetch neither downloaded nor checked.
+  served="$("$render" --show 2> /dev/null | sed -n 's/^HALOGEN_CHECKPOINT=//p' | tail -n 1)"
+  if [[ "$served" != /models/flash/qwen3.8-27b/* ]]; then
+    echo "halogen-fetch: Halogen wouldn't serve Qwen3.8-27B ($("$render" --show 2>&1 > /dev/null | grep -m 1 'official one' | tr -cd '[:print:]')), and the Flash model isn't downloaded, so it can't start. See: sudo halogenctl flash list" >&2
     exit 1
   fi
 fi

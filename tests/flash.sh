@@ -390,7 +390,23 @@ grep -q "not Qwen3.8-27B's" "$work/out" || fail "the missing 27B tokenizer wasn'
 reset_repo; hdr qwen3.8-27b-vision > "$work/repo/model.hgn"
 if pull someone/Companion --as comp; then fail "a companion file passed as a checkpoint"; fi
 { grep -q 'companion file' "$work/out" && [ "$(info comp verified)" = fail ]; } || fail "the companion file wasn't named or recorded"
-rm -rf "$work/models/flash/q27" "$work/models/flash/r27" "$work/models/flash/odd" "$work/models/flash/nt27" "$work/models/flash/comp"; reset_repo
+# Where the Flash model was never downloaded (served by memory), a 27B still pulls: it brings its
+# own tokenizer. A Flash-Next one still needs the official.
+reset_repo; rm "$work/repo/model.hgn"; hdr qwen3.8-27b-ht4 > "$work/repo/qwen38-27b-ht4.hgn"
+mv "$work/models/tokenizer/tokenizer.json" "$work/tok.bak"
+pull someone/Small-27B --as s27 || { cat "$work/out" >&2; fail "a 27B didn't pull without the official tokenizer"; }
+reset_repo
+if pull someone/My-Flash-HGN --as nf; then fail "a Flash-Next checkpoint pulled without the official tokenizer"; fi
+grep -q "official model isn't downloaded yet" "$work/out" || fail "the missing official tokenizer wasn't explained"
+mv "$work/tok.bak" "$work/models/tokenizer/tokenizer.json"
+# The one memory chose (render-config serves it under auto) is never pulled over or removed.
+printf '#!/bin/bash\necho HALOGEN_CHECKPOINT=/models/flash/s27/qwen38-27b-ht4.hgn\n' > "$work/render-show"; chmod +x "$work/render-show"
+rm -f "$work/flash-checkpoint"; reset_repo; rm "$work/repo/model.hgn"; hdr qwen3.8-27b-ht4 > "$work/repo/qwen38-27b-ht4.hgn"
+if HALOGEN_RENDER="$work/render-show" pull someone/Small-27B --as s27; then fail "the checkpoint memory chose was pulled over"; fi
+grep -q 'Switch first' "$work/out" || fail "no explanation for the served 27B"
+if HALOGEN_RENDER="$work/render-show" "$tool" remove s27 > "$work/out" 2>&1 || [ ! -d "$work/models/flash/s27" ]; then fail "the checkpoint memory chose was removed"; fi
+echo official > "$work/flash-checkpoint"
+rm -rf "$work/models/flash/q27" "$work/models/flash/r27" "$work/models/flash/odd" "$work/models/flash/nt27" "$work/models/flash/comp" "$work/models/flash/s27" "$work/models/flash/nf"; reset_repo
 ok "Qwen3.8-27B checkpoints pull with their own vision tower, no table or draft head, by header or name"
 
 # Pulling again: never the one Halogen serves, and unchecked from the first byte until it passes.

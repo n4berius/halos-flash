@@ -14,6 +14,14 @@ run() { HALOGEN_DEV="$work/dev" HALOGEN_EFFECTIVE_FILE="$work/effective" HALOGEN
 expect_fail() { if run >/dev/null 2>&1; then echo "not caught: $1" >&2; exit 1; fi; echo "ok: catches $1"; }
 run >/dev/null; echo "ok: healthy host passes"
 echo 'MemTotal: 62000000 kB' > "$work/mem"; expect_fail "a large BIOS carve-out"
+# Under 100 GiB, Qwen3.8-27B (by its header) may run; a Flash-Next checkpoint of its own may not.
+cp "$work/effective" "$work/effective.bak"; mkdir -p "$work/models/flash/q27"
+{ printf 'HGN1'; head -c 36 /dev/zero; printf 'qwen3.8-27b-ht4'; head -c 49 /dev/zero; } > "$work/models/flash/q27/model.hgn"
+echo 'HALOGEN_CHECKPOINT=/models/flash/q27/model.hgn' >> "$work/effective"
+run > /dev/null || { echo "Qwen3.8-27B was refused at 62 GiB" >&2; exit 1; }; echo "ok: Qwen3.8-27B runs under 100 GiB"
+{ printf 'HGN1'; head -c 36 /dev/zero; printf 'qwen3.8-flash-next-v2'; head -c 43 /dev/zero; } > "$work/models/flash/q27/model.hgn"
+expect_fail "a Flash-Next checkpoint of its own under 100 GiB"
+cp "$work/effective.bak" "$work/effective"; rm -rf "$work/models/flash/q27"
 echo 'MemTotal: 130000000 kB' > "$work/mem"
 echo 'iommu=pt amd_iommu=off' > "$work/cmd"; expect_fail "amd_iommu=off"
 echo 'iommu=pt' > "$work/cmd"

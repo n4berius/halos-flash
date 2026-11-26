@@ -59,6 +59,12 @@ lock_busy() {
 flash_choice="${HALOGEN_FLASH_FILE:-${HALOGEN_CONFIGS_DIR:-/srv/configs}/flash-checkpoint}"
 # Your own checkpoints that use the official draft head (flash drafter <name> on), one name a line.
 drafter_choice="${HALOGEN_DRAFTER_CHOICE_FILE:-${HALOGEN_CONFIGS_DIR:-/srv/configs}/flash-drafter}"
+# The own checkpoint Halogen is to serve, as render-config decides it (a choice, or memory's
+# under auto); empty for the official one or when render-config can't tell.
+served_name() {
+  "${HALOGEN_RENDER:-/usr/libexec/halogen/render-config}" --show 2> /dev/null \
+    | sed -n 's|^HALOGEN_CHECKPOINT=/models/flash/\([A-Za-z0-9._-]*\)/.*|\1|p' | tail -n 1 || true
+}
 valid_name() {
   case "$1" in [A-Za-z0-9]*) ;; *) return 1 ;; esac
   # off and official-r2 are flash drafter choices, auto a flash use one: a checkpoint of that
@@ -1007,12 +1013,13 @@ case "${1:-}" in
     # Under the name's lock, after halogenctl asked: still there, still a plain folder, and not
     # the one chosen meanwhile (#119). As halogen, so a link can't steer the removal.
     name="${2:-}"
-    valid_name "$name" || die "usage: halogenctl flash remove <name> (the official checkpoint is always kept)"
+    # auto: a folder pulled under that name before it became flash use auto's word.
+    valid_name "$name" || [ "$name" = auto ] || die "usage: halogenctl flash remove <name> (the official checkpoint is always kept)"
     name_lock "$name"
     d="$models/flash/$name"
     plain_dir "$d" || die "No checkpoint called $name (any more). See: sudo halogenctl flash list"
-    if [ "$(head -n 1 -- "$flash_choice" 2> /dev/null | tr -cd 'A-Za-z0-9._-')" = "$name" ]; then
-      die "$name is the active checkpoint (it was chosen meanwhile). Switch first: sudo halogenctl flash use official"
+    if [ "$(head -n 1 -- "$flash_choice" 2> /dev/null | tr -cd 'A-Za-z0-9._-')" = "$name" ] || [ "$(served_name)" = "$name" ]; then
+      die "$name is the active checkpoint (chosen meanwhile, or by memory). Switch first: sudo halogenctl flash use official"
     fi
     rm -rf -- "$d" || die "Couldn't delete all of $d."
     # A checkpoint pulled later under the same name starts with the official draft head.
@@ -1070,8 +1077,6 @@ info="$dir/halos.info"
 if [ -f "$info" ] && [ "$(info_get "$info" repo)" != "$repo" ]; then
   die "$name already holds $(info_get "$info" repo). Pick another name with --as, or remove it first: sudo halogenctl flash remove $name"
 fi
-[ -f "$models/tokenizer/tokenizer.json" ] \
-  || die "The official model isn't downloaded yet. Let the first boot finish: sudo halogenctl fetch-logs"
 
 list_repo "$repo" "$revision"
 
@@ -1098,6 +1103,15 @@ fi
 # Qwen3.8-27B or Flash-Next: by the name until the header is here (as Halogen picks when the
 # header names no model), then by the header. The companions differ (see is_27b_file).
 ck27=0; [[ "$checkpoint" != qwen38-27b-*.hgn ]] || ck27=1
+# A Flash-Next checkpoint without its own tokenizer gets the official one. A 27B brings its own
+# (refused below without), so it pulls also where the Flash model was never downloaded (a
+# machine that serves the 27B by memory). Checked again once the header decides.
+no_official_tokenizer() {
+  [ "$ck27" = 0 ] && [ ! -f "$models/tokenizer/tokenizer.json" ] &&
+    die "The official model isn't downloaded yet. Let the first boot finish: sudo halogenctl fetch-logs"
+  return 0
+}
+no_official_tokenizer
 companions() {
   if [ "$ck27" = 1 ]; then
     ck_vision="$vision27"; drafters=()
@@ -1131,7 +1145,7 @@ if [ "$need" -gt "$(( ${free:-0} - 1073741824 ))" ]; then
   die "$repo needs $(gib "$need") more and $models has $(gib "${free:-0}") free."
 fi
 
-if [ "$(head -n 1 "$flash_choice" 2>/dev/null | tr -d '[:space:]')" = "$name" ]; then
+if [ "$(head -n 1 "$flash_choice" 2>/dev/null | tr -d '[:space:]')" = "$name" ] || [ "$(served_name)" = "$name" ]; then
   die "$name is the checkpoint Halogen serves. Switch first (sudo halogenctl flash use official), then pull it again."
 fi
 mk_plain "$dir" || die "$dir isn't a plain folder under $models (a link stands in its path). Remove the link, then pull again."
@@ -1169,6 +1183,7 @@ fetch "${wanted[@]}"
 # other files this pull doesn't want.
 was27="$ck27"; ck27=0
 ! is_27b_file "$dir/$checkpoint" || ck27=1
+no_official_tokenizer
 if [ "$ck27" != "$was27" ]; then
   old_vision="$ck_vision"; companions
   for i in "${!wanted[@]}"; do [ "${wanted[$i]}" != "$old_vision" ] || unset 'wanted[i]'; done
