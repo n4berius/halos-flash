@@ -10,7 +10,7 @@ it promotes.
 
 ## Unreleased
 
-- Halogen no longer starts when there is an `adapters` folder beside its checkpoint (#PR).
+- Halogen no longer starts when there is an `adapters` folder beside its checkpoint (#183).
   Halogen 0.21.0 loads LoRA adapters from such a folder, and halOS doesn't make one, so only a
   download could have put it there. The start message tells you how to remove it. The two update
   workflows also keep their GitHub token out of every step except the one that opens the pull

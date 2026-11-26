@@ -10,8 +10,10 @@ on:
 concurrency:
   group: ${{ github.workflow }}
 
-# Nothing by default; the job's write rights reach only the last step: the checkout keeps no
-# token, so the tests and the update script (which read upstream's files) never hold one.
+# Nothing by default. The checkout keeps no token and only the last step hands one to git, so the
+# tests and the update script (which read upstream's files) can't leak it by accident. A step
+# that ran hostile code could still reach it later in the same job (through $GITHUB_ENV, say):
+# this is no wall against that.
 permissions: {}
 
 jobs:
@@ -47,10 +49,13 @@ jobs:
           NVR: ${{ steps.update.outputs.nvr }}
           BRANCH: ${{ steps.update.outputs.branch }}
         run: |
-          # The token for git, for this step only (the checkout kept none).
-          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
-          echo "::add-mask::$auth"
-          if git -c "http.https://github.com/.extraheader=$auth" ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
+          # The token for git, for this step only (the checkout kept none), through the environment
+          # rather than git's argv, and with no hooks from the checkout.
+          b64="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          echo "::add-mask::$b64"
+          export GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader \
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $b64" GIT_CONFIG_KEY_1=core.hooksPath GIT_CONFIG_VALUE_1=/dev/null
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
             echo "$BRANCH already exists, so its pull request is already open or was closed on purpose." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
@@ -58,7 +63,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -c "$BRANCH"
           git commit -qam "kernel-next: move to kernel $NVR" -m "Fedora's newest plain kernel build, by the kernel-next update workflow."
-          git -c "http.https://github.com/.extraheader=$auth" push -q origin "$BRANCH"
+          git push -q origin "$BRANCH"
           url="$(gh pr create --base main --head "$BRANCH" --title "kernel-next: move to kernel $NVR" --body-file "$RUNNER_TEMP/body.md")"
           echo "Opened $url" >> "$GITHUB_STEP_SUMMARY"
           # A pull request opened with this workflow's token starts no workflows by itself, so

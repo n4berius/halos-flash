@@ -1510,8 +1510,11 @@ and tracked on the owner's project board. [ROADMAP.md](ROADMAP.md) holds the ord
   the download and pull containers can write there, halOS makes none). `halogen-update.yml` and
   `kernel-next-update.yml`: `permissions: {}` at the top, the write rights on the job, checkout
   with `persist-credentials: false`, and the token reaches git only in the step that opens the PR
-  (`git -c http.https://github.com/.extraheader=…`, masked), so `tests/run.sh` and the update
-  scripts run without one.
+  (`GIT_CONFIG_COUNT`/`_KEY_0`/`_VALUE_0` for `http.https://github.com/.extraheader`, the base64
+  masked, `core.hooksPath=/dev/null`), so `tests/run.sh` and the update scripts can't leak it by
+  accident (a hostile earlier step could still reach it through `$GITHUB_ENV`: a second job would
+  be the wall). preflight skips `flash/<x>/adapters` when `<x>` isn't a name render-config serves,
+  and prints the removal with `printf %q` through `runuser -u halogen`.
 - The ISO install test also runs when `versions.env` changes (#78), so every Halogen update PR
   gets the LUKS + TPM install in a VM, about 30 minutes for both editions.
 - Known upstream: bootc 1.17.1 rewrites `/etc/fstab` at every boot on Anaconda installs
