@@ -692,7 +692,7 @@ export HALOGEN_SEARCH_DROPIN="$work/dropin.d/30-web-search.conf" HALOS_SEARCH_CO
 printf 'HALOGEN_IMAGE=x\nSEARXNG_VERSION=2026.11.23-a7163d091\n' > "$work/release.env"
 f systemctl 'echo "systemctl $*" >> "$FAKE/log"; case "$*" in *"is-active halogen.service"*) echo "${FAKE_ACTIVE-active}" ;;
   *"is-active halos-search"*) echo active ;;
-  *"cat halogen.service"*) if [ -z "${FAKE_NOJOIN:-}" ] && [ -f "$HALOGEN_SEARCH_DROPIN" ]; then echo "ExecStart=podman run --network=halogen-internal --network=halos-search:ip=10.89.250.3 x"; fi ;; esac'
+  *"cat halogen.service"*) if [ -z "${FAKE_NOJOIN:-}" ] && [ -f "$HALOGEN_SEARCH_DROPIN" ]; then echo "ExecStart=podman run --network halogen-internal --network halos-search:ip=10.89.250.3 x"; fi ;; esac'
 f curl 'echo "curl $*" >> "$FAKE/log"; case "$*" in *healthz*) [ -n "${FAKE_SEARCH_DOWN:-}" ] || echo OK ;;
   *format=json*) if [ -n "${FAKE_NOJSON:-}" ]; then echo "<html>"; else echo "{\"results\":[]}"; fi ;; esac'
 : > "$work/log"
@@ -715,7 +715,7 @@ cp "$HALOS_SEARCH_CONF" "$work/conf.before"
 for bad in 'ftp://search.example.com' 'search.example.com' 'https://user:pw@search.example.com' 'https://search.local' \
     'http://127.0.0.1:8888' 'http://localhost:8888' 'https://search.example.com/a?b=c' 'https://search.example.com/a#x' \
     'https://search.example.com:99999' 'https://sea$rch.example.com' 'https://search.example.com/a b' 'http://10.89.250.2:8080' \
-    'https://-x.example.com' 'https://search.example.com/../x'; do
+    'https://-x.example.com' 'https://search.example.com/../x' 'http://[fd00::5]:8888' 'http://0.0.0.0:8888'; do
   if "$ctl" web-search external "$bad" --yes > "$work/out" 2>&1; then echo "external took '$bad'" >&2; exit 1; fi
   cmp -s "$HALOS_SEARCH_CONF" "$work/conf.before" || { echo "'$bad' changed the settings" >&2; exit 1; }
 done
@@ -736,8 +736,6 @@ for w in 'curl -q -fsS -G -m 20 --max-filesize 4194304 --proto =http,https --pro
   grep -qF -- "$w" "$work/log" || { cat "$work/log" >&2; echo "external didn't run: $w" >&2; exit 1; }
 done
 grep -qF '127.0.0.1:18730/searx/healthz' "$work/log" || { echo "the relay's health was asked without the path" >&2; exit 1; }
-"$ctl" web-search external 'http://[fd00::5]:8888' --yes > /dev/null || { echo "an IPv6 address was refused" >&2; exit 1; }
-grep -qx 'HALOS_SEARCH_UPSTREAM=http://\[fd00::5\]:8888' "$HALOS_SEARCH_CONF" || { echo "the IPv6 upstream wasn't kept" >&2; exit 1; }
 # A reload that leaves Halogen off the search network is reported, not called done.
 if FAKE_NOJOIN=1 "$ctl" web-search bundled --yes > "$work/out" 2>&1 || ! grep -q "isn't on the search network" "$work/out"; then cat "$work/out" >&2; echo "a missing network after on wasn't reported" >&2; exit 1; fi
 : > "$work/log"; FAKE_ACTIVE=inactive "$ctl" web-search off --yes > "$work/out" || { cat "$work/out" >&2; exit 1; }

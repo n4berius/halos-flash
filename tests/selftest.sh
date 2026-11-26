@@ -311,7 +311,7 @@ ok "request records: off, on with Halogen's counts, and a mount or state that do
 # Web search (halogenctl web-search): off; on, with the search answering here and from Halogen's
 # container, and Halogen's networks as made; then each half missing.
 "$selftest" > "$work/out" 2>&1 || true; expect '^INFO web-search: off'
-su='ExecStart=podman run --network=halogen-internal --network=halos-search:ip=10.89.250.3 x'
+su='ExecStart=podman run --network halogen-internal --network halos-search:ip=10.89.250.3 x'
 : > "$work/30-web-search.conf"; printf 'HALOS_WEB_SEARCH=bundled\n' > "$work/web-search.env"
 FAKE_UNIT="$su" FAKE_NETS="halogen-internal halos-search " "$selftest" > "$work/out" 2>&1 || true
 expect '^PASS web-search: on \(SearXNG on this machine\): it answers, also from Halogen.s container'

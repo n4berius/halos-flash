@@ -719,7 +719,7 @@ except Exception as e:
   fi
   if [ "$smode" != bundled ] && [ "$smode" != external ]; then
     say WARN web-search "Halogen's drop-in is there, but $search_conf names no mode, so Halogen isn't told: sudo halogenctl web-search off, then on again"
-  elif ! grep -q -F -- '--network=halos-search:ip=10.89.250.3' <<< "$sunit_text"; then
+  elif ! grep -qE -- ' --network[= ]halos-search:ip=10\.89\.250\.3( |$)' <<< "$sunit_text"; then
     say WARN web-search "on ($swhat), but Halogen's service isn't on the search network: sudo halogenctl web-search $smode again"
   elif [ "$sstate" != active ]; then
     say WARN web-search "on ($swhat), but $sunit is ${sstate:-unknown}: sudo halogenctl web-search restart (log: sudo journalctl _SYSTEMD_USER_UNIT=$sunit)"

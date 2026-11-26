@@ -234,6 +234,18 @@ RUN set -eu; \
     done; \
     sed -n '/^---halogen.service---/,/^---/p' /tmp/quadlet.txt | grep -E '^ExecStart=/usr/bin/podman run ' > /tmp/q-run.txt; \
     if grep -qF 'halos-search' /tmp/q-run.txt; then echo "Halogen joins web search's network without the drop-in" >&2; exit 1; fi; \
+    # With the drop-in halogenctl writes (the same lines as write_dropin), Halogen joins at its address
+    # with IPv6 off on that link too; the drop-in is removed again, as web search starts off.
+    dd=/etc/containers/systemd/users/970/halogen.container.d; install -d -m 0755 "$dd"; \
+    printf '%s\n' '[Unit]' 'Wants=halos-search.service' 'After=halos-search.service' '[Container]' \
+      'Network=halos-search.network:ip=10.89.250.3' 'Sysctl=net.ipv6.conf.eth1.disable_ipv6=1' > "$dd/30-web-search.conf"; \
+    QUADLET_UNIT_DIRS=/etc/containers/systemd/users/970 /usr/libexec/podman/quadlet -dryrun -user > /tmp/quadlet.txt 2>&1 || { cat /tmp/quadlet.txt; exit 1; }; \
+    rm -f "$dd/30-web-search.conf"; \
+    sed -n '/^---halogen.service---/,/^---/p' /tmp/quadlet.txt | grep -E '^ExecStart=/usr/bin/podman run ' > /tmp/q-run.txt; \
+    for want in ' --network[= ]halogen-internal( |$)' ' --network[= ]halos-search:ip=10\.89\.250\.3( |$)' \
+        ' --sysctl[= ]net\.ipv6\.conf\.eth0\.disable_ipv6=1( |$)' ' --sysctl[= ]net\.ipv6\.conf\.eth1\.disable_ipv6=1( |$)'; do \
+      grep -qE -- "$want" /tmp/q-run.txt || { echo "with web search's drop-in, Halogen's container isn't as expected ($want):" >&2; cat /tmp/q-run.txt >&2; exit 1; }; \
+    done; \
     rm -f /tmp/quadlet.txt /tmp/q-run.txt; \
     { echo "HALOGEN_IMAGE=${HALOGEN_IMAGE}"; \
       echo "HALOGEN_VERSION=${HALOGEN_VERSION}"; \

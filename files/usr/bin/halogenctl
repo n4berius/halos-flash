@@ -1040,7 +1040,7 @@ case "${1:-status}" in
     wunit() { case "$1" in bundled) echo halos-search.service ;; *) echo halos-search-relay.service ;; esac; }
     wvalue() { [ ! -f "$wconf" ] || sed -n "s/^$1=//p" "$wconf" | tail -n 1 | tr -cd '[:print:]'; }
     # Whether halogen's generated unit has Halogen on the search network, read whole (no SIGPIPE).
-    joined() { local u; u="$(as_manager cat halogen.service 2> /dev/null)" || true; grep -q -F -- '--network=halos-search:ip=10.89.250.3' <<< "$u"; }
+    joined() { local u; u="$(as_manager cat halogen.service 2> /dev/null)" || true; grep -qE -- ' --network[= ]halos-search:ip=10\.89\.250\.3( |$)' <<< "$u"; }
     # SearXNG's health page, from this machine (the search container publishes it on 127.0.0.1 only).
     answers() { [ "$(curl -q -sS -m 5 "http://127.0.0.1:$wport$1/healthz" 2> /dev/null | head -c 16 | tr -cd '[:alnum:]')" = OK ]; }
     wait_answer() {
@@ -1080,7 +1080,9 @@ case "${1:-status}" in
       else echo "It applies when Halogen next starts (sudo halogenctl start)."; fi
     }
     cmd="${args[0]:-status}"
-    case "$cmd" in status) ;; *) [ "$(id -u)" = 0 ] || { echo "Run it with sudo: sudo halogenctl web-search ${args[*]}" >&2; exit 1; } ;; esac
+    # Every form needs root, status too: without it the reads of halogen's units fail quietly and
+    # status would give wrong advice.
+    [ "$(id -u)" = 0 ] || { echo "Run it with sudo: sudo halogenctl web-search ${args[*]}" >&2; exit 1; }
     case "$cmd" in
       status)
         m="$(wmode)"
@@ -1106,7 +1108,8 @@ case "${1:-status}" in
           case "$url" in http://*|https://*) ;; *) echo "Give the address with http:// or https://, such as https://search.example.com" >&2; exit 2 ;; esac
           scheme="${url%%://*}"; rest="${url#*://}"; hostport="${rest%%/*}"; path="${rest#"$hostport"}"; path="${path%/}"
           host="$hostport"; port=""
-          if [[ "$hostport" =~ ^(\[[0-9A-Fa-f:.]{2,45}\])(:([0-9]{1,5}))?$ ]]; then host="${BASH_REMATCH[1]}"; port="${BASH_REMATCH[3]}"
+          # The relay's network has no IPv6, so an IPv6 address could never be reached from it.
+          if [[ "$hostport" == \[* ]]; then echo "The relay reaches your server over IPv4 only: give its IPv4 address or a DNS name with an IPv4 address." >&2; exit 2
           elif [[ "$hostport" =~ ^([A-Za-z0-9]([A-Za-z0-9-]{0,62}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,62}[A-Za-z0-9])?)*)(:([0-9]{1,5}))?$ ]]; then host="${BASH_REMATCH[1]}"; port="${BASH_REMATCH[6]}"
           else echo "That address's host part isn't a plain name or IP address (no user name, password or odd characters): $hostport" >&2; exit 2; fi
           if [ -n "$port" ] && { [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; }; then echo "No such port: $port" >&2; exit 2; fi
@@ -1115,7 +1118,7 @@ case "${1:-status}" in
           fi
           case "${host,,}" in
             *.local) echo "A .local name can't be found from the relay's container (no mDNS there): give the server's IP address or a DNS name." >&2; exit 2 ;;
-            localhost|*.localhost|127.*|'[::1]'|'[0:0:0:0:0:0:0:1]') echo "A SearXNG on this machine itself can't be reached from the relay: use sudo halogenctl web-search bundled." >&2; exit 2 ;;
+            localhost|*.localhost|127.*|0.*) echo "A SearXNG on this machine itself can't be reached from the relay: use sudo halogenctl web-search bundled." >&2; exit 2 ;;
             10.89.250.*) echo "That address is web search's own network inside halOS." >&2; exit 2 ;;
           esac
           up="$scheme://$hostport"

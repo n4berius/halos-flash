@@ -21,7 +21,7 @@ work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
 r="$work/root"
 # The mount points podman uses exist in the image (crun 1.31 stopped making missing ones under a
 # read-only root, crun#2480).
-mkdir -p "$r"/{dev,proc,sys,run,tmp,etc/ssl/certs,etc/relay}
+mkdir -p "$r"/{dev,proc,sys,run,tmp,var/tmp,etc/ssl/certs,etc/relay}
 cp -- "$caddy" "$r/caddy"; chmod 0755 "$r/caddy"
 cp -- "$conf" "$r/etc/relay/Caddyfile"
 cat -- "$ca" > "$r/etc/ssl/certs/ca-certificates.crt"

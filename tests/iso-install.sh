@@ -68,6 +68,32 @@ fi
 # The test's long command lines, as scripts on a read-only disk for every boot from the installed
 # disk: vm-login.py types only "bash <script>" instead of each line key by key.
 python3 "$here/vm-login.py" --scripts "$out/probe"
+# SearXNG's pinned image for the web search check: the first boot has no network, so the VM copies
+# it from this disk into halogen's storage (as `web-search bundled` would download it). Its image
+# index is kept, so the image is found by the same digest; only the amd64 image's files are kept.
+searxng="$(sed -n 's/^SEARXNG_IMAGE=//p' "$here/../versions.env")"
+skopeo copy -q --all --preserve-digests "docker://$searxng" "dir:$out/probe/searxng"
+python3 -I - "$out/probe/searxng" <<'PY'
+import json, os, sys
+d = sys.argv[1]
+idx = json.load(open(os.path.join(d, "manifest.json")))
+keep = {"manifest.json", "version"}
+for m in idx["manifests"]:
+    p = m.get("platform", {})
+    if p.get("os") == "linux" and p.get("architecture") == "amd64" and not p.get("variant"):
+        h = m["digest"].split(":", 1)[1]
+        keep.add(h + ".manifest.json")
+        im = json.load(open(os.path.join(d, h + ".manifest.json")))
+        keep.add(im["config"]["digest"].split(":", 1)[1])
+        keep.update(l["digest"].split(":", 1)[1] for l in im["layers"])
+        break
+else:
+    sys.exit("no linux/amd64 image in SearXNG's index")
+for f in os.listdir(d):
+    if f not in keep:
+        os.remove(os.path.join(d, f))
+PY
+du -sh "$out/probe/searxng"
 genisoimage -quiet -r -V HALOS_PROBE -o "$out/probe.iso" "$out/probe"
 probe=(-drive "file=$out/probe.iso,format=raw,if=virtio,readonly=on")
 
@@ -141,7 +167,7 @@ for l in 'RECCONF 2 [1-9][0-9]*' 'RECST 0 1' 'RECOFF 0' 'RECDIR halogen 700' 'RE
 done
 # Web search: SearXNG on this machine, joined to Halogen's unit and settings, answering JSON and
 # through the front door; off takes it all away again.
-for l in 'WSON 1 1 [1-9][0-9]*' 'WSJSON 1 [1-9]' 'WSOFF 0 0 inactive'; do
+for l in 'WSIMG 0 0' 'WSON 1 1 [1-9][0-9]*' 'WSJSON 1 [1-9]' 'WSOFF 0 0 inactive'; do
   grep -qxE "$l" "$out/report.txt" || { echo "web search: expected '$l'" >&2; grep -E '^WS|web-search|SearXNG|network-config' "$out/report.txt" >&2; exit 1; }
 done
 grep -qE '^uid=[0-9]+\(admin\).*\(wheel\)' "$out/report.txt" || { echo "the admin user is missing or not in wheel" >&2; exit 1; }

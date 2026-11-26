@@ -1308,7 +1308,14 @@ name, but allows saying halOS runs Halogen.
   only with the drop-in and checks it the same way, `config-files` excuses the drop-in's two exact
   forms. Checked here with rootless podman 4.9.3 and SearXNG's real image: JSON on the internal
   address from a Halogen-like container that has no route out, the relay to another SearXNG, 405
-  for POST. Not run on freyja yet (Podman 6, SELinux, a real search).
+  for POST. Podman 6's Quadlet writes `--flag value` (4.9.3: `--flag=value`) and orders the network's
+  flags differently, so every check of its output matches `[= ]`; the Containerfile also dry-runs
+  Quadlet with the drop-in. IPv6 upstreams are refused (`halos-search-out` has no IPv6). `halosctl
+  rollback` warns while the drop-in exists (an older image has no `halos-search.network`, and
+  Quadlet then makes no halogen.service). The VM test's first boot has no network, so
+  `iso-install.sh` copies SearXNG's index and amd64 image (`skopeo --all --preserve-digests`, other
+  blobs deleted) onto the probe disk and the VM `skopeo copy`s it into halogen's storage (`WSIMG`).
+  Not run on freyja yet (Podman 6, SELinux, a real search).
 - Build record (#121): the base stays the moving tag `fedora-bootc:45` (Fedora's fixes, weekly
   rebuild). `scripts/build-helpers.sh` (run by `build.sh`, or once per CI run, #122) resolves it once with `skopeo inspect` (a pinned `repo@sha256:` is checked
   to answer with that digest; a tag+digest reference is asked for as `repo@digest`, since

@@ -515,6 +515,11 @@ case "$cmd" in
     switch_to switch "$(repo):$ch$sfx"
     ;;
   rollback)
+    # Web search's drop-in (root's, in /etc) names a network file that older images don't have, and
+    # Quadlet then makes no halogen.service at all; the older halogenctl has no web-search off.
+    if [ -e /etc/containers/systemd/users/970/halogen.container.d/30-web-search.conf ]; then
+      echo "Note: web search is on. An image from before web search can't start Halogen with it on. Turn it off first (sudo halogenctl web-search off), or after the rollback remove /etc/containers/systemd/users/970/halogen.container.d/30-web-search.conf."
+    fi
     if [ -n "$to" ]; then
       # Releases are <Halogen version>-<halOS number>-<stage> (0.20.7-1-stable) since November
       # 2026; the older forms (0.20.7-alpha.3, 0.20.7-rc.1, 0.20.7) still have their images.

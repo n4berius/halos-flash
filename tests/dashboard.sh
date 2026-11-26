@@ -91,7 +91,7 @@ for want in '^\(api\) \{$' '^\(dashboard\) \{$' '^	reverse_proxy 127\.0\.0\.1:18
 done
 # HTTPS: the redirect from http:// on the same port, no port 80, no admin, never the system's trust store.
 for want in '^	admin off$' '^	auto_https disable_redirects$' '^	skip_install_trust$' '^			http_redirect$' '^		protocols h1 h2$' \
-  '^\{\$HALOS_API_SITES\} \{$' '^\{\$HALOS_DASH_SITES\} \{$' '^	import tls_\{\$HALOS_TLS\}$'; do
+  '^\{\$HALOS_API_SITES\} \{$' '^\{\$HALOS_DASH_SITES\} \{$' '^\{\$HALOS_SEARCH_SITES\} \{$' '^	import tls_\{\$HALOS_TLS\}$'; do
   grep -qE "$want" "$cs" || fail "Caddyfile.https lacks $want"
 done
 if cat "$cf" "$sc" "$cs" | grep -qiE 'log_credentials|header_up -?Authorization'; then fail "the Caddyfile would log or drop the API key"; fi

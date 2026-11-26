@@ -557,9 +557,15 @@ Before it changes something, halOS sends one search to that address and asks for
 Halogen will. If the server doesn't answer in JSON, halOS changes nothing. Then add `json` to
 `search: formats:` in that server's `settings.yml`. If the server uses SearXNG's bot limiter,
 let this machine's address through. The relay can't find `.local` names: give an IP address or
-a DNS name.
+a DNS name. The relay uses IPv4 only, so give an IPv4 address or a name with an IPv4 address.
 
 `sudo halogenctl web-search off` turns web search off again. Halogen restarts.
+
+**Warning:** Turn web search off before you go back to a halOS image from before web search
+(`sudo halosctl rollback`). That image can't start Halogen while web search is on, and its
+`halogenctl` can't turn it off. If you forgot, remove the file
+`/etc/containers/systemd/users/970/halogen.container.d/30-web-search.conf` and run
+`sudo halogenctl restart`.
 
 **SearXNG's page.** With SearXNG on this machine, its page is on port 8730:
 `https://<this machine's address>:8730` (`http://` with [HTTPS](#https) off). Use it to try a

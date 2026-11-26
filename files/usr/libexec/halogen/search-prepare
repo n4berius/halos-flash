@@ -20,7 +20,7 @@ if [ ! -e "$f" ]; then
   sed "s/@SECRET@/$secret/" "$template" > "$tmp"
   chmod 0644 "$tmp"
   # -n: one made meanwhile (a second start) is kept.
-  mv -n -T "$tmp" "$f"; rm -f "$tmp"
+  mv -n -T "$tmp" "$f" || true; rm -f "$tmp"
   echo "search-prepare: made $f from halOS's template"
 fi
 [ -f "$f" ] || fail "$f isn't a plain file"
