@@ -91,7 +91,7 @@ _halogenctl() {
       if [ "$cword" -eq 2 ]; then _halogenctl_offer "pull convert convert-logs convert-stop list use drafter verify check remove"
       elif [ "$cword" -eq 3 ]; then
         case "${words[2]}" in
-          use) _halogenctl_names flash; _halogenctl_add official ;;
+          use) _halogenctl_names flash; _halogenctl_add official; _halogenctl_add auto ;;
           pull) _halogenctl_offer "27b" ;;
           drafter) _halogenctl_names flash; _halogenctl_add official; _halogenctl_add official-r2; _halogenctl_add off ;;
           verify|check|remove) _halogenctl_names flash ;;

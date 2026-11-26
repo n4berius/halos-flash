@@ -1496,7 +1496,18 @@ and tracked on the owner's project board. [ROADMAP.md](ROADMAP.md) holds the ord
   re-verify and render-config serves the official one; bf16-to-hgn writes `qwen3.8-flash-next-v2`,
   what convert writes for a GGUF wasn't checked). The 27B as an own Flash checkpoint (#184, owner asked; the use case: a machine short of
   memory, so `flash pull 27b` is Peonist's `peonist-ai/halogen-qwen3.8-27b-ht4` as `qwen3.8-27b`,
-  `HALOGEN_27B_REPO` test hook, and GUIDE.md has a memory table from the entrypoint's
+  `HALOGEN_27B_REPO` test hook; owner's follow-up: choose by memory: no choice file, or `auto`
+  (`flash use auto`; `valid_name` refuses `auto`), with MemTotal under 100 GiB (the selftest's
+  line; `HALOGEN_MEMINFO` test hook in render-config, fetch-models, halogenctl) makes render-config
+  serve `qwen3.8-27b` when its `halos.info` is there (else official, said), fetch-models run
+  `flash-checkpoint pull 27b` when it isn't `verified=pass` (a failure only warns) and re-verify
+  it like a chosen one; owner's choice: then, unless every official file is already there
+  (`official_there`), `skip_flash`: the download gets `SKIP_FLASH=1` (fetch-in-container skips the
+  Flash files and tokenizer) and the top `:ro`, no hash check (the `weights-unchecked` marker stays
+  for the later download) or Flash verify, space 20 GiB, stamp `<want>-no-flash`, and exit 1 when
+  the 27B still isn't `verified=pass` (nothing to serve); `flash use official` saves `official`, which memory never overrides;
+  halogenctl's `chosen_flash` works auto out (`flash_raw` is what's saved), status/list say
+  "chosen by memory"; the selftest's memory line WARNs, not FAILs, under auto; and GUIDE.md has a memory table from the entrypoint's
   `kv_budget_note`: Flash 68 GiB weights + the 47.7 GiB table through the file cache, ~29 KiB per
   position; 27B ~13 GiB, ~73 KiB per position; the official Flash files are still fetched):
   `flash-checkpoint`'s `is_27b_file` follows the entrypoint: header id `qwen3.8-27b-*` of an HGN1

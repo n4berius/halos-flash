@@ -6,6 +6,9 @@ work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
 export XDG_RUNTIME_DIR="$work/run" HALOGEN_CONFIG_FILE="$work/config"
 export HALOGEN_FLASH_FILE="$work/flash-checkpoint" HALOGEN_MODELS_DIR="$work/models"
 export HALOGEN_RECORDS_DROPIN="$work/20-records.conf"
+# A machine with the Flash model's memory, so no choice means the official checkpoint (the
+# memory rule's own checks come later).
+printf 'MemTotal:       131072000 kB\n' > "$work/meminfo"; export HALOGEN_MEMINFO="$work/meminfo"
 # The API key off for the checks below, so they compare only what halogen.env sets; the key's own
 # checks are at the end.
 # render-config reads a fixed path (halogen can set its manager's environment), so the test runs
@@ -192,6 +195,34 @@ touch "$work/models/flash/q27/qwen38-27b-vision.hgn"; printf 'HALOGEN_VISION_TOW
 grep -qx "HALOGEN_CK_OVERLAY=/models/qwen38-flash-next-drafter-r2-ht4.hgn" "$work/out" || { echo "a name alone was taken for a 27B" >&2; exit 1; }
 rm -rf "$work/models/flash/q27" "$work/flash-drafter" "$work/models/qwen38-flash-next-drafter-r2-ht4.hgn"; : > "$work/config"
 echo "ok: a Qwen3.8-27B checkpoint gets its own vision tower and model name, no draft head and no composable context"
+
+# No choice (or auto): by memory. Under 100 GiB, qwen3.8-27b once it is there; else the official one.
+mkdir -p "$work/models/flash/qwen3.8-27b"; printf 'repo=a/b\ncheckpoint=model.hgn\nverified=pass\n' > "$work/models/flash/qwen3.8-27b/halos.info"
+{ printf 'HGN1'; head -c 36 /dev/zero; printf 'qwen3.8-27b-ht4'; head -c 49 /dev/zero; } > "$work/models/flash/qwen3.8-27b/model.hgn"
+small27=HALOGEN_CHECKPOINT=/models/flash/qwen3.8-27b/model.hgn
+auto_case() { # <MemTotal kB> <choice file content, or - for none> <expected HALOGEN_CHECKPOINT line> <what>
+  printf 'MemTotal:       %s kB\n' "$1" > "$work/meminfo"
+  if [ "$2" = - ]; then rm -f "$work/flash-checkpoint"; else echo "$2" > "$work/flash-checkpoint"; fi
+  "$render" --show 2> "$work/log" > "$work/out"
+  grep -qx "$3" "$work/out" || { cat "$work/out" "$work/log" >&2; echo "auto: $4" >&2; exit 1; }
+}
+auto_case 65536000 - "$small27" "64 GiB and no choice didn't serve the 27B"
+grep -q 'less than the 100 GiB the Flash model needs, so Halogen serves qwen3.8-27b' "$work/log" || { cat "$work/log" >&2; echo "auto: the reason wasn't said" >&2; exit 1; }
+grep -qx HALOGEN_MODEL_ID=halogen-qwen3.8-27b "$work/out" || { echo "auto: the 27B's model name wasn't set" >&2; exit 1; }
+auto_case 65536000 auto "$small27" "flash use auto at 64 GiB didn't serve the 27B"
+auto_case 104857599 - "$small27" "just under 100 GiB didn't serve the 27B"
+auto_case 104857600 - "$official" "100 GiB didn't serve the official one"
+auto_case 131072000 auto "$official" "128 GiB didn't serve the official one"
+auto_case 65536000 official "$official" "flash use official didn't win over memory"
+printf 'garbage\n' > "$work/meminfo"; rm -f "$work/flash-checkpoint"
+"$render" --show 2> /dev/null > "$work/out"; grep -qx "$official" "$work/out" || { echo "auto: unreadable memory didn't serve the official one" >&2; exit 1; }
+sed -i 's/^verified=.*/verified=fail/' "$work/models/flash/qwen3.8-27b/halos.info"
+auto_case 65536000 - "$official" "a 27B that failed verify was served"
+rm -rf "$work/models/flash/qwen3.8-27b"
+auto_case 65536000 - "$official" "a missing 27B didn't fall back to the official one"
+grep -q "qwen3.8-27b isn't downloaded yet (sudo halogenctl flash pull 27b); using the official one" "$work/log" || { cat "$work/log" >&2; echo "auto: a missing 27B wasn't said" >&2; exit 1; }
+printf 'MemTotal:       131072000 kB\n' > "$work/meminfo"; rm -f "$work/flash-checkpoint"
+echo "ok: with no choice, a machine under 100 GiB serves Qwen3.8-27B when it is there, and flash use official wins"
 
 
 # Request records (#107): off unless halogenctl records on put its mount in place; then counts only

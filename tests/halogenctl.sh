@@ -32,6 +32,8 @@ f render-show 'grep -E "^HALOGEN_NPU_MODELS=" "$FAKE/configs/halogen.env" || tru
 export HALOGEN_ALLOWED_FILE="$repo/variants/npu/usr/share/halogen/options.allowed"
 export HALOGEN_LOCKED_FILE="$repo/files/usr/share/halogen/locked.env"
 ctl="$repo/files/usr/bin/halogenctl"
+# Enough memory for the Flash model unless a test says otherwise.
+printf 'MemTotal:       131072000 kB\n' > "$work/meminfo"; export HALOGEN_MEMINFO="$work/meminfo"
 ok() { echo "ok: $*"; }
 
 echo secret-key > "$work/configs/api-key"
@@ -288,6 +290,23 @@ if [ -e "$fm/flash/broken" ] || ! grep -q "systemd-run .*flash-checkpoint remove
 fi
 "$ctl" flash use official --yes > /dev/null
 [ "$(cat "$work/configs/flash-checkpoint")" = official ] || exit 1
+# auto: by memory (render-config decides; halogenctl says what it picks).
+"$ctl" flash use auto --yes > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+if [ "$(cat "$work/configs/flash-checkpoint")" != auto ] || ! grep -q 'systemd-run .*flash-checkpoint use auto' "$work/log" || ! grep -q 'enough for the Flash model' "$work/out"; then
+  cat "$work/out" >&2; echo "flash use auto didn't save auto as halogen" >&2; exit 1
+fi
+"$ctl" flash use auto --yes > "$work/out" 2>&1; grep -q 'auto is already the active choice' "$work/out" || { cat "$work/out" >&2; echo "auto twice switched again" >&2; exit 1; }
+printf 'MemTotal:       65536000 kB\n' > "$work/meminfo"
+"$ctl" status > "$work/out" 2>/dev/null; { grep -q "Qwen3.8-27B" "$work/out" && grep -q "isn't downloaded yet" "$work/out"; } || { cat "$work/out" >&2; echo "status hides that the 27B is missing on a small machine" >&2; exit 1; }
+mkdir -p "$fm/flash/qwen3.8-27b"; printf 'repo=peonist-ai/halogen-qwen3.8-27b-ht4\ncheckpoint=model.hgn\nmodel=qwen3.8-27b\nverified=pass\n' > "$fm/flash/qwen3.8-27b/halos.info"
+"$ctl" flash list > "$work/out"; grep -q 'Chosen by memory (the OS sees 62 GiB; Qwen3.8-27B below 100 GiB): qwen3.8-27b' "$work/out" || { cat "$work/out" >&2; echo "flash list doesn't say memory chose the 27B" >&2; exit 1; }
+"$ctl" status > "$work/out" 2>/dev/null; grep -q 'chosen by memory' "$work/out" || { cat "$work/out" >&2; echo "status doesn't say memory chose" >&2; exit 1; }
+if "$ctl" flash remove qwen3.8-27b --yes > "$work/out" 2>&1; then echo "the 27B memory chose was removed" >&2; exit 1; fi
+rm -f "$work/configs/flash-checkpoint"
+"$ctl" flash use official --yes > /dev/null
+[ "$(cat "$work/configs/flash-checkpoint")" = official ] || { echo "flash use official didn't save over memory's choice" >&2; exit 1; }
+rm -rf "$fm/flash/qwen3.8-27b"; printf 'MemTotal:       131072000 kB\n' > "$work/meminfo"
+ok "flash use auto chooses by memory, and flash use official saves a choice over it"
 "$ctl" flash pull someone/Mine-HGN --as mine > "$work/out" 2>/dev/null; grep -q 'sudo halogenctl flash use mine' "$work/out" || { echo "pull doesn't say how to use it" >&2; exit 1; }
 "$ctl" flash verify mine > /dev/null; grep -q 'verify mine' "$work/log" || exit 1
 ok "flash lists, switches only to verified checkpoints after asking, never removes the active or official one, all as halogen"

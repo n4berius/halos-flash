@@ -923,10 +923,28 @@ Things to know for every checkpoint of your own:
 Since 0.21.0, Halogen can also serve Qwen3.8-27B, a smaller model than the Flash model. Use it
 when you need memory for other work on the machine, or when the Flash model doesn't fit.
 
+**Chosen by memory.** Until you choose a checkpoint with `flash use`, halOS chooses by the memory
+that the OS sees. Under 100 GiB, the Flash model doesn't fit, so:
+
+1. At the next start, Halogen's download step downloads the 27B (`flash pull 27b`), and not the
+   Flash model (about 118 GB) when it isn't already on disk.
+2. Halogen serves the 27B (`qwen3.8-27b`). If the 27B download fails and the Flash model isn't on
+   disk, Halogen doesn't start. `sudo halogenctl restart` tries again.
+
+At 100 GiB or more, Halogen serves the official checkpoint. `sudo halogenctl status` and
+`flash list` show what memory chose and why.
+
+A 128 GB machine that shows less than 100 GiB has the BIOS setting "UMA frame buffer" on Auto.
+Set it to its minimum (see [Where things are](#where-things-are)), and Halogen serves the
+Flash model again. `halogenctl selftest` warns about this.
+
+To choose yourself:
+
 ```bash
 sudo halogenctl flash pull 27b           # Peonist's own 27B, peonist-ai/halogen-qwen3.8-27b-ht4 (about 14 GiB)
 sudo halogenctl flash use qwen3.8-27b    # switch; asks first, then restarts Halogen
-sudo halogenctl flash use official       # back to the Flash model
+sudo halogenctl flash use official       # the Flash model, whatever the memory
+sudo halogenctl flash use auto           # choose by memory again
 ```
 
 How much memory each one needs. These are Halogen's own estimates before it starts:
@@ -955,8 +973,10 @@ For the 27B:
   model.
 - Halogen can load LoRA adapters for the 27B from an `adapters/` folder beside it. halOS doesn't
   support this yet, and doesn't start Halogen while such a folder is there.
-- The Flash model's files stay on disk (about 118 GB), and each start still downloads what is
-  missing, so that `flash use official` works at once.
+- When you chose the 27B with `flash use`, the Flash model's files stay on disk (about 118 GB),
+  and each start still downloads what is missing, so that `flash use official` works at once.
+- When memory chose the 27B, halOS doesn't download the Flash model. `flash use official` then
+  downloads it at the next start (about 118 GB), before Halogen starts.
 - Its speed and its answers are those of a different model. halOS hasn't measured them yet.
 
 ### Pulling a `.hgn` checkpoint

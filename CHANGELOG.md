@@ -28,7 +28,10 @@ it promotes.
   (#184): `sudo halogenctl flash pull 27b`, then `sudo halogenctl flash use qwen3.8-27b`. Its
   weights take about 13 GiB of memory, against about 68 GiB and a 48 GiB lookup table for the
   Flash model. Apps ask for it as `halogen-qwen3.8-27b`. The guide shows the memory each needs.
-  `flash check` and `flash drafter` don't apply to it.
+  `flash check` and `flash drafter` don't apply to it. Until you choose a checkpoint, halOS
+  chooses by memory: a machine that shows under 100 GiB downloads the 27B at its next start and
+  serves it, and doesn't download the Flash model (about 118 GB). `flash use official` keeps the Flash model whatever the memory, and `flash use auto`
+  goes back to choosing by memory.
 - When a Halogen update needs work by hand, the Halogen update workflow now opens its pull
   request as a draft that names the failed checks, in place of stopping without one (#182).
 - `sudo halogenctl bench` measures reading speed correctly again (#181). From the second run on,

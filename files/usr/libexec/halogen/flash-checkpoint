@@ -61,8 +61,9 @@ flash_choice="${HALOGEN_FLASH_FILE:-${HALOGEN_CONFIGS_DIR:-/srv/configs}/flash-c
 drafter_choice="${HALOGEN_DRAFTER_CHOICE_FILE:-${HALOGEN_CONFIGS_DIR:-/srv/configs}/flash-drafter}"
 valid_name() {
   case "$1" in [A-Za-z0-9]*) ;; *) return 1 ;; esac
-  # off and official-r2 are flash drafter choices: a checkpoint of that name would be read as one.
-  case "$1" in *[!A-Za-z0-9._-]*|official|off|official-r2) return 1 ;; esac
+  # off and official-r2 are flash drafter choices, auto a flash use one: a checkpoint of that
+  # name would be read as one.
+  case "$1" in *[!A-Za-z0-9._-]*|official|off|official-r2|auto) return 1 ;; esac
 }
 case "${1:-}" in
   sandbox-check|use|remove|drafter|convert-clear) ;;
@@ -950,8 +951,8 @@ case "${1:-}" in
     # Under the name's lock, after halogenctl asked: the checks it made before asking are made
     # again, since a pull, a removal or a failed verify may have come in between (#119).
     name="${2:-}"
-    if [ "$name" != official ]; then
-      valid_name "$name" || die "usage: halogenctl flash use <name>|official"
+    if [ "$name" != official ] && [ "$name" != auto ]; then
+      valid_name "$name" || die "usage: halogenctl flash use <name>|official|auto"
       name_lock "$name"
       d="$models/flash/$name"
       if ! plain_dir "$d" || [ ! -f "$d/halos.info" ] || [ -L "$d/halos.info" ]; then

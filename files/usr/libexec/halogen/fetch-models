@@ -119,7 +119,23 @@ done
 # update, check it again with this one before it is served; if it fails, render-config serves
 # the official checkpoint and halogenctl status says why.
 choice="$(head -n 1 "$flash_choice" 2>/dev/null | tr -cd 'A-Za-z0-9._-')"
-case "$choice" in ''|official|[!A-Za-z0-9]*) ;; *)
+# No choice (or flash use auto) with less memory than the Flash model needs: render-config
+# serves Qwen3.8-27B (the same rule and name as there), so it is pulled here when it isn't
+# ready. A failed pull doesn't stop the start: render-config then serves the official one.
+small=0
+if [ -z "$choice" ] || [ "$choice" = auto ]; then
+  choice=official
+  mem_gib="$(awk '$1 == "MemTotal:" { printf "%d", $2 / 1048576 }' "${HALOGEN_MEMINFO:-/proc/meminfo}" 2>/dev/null)"
+  if [ "${mem_gib:-0}" -gt 0 ] && [ "$mem_gib" -lt 100 ]; then
+    small=1; choice=qwen3.8-27b
+    if [ "$(sed -n 's/^verified=//p' "$models/flash/$choice/halos.info" 2>/dev/null | tail -n 1)" != pass ]; then
+      echo "halogen-fetch: the OS sees $mem_gib GiB, less than the 100 GiB the Flash model needs, so Halogen serves Qwen3.8-27B; downloading it (sudo halogenctl flash use official chooses Flash)"
+      "$flash_tool" pull 27b ||
+        echo "halogen-fetch: Qwen3.8-27B didn't download (above), so Halogen serves the official checkpoint this time; the next start tries again" >&2
+    fi
+  fi
+fi
+case "$choice" in official|[!A-Za-z0-9]*) ;; *)
   info="$models/flash/$choice/halos.info"
   checked_with="$(sed -n 's/^verified_with=//p' "$info" 2>/dev/null | tail -n 1 | tr -cd 'A-Za-z0-9._-')"
   if [ -f "$info" ] && [ "$(sed -n 's/^verified=//p' "$info" | tail -n 1)" = pass ] &&
@@ -185,10 +201,27 @@ official_there() {
 npu_unclean="$state/npu-unclean"
 npu_clean() { [ ! -e "$npu_unclean" ] && { [ ! -d "$npu_dir" ] || plain_tree "$npu_dir"; }; }
 
+# Owner's choice: a machine that serves Qwen3.8-27B by memory (small, above) doesn't download
+# the Flash model's 118 GB it can't run; flash use official does (its next start fetches them).
+# Official files already all there are kept and checked as usual.
+skip_flash=0
+if [ "$small" = 1 ] && ! official_there; then
+  skip_flash=1; needed_gib="${HALOGEN_MODELS_NEEDED_SMALL_GIB:-20}"
+  echo "halogen-fetch: not downloading the Flash model (about 118 GB), which this machine's memory can't run. To download and serve it anyway: sudo halogenctl flash use official"
+  # Then there is nothing else to serve: Halogen isn't started on files that aren't there.
+  if [ "$(sed -n 's/^verified=//p' "$models/flash/qwen3.8-27b/halos.info" 2>/dev/null | tail -n 1)" != pass ]; then
+    echo "halogen-fetch: Qwen3.8-27B isn't ready (above), and the Flash model isn't downloaded, so Halogen can't start. Try again: sudo halogenctl restart" >&2
+    exit 1
+  fi
+fi
+
 # A machine from before the note, or from before both moved out of /srv/models, fetches (and
 # checks) once more, to write them: nothing is downloaded when the files are there.
 # The models folder is a volume of its own: emptied or replaced, the stamp alone would be wrong.
-if [ "$(cat "$stamp" 2>/dev/null)" = "$want" ] && [ -e "$bases_note" ] && [ ! -e "$unchecked" ] && official_there && npu_clean; then
+# Without the Flash model (skip_flash), the stamp's want says so, and its files aren't checked.
+[ "$skip_flash" = 0 ] || want="$want-no-flash"
+if [ "$(cat "$stamp" 2>/dev/null)" = "$want" ] && [ -e "$bases_note" ] && npu_clean &&
+   { [ "$skip_flash" = 1 ] || { [ ! -e "$unchecked" ] && official_there; }; }; then
   echo "halogen-fetch: models already match this release"
   exit 0
 fi
@@ -278,8 +311,9 @@ if printf '%s\n' "$own_bases" | write_new "$bases_note.new"; then mv -f "$bases_
 # read-only to it, and only npu (its own mount) is writable. Otherwise it downloads the missing
 # official files, and writes them where it likes: each is checked against the hashes this
 # release carries (weights.sha256) once it is done.
-top=":ro"
-if ! official_there; then top=""; : | write_new "$unchecked" || exit 1; fi
+top=":ro"; skip_env=()
+if [ "$skip_flash" = 1 ]; then skip_env=(-e SKIP_FLASH=1)
+elif ! official_there; then top=""; : | write_new "$unchecked" || exit 1; fi
 : | write_new "$npu_unclean" || exit 1
 
 wait_s=15
@@ -290,7 +324,7 @@ while :; do
     --cap-drop=all --security-opt no-new-privileges --entrypoint bash \
     -e HF_HOME=/tmp/hf -e HF_HUB_OFFLINE=0 -e HF_HUB_DISABLE_TELEMETRY=1 -e HF_HUB_DISABLE_PROGRESS_BARS=1 \
     -e "WEIGHTS_REPO=$HALOGEN_WEIGHTS_REPO" -e "WEIGHTS_REVISION=$HALOGEN_WEIGHTS_REVISION" \
-    -e "NPU_MODELS=$npu_models" -e "OWN_BASES=$own_bases" -e "VISION=$vision" "${token_args[@]}" \
+    -e "NPU_MODELS=$npu_models" -e "OWN_BASES=$own_bases" -e "VISION=$vision" "${skip_env[@]}" "${token_args[@]}" \
     -v "$models:/models$top" "${hide_cache[@]}" "${pin[@]}" -v "$helper:/fetch.sh:ro" \
     "$HALOGEN_IMAGE" /fetch.sh
   rc=$?
@@ -343,7 +377,8 @@ rm -f -- "$npu_unclean" || exit 1
 # hashes. A file that differs (or a link) is removed and the fetch fails, so the next start
 # downloads it again; for the tokenizer, tokenizer.json goes too, since that is what the
 # download looks for.
-if [ -e "$unchecked" ]; then
+# Without the Flash model the marker stays, so the fetch that downloads it checks them all.
+if [ -e "$unchecked" ] && [ "$skip_flash" = 0 ]; then
   echo "halogen-fetch: checking the official files against this release's hashes"
   bad=""
   # The download could also make the folders read-only to keep a link it planted (a failed rm
@@ -396,8 +431,8 @@ if [ -e "$unchecked" ]; then
 fi
 
 # Halogen's own checker reads back the checkpoint that was downloaded. It reads local files
-# only, so it gets no network and no capabilities.
-if ! podman run --rm --pull=never --device /dev/kfd --device /dev/dri --group-add keep-groups \
+# only, so it gets no network and no capabilities. Not without the Flash model (skip_flash).
+if [ "$skip_flash" = 0 ] && ! podman run --rm --pull=never --device /dev/kfd --device /dev/dri --group-add keep-groups \
     --ipc=host --ulimit memlock=-1:-1 -v "$models:/models:ro" "${hide_cache[@]}" \
     --network=none --cap-drop=all --security-opt no-new-privileges \
     "$HALOGEN_IMAGE" verify /models/qwen38-flash-next-v2.hgn; then

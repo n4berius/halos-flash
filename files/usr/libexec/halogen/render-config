@@ -3,6 +3,7 @@
 # image allows pass through, so a typo or a locked setting cannot reach the server.
 # The Flash checkpoint comes from /srv/configs/flash-checkpoint, which only halogenctl flash use
 # writes: the official one, or a checkpoint flash pull downloaded and Halogen's verify passed.
+# With no choice there (or auto), it goes by memory: under 100 GiB, Qwen3.8-27B (qwen3.8-27b).
 # Request records (#107) are on only while sudo halogenctl records on has mounted /srv/logs/halogen
 # at /records (a Quadlet drop-in only root writes); then the text kept defaults to none.
 # The prompt cache on disk (HALOGEN_CACHE_DIR=/models/.prompt-cache, the folder /srv/models/.prompt-cache) is on
@@ -21,6 +22,11 @@ config="${HALOGEN_CONFIG_FILE:-/srv/configs/halogen.env}"
 flash_choice="${HALOGEN_FLASH_FILE:-/srv/configs/flash-checkpoint}"
 models="${HALOGEN_MODELS_DIR:-/srv/models}"
 official=/models/qwen38-flash-next-v2.hgn
+# Below this much memory (what the OS sees), no choice means Qwen3.8-27B: the Flash model's
+# weights (about 68 GiB), its lookup table (47.7 GiB through the file cache) and its context
+# don't fit. The selftest's memory line uses the same line.
+flash_min_gib=100
+auto_small=qwen3.8-27b
 drafter=qwen38-flash-next-drafter-r2-ht4.hgn
 drafter_choice="${HALOGEN_DRAFTER_CHOICE_FILE:-/srv/configs/flash-drafter}"
 allowed="${HALOGEN_ALLOWED_FILE:-/usr/share/halogen/options.allowed}"
@@ -80,8 +86,25 @@ fi
 # Which Flash checkpoint. Anything unexpected falls back to the official one, so Halogen starts.
 checkpoint="$official"
 choice="$(head -n 1 "$flash_choice" 2>/dev/null | tr -d '[:space:]')"
+# No choice (or flash use auto): by memory. Below what the Flash model needs, Qwen3.8-27B, the
+# checkpoint flash pull 27b makes (the fetch pulls it); else the official one. The same rule is
+# in fetch-models and halogenctl (flash_auto).
+if [ -z "$choice" ] || [ "$choice" = auto ]; then
+  mem_gib="$(awk '$1 == "MemTotal:" { printf "%d", $2 / 1048576 }' "${HALOGEN_MEMINFO:-/proc/meminfo}" 2>/dev/null)"
+  if [ "${mem_gib:-0}" -gt 0 ] && [ "$mem_gib" -lt "$flash_min_gib" ]; then
+    choice="$auto_small"
+    if [ -f "$models/flash/$choice/halos.info" ]; then
+      echo "halogen-config: the OS sees $mem_gib GiB, less than the $flash_min_gib GiB the Flash model needs, so Halogen serves $choice (sudo halogenctl flash use official chooses Flash)" >&2
+    else
+      echo "halogen-config: the OS sees $mem_gib GiB, less than the $flash_min_gib GiB the Flash model needs, but $choice isn't downloaded yet (sudo halogenctl flash pull 27b); using the official one" >&2
+      choice=official
+    fi
+  else
+    choice=official
+  fi
+fi
 case "$choice" in
-  ''|official) ;;
+  official) ;;
   *[!A-Za-z0-9._-]*|.*) echo "halogen-config: $flash_choice names '$choice', which is not a checkpoint name; using the official one" >&2 ;;
   *)
     info="$models/flash/$choice/halos.info"
