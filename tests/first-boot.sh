@@ -52,14 +52,15 @@ case "$1" in
       *" --entrypoint cat "*"/opt/halogen/npu/models.txt "*) cat "$FAKE/opt/models.txt" ;;
       *) echo "$*" > "$FAKE/last-run"
          npu=""; mode=""; bases=""; vision=""
-         for a in "$@"; do case "$a" in NPU_MODELS=*) npu="${a#NPU_MODELS=}" ;; FETCH_MODE=*) mode="${a#FETCH_MODE=}" ;; OWN_BASES=*) bases="${a#OWN_BASES=}" ;; VISION=*) vision="${a#VISION=}" ;; esac; done
+         skip=""
+         for a in "$@"; do case "$a" in NPU_MODELS=*) npu="${a#NPU_MODELS=}" ;; FETCH_MODE=*) mode="${a#FETCH_MODE=}" ;; OWN_BASES=*) bases="${a#OWN_BASES=}" ;; VISION=*) vision="${a#VISION=}" ;; SKIP_FLASH=*) skip="${a#SKIP_FLASH=}" ;; esac; done
          # The top of /models read-only: the fake helper may then write only under npu.
          case " $* " in *":/models:ro "*) export FAKE_TOP_RO=1 ;; *) unset FAKE_TOP_RO ;; esac
          # The probe runs offline: only that run may call Halogen's probe.
          [ "$mode" = probe ] || export NO_PROBE=1
          HALOGEN_PINS="$FAKE/opt/models.txt" HALOGEN_MODELS_ROOT="$FAKE/mount" WEIGHTS_REPO=r WEIGHTS_REVISION=main \
          HALOGEN_NPU_BIN="$FAKE/bin/halogen-npu" FETCH_MODE="$mode" OWN_BASES="$bases" \
-         NPU_MODELS="$npu" VISION="$vision" bash "$HELPER_SRC"; rc=$?
+         NPU_MODELS="$npu" VISION="$vision" SKIP_FLASH="$skip" bash "$HELPER_SRC"; rc=$?
          # What a hostile download could leave behind it (a test plants it here).
          [ ! -f "$FAKE/plant" ] || { bash "$FAKE/plant"; /usr/bin/rm -f "$FAKE/plant"; }
          exit "$rc" ;;
@@ -101,6 +102,8 @@ export XDG_RUNTIME_DIR="$work/run" HALOGEN_ALLOWED_FILE="$work/allowed" HALOGEN_
 mkdir -p "$work/state"
 { echo "# revision main"; for f in qwen38-flash-next-v2.hgn qwen38-flash-next-ngram.hgn qwen38-flash-next-drafter-r2-ht4.hgn qwen38-flash-next-drafter-r2.hgn qwen38-flash-next-vision.hgn tokenizer/tokenizer.json; do echo "$h  $f"; done; } > "$work/sums"
 export HALOGEN_STATE_DIR="$work/state" HALOGEN_WEIGHTS_SUMS="$work/sums"
+# Enough memory for the Flash model, so no choice means the official one (the rule's own test is below).
+printf 'MemTotal:       131072000 kB\n' > "$work/meminfo"; export HALOGEN_MEMINFO="$work/meminfo"
 export HALOGEN_RELEASE_FILE="$work/release.env" HALOGEN_CONFIG_FILE="$work/config.env" HALOGEN_MODELS_DIR="$work/models" \
   HALOGEN_FETCH_HELPER="$HELPER_SRC" HALOGEN_MODELS_NEEDED_GIB=0 HALOGEN_RETRY_MAX_S=0 HALOGEN_PROGRESS_S=0 HALOGEN_HF_TOKEN_FILE="$work/hf-token"
 # shellcheck disable=SC2317,SC2329 # called by the fetch script, through export -f
@@ -511,6 +514,61 @@ if grep -q 'failed the check' "$work/out" || ! grep -q 'serves it as checked by 
 # shellcheck disable=SC2016 # expanded when the fake runs
 printf '#!/bin/bash\necho "flash-tool $*" >> "$FAKE/flash.log"\n' > "$work/flash-tool"
 ok "your own Flash checkpoint is checked again after a Halogen update"
+
+# No choice on a machine with less memory than the Flash model needs: Qwen3.8-27B is pulled
+# (render-config then serves it), once; a failed pull doesn't stop the start.
+rm -f "$work/flash.log" "$work/flash-choice"; printf 'MemTotal:       65536000 kB\n' > "$work/meminfo"
+"$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+grep -qx 'flash-tool pull 27b' "$work/flash.log" || { cat "$work/out" >&2; echo "a 64 GiB machine with no choice didn't pull the 27B" >&2; exit 1; }
+rm -f "$work/flash.log"; echo auto > "$work/flash-choice"
+mkdir -p "$work/models/flash/qwen3.8-27b"; printf 'repo=a/b\nverified=pass\nverified_with=9.9.9\n' > "$work/models/flash/qwen3.8-27b/halos.info"
+"$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+[ ! -e "$work/flash.log" ] || { cat "$work/flash.log" >&2; echo "a 27B already there was pulled or checked again" >&2; exit 1; }
+printf 'repo=a/b\nverified=pass\nverified_with=0.0.1\n' > "$work/models/flash/qwen3.8-27b/halos.info"
+"$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+grep -qx 'flash-tool verify qwen3.8-27b' "$work/flash.log" || { echo "the 27B chosen by memory wasn't checked again after a Halogen update" >&2; exit 1; }
+rm -rf "$work/flash.log" "$work/models/flash/qwen3.8-27b"; echo official > "$work/flash-choice"
+"$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+[ ! -e "$work/flash.log" ] || { echo "flash use official still pulled the 27B" >&2; exit 1; }
+printf '#!/bin/bash\nexit 1\n' > "$work/flash-tool"; rm -f "$work/flash-choice"
+"$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; echo "a failed 27B pull stopped the start" >&2; exit 1; }
+grep -q "Qwen3.8-27B didn't download" "$work/out" || { cat "$work/out" >&2; echo "a failed 27B pull wasn't said" >&2; exit 1; }
+# shellcheck disable=SC2016 # expanded when the fake runs
+printf '#!/bin/bash\necho "flash-tool $*" >> "$FAKE/flash.log"\n' > "$work/flash-tool"
+# Owner's choice: such a machine doesn't download the Flash model; flash use official does.
+mkdir -p "$work/aside" "$work/models/flash/qwen3.8-27b"; mv "$work/models"/qwen38-flash-next-*.hgn "$work/models/tokenizer" "$work/aside/"
+printf 'repo=a/b\ncheckpoint=model.hgn\nverified=pass\nverified_with=9.9.9\n' > "$work/models/flash/qwen3.8-27b/halos.info"
+rm -f "$work/flash-choice" "$work/hf.log" "$work/podman.log"; printf 'MemTotal:       65536000 kB\n' > "$work/meminfo"
+# render-config would fall back (no checkpoint file) to official files nothing downloaded or checked.
+if "$work/fetch" > "$work/out" 2>&1 || ! grep -q "wouldn't serve Qwen3.8-27B" "$work/out"; then cat "$work/out" >&2; echo "a small machine started on official files it didn't download" >&2; exit 1; fi
+touch "$work/models/flash/qwen3.8-27b/model.hgn"; rm -f "$work/hf.log" "$work/podman.log"
+# A new install has no stamp, so the official files are marked unchecked: kept for later, not checked now.
+rm -f "$work/state/fetch-stamp"; : > "$work/state/weights-unchecked"
+"$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; echo "a small machine without the Flash model failed the fetch" >&2; exit 1; }
+[ -e "$work/state/weights-unchecked" ] || { echo "the unchecked marker went without the Flash model being checked" >&2; exit 1; }
+# What is fetched ignores memory too: the 27B without a tower doesn't drop the official one.
+if ! grep -q HALOGEN_VISION_TOWER "$work/allowed"; then echo HALOGEN_VISION_TOWER >> "$work/allowed"; fi
+cp "$work/config.env" "$work/config.bak"; echo 'HALOGEN_VISION_TOWER=1' >> "$work/config.env"; rm -f "$work/state/fetch-stamp"
+"$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+grep -q -- '-e VISION=1 ' "$work/last-run" || { cat "$work/last-run" >&2; echo "memory's 27B (no tower) changed what is fetched" >&2; exit 1; }
+cp "$work/config.bak" "$work/config.env"; "$work/fetch" > /dev/null 2>&1 || exit 1
+if grep -qs 'qwen38-flash-next\|tokenizer' "$work/hf.log" || [ -e "$work/models/qwen38-flash-next-v2.hgn" ]; then cat "$work/hf.log" >&2; echo "a small machine downloaded the Flash model" >&2; exit 1; fi
+{ grep -q 'SKIP_FLASH=1' "$work/last-run" && grep -q ':/models:ro ' "$work/last-run"; } || { cat "$work/last-run" >&2; echo "the download wasn't told to skip the Flash model, or got the top writable" >&2; exit 1; }
+if grep -q ' verify ' "$work/podman.log"; then echo "the missing Flash model was verified" >&2; exit 1; fi
+grep -q "not downloading the Flash model" "$work/out" || { cat "$work/out" >&2; echo "skipping the Flash model wasn't said" >&2; exit 1; }
+"$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+grep -q 'models already match this release' "$work/out" || { cat "$work/out" >&2; echo "a small machine fetched again with nothing changed" >&2; exit 1; }
+printf '#!/bin/bash\nexit 1\n' > "$work/flash-tool"; mv "$work/models/flash/qwen3.8-27b" "$work/aside/q27"
+if "$work/fetch" > "$work/out" 2>&1 || ! grep -q "Halogen can't start" "$work/out"; then cat "$work/out" >&2; echo "a small machine with neither model let Halogen start" >&2; exit 1; fi
+mv "$work/aside/q27" "$work/models/flash/qwen3.8-27b"
+# shellcheck disable=SC2016 # expanded when the fake runs
+printf '#!/bin/bash\necho "flash-tool $*" >> "$FAKE/flash.log"\n' > "$work/flash-tool"
+echo official > "$work/flash-choice"; rm -f "$work/hf.log"
+"$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+{ grep -q 'qwen38-flash-next-v2.hgn' "$work/hf.log" && ! grep -q 'SKIP_FLASH' "$work/last-run"; } || { cat "$work/out" >&2; echo "flash use official didn't download the Flash model" >&2; exit 1; }
+rm -rf "$work/models"/qwen38-flash-next-*.hgn "$work/models/tokenizer" "$work/models/flash/qwen3.8-27b"; mv "$work/aside"/* "$work/models/"; rm -f "$work/state/fetch-stamp"
+echo mine > "$work/flash-choice"; printf 'MemTotal:       131072000 kB\n' > "$work/meminfo"
+ok "with no choice, a machine under 100 GiB pulls Qwen3.8-27B and skips the Flash model; flash use official downloads it"
 
 # What is fetched doesn't depend on the chosen checkpoint: the official vision tower stays.
 echo HALOGEN_VISION_TOWER >> "$work/allowed"; echo 'HALOGEN_VISION_TOWER=1' >> "$work/config.env"

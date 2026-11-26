@@ -102,6 +102,13 @@ done
 batch "$work/env" "$state" ''
 [ "$rc" = 3 ] || fail "no change didn't exit 3"
 ok "control characters, unknown options, unusable checkpoints and unknown draft heads are refused; no change writes nothing"
+# A Qwen3.8-27B checkpoint (halogenctl's flash-27b line) offers no draft head choice but official.
+state27=$'flash-chosen official\nflash q27 pass their-drafter.hgn\nflash-27b q27\n'
+for c in 'drafter q27 off' 'drafter q27 their-drafter.hgn'; do
+  batch "$work/env" "$state27" "$c"
+  [ "$rc" = 2 ] || fail "'$c' was taken for a 27B (exit $rc)"
+done
+ok "a Qwen3.8-27B checkpoint is offered no draft head"
 
 # Names from halogen's folders are taken only when plain.
 evil=$'flash $(touch '"$work"$'/pwned) pass\nflash bad\033]0;x pass\nnpu-downloaded a;b\nown LFM/../../configs\nown custom/ok-one\ndrafter x=$(id)\n'

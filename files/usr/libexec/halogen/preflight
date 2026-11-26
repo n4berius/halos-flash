@@ -86,8 +86,23 @@ for d in "$m/tokenizer" "$m/npu"; do
 done
 
 mem_gib="$(awk '$1 == "MemTotal:" { printf "%d", $2 / 1048576 }' "$meminfo")"
-[ "${mem_gib:-0}" -ge 100 ] \
-  || fail "the OS sees ${mem_gib:-0} GiB. Set the BIOS UMA frame buffer to its explicit minimum, not Auto"
+# Under 100 GiB only Qwen3.8-27B fits (render-config serves it there by memory): the model its
+# header names (bytes 40..103 of an HGN1 file), as Halogen's entrypoint reads it.
+if [ "${mem_gib:-0}" -lt 100 ]; then
+  ck="$(sed -n 's/^HALOGEN_CHECKPOINT=//p' "$effective" 2>/dev/null | tail -n 1)"; mid=""
+  case "$ck" in /models/flash/*.hgn)
+    f="${HALOGEN_MODELS_DIR:-/srv/models}/${ck#/models/}"
+    if [ "$(timeout 5 head -c 4 -- "$f" 2>/dev/null)" = HGN1 ]; then
+      mid="$(timeout 5 head -c 104 -- "$f" 2>/dev/null | tail -c 64 | tr -d '\0')"
+    fi ;;
+  esac
+  # With no choice (auto) the 27B is what memory wanted, so it isn't ready yet.
+  choice="$(head -n 1 "${HALOGEN_FLASH_FILE:-/srv/configs/flash-checkpoint}" 2>/dev/null | tr -cd 'A-Za-z0-9._-')"
+  hint="serve Qwen3.8-27B: sudo halogenctl flash use auto"
+  [ -n "$choice" ] && [ "$choice" != auto ] || hint="let Qwen3.8-27B download: sudo halogenctl fetch-logs (or sudo halogenctl flash pull 27b)"
+  [[ "$mid" == qwen3.8-27b-* ]] \
+    || fail "the OS sees ${mem_gib:-0} GiB, too little for the Flash model. Set the BIOS UMA frame buffer to its explicit minimum, not Auto, or $hint"
+fi
 
 if [ -n "$npu_models" ]; then
   if [ ! -e "$dev/accel/accel0" ]; then

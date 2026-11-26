@@ -3,6 +3,7 @@
 # image allows pass through, so a typo or a locked setting cannot reach the server.
 # The Flash checkpoint comes from /srv/configs/flash-checkpoint, which only halogenctl flash use
 # writes: the official one, or a checkpoint flash pull downloaded and Halogen's verify passed.
+# With no choice there (or auto), it goes by memory: under 100 GiB, Qwen3.8-27B (qwen3.8-27b).
 # Request records (#107) are on only while sudo halogenctl records on has mounted /srv/logs/halogen
 # at /records (a Quadlet drop-in only root writes); then the text kept defaults to none.
 # The prompt cache on disk (HALOGEN_CACHE_DIR=/models/.prompt-cache, the folder /srv/models/.prompt-cache) is on
@@ -24,6 +25,11 @@ config="${HALOGEN_CONFIG_FILE:-/srv/configs/halogen.env}"
 flash_choice="${HALOGEN_FLASH_FILE:-/srv/configs/flash-checkpoint}"
 models="${HALOGEN_MODELS_DIR:-/srv/models}"
 official=/models/qwen38-flash-next-v2.hgn
+# Below this much memory (what the OS sees), no choice means Qwen3.8-27B: the Flash model's
+# weights (about 68 GiB), its lookup table (47.7 GiB through the file cache) and its context
+# don't fit. The selftest's memory line uses the same line.
+flash_min_gib=100
+auto_small=qwen3.8-27b
 drafter=qwen38-flash-next-drafter-r2-ht4.hgn
 drafter_choice="${HALOGEN_DRAFTER_CHOICE_FILE:-/srv/configs/flash-drafter}"
 allowed="${HALOGEN_ALLOWED_FILE:-/usr/share/halogen/options.allowed}"
@@ -86,8 +92,25 @@ fi
 # Which Flash checkpoint. Anything unexpected falls back to the official one, so Halogen starts.
 checkpoint="$official"
 choice="$(head -n 1 "$flash_choice" 2>/dev/null | tr -d '[:space:]')"
+# No choice (or flash use auto): by memory. Below what the Flash model needs, Qwen3.8-27B, the
+# checkpoint flash pull 27b makes (the fetch pulls it); else the official one. The same rule is
+# in fetch-models and halogenctl (flash_auto).
+if [ -z "$choice" ] || [ "$choice" = auto ]; then
+  mem_gib="$(awk '$1 == "MemTotal:" { printf "%d", $2 / 1048576 }' "${HALOGEN_MEMINFO:-/proc/meminfo}" 2>/dev/null)"
+  if [ "${mem_gib:-0}" -gt 0 ] && [ "$mem_gib" -lt "$flash_min_gib" ]; then
+    choice="$auto_small"
+    if [ -f "$models/flash/$choice/halos.info" ]; then
+      echo "halogen-config: the OS sees $mem_gib GiB, less than the $flash_min_gib GiB the Flash model needs, so Halogen serves $choice (sudo halogenctl flash use official chooses Flash)" >&2
+    else
+      echo "halogen-config: the OS sees $mem_gib GiB, less than the $flash_min_gib GiB the Flash model needs, but $choice isn't downloaded yet (sudo halogenctl flash pull 27b); using the official one" >&2
+      choice=official
+    fi
+  else
+    choice=official
+  fi
+fi
 case "$choice" in
-  ''|official) ;;
+  official) ;;
   *[!A-Za-z0-9._-]*|.*) echo "halogen-config: $flash_choice names '$choice', which is not a checkpoint name; using the official one" >&2 ;;
   *)
     info="$models/flash/$choice/halos.info"
@@ -105,14 +128,35 @@ case "$choice" in
     else
       checkpoint="/models/flash/$choice/$file"
       own_dir="$models/flash/$choice"; own_file="$file"
+      # The model its header names (bytes 40..103 of an HGN1 file), where Halogen's entrypoint
+      # reads it to pick an engine: Qwen3.8-27B (Halogen 0.21.0) by qwen3.8-27b-* (a file whose
+      # header names none it refuses). Read into a variable, not piped into grep -q.
+      mid=""
+      if [ "$(timeout 5 head -c 4 -- "$own_dir/$own_file" 2>/dev/null)" = HGN1 ]; then
+        mid="$(timeout 5 head -c 104 -- "$own_dir/$own_file" 2>/dev/null | tail -c 64 | tr -d '\0')"
+      fi
+      own_27b=0
+      [[ "$mid" != qwen3.8-27b-* ]] || own_27b=1
+      tower=qwen38-flash-next-vision.hgn
+      [ "$own_27b" = 0 ] || tower=qwen38-27b-vision.hgn
       # HALOGEN_VISION_TOWER=1 looks beside the checkpoint, and a missing tower stops Halogen.
-      if [ -n "${values[HALOGEN_VISION_TOWER]:-}" ] && [ ! -f "$models/flash/$choice/qwen38-flash-next-vision.hgn" ]; then
+      if [ -n "${values[HALOGEN_VISION_TOWER]:-}" ] && [ ! -f "$models/flash/$choice/$tower" ]; then
         ignore HALOGEN_VISION_TOWER "$choice has no vision tower, so images stay off"
         unset 'values[HALOGEN_VISION_TOWER]'
       fi
     fi ;;
 esac
 values[HALOGEN_CHECKPOINT]="$checkpoint"
+if [ "${own_27b:-0}" = 1 ]; then
+  # Halogen 0.21.0 refuses to start the 27B with the composable context.
+  if [ "${values[HALOGEN_COMPOSABLE_CONTEXT]:-}" = 1 ]; then
+    ignore HALOGEN_COMPOSABLE_CONTEXT "Qwen3.8-27B can't use it in Halogen 0.21.0 (the prompt cache works as usual)"
+    unset 'values[HALOGEN_COMPOSABLE_CONTEXT]'
+  fi
+  # The name Halogen gives the 27B when none is set (its entrypoint's own default), said here so
+  # that halogenctl config and the benchmarks name the model being served.
+  values[HALOGEN_MODEL_ID]="${values[HALOGEN_MODEL_ID]:-halogen-qwen3.8-27b}"
+fi
 
 # The draft head for your own checkpoint. Halogen's entrypoint picks the official one up only
 # beside a checkpoint named qwen38-flash-next-*.hgn, so for any other it is named here. A draft
@@ -122,13 +166,16 @@ values[HALOGEN_CHECKPOINT]="$checkpoint"
 # halos.info after checking its hash). HALOGEN_CK_OVERLAY holds one file, so a checkpoint with a
 # quality sidecar (<checkpoint>.overlay.hgn) keeps the sidecar, and HALOGEN_CK_OVERLAY=none in
 # halogen.env wins.
-if [ -n "${own_dir:-}" ]; then
+if [ -n "${own_dir:-}" ] && [ "$own_27b" = 1 ]; then
+  # The 27B's engine takes no draft head file (the entrypoint's drafter_head skips it), so
+  # nothing is named. A line left in flash-drafter changes nothing.
+  :
+elif [ -n "${own_dir:-}" ]; then
   want="$(N="$choice" awk -F= '$1 == ENVIRON["N"] { v = substr($0, length($1) + 2) } END { print v }' "$drafter_choice" 2>/dev/null)"
   [[ "$want" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || want=official
   head_path=""
-  # A GGUF converted to .hgn (Halogen's convert mode) names it in its header, where Halogen's
-  # entrypoint reads it; such a file takes no sidecar. Read into a variable, not piped into grep -q.
-  mid="$(timeout 5 head -c 104 -- "$own_dir/$own_file" 2>/dev/null | tail -c 64 | tr -d '\0')"
+  # A GGUF converted to .hgn (Halogen's convert mode) names it in its header (mid, above); such a
+  # file takes no sidecar.
   if [ "$want" = off ]; then :
   elif [ -n "${values[HALOGEN_CK_OVERLAY]:-}" ]; then
     echo "halogen-config: $choice: halogen.env sets HALOGEN_CK_OVERLAY=${values[HALOGEN_CK_OVERLAY]}, which wins over the draft head choice ($want)" >&2

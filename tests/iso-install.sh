@@ -258,7 +258,10 @@ https_has '^PASS proxy:'; https_has '^PASS dashboard:'; https_has '^OFF-RC=0'; h
 https_has '^CRED [0-7][0-7]0 [a-z-]+ 0$'; https_has '^CREDREAD 4$'; https_has '^CREDGONE 0 active$'
 selftest_has '(PASS|SKIP) power-profile:'   # QEMU likely has no ACPI platform profile
 selftest_has 'PASS folder-flash:'
-selftest_has 'INFO flash: serving the official Flash checkpoint'
+# The VM has 8 GiB, so the memory rule (#185) picks qwen3.8-27b, which isn't downloaded there:
+# the selftest says so and Halogen falls back to the official checkpoint.
+selftest_has 'WARN memory: the OS sees [0-9]+ GiB, too little for the Flash model, so Halogen serves Qwen3.8-27B'
+selftest_has "WARN flash: chosen by memory, but Halogen serves the official one: .*qwen3.8-27b isn't downloaded yet"
 if [ "$variant" = npu ]; then
   selftest_has 'PASS npu-folder:'
   for f in decider LFM custom; do selftest_has "PASS folder-$f:"; done

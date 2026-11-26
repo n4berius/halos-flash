@@ -351,22 +351,67 @@ if grep -q -e 'podman rm' -e '--name' "$work/podman.log"; then fail "verify touc
 "$tool" verify ../mine > "$work/out" 2>&1 && fail "verify took a path"
 ok "verify checks a pulled checkpoint again and records the answer"
 
-# Qwen3.8-27B (Halogen 0.21.0) isn't served by halOS yet: refused by name before any download, and
-# by the model its header declares (a renamed file) at verify, so render-config serves the official one.
-reset_repo; rm "$work/repo/model.hgn"; put qwen38-27b-ht4.hgn big; put qwen38-27b-vision.hgn eyes27
-if pull peonist-ai/halogen-qwen3.8-27b-ht4 --as q27; then fail "a 27B checkpoint was pulled"; fi
-{ grep -q 'Qwen3.8-27B' "$work/out" && [ ! -s "$work/hf.log" ] && [ ! -e "$work/models/flash/q27" ]; } || fail "the 27B wasn't refused before downloading"
+# Qwen3.8-27B (Halogen 0.21.0's second engine): Halogen picks the engine by the model the header
+# names; the pull guesses by a qwen38-27b-*.hgn name until the file is there. Its vision tower is
+# its own, and it takes no lookup table or draft head file; flash check and flash drafter don't apply.
+hdr() { printf 'HGN1'; head -c 36 /dev/zero; printf '%s' "$1"; head -c $((64 - ${#1})) /dev/zero; printf 'rest'; }
+reset_repo; rm "$work/repo/model.hgn"; hdr qwen3.8-27b-ht4 > "$work/repo/qwen38-27b-ht4.hgn"; put qwen38-27b-vision.hgn eyes27
+: > "$work/podman.log"
+# flash pull 27b is Peonist's own 27B repository, named qwen3.8-27b.
+pull 27b || fail "a 27B checkpoint wasn't pulled"
+{ grep -q 'from peonist-ai/halogen-qwen3.8-27b-ht4' "$work/out" && grep -qx 'name=qwen3.8-27b' "$work/out"; } || fail "27b didn't name Peonist's 27B repository"
+mv "$work/models/flash/qwen3.8-27b" "$work/models/flash/q27"
+d27="$work/models/flash/q27"
+{ [ "$(cat "$d27/qwen38-27b-vision.hgn")" = eyes27 ] && [ ! -e "$d27/qwen38-flash-next-vision.hgn" ] && [ ! -e "$d27/qwen38-flash-next-ngram.hgn" ] \
+  && [ ! -e "$d27/qwen38-flash-next-drafter-r2.hgn" ] && [ -z "$(info q27 drafter)" ]; } || fail "the 27B got Flash-Next's companions, or not its own vision tower: $(ls "$d27")"
+{ [ "$(info q27 model)" = qwen3.8-27b ] && [ "$(info q27 verified)" = pass ] && grep -q 'halogen-qwen3.8-27b' "$work/out"; } || fail "the 27B wasn't recorded or explained"
+if grep -q flash_serve "$work/podman.log"; then fail "Flash-Next's server binary was asked about the 27B"; fi
+if "$tool" drafter q27 off > "$work/out" 2>&1; then fail "a draft head choice was taken for the 27B"; fi
+grep -q 'no draft head' "$work/out" || fail "the drafter refusal wasn't explained"
+HALOGEN_DRAFTER_CHOICE_FILE="$work/flash-drafter" "$tool" drafter q27 official > "$work/out" 2>&1 || fail "drafter official (no line) was refused for the 27B"
+if "$tool" check-prepare q27 > "$work/out" 2>&1; then fail "flash check took the 27B"; fi
+grep -q 'Qwen3.8-27B' "$work/out" || fail "the check refusal wasn't explained"
+# By the header: a file of any name that declares the 27B gets the 27B's vision tower, not Flash-Next's.
+reset_repo; hdr qwen3.8-27b-ht4 > "$work/repo/model.hgn"; put qwen38-27b-vision.hgn eyes27
+pull someone/Renamed-27B --as r27 || fail "a 27B by its header wasn't pulled"
+d27="$work/models/flash/r27"
+{ [ -f "$d27/qwen38-27b-vision.hgn" ] && [ ! -e "$d27/qwen38-flash-next-vision.hgn" ] && [ ! -e "$d27/qwen38-flash-next-ngram.hgn" ] \
+  && [ "$(info r27 model)" = qwen3.8-27b ]; } || fail "a 27B by header kept Flash-Next's companions: $(ls "$d27")"
+# And a qwen38-27b-*.hgn name whose header says Flash-Next is Flash-Next, as Halogen reads it.
+reset_repo; rm "$work/repo/model.hgn"; hdr qwen3.8-flash-next-v2 > "$work/repo/qwen38-27b-odd.hgn"
+pull someone/Odd --as odd || fail "a Flash-Next checkpoint with a 27B name wasn't pulled"
+{ [ "$(info odd model)" = qwen3.8-flash-next ] && [ -f "$work/models/flash/odd/qwen38-flash-next-vision.hgn" ] \
+  && [ -f "$work/models/flash/odd/qwen38-flash-next-ngram.hgn" ]; } || fail "the header didn't win over the name"
+# A 27B repository without a tokenizer gets no Flash-Next one; a checkpoint whose header names a
+# companion file (verify passes those, a start refuses them) fails.
+reset_repo; rm -r "$work/repo/model.hgn" "$work/repo/tokenizer"; hdr qwen3.8-27b-ht4 > "$work/repo/qwen38-27b-ht4.hgn"
+if pull someone/No-Tok-27B --as nt27; then fail "a 27B was given Flash-Next's tokenizer"; fi
+grep -q "not Qwen3.8-27B's" "$work/out" || fail "the missing 27B tokenizer wasn't explained"
+reset_repo; hdr qwen3.8-27b-vision > "$work/repo/model.hgn"
+if pull someone/Companion --as comp; then fail "a companion file passed as a checkpoint"; fi
+{ grep -q 'companion file' "$work/out" && [ "$(info comp verified)" = fail ]; } || fail "the companion file wasn't named or recorded"
+# Where the Flash model was never downloaded (served by memory), a 27B still pulls: it brings its
+# own tokenizer. A Flash-Next one still needs the official.
+reset_repo; rm "$work/repo/model.hgn"; hdr qwen3.8-27b-ht4 > "$work/repo/qwen38-27b-ht4.hgn"
+mv "$work/models/tokenizer/tokenizer.json" "$work/tok.bak"
+pull someone/Small-27B --as s27 || { cat "$work/out" >&2; fail "a 27B didn't pull without the official tokenizer"; }
+# flash pull 27b by its alias, whatever Peonist calls the file.
+reset_repo; hdr qwen3.8-27b-ht4 > "$work/repo/model.hgn"
+HALOGEN_27B_REPO=someone/Plain-27B pull 27b --as p27 || { cat "$work/out" >&2; fail "flash pull 27b of a model.hgn didn't pull without the official tokenizer"; }
+rm -rf "$work/models/flash/p27"
 reset_repo
-pull someone/My-Flash-HGN --as renamed > /dev/null || fail "pull failed"
-{ printf 'HGN1'; head -c 36 /dev/zero; printf 'qwen3.8-27b-ht4'; head -c 49 /dev/zero; printf 'rest'; } > "$work/models/flash/renamed/model.hgn"
-if "$tool" verify renamed > "$work/out" 2>&1; then fail "a renamed 27B checkpoint passed verify"; fi
-{ [ "$(info renamed verified)" = fail ] && grep -q 'Qwen3.8-27B' "$work/out"; } || fail "the renamed 27B wasn't named"
-# A header that names no model: the entrypoint goes by the name, so verify does too.
-pull someone/My-Flash-HGN --as noid > /dev/null || fail "pull failed"
-d27="$work/models/flash/noid"; mv "$d27/model.hgn" "$d27/qwen38-27b-x.hgn"; sed -i 's/^checkpoint=.*/checkpoint=qwen38-27b-x.hgn/' "$d27/halos.info"
-if "$tool" verify noid > "$work/out" 2>&1; then fail "a 27B by name passed verify"; fi
-rm -rf "$work/models/flash/renamed" "$d27"
-ok "Qwen3.8-27B checkpoints are refused before downloading, and by their header at verify"
+if pull someone/My-Flash-HGN --as nf; then fail "a Flash-Next checkpoint pulled without the official tokenizer"; fi
+grep -q "official model isn't downloaded yet" "$work/out" || fail "the missing official tokenizer wasn't explained"
+mv "$work/tok.bak" "$work/models/tokenizer/tokenizer.json"
+# The one memory chose (render-config serves it under auto) is never pulled over or removed.
+printf '#!/bin/bash\necho HALOGEN_CHECKPOINT=/models/flash/s27/qwen38-27b-ht4.hgn\n' > "$work/render-show"; chmod +x "$work/render-show"
+rm -f "$work/flash-checkpoint"; reset_repo; rm "$work/repo/model.hgn"; hdr qwen3.8-27b-ht4 > "$work/repo/qwen38-27b-ht4.hgn"
+if HALOGEN_RENDER="$work/render-show" pull someone/Small-27B --as s27; then fail "the checkpoint memory chose was pulled over"; fi
+grep -q 'Switch first' "$work/out" || fail "no explanation for the served 27B"
+if HALOGEN_RENDER="$work/render-show" "$tool" remove s27 > "$work/out" 2>&1 || [ ! -d "$work/models/flash/s27" ]; then fail "the checkpoint memory chose was removed"; fi
+echo official > "$work/flash-checkpoint"
+rm -rf "$work/models/flash/q27" "$work/models/flash/r27" "$work/models/flash/odd" "$work/models/flash/nt27" "$work/models/flash/comp" "$work/models/flash/s27" "$work/models/flash/nf"; reset_repo
+ok "Qwen3.8-27B checkpoints pull with their own vision tower, no table or draft head, by header or name"
 
 # Pulling again: never the one Halogen serves, and unchecked from the first byte until it passes.
 echo mine > "$work/flash-checkpoint"

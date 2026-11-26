@@ -52,17 +52,21 @@ fi
 
 # The draft head (since Halogen 0.20.6; its -ht4 form since 0.20.7) is read beside the official checkpoint; the server never
 # downloads it here, so the fetch does.
-flash_files="qwen38-flash-next-v2.hgn qwen38-flash-next-ngram.hgn qwen38-flash-next-drafter-r2-ht4.hgn"
-[ -z "$VISION" ] || flash_files="$flash_files qwen38-flash-next-vision.hgn"
-missing=""
-for f in $flash_files; do [ -f "$root/$f" ] || missing="$missing $f"; done
-if [ -n "$missing" ]; then
-  echo "fetch: downloading$missing from $WEIGHTS_REPO"
-  # shellcheck disable=SC2086
-  hf_quiet download "$WEIGHTS_REPO" $missing --revision "$WEIGHTS_REVISION" --local-dir "$root" || exit 1
-fi
-if [ ! -f "$root/tokenizer/tokenizer.json" ]; then
-  hf_quiet download "$WEIGHTS_REPO" --include 'tokenizer/*' --revision "$WEIGHTS_REVISION" --local-dir "$root" || exit 1
+# SKIP_FLASH=1: a machine with too little memory for the Flash model, which serves Qwen3.8-27B
+# by memory (fetch-models): its files aren't downloaded, only the NPU models.
+if [ -z "${SKIP_FLASH:-}" ]; then
+  flash_files="qwen38-flash-next-v2.hgn qwen38-flash-next-ngram.hgn qwen38-flash-next-drafter-r2-ht4.hgn"
+  [ -z "$VISION" ] || flash_files="$flash_files qwen38-flash-next-vision.hgn"
+  missing=""
+  for f in $flash_files; do [ -f "$root/$f" ] || missing="$missing $f"; done
+  if [ -n "$missing" ]; then
+    echo "fetch: downloading$missing from $WEIGHTS_REPO"
+    # shellcheck disable=SC2086
+    hf_quiet download "$WEIGHTS_REPO" $missing --revision "$WEIGHTS_REVISION" --local-dir "$root" || exit 1
+  fi
+  if [ ! -f "$root/tokenizer/tokenizer.json" ]; then
+    hf_quiet download "$WEIGHTS_REPO" --include 'tokenizer/*' --revision "$WEIGHTS_REVISION" --local-dir "$root" || exit 1
+  fi
 fi
 
 # Your own checkpoint (a path) runs on the NPU programs of the model it was tuned from.

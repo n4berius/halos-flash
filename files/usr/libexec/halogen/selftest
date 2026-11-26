@@ -162,8 +162,14 @@ else
 fi
 
 mem_gib="$(awk '$1 == "MemTotal:" { printf "%d", $2 / 1048576 }' "$meminfo")"
+# Under 100 GiB the Flash model doesn't fit. With no choice made (or flash use auto), render-config
+# serves Qwen3.8-27B instead, so that is only a warning: a 128 GB machine showing less has the
+# BIOS UMA frame buffer on Auto.
+mem_choice="$(as_owner head -n 1 "$configs/flash-checkpoint" | tr -cd 'A-Za-z0-9._-')"
 if [ "${mem_gib:-0}" -ge 100 ]; then say PASS memory "the OS sees ${mem_gib} GiB"
-else say FAIL memory "the OS sees ${mem_gib:-0} GiB; set the BIOS UMA frame buffer to its minimum, not Auto"; fi
+elif [ -z "$mem_choice" ] || [ "$mem_choice" = auto ]; then
+  say WARN memory "the OS sees ${mem_gib:-0} GiB, too little for the Flash model, so Halogen serves Qwen3.8-27B; on a 128 GB machine, set the BIOS UMA frame buffer to its minimum, not Auto"
+else say FAIL memory "the OS sees ${mem_gib:-0} GiB; set the BIOS UMA frame buffer to its minimum, not Auto (or, short of memory, serve Qwen3.8-27B: sudo halogenctl flash use auto)"; fi
 
 # --- System health
 if have systemctl; then
@@ -522,7 +528,20 @@ else
 fi
 # Which Flash checkpoint Halogen serves (halogenctl flash use), read as halogen like the rest.
 flash="$(as_owner head -n 1 "$configs/flash-checkpoint" | tr -cd 'A-Za-z0-9._-')"
-if [ -z "$flash" ] || [ "$flash" = official ]; then say INFO flash "serving the official Flash checkpoint"
+if [ "$flash" = official ]; then say INFO flash "serving the official Flash checkpoint"
+elif [ -z "$flash" ] || [ "$flash" = auto ]; then
+  # No choice: render-config goes by memory (Qwen3.8-27B under 100 GiB, once it is downloaded).
+  rendered="$(run systemd-run --machine=halogen@.host --user --pipe --wait --quiet /usr/libexec/halogen/render-config --show)"
+  ck="$(sed -n 's/^HALOGEN_CHECKPOINT=//p' <<< "$rendered" | tail -n 1 | tr -cd 'A-Za-z0-9._/-')"
+  why="$(printf '%s\n' "$rendered" | grep '^halogen-config: .*Flash model needs' | tail -n 1 | sed 's/^halogen-config: //' | tr -cd '[:print:]')"
+  case "$ck" in
+    /models/flash/*/*) ck="${ck#/models/flash/}"; say INFO flash "chosen by memory: serving ${ck%%/*}${why:+ ($why)}" ;;
+    *) # Memory wanted the 27B but render-config fell back: its last reason says why.
+       last="$(printf '%s\n' "$rendered" | grep '^halogen-config: .*official one' | tail -n 1 | sed 's/^halogen-config: //' | tr -cd '[:print:]')"
+       if [ -n "$last" ]; then say WARN flash "chosen by memory, but Halogen serves the official one: $last"
+       elif [ -n "$why" ]; then say WARN flash "chosen by memory: $why"
+       else say INFO flash "serving the official Flash checkpoint"; fi ;;
+  esac
 else
   from="$(as_owner sed -n 's/^repo=//p' "$models/flash/$flash/halos.info" | tail -n 1 | tr -cd '[:print:]' | cut -c1-100)"
   # What Halogen gets: render-config serves the official checkpoint if yours is missing or failed.
@@ -555,7 +574,9 @@ if [ "${running:-0}" = 1 ] && have journalctl && have systemctl; then
       say INFO draft-head "Halogen drafts with ${dh#halogen: overlay /models/flash/}, a draft head shipped with your checkpoint (sudo halogenctl flash drafter <name> official goes back)" ;;
     *"is not in"*)
       if [ -n "$flash" ] && [ "$flash" != official ]; then say INFO draft-head "${dh#halogen: }"; else say WARN draft-head "Halogen didn't find the official draft head beside the checkpoint, so the checkpoint's own drafts (slower): sudo halogenctl restart fetches it"; fi ;;
-    "") say INFO draft-head "the checkpoint's built-in draft head (Halogen names no draft head file at its start: sudo halogenctl config says why)" ;;
+    "") if grep -qx 'HALOGEN_MODEL_ID=halogen-qwen3.8-27b' <<< "${rendered:-}" && grep -q '^HALOGEN_CHECKPOINT=/models/flash/' <<< "${rendered:-}"; then
+          say INFO draft-head "Qwen3.8-27B is served, which takes no draft head file"
+        else say INFO draft-head "the checkpoint's built-in draft head (Halogen names no draft head file at its start: sudo halogenctl config says why)" ; fi ;;
     *) say INFO draft-head "${dh#halogen: }" ;;
   esac
 fi

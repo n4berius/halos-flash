@@ -25,14 +25,21 @@ it promotes.
   request.
 - Halogen 0.21.0 (#182). Halogen keeps the same Flash model, with the same speed and answers. It
   fixes replies that could end with an invented `<|im_start|>user` turn, and a `seed` sent as text
-  to `/v1/audio/speech`. Halogen 0.21.0 can also serve Qwen3.8-27B and send web searches to a
-  SearXNG server. halOS doesn't support the 27B yet: `flash pull` refuses a 27B checkpoint. Web
-  search has its own command (below); `HALOGEN_WEB_SEARCH_URL` isn't accepted in `halogen.env`,
-  because Halogen's container has no outside network. While web search is off, Claude Code's
-  WebSearch tool gets an error from Halogen in place of an answer from memory.
+  to `/v1/audio/speech`. Halogen 0.21.0 can also serve Qwen3.8-27B (see below) and send web
+  searches to a SearXNG server. Web search has its own command (below); `HALOGEN_WEB_SEARCH_URL`
+  isn't accepted in `halogen.env`, because Halogen's container has no outside network. While web
+  search is off, Claude Code's WebSearch tool gets an error from Halogen in place of an answer from memory.
   Halogen 0.21.0 also refuses a checkpoint file that names a model it doesn't know. If your own
   Flash checkpoint is refused, it fails its check at the first start after the update, halOS
   serves the official checkpoint, and `sudo halogenctl status` tells you why.
+- Halogen can now serve Qwen3.8-27B in place of the Flash model, for a machine short of memory
+  (#185): `sudo halogenctl flash pull 27b`, then `sudo halogenctl flash use qwen3.8-27b`. Its
+  weights take about 13 GiB of memory, against about 68 GiB and a 48 GiB lookup table for the
+  Flash model. Apps ask for it as `halogen-qwen3.8-27b`. The guide shows the memory each needs.
+  `flash check` and `flash drafter` don't apply to it. Until you choose a checkpoint, halOS
+  chooses by memory: a machine that shows under 100 GiB downloads the 27B at its next start and
+  serves it, and doesn't download the Flash model (about 118 GB). `flash use official` keeps the Flash model whatever the memory, and `flash use auto`
+  goes back to choosing by memory.
 - When a Halogen update needs work by hand, the Halogen update workflow now opens its pull
   request as a draft that names the failed checks, in place of stopping without one (#182).
 - `sudo halogenctl bench` measures reading speed correctly again (#181). From the second run on,
