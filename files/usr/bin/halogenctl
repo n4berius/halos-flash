@@ -46,9 +46,25 @@ gpu_lock() {
   exec 8> "$d/gpu.lock" || exit 1
   flock -n 8 || { echo "Another halogenctl command is using the GPU or restarting Halogen (a flash check, or a flash use about to restart it).${1:-} Wait for it to end, then try again." >&2; exit 75; }
 }
-chosen_flash() {
+# What flash use saved: official, auto (also when nothing is saved) or one of your checkpoints.
+flash_raw() {
   local c; c="$(as_owner head -n 1 "$flash_choice" 2>/dev/null | tr -cd 'A-Za-z0-9._-')" || true
-  echo "${c:-official}"
+  echo "${c:-auto}"
+}
+# auto, as render-config decides it: under 100 GiB of memory Qwen3.8-27B (qwen3.8-27b, from
+# flash pull 27b) once it is downloaded, else the official checkpoint.
+flash_min_gib=100
+mem_gib() { awk '$1 == "MemTotal:" { printf "%d", $2 / 1048576 }' "${HALOGEN_MEMINFO:-/proc/meminfo}" 2>/dev/null || true; }
+flash_auto() {
+  local m; m="$(mem_gib)"
+  if [ "${m:-0}" -gt 0 ] && [ "$m" -lt "$flash_min_gib" ] && as_owner test -f "$models/flash/qwen3.8-27b/halos.info"; then
+    echo qwen3.8-27b
+  else echo official; fi
+}
+# The checkpoint meant to be served: what flash use saved, with auto worked out.
+chosen_flash() {
+  local c; c="$(flash_raw)"
+  if [ "$c" = auto ]; then flash_auto; else echo "$c"; fi
 }
 # Printable characters only: the fetch containers can write in /srv/models.
 # Which Flash checkpoint Halogen serves, as render-config decides it, and why it fell back to
@@ -85,11 +101,18 @@ case "${1:-status}" in
   status)
     # The service descriptions and status lines come from halogen's own service manager.
     { unit --no-pager status halogen-fetch.service halogen.service 2>&1 || true; } | clean
-    c="$(chosen_flash)"
+    c="$(chosen_flash)"; m="$(mem_gib)"
+    if [ "$(flash_raw)" = auto ] && [ "$c" = official ] && [ "${m:-0}" -gt 0 ] && [ "$m" -lt "$flash_min_gib" ]; then
+      printf '\nFlash checkpoint: the OS sees %s GiB, less than the %s GiB the Flash model needs, but Qwen3.8-27B\n' "$m" "$flash_min_gib"
+      echo "isn't downloaded yet: the next start downloads it (or now: sudo halogenctl flash pull 27b)."
+    fi
     if [ "$c" != official ]; then
       s="$(served_flash)"; served="$(head -n 1 <<< "$s")"
       echo
-      if [ "$served" = "$c" ]; then
+      if [ "$(flash_raw)" = auto ]; then
+        echo "Flash checkpoint: chosen by memory (the OS sees $(mem_gib) GiB, under ${flash_min_gib}): $c. The Flash model instead: sudo halogenctl flash use official"
+        [ "$served" = "$c" ] || echo "Halogen serves the official one: $(sed -n 2p <<< "$s")"
+      elif [ "$served" = "$c" ]; then
         echo "Flash checkpoint: $c, your own ($(flash_info "$c" repo)). If Halogen won't start with it"
         echo "(sudo halogenctl logs), go back to the official one: sudo halogenctl flash use official"
       else
@@ -204,6 +227,7 @@ case "${1:-status}" in
         v="$(flash_info "$name" verified)"; [[ "$v" =~ $plain ]] || v=none
         own_drafters="$( { as_owner head -c 65536 -- "$models/flash/$name/halos.info" 2>/dev/null < /dev/null || true; } | sed -n 's/^drafter=//p' | { grep -E "$plain" || true; } | tr '\n' ' ')"
         echo "flash $name $v $own_drafters"
+        [ "$(flash_info "$name" model)" != qwen3.8-27b ] || echo "flash-27b $name"
       done
       { as_owner grep -E '^[A-Za-z0-9][A-Za-z0-9._-]*=[A-Za-z0-9][A-Za-z0-9._-]*$' "$configs/flash-drafter" 2>/dev/null || true; } | sed 's/^/drafter /'
       { as_owner find "$models/npu" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null || true; } | { grep -E "$plain" || true; } | sed 's/^/npu-downloaded /'
@@ -381,6 +405,9 @@ case "${1:-status}" in
         name="${3:-}"
         if ! valid "$name" || [ "$name" = official ]; then echo "usage: halogenctl flash check <name> [--yes]" >&2; exit 2; fi
         [ -n "$(flash_info "$name" repo)" ] || { echo "No checkpoint called $name. See: sudo halogenctl flash list" >&2; exit 1; }
+        if [ "$(flash_info "$name" model)" = qwen3.8-27b ]; then
+          echo "$name is a Qwen3.8-27B checkpoint. flash check compares a checkpoint with the official Qwen3.8-Flash-Next one, so it can't check this model." >&2; exit 1
+        fi
         if [ "$(unit is-active halogen-fetch.service 2>/dev/null)" = activating ]; then
           echo "Halogen is downloading models (sudo halogenctl fetch-logs). Check $name when that is done." >&2; exit 1
         fi
@@ -415,10 +442,14 @@ case "${1:-status}" in
         ;;
       list)
         c="$(chosen_flash)"; s="$(served_flash)"; served="$(head -n 1 <<< "$s")"
+        if [ "$(flash_raw)" = auto ]; then
+          echo "Chosen by memory (the OS sees $(mem_gib) GiB; Qwen3.8-27B below ${flash_min_gib} GiB): $c. To choose yourself: sudo halogenctl flash use <name>|official"
+        fi
         mark() { if [ "$1" = "$served" ]; then echo yes; else echo no; fi; }
         printf '  %-24s %-8s %-7s %-22s %s\n' NAME SIZE ACTIVE VERIFIED SOURCE
         size="$( { as_owner du -ch "$models/$official" "$models/qwen38-flash-next-ngram.hgn" "$models/qwen38-flash-next-drafter-r2-ht4.hgn" "$models/qwen38-flash-next-drafter-r2.hgn" 2>/dev/null || true; } | tail -n 1 | cut -f1)"
-        printf '  %-24s %-8s %-7s %-22s %s\n' official "${size:-?}" "$(mark official)" "at every start" \
+        ov="at every start"; as_owner test -f "$models/$official" || ov="not downloaded"
+        printf '  %-24s %-8s %-7s %-22s %s\n' official "${size:-?}" "$(mark official)" "$ov" \
           "$(sed -n 's/^HALOGEN_WEIGHTS_REPO=//p' "${HALOGEN_RELEASE_FILE:-/usr/share/halogen/release.env}" 2>/dev/null)"
         for dir in "$models"/flash/*/; do
           [ -d "$dir" ] || continue
@@ -430,8 +461,9 @@ case "${1:-status}" in
             *) v="incomplete pull" ;;
           esac
           commit="$(flash_info "$name" commit)"
+          m=""; [ "$(flash_info "$name" model)" != qwen3.8-27b ] || m=" (Qwen3.8-27B)"
           printf '  %-24s %-8s %-7s %-22s %s\n' "$name" "$( { as_owner du -sh "$dir" 2>/dev/null || true; } | cut -f1)" "$(mark "$name")" "$v" \
-            "$(flash_info "$name" repo)${commit:+ at ${commit:0:12}}"
+            "$(flash_info "$name" repo)${commit:+ at ${commit:0:12}}$m"
         done
         checks=""
         for dir in "$models"/flash/*/; do
@@ -458,15 +490,32 @@ case "${1:-status}" in
         ;;
       use)
         name="${3:-}"
-        valid "$name" || { echo "usage: halogenctl flash use <name>|official [--yes]" >&2; exit 2; }
-        [ "$name" != "$(chosen_flash)" ] || { echo "$name is already the active checkpoint."; exit 0; }
-        if [ "$name" != official ]; then
+        valid "$name" || { echo "usage: halogenctl flash use <name>|official|auto [--yes]" >&2; exit 2; }
+        # Compared with what was saved, not what auto picks: flash use official on a machine that
+        # serves the official one by memory still saves the choice, so memory no longer decides.
+        [ "$name" != "$(flash_raw)" ] || { echo "$name is already the active choice."; exit 0; }
+        if [ "$name" = auto ]; then
+          m="$(mem_gib)"
+          if [ "${m:-0}" -gt 0 ] && [ "$m" -lt "$flash_min_gib" ]; then
+            echo "The OS sees ${m} GiB, less than the ${flash_min_gib} GiB the Flash model needs, so Halogen serves Qwen3.8-27B (qwen3.8-27b)."
+            as_owner test -f "$models/flash/qwen3.8-27b/halos.info" || echo "It isn't downloaded yet: the next start downloads it (or now: sudo halogenctl flash pull 27b)."
+            echo "Apps then name the model halogen-qwen3.8-27b (unless HALOGEN_MODEL_ID sets another)."
+          else
+            echo "The OS sees ${m:-?} GiB, enough for the Flash model, so Halogen serves the official checkpoint."
+          fi
+        elif [ "$name" = official ]; then
+          # A machine that served Qwen3.8-27B by memory never downloaded the Flash model.
+          as_owner test -f "$models/$official" || echo "The Flash model isn't downloaded yet: Halogen's next start downloads it first (about 118 GB), which can take hours. Follow it with: sudo halogenctl fetch-logs"
+        else
           [ -n "$(flash_info "$name" repo)" ] || { echo "No checkpoint called $name. See: sudo halogenctl flash list" >&2; exit 1; }
           if [ "$(flash_info "$name" verified)" != pass ]; then
             echo "$name has not passed Halogen's verify, so it can't be used. Check it: sudo halogenctl flash verify $name" >&2; exit 1
           fi
           echo "$name: $(flash_info "$name" checkpoint) from $(flash_info "$name" repo), commit $(flash_info "$name" commit | cut -c1-12)."
           echo "halOS can't judge a checkpoint's answers. Compare them with the official model's before relying on it."
+          if [ "$(flash_info "$name" model)" = qwen3.8-27b ]; then
+            echo "It is a Qwen3.8-27B checkpoint: apps then name the model halogen-qwen3.8-27b (unless HALOGEN_MODEL_ID sets another), not halogen-qwen3.8-flash-next."
+          fi
         fi
         restart_now "Switch Halogen to $name?"
         # After the answer: the restart below must not come during a flash check's measurement.
@@ -501,6 +550,10 @@ case "${1:-status}" in
           echo "usage: halogenctl flash drafter [<name>] [official|off|<file>] [--yes] (the official checkpoint always uses the official one)" >&2; exit 2
         fi
         [ -n "$(flash_info "$name" repo)" ] || { echo "No checkpoint called $name. See: sudo halogenctl flash list" >&2; exit 1; }
+        # official only drops a line left from before (the helper checks the header again).
+        if [ "$(flash_info "$name" model)" = qwen3.8-27b ] && [ "$want" != official ]; then
+          echo "$name is a Qwen3.8-27B checkpoint, which takes no draft head file: Halogen runs it as it ships." >&2; exit 1
+        fi
         # shellcheck disable=SC2016 # awk expands them.
         now="$( { as_owner awk -F= -v n="$name" '$1 == n { v = substr($0, length($1) + 2) } END { print v }' "$configs/flash-drafter" 2> /dev/null || true; } | tr -cd 'A-Za-z0-9._-')"
         now="${now:-official}"
@@ -650,7 +703,7 @@ case "${1:-status}" in
         as_halogen /usr/libexec/halogen/flash-checkpoint remove "$name" || exit 1
         names_now
         ;;
-      *) echo "usage: halogenctl flash pull <hf-repo> [--revision <rev>] [--as <name>] [--file <checkpoint.hgn|build.gguf>] [--keep-gguf] | convert <hf-repo> [--revision <rev>] [--as <name>] [--threads <n>] [--keep-source] [--yes] | convert-logs [lines] | convert-stop [<name>] [--yes] | list | use <name>|official [--yes] | drafter [<name>] [official|official-r2|off|<file>] [--yes] | verify <name> | check <name> [--yes] | remove <name> [--yes]" >&2; exit 2 ;;
+      *) echo "usage: halogenctl flash pull <hf-repo>|27b [--revision <rev>] [--as <name>] [--file <checkpoint.hgn|build.gguf>] [--keep-gguf] | convert <hf-repo> [--revision <rev>] [--as <name>] [--threads <n>] [--keep-source] [--yes] | convert-logs [lines] | convert-stop [<name>] [--yes] | list | use <name>|official|auto [--yes] | drafter [<name>] [official|official-r2|off|<file>] [--yes] | verify <name> | check <name> [--yes] | remove <name> [--yes]" >&2; exit 2 ;;
     esac
     ;;
   model)

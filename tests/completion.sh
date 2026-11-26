@@ -66,7 +66,7 @@ mkdir -p "$work/flash/mine" "$work/flash/.check" "$work/LFM/LFM3-1.7B" "$work/fl
 cd "$work"
 offers _halogenctl halogenctl flash use '' > /dev/null; offers _halogenctl halogenctl model remove '' > /dev/null
 if [ -e "$work/pwned" ] || [ -e "$work/pwned2" ]; then fail "a folder name ran as a command during completion"; fi
-expect "mine official" _halogenctl halogenctl flash use ''
+expect "auto mine official" _halogenctl halogenctl flash use ''
 expect "mine" _halogenctl halogenctl flash check ''
 expect "mine" _halogenctl halogenctl flash remove m
 expect "LFM3-1.7B" _halogenctl halogenctl model remove ''
@@ -111,7 +111,7 @@ sed "s|local models=/srv/models names=/run/halos/model-names|local models=$work/
 printf '%s\n' 'flash $(touch${IFS}pwned4)' 'own custom `touch pwned5`' >> "$work/names"
 # shellcheck source=/dev/null
 . "$work/c2"
-expect "mine official" _halogenctl halogenctl flash use ''
+expect "auto mine official" _halogenctl halogenctl flash use ''
 expect "bigone" _halogenctl halogenctl flash convert-stop ''
 expect "LFM3-1.7B OvisOCR3" _halogenctl halogenctl model remove ''
 expect "OvisOCR3" _halogenctl halogenctl model pull x --as O

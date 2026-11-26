@@ -1012,11 +1012,10 @@ Things to know for every checkpoint of your own:
   or if it needs more memory than is free. `sudo halogenctl status` and the selftest then tell
   you. `sudo halogenctl flash use official` brings back the official model.
 - **Images.** With `HALOGEN_VISION_TOWER=1`, images work only if the checkpoint has a vision tower
-  (`qwen38-flash-next-vision.hgn`). Without one, images stay off, and `halogenctl config` tells
-  why.
-- **Qwen3.8-Flash-Next only.** Halogen 0.21.0 can also serve a different model, Qwen3.8-27B
-  (`qwen38-27b-ht4.hgn`). halOS doesn't support it yet: `flash pull` refuses a 27B checkpoint
-  before the download, and `flash verify` fails one with a different file name.
+  (`qwen38-flash-next-vision.hgn`, or `qwen38-27b-vision.hgn` for Qwen3.8-27B). Without one,
+  images stay off, and `halogenctl config` tells why.
+- **Qwen3.8-27B.** Halogen can also serve a smaller model. See
+  [Qwen3.8-27B, when memory is short](#qwen38-27b-when-memory-is-short).
 - **The model name in the file.** Since 0.21.0, Halogen reads the model name inside a checkpoint
   file and refuses a name that it doesn't know. Then the check after the update fails, and halOS
   serves the official checkpoint. `sudo halogenctl status` tells you this.
@@ -1027,6 +1026,67 @@ Things to know for every checkpoint of your own:
   Until they finish, long prompts can be a little slower.
 - **Use the checkpoints of people that you trust.** [SECURITY.md](../SECURITY.md#checkpoints-you-download)
   tells what halOS limits, and what `verify` can't see.
+
+### Qwen3.8-27B, when memory is short
+
+Since 0.21.0, Halogen can also serve Qwen3.8-27B, a smaller model than the Flash model. Use it
+when you need memory for other work on the machine, or when the Flash model doesn't fit.
+
+**Chosen by memory.** Until you choose a checkpoint with `flash use`, halOS chooses by the memory
+that the OS sees. Under 100 GiB, the Flash model doesn't fit, so:
+
+1. At the next start, Halogen's download step downloads the 27B (`flash pull 27b`), and not the
+   Flash model (about 118 GB) when it isn't already on disk.
+2. Halogen serves the 27B (`qwen3.8-27b`). If the 27B download fails and the Flash model isn't on
+   disk, Halogen doesn't start. `sudo halogenctl restart` tries again.
+
+At 100 GiB or more, Halogen serves the official checkpoint. `sudo halogenctl status` and
+`flash list` show what memory chose and why.
+
+A 128 GB machine that shows less than 100 GiB has the BIOS setting "UMA frame buffer" on Auto.
+Set it to its minimum (see [Where things are](#where-things-are)), and Halogen serves the
+Flash model again. `halogenctl selftest` warns about this.
+
+To choose yourself:
+
+```bash
+sudo halogenctl flash pull 27b           # Peonist's own 27B, peonist-ai/halogen-qwen3.8-27b-ht4 (about 14 GiB)
+sudo halogenctl flash use qwen3.8-27b    # switch; asks first, then restarts Halogen
+sudo halogenctl flash use official       # the Flash model, whatever the memory
+sudo halogenctl flash use auto           # choose by memory again
+```
+
+How much memory each one needs. These are Halogen's own estimates before it starts:
+
+| | Flash model (official) | Qwen3.8-27B |
+|---|---|---|
+| Weights in memory | about 68 GiB | about 13 GiB |
+| Lookup table | 47.7 GiB, read through the file cache, so it also wants that much free memory | none |
+| Each position of context | about 29 KiB | about 73 KiB |
+| Context with halOS's default (`HALOGEN_KV_POOL_POSITIONS=262144`) | about 7 GiB | about 18 GiB |
+
+So the 27B needs much less memory for its weights, but more for each position of context. To use
+less, set a smaller `HALOGEN_KV_POOL_POSITIONS` in `halogen.env`. At each start Halogen writes its
+budget to the log: `sudo halogenctl logs 300 | grep 'KV budget'`.
+
+For the 27B:
+
+- Apps must ask for the model `halogen-qwen3.8-27b`, not `halogen-qwen3.8-flash-next` (unless
+  you set `HALOGEN_MODEL_ID`). `halogenctl config` shows the name.
+- It has its own vision tower (`qwen38-27b-vision.hgn`), which `flash pull 27b` downloads.
+- It has no lookup table and takes no draft head file, so `flash drafter` doesn't apply.
+- `flash check` doesn't apply, because it compares a checkpoint with the official Flash model.
+- halOS ignores `HALOGEN_COMPOSABLE_CONTEXT=1`, because Halogen 0.21.0 refuses to start the 27B
+  with it.
+- A 27B from another repository must supply `tokenizer/`. The official tokenizer is for the Flash
+  model.
+- Halogen can load LoRA adapters for the 27B from an `adapters/` folder beside it. halOS doesn't
+  support this yet, and doesn't start Halogen while such a folder is there.
+- When you chose the 27B with `flash use`, the Flash model's files stay on disk (about 118 GB),
+  and each start still downloads what is missing, so that `flash use official` works at once.
+- When memory chose the 27B, halOS doesn't download the Flash model. `flash use official` then
+  downloads it at the next start (about 118 GB), before Halogen starts.
+- Its speed and its answers are those of a different model. halOS hasn't measured them yet.
 
 ### Pulling a `.hgn` checkpoint
 

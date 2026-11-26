@@ -532,7 +532,7 @@ printf 'MemTotal: 60000000 kB\n' > "$work/meminfo"
 echo 'halogen-fabric-clock.service loaded failed failed Hold the clock' > "$work/failed"
 if FAKE_SB=disabled FAKE_SELINUX=Permissive FAKE_STATE=inactive FAKE_NOGPU=1 FAKE_NOIPV6=1 FAKE_FIREWALL=not-running \
     "$selftest" > "$work/out" 2>&1; then echo "an unhealthy machine passed" >&2; exit 1; fi
-for line in 'WARN secure-boot' 'FAIL kernel-amdgpu.gttsize' 'FAIL kernel-iommu-off' 'FAIL memory' \
+for line in 'WARN secure-boot' 'FAIL kernel-amdgpu.gttsize' 'FAIL kernel-iommu-off' 'WARN memory: .*serves Qwen3.8-27B' \
   'FAIL failed-units:.*halogen-fabric-clock' 'WARN selinux' 'FAIL firewall: firewalld is not running' \
   'WARN amd-smi' 'FAIL npu-device' 'FAIL prepare' 'FAIL server' 'WARN api-ipv6'; do
   expect "^$line"
@@ -555,6 +555,13 @@ ok "Halogen waiting for the fetch, or stopping, is a warning; a failed fetch or 
 # The Flash checkpoint: named when it is your own, with the way back when Halogen isn't running.
 "$selftest" > "$work/out" 2>&1 || true
 expect '^INFO flash: serving the official Flash checkpoint'
+# No choice on a small machine: memory chose the 27B, or wanted it and it isn't there yet.
+FAKE_RENDER=$'halogen-config: the OS sees 62 GiB, less than the 100 GiB the Flash model needs, so Halogen serves qwen3.8-27b (x)\nHALOGEN_CHECKPOINT=/models/flash/qwen3.8-27b/model.hgn' "$selftest" > "$work/out" 2>&1 || true
+expect '^INFO flash: chosen by memory: serving qwen3.8-27b \(the OS sees 62 GiB'
+FAKE_RENDER=$'halogen-config: the OS sees 62 GiB, less than the 100 GiB the Flash model needs, but qwen3.8-27b isn\'t downloaded yet (sudo halogenctl flash pull 27b); using the official one\nHALOGEN_CHECKPOINT=/models/qwen38-flash-next-v2.hgn' "$selftest" > "$work/out" 2>&1 || true
+expect "^WARN flash: chosen by memory, but Halogen serves the official one: the OS sees 62 GiB.*isn't downloaded yet"
+FAKE_RENDER=$'halogen-config: the OS sees 62 GiB, less than the 100 GiB the Flash model needs, so Halogen serves qwen3.8-27b (x)\nhalogen-config: qwen3.8-27b has not passed Halogen\'s verify; using the official one\nHALOGEN_CHECKPOINT=/models/qwen38-flash-next-v2.hgn' "$selftest" > "$work/out" 2>&1 || true
+expect "^WARN flash: chosen by memory, but Halogen serves the official one: qwen3.8-27b has not passed"
 # The draft head, as Halogen's start since the container's own start names it.
 expect '^PASS draft-head: Halogen drafts with the official draft head'
 grep -q -- '--since @1700000000 ' "$work/journalctl.log" || { echo "the draft head line wasn't read from this start only" >&2; exit 1; }
