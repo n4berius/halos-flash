@@ -10,6 +10,10 @@ it promotes.
 
 ## Unreleased
 
+- `sudo halogenctl flash pull 27b` now downloads Qwen3.8-27B at one commit that each halOS release
+  pins, and checks each file against the sha256 that the release pins (#187). Before, it took
+  the newest files in Peonist's repository. Each Halogen update moves the pin to the newest
+  commit.
 - Web search for Halogen, off until you turn it on (#184). `sudo halogenctl web-search bundled`
   runs SearXNG, a metasearch engine, in a container of its own on this machine, and
   `sudo halogenctl web-search external <url>` uses your own SearXNG server. Claude Code's

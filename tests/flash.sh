@@ -21,6 +21,15 @@ listing() {
     printf 'file\t%s\t%s\t%s\t%s\n' "$f" "$size" "$sha" "$blob"
   done
 }
+# release.env pins flash pull 27b to the fake repository as it is now (every .hgn at the top and
+# tokenizer/ file), at $commit, as scripts/pin-27b.sh would.
+pin27() {
+  local sums=() f
+  sed -i '/^HALOGEN_27B_/d' "$work/release.env"
+  while read -r f; do sums+=("$f:$(sha256sum "$work/repo/$f" | cut -d' ' -f1)"); done \
+    < <(cd "$work/repo" && find . -type f | sed 's|^\./||' | grep -E '^([^/]+\.hgn|tokenizer/[^/]+)$' | sort)
+  printf 'HALOGEN_27B_REPO=%s\nHALOGEN_27B_REVISION=%s\nHALOGEN_27B_SHA256="%s"\n' "$1" "${2:-$commit}" "${sums[*]}" >> "$work/release.env"
+}
 reset_repo() {
   rm -rf "$work/repo"; mkdir -p "$work/repo"
   put model.hgn checkpoint; put qwen38-flash-next-ngram.hgn table; put qwen38-flash-next-vision.hgn eyes
@@ -358,6 +367,7 @@ hdr() { printf 'HGN1'; head -c 36 /dev/zero; printf '%s' "$1"; head -c $((64 - $
 reset_repo; rm "$work/repo/model.hgn"; hdr qwen3.8-27b-ht4 > "$work/repo/qwen38-27b-ht4.hgn"; put qwen38-27b-vision.hgn eyes27
 : > "$work/podman.log"
 # flash pull 27b is Peonist's own 27B repository, named qwen3.8-27b.
+pin27 peonist-ai/halogen-qwen3.8-27b-ht4
 pull 27b || fail "a 27B checkpoint wasn't pulled"
 { grep -q 'from peonist-ai/halogen-qwen3.8-27b-ht4' "$work/out" && grep -qx 'name=qwen3.8-27b' "$work/out"; } || fail "27b didn't name Peonist's 27B repository"
 mv "$work/models/flash/qwen3.8-27b" "$work/models/flash/q27"
@@ -397,7 +407,35 @@ mv "$work/models/tokenizer/tokenizer.json" "$work/tok.bak"
 pull someone/Small-27B --as s27 || { cat "$work/out" >&2; fail "a 27B didn't pull without the official tokenizer"; }
 # flash pull 27b by its alias, whatever Peonist calls the file.
 reset_repo; hdr qwen3.8-27b-ht4 > "$work/repo/model.hgn"
-HALOGEN_27B_REPO=someone/Plain-27B pull 27b --as p27 || { cat "$work/out" >&2; fail "flash pull 27b of a model.hgn didn't pull without the official tokenizer"; }
+pin27 someone/Plain-27B
+pull 27b --as p27 || { cat "$work/out" >&2; fail "flash pull 27b of a model.hgn didn't pull without the official tokenizer"; }
+grep -qx "hf $commit model.hgn tokenizer/chat_template.jinja tokenizer/tokenizer.json" "$work/hf.log" \
+  || fail "flash pull 27b didn't fetch the pinned files at the pinned commit: $(cat "$work/hf.log")"
+rm -rf "$work/models/flash/p27"
+# flash pull 27b takes only what this release pins: the commit, each file's sha256 (small files
+# too, which Hugging Face lists only by git blob id), and no file the pin doesn't name.
+# A second checkpoint the pin doesn't list (Peonist adds one after the pin) is never seen.
+pin27 someone/Plain-27B; put qwen38-27b-other.hgn other
+pull 27b --as p27 || { cat "$work/out" >&2; fail "flash pull 27b saw a checkpoint the pin doesn't list"; }
+{ ! grep -q qwen38-27b-other "$work/hf.log" && [ ! -e "$work/models/flash/p27/qwen38-27b-other.hgn" ]; } || fail "a file the pin doesn't list was downloaded"
+rm "$work/repo/qwen38-27b-other.hgn"; rm -rf "$work/models/flash/p27"
+pin27 someone/Plain-27B; hdr qwen3.8-27b-ht5 > "$work/repo/model.hgn"
+if pull 27b --as p27; then fail "a 27B whose LFS hash differs from the pin was pulled"; fi
+{ grep -q "doesn't match the hash this release pins" "$work/out" && [ ! -s "$work/hf.log" ]; } || fail "a changed 27B wasn't refused before the download"
+pin27 someone/Plain-27B; put tokenizer/chat_template.jinja '{{ changed }}'
+if pull 27b --as p27; then fail "a 27B whose small file differs from the pin was pulled"; fi
+grep -q "chat_template.jinja does not match" "$work/out" || fail "a changed small file wasn't refused by its pinned hash"
+[ "$(info p27 verified 2>/dev/null)" != pass ] || fail "a 27B that failed the pinned hashes was recorded as passed"
+rm -rf "$work/models/flash/p27"
+pin27 someone/Plain-27B fedcba9876543210fedcba9876543210fedcba98
+if pull 27b --as p27; then fail "a 27B at another commit than the pinned one was pulled"; fi
+grep -q 'not the pinned fedcba98' "$work/out" || fail "the commit mismatch wasn't explained"
+pin27 someone/Plain-27B
+if pull 27b --as p27 --revision main; then fail "flash pull 27b took --revision"; fi
+grep -q 'sudo halogenctl flash pull someone/Plain-27B --revision <rev>' "$work/out" || fail "the --revision refusal didn't name the way"
+sed -i '/^HALOGEN_27B_/d' "$work/release.env"
+if pull 27b --as p27; then fail "flash pull 27b ran without a pin"; fi
+grep -q 'pins no Qwen3.8-27B' "$work/out" || fail "the missing pin wasn't explained"
 rm -rf "$work/models/flash/p27"
 reset_repo
 if pull someone/My-Flash-HGN --as nf; then fail "a Flash-Next checkpoint pulled without the official tokenizer"; fi

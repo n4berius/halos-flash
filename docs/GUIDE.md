@@ -1055,6 +1055,13 @@ For the 27B:
 - Apps must ask for the model `halogen-qwen3.8-27b`, not `halogen-qwen3.8-flash-next` (unless
   you set `HALOGEN_MODEL_ID`). `halogenctl config` shows the name.
 - It has its own vision tower (`qwen38-27b-vision.hgn`), which `flash pull 27b` downloads.
+- Each halOS release pins the 27B to one commit of Peonist's repository, and to the sha256 of
+  each of its files (`HALOGEN_27B_REVISION` and `HALOGEN_27B_SHA256` in `versions.env`). So every
+  machine on the release gets the same files, and `flash pull 27b` stops if a file is different.
+  A Halogen update moves the pin to the newest commit. A 27B that you downloaded before keeps its
+  files. To get the files of the new pin, pull it again (first `sudo halogenctl flash use official`
+  if Halogen serves it). To get a different commit, give the repository and `--revision`:
+  `sudo halogenctl flash pull peonist-ai/halogen-qwen3.8-27b-ht4 --revision <commit> --as <name>`.
 - It has no lookup table and takes no draft head file, so `flash drafter` doesn't apply.
 - `flash check` doesn't apply, because it compares a checkpoint with the official Flash model.
 - halOS ignores `HALOGEN_COMPOSABLE_CONTEXT=1`, because Halogen 0.21.0 refuses to start the 27B
