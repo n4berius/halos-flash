@@ -1278,7 +1278,7 @@ name, but allows saying halOS runs Halogen.
   real one. On freyja still: Halogen's start, a bench (the path is
   rootlessport, not pasta's splice), and both editions.
 
-- Web search (#PR, owner asked: opt-in, bundled or your own): `halogenctl web-search
+- Web search (#184, owner asked: opt-in, bundled or your own): `halogenctl web-search
   [status|bundled|external <url>|off|restart|edit]`. Two networks of halogen's (Quadlet,
   `files/etc/containers/systemd/users/970/`): `halos-search` (internal, no DNS, `Subnet=10.89.250.0/29`,
   no gateway in podman 4.9.3) and `halos-search-out` (ordinary, DNS, `isolate=true`). The search

@@ -10,7 +10,7 @@ it promotes.
 
 ## Unreleased
 
-- Web search for Halogen, off until you turn it on (#PR). `sudo halogenctl web-search bundled`
+- Web search for Halogen, off until you turn it on (#184). `sudo halogenctl web-search bundled`
   runs SearXNG, a metasearch engine, in a container of its own on this machine, and
   `sudo halogenctl web-search external <url>` uses your own SearXNG server. Claude Code's
   WebSearch tool then works with Halogen. Halogen still has no connection out of the machine: it
