@@ -96,3 +96,14 @@ if HALOGEN_UPDATE_DIGEST=bad "$here/scripts/halogen-update.sh" "$up" "$work/x.md
   echo "accepted a version upstream does not have" >&2; exit 1
 fi
 echo "ok: nothing changes when already up to date, and an unknown version fails"
+
+# Hugging Face failing doesn't stop a Halogen update: the 27B pin stays and the description says so.
+git -C "$here" reset -q --hard HEAD~1
+pin_before="$(grep '^HALOGEN_27B_' "$here/versions.env")"
+mv "$work/hf27.json" "$work/hf27.off"
+HALOGEN_UPDATE_DIGEST="$digest" "$here/scripts/halogen-update.sh" "$up" "$work/down.md" > /dev/null \
+  || { echo "a failing Hugging Face stopped the Halogen update" >&2; exit 1; }
+[ "$(sed -n 's/^HALOGEN_VERSION=//p' "$here/versions.env")" = 9.1.0 ] && [ "$pin_before" = "$(grep '^HALOGEN_27B_' "$here/versions.env")" ] \
+  || { echo "with Hugging Face down, the Halogen pins weren't written or the 27B pin changed" >&2; exit 1; }
+grep -qF '| `HALOGEN_27B_REVISION` | **not moved**' "$work/down.md" || { echo "the description doesn't say the 27B pin didn't move" >&2; exit 1; }
+echo "ok: a failing Hugging Face keeps the 27B pin and the update goes on"

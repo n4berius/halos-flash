@@ -17,7 +17,7 @@ hub=https://huggingface.co
 [[ "$rev" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || { echo "odd revision: $rev" >&2; exit 1; }
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 # One request: the commit the revision names and every file at it, with LFS hashes and blob ids.
-curl -sSf -m 60 --proto =https --proto-redir =https "$hub/api/models/$repo/revision/$rev?blobs=true" > "$tmp/info.json"
+curl -sSf -m 60 --retry 3 --retry-all-errors --proto =https --proto-redir =https "$hub/api/models/$repo/revision/$rev?blobs=true" > "$tmp/info.json"
 python3 -I - "$tmp/info.json" > "$tmp/list" <<'PY'
 import json, re, sys
 d = json.load(open(sys.argv[1]))
@@ -37,7 +37,8 @@ PY
 commit="$(sed -n 's/^commit //p' "$tmp/list")"
 sed -i '/^commit /d' "$tmp/list"
 grep -q '^tokenizer/tokenizer\.json ' "$tmp/list" || { echo "$repo at $commit has no tokenizer/tokenizer.json" >&2; exit 1; }
-grep -E '^[A-Za-z0-9._-]+\.hgn ' "$tmp/list" | grep -qvE 'vision|ngram|mtp|overlay|drafter' || { echo "$repo at $commit has no checkpoint" >&2; exit 1; }
+awk '$1 ~ /^[A-Za-z0-9._-]+\.hgn$/ && $1 !~ /vision|ngram|mtp|overlay|drafter/ { found = 1 } END { exit !found }' "$tmp/list" \
+  || { echo "$repo at $commit has no checkpoint" >&2; exit 1; }
 sums=()
 while read -r path lfs blob; do
   if [ "$lfs" != - ]; then
@@ -45,7 +46,7 @@ while read -r path lfs blob; do
     sums+=("$path:$lfs")
   else
     [[ "$blob" =~ ^[0-9a-f]{40}$ ]] || { echo "no blob id for $path" >&2; exit 1; }
-    curl -sSfL -m 300 --proto =https --proto-redir =https -o "$tmp/f" "$hub/$repo/resolve/$commit/$path"
+    curl -sSfL -m 300 --retry 3 --retry-all-errors --proto =https --proto-redir =https -o "$tmp/f" "$hub/$repo/resolve/$commit/$path"
     got="$( { printf 'blob %s\0' "$(stat -c %s "$tmp/f")"; cat "$tmp/f"; } | sha1sum | cut -d' ' -f1)"
     [ "$got" = "$blob" ] || { echo "$path doesn't match its git blob id at $commit" >&2; exit 1; }
     sums+=("$path:$(sha256sum < "$tmp/f" | cut -d' ' -f1)")
