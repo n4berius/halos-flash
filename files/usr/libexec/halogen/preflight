@@ -48,6 +48,22 @@ for f in npu decider LFM custom; do
   fi
 done
 
+# Since 0.21.0 Halogen reads an adapters/ folder beside the checkpoint (LoRA adapters, for
+# Qwen3.8-27B) and converts what is in it at every start. halOS makes none, and the download and
+# pull containers can write there, so one beside the official checkpoint or an own one stops the
+# start rather than let a download choose what Halogen loads.
+# Only folders render-config could serve (a checkpoint name: letters, digits, '.', '_', '-', not
+# starting with '.'), so the path in the message is safe to paste.
+for d in "${HALOGEN_MODELS_DIR:-/srv/models}/adapters" "${HALOGEN_MODELS_DIR:-/srv/models}"/flash/*/adapters; do
+  case "$d" in */flash/*/adapters)
+    n="${d%/adapters}"; n="${n##*/}"
+    [[ "$n" =~ ^[A-Za-z0-9_-][A-Za-z0-9._-]*$ ]] || continue ;;
+  esac
+  if [ -e "$d" ] || [ -L "$d" ]; then
+    fail "$d is there, but halOS doesn't serve LoRA adapters. Remove it: sudo runuser -u halogen -- rm -rf -- $(printf '%q' "$d")"
+  fi
+done
+
 # The files Halogen loads from the top of /srv/models, and everything under npu: the download
 # container could write there, and Halogen's container would follow a link it left into whatever
 # it points to. halOS never makes a link there (hf writes plain files, also in its .cache), so any

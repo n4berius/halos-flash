@@ -18,6 +18,11 @@ it promotes.
   a relay sends its searches to that server only. SearXNG's page is on port 8730, for this machine
   and private networks only, over HTTPS when that is on. `sudo halogenctl selftest` checks the
   search, also from Halogen's container.
+- Halogen no longer starts when there is an `adapters` folder beside its checkpoint (#183).
+  Halogen 0.21.0 loads LoRA adapters from such a folder, and halOS doesn't make one, so only a
+  download could have put it there. The start message tells you how to remove it. The two update
+  workflows also keep their GitHub token out of every step except the one that opens the pull
+  request.
 - Halogen 0.21.0 (#182). Halogen keeps the same Flash model, with the same speed and answers. It
   fixes replies that could end with an invented `<|im_start|>user` turn, and a `seed` sent as text
   to `/v1/audio/speech`. Halogen 0.21.0 can also serve Qwen3.8-27B and send web searches to a
