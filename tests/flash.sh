@@ -351,6 +351,23 @@ if grep -q -e 'podman rm' -e '--name' "$work/podman.log"; then fail "verify touc
 "$tool" verify ../mine > "$work/out" 2>&1 && fail "verify took a path"
 ok "verify checks a pulled checkpoint again and records the answer"
 
+# Qwen3.8-27B (Halogen 0.21.0) isn't served by halOS yet: refused by name before any download, and
+# by the model its header declares (a renamed file) at verify, so render-config serves the official one.
+reset_repo; rm "$work/repo/model.hgn"; put qwen38-27b-ht4.hgn big; put qwen38-27b-vision.hgn eyes27
+if pull peonist-ai/halogen-qwen3.8-27b-ht4 --as q27; then fail "a 27B checkpoint was pulled"; fi
+{ grep -q 'Qwen3.8-27B' "$work/out" && [ ! -s "$work/hf.log" ] && [ ! -e "$work/models/flash/q27" ]; } || fail "the 27B wasn't refused before downloading"
+reset_repo
+pull someone/My-Flash-HGN --as renamed > /dev/null || fail "pull failed"
+{ printf 'HGN1'; head -c 36 /dev/zero; printf 'qwen3.8-27b-ht4'; head -c 49 /dev/zero; printf 'rest'; } > "$work/models/flash/renamed/model.hgn"
+if "$tool" verify renamed > "$work/out" 2>&1; then fail "a renamed 27B checkpoint passed verify"; fi
+{ [ "$(info renamed verified)" = fail ] && grep -q 'Qwen3.8-27B' "$work/out"; } || fail "the renamed 27B wasn't named"
+# A header that names no model: the entrypoint goes by the name, so verify does too.
+pull someone/My-Flash-HGN --as noid > /dev/null || fail "pull failed"
+d27="$work/models/flash/noid"; mv "$d27/model.hgn" "$d27/qwen38-27b-x.hgn"; sed -i 's/^checkpoint=.*/checkpoint=qwen38-27b-x.hgn/' "$d27/halos.info"
+if "$tool" verify noid > "$work/out" 2>&1; then fail "a 27B by name passed verify"; fi
+rm -rf "$work/models/flash/renamed" "$d27"
+ok "Qwen3.8-27B checkpoints are refused before downloading, and by their header at verify"
+
 # Pulling again: never the one Halogen serves, and unchecked from the first byte until it passes.
 echo mine > "$work/flash-checkpoint"
 if pull someone/My-Flash-HGN --as mine; then fail "the served checkpoint was replaced"; fi
