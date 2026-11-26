@@ -16,6 +16,9 @@ it promotes.
   SearXNG server: halOS supports neither yet. `flash pull` refuses a 27B checkpoint, and
   `HALOGEN_WEB_SEARCH_URL` isn't accepted, because Halogen's container has no outside network.
   Claude Code's WebSearch tool now gets an error from Halogen in place of an answer from memory.
+  Halogen 0.21.0 also refuses a checkpoint file that names a model it doesn't know. If your own
+  Flash checkpoint is refused, it fails its check at the first start after the update, halOS
+  serves the official checkpoint, and `sudo halogenctl status` tells you why.
 - When a Halogen update needs work by hand, the Halogen update workflow now opens its pull
   request as a draft that names the failed checks, in place of stopping without one (#182).
 - `sudo halogenctl bench` measures reading speed correctly again (#181). From the second run on,

@@ -49,8 +49,7 @@ jobs:
         if: steps.update.outputs.version != ''
         run: |
           set +e
-          tests/run.sh > "$RUNNER_TEMP/tests.log" 2>&1; rc=$?
-          cat "$RUNNER_TEMP/tests.log"
+          tests/run.sh 2>&1 | tee "$RUNNER_TEMP/tests.log"; rc=${PIPESTATUS[0]}
           echo "rc=$rc" >> "$GITHUB_OUTPUT"
           if [ "$rc" != 0 ]; then
             {
@@ -60,12 +59,13 @@ jobs:
               echo 'The update needs work by hand before it can merge. The end of the output:'
               echo
               echo '```'
-              grep -v '^ok: ' "$RUNNER_TEMP/tests.log" | tail -n 30 | sed 's/```/` ` `/g'
+              grep -v '^ok: ' "$RUNNER_TEMP/tests.log" | tail -n 30 | cut -c1-400 | sed 's/```/` ` `/g'
               echo '```'
             } >> "$RUNNER_TEMP/body.md"
             echo "tests/run.sh failed; the pull request opens as a draft." >> "$GITHUB_STEP_SUMMARY"
           fi
       - name: Open the pull request
+        id: open
         if: steps.update.outputs.version != ''
         env:
           GH_TOKEN: ${{ github.token }}
@@ -84,14 +84,21 @@ jobs:
           git push -q origin "$BRANCH"
           draft=()
           [ "$TESTS_RC" = 0 ] || draft=(--draft)
-          url="$(gh pr create "${draft[@]}" --base main --head "$BRANCH" --title "Move to Halogen $VERSION" --body-file "$RUNNER_TEMP/body.md")"
+          if ! url="$(gh pr create "${draft[@]}" --base main --head "$BRANCH" --title "Move to Halogen $VERSION" --body-file "$RUNNER_TEMP/body.md")"; then
+            # Later runs skip a release whose branch exists, so take the branch away again.
+            git push -q origin --delete "$BRANCH" || echo "Could not delete $BRANCH: delete it by hand, or no later run opens a pull request for $VERSION." >> "$GITHUB_STEP_SUMMARY"
+            echo "Opening the pull request failed; the branch was removed so the next run tries again." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
           echo "Opened $url" >> "$GITHUB_STEP_SUMMARY"
+          echo "opened=1" >> "$GITHUB_OUTPUT"
           # A pull request opened with this workflow's token starts no workflows by itself,
           # so start the image build and the install test on its branch.
           gh workflow run build.yml --ref "$BRANCH"
           gh workflow run iso.yml --ref "$BRANCH"
       - name: Fail when the tests failed
-        if: steps.check.outputs.rc != '' && steps.check.outputs.rc != '0'
+        # Only the run that opened the draft: later daily runs find its branch and stay green.
+        if: steps.open.outputs.opened == '1' && steps.check.outputs.rc != '' && steps.check.outputs.rc != '0'
         run: |
           echo "tests/run.sh failed on the new pins; the draft pull request names the failure." >&2
           exit 1

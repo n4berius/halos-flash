@@ -361,7 +361,11 @@ pull someone/My-Flash-HGN --as renamed > /dev/null || fail "pull failed"
 { printf 'HGN1'; head -c 36 /dev/zero; printf 'qwen3.8-27b-ht4'; head -c 49 /dev/zero; printf 'rest'; } > "$work/models/flash/renamed/model.hgn"
 if "$tool" verify renamed > "$work/out" 2>&1; then fail "a renamed 27B checkpoint passed verify"; fi
 { [ "$(info renamed verified)" = fail ] && grep -q 'Qwen3.8-27B' "$work/out"; } || fail "the renamed 27B wasn't named"
-rm -rf "$work/models/flash/renamed"
+# A header that names no model: the entrypoint goes by the name, so verify does too.
+pull someone/My-Flash-HGN --as noid > /dev/null || fail "pull failed"
+d27="$work/models/flash/noid"; mv "$d27/model.hgn" "$d27/qwen38-27b-x.hgn"; sed -i 's/^checkpoint=.*/checkpoint=qwen38-27b-x.hgn/' "$d27/halos.info"
+if "$tool" verify noid > "$work/out" 2>&1; then fail "a 27B by name passed verify"; fi
+rm -rf "$work/models/flash/renamed" "$d27"
 ok "Qwen3.8-27B checkpoints are refused before downloading, and by their header at verify"
 
 # Pulling again: never the one Halogen serves, and unchecked from the first byte until it passes.
