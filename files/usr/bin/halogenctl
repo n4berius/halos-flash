@@ -1125,9 +1125,9 @@ case "${1:-status}" in
             exit 1
           fi
           echo "It answers."
-          wask "Turn on web search through your SearXNG at $up$path? Halogen's searches go to that server only. Halogen restarts if it runs."
+          wask "Turn on web search through your SearXNG at $up$path? Halogen's searches go to that server only, and its queries can hold text from your conversations. Halogen restarts if it runs."
         else
-          wask "Turn on web search with SearXNG on this machine? Its first start downloads SearXNG's image (about 100 MB, $(sed -n 's/^SEARXNG_VERSION=//p' "${HALOGEN_RELEASE_FILE:-/usr/share/halogen/release.env}" | tail -n 1 | tr -cd '[:alnum:].-')); searches then go from this machine to public search engines. Halogen restarts if it runs."
+          wask "Turn on web search with SearXNG on this machine? Its first start downloads SearXNG's image (about 100 MB, $(sed -n 's/^SEARXNG_VERSION=//p' "${HALOGEN_RELEASE_FILE:-/usr/share/halogen/release.env}" | tail -n 1 | tr -cd '[:alnum:].-')); searches then go from this machine to public search engines, and their queries can hold text from your conversations. Halogen restarts if it runs."
         fi
         other=halos-search-relay.service; [ "$cmd" = bundled ] || other=halos-search.service
         u="$(wunit "$cmd")"

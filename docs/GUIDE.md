@@ -527,6 +527,11 @@ the search container is on that network with Halogen. With your own SearXNG, the
 container is a small relay: it sends Halogen's requests to your server's address, and to no
 other address. So Halogen still can't connect to the internet or to your network.
 
+**Note:** Halogen's model writes the search queries from the conversation. So text from the
+conversation can leave the machine in a query: to public search engines with SearXNG on this
+machine, or to your own server. Text in a document or a search result can also tell the model
+what to search for. Turn on web search only if that is acceptable for what you send to Halogen.
+
 To use SearXNG on this machine:
 
 1. Run this command:
@@ -560,8 +565,9 @@ a DNS name.
 `https://<this machine's address>:8730` (`http://` with [HTTPS](#https) off). Use it to try a
 search and to set your own preferences, which your browser keeps. The page has the same rules as
 [the dashboard](#the-dashboard): no login, and only this machine and private networks get an
-answer. When web search is off, port 8730 only says that it's off. The page keeps no log of what
-you search.
+answer. When web search is off, port 8730 only says that it's off. The front door keeps no log of
+what you search on that port. SearXNG's own messages in halogen's journal can still show a query,
+for example when a search engine fails.
 
 **SearXNG's settings.** halOS makes `/srv/configs/searxng/settings.yml` at SearXNG's first start,
 with a secret of its own, and never changes it after that. halOS's settings turn on the JSON
