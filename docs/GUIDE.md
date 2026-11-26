@@ -905,6 +905,9 @@ Things to know for every checkpoint of your own:
 - **Images.** With `HALOGEN_VISION_TOWER=1`, images work only if the checkpoint has a vision tower
   (`qwen38-flash-next-vision.hgn`). Without one, images stay off, and `halogenctl config` tells
   why.
+- **Qwen3.8-Flash-Next only.** Halogen 0.21.0 can also serve a different model, Qwen3.8-27B
+  (`qwen38-27b-ht4.hgn`). halOS doesn't support it yet: `flash pull` refuses a 27B checkpoint
+  before the download, and `flash verify` fails one with a different file name.
 - **Where things live.** Checkpoints are in `/srv/models/flash/<name>/`. The choice is in
   `/srv/configs/flash-checkpoint`, which only `halogenctl flash use` writes. You can't set
   `HALOGEN_CHECKPOINT` in `halogen.env`.

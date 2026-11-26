@@ -10,6 +10,14 @@ it promotes.
 
 ## Unreleased
 
+- Halogen 0.21.0 (#PR). Halogen keeps the same Flash model, with the same speed and answers. It
+  fixes replies that could end with an invented `<|im_start|>user` turn, and a `seed` sent as text
+  to `/v1/audio/speech`. Halogen 0.21.0 can also serve Qwen3.8-27B and send web searches to a
+  SearXNG server: halOS supports neither yet. `flash pull` refuses a 27B checkpoint, and
+  `HALOGEN_WEB_SEARCH_URL` isn't accepted, because Halogen's container has no outside network.
+  Claude Code's WebSearch tool now gets an error from Halogen in place of an answer from memory.
+- When a Halogen update needs work by hand, the Halogen update workflow now opens its pull
+  request as a draft that names the failed checks, in place of stopping without one (#PR).
 - `sudo halogenctl bench` measures reading speed correctly again (#181). From the second run on,
   the prompt cache answered the benchmark's prompts from its earlier runs, so prompts seemed to read
   in 0.2 s at any length (165,000 tok/s at 32K). Each run now reads prompts that are new to the

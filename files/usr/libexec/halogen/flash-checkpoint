@@ -185,6 +185,12 @@ offline() {
 info_get() { sed -n "s/^$2=//p" "$1" 2>/dev/null | tail -n 1; }
 info_get_all() { sed -n "s/^$2=//p" "$1" 2>/dev/null; }
 # The names a draft head file a repository ships may have (as the pull picks them).
+# The model a .hgn file declares (header bytes 40..103, where Halogen's entrypoint reads it).
+model_id_of() { timeout 5 head -c 104 -- "$1" 2>/dev/null | tail -c 64 | tr -d '\0' | tr -cd '[:print:]'; }
+# Halogen 0.21.0 also serves Qwen3.8-27B from the same image. halOS doesn't yet: render-config
+# would give it Flash-Next's draft head, lookup table and vision tower.
+is_27b_id() { [[ "${1,,}" == qwen3.8-27b* || "${1,,}" == qwen/qwen3.8-27b* ]]; }
+no_27b="halOS serves Qwen3.8-Flash-Next checkpoints only for now; Qwen3.8-27B (new in Halogen 0.21.0) isn't supported yet."
 is_drafter_name() { [[ "$1" =~ ^[A-Za-z0-9._-]*drafter[A-Za-z0-9._-]*\.hgn$ ]]; }
 
 # verify every .hgn of a checkpoint folder with Halogen's verify, and record the answer.
@@ -252,6 +258,9 @@ verify_dir() {
   # names the official draft head only with own_precision=1.
   local ck own=unknown facts
   ck="$(info_get "$info" checkpoint)"
+  if [[ "$ck" =~ ^[A-Za-z0-9._-]+\.hgn$ ]] && [ -f "$dir/$ck" ] && [ ! -L "$dir/$ck" ] && is_27b_id "$(model_id_of "$dir/$ck")"; then
+    echo "$ck is a Qwen3.8-27B checkpoint. $no_27b" >&2; result=fail
+  fi
   if [[ "$ck" =~ ^[A-Za-z0-9._-]+\.hgn$ ]] && [ -f "$dir/$ck" ] && [ ! -L "$dir/$ck" ]; then
     facts="$(offline --entrypoint /usr/local/bin/flash_serve "$HALOGEN_IMAGE" --resident-gib "/models/flash/$name/$ck" 2>/dev/null \
       | grep -E '^[0-9]+\.[0-9] [01]( [01]){0,2}( [0-9]+\.[0-9])?$' | tail -n 1)"
@@ -1043,6 +1052,7 @@ else
     *) die "$repo holds several checkpoints. Pick one with --file: $(tr '\n' ' ' <<< "$candidates")" ;;
   esac
 fi
+[[ "${checkpoint,,}" != qwen38-27b* ]] || die "$checkpoint is a Qwen3.8-27B checkpoint. $no_27b"
 wanted=("$checkpoint")
 overlay="${checkpoint%.hgn}.overlay.hgn"
 ! has "$overlay" || wanted+=("$overlay")

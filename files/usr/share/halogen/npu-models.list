@@ -1,5 +1,5 @@
 # Halogen's NPU models, for the NPU model checklist of sudo halogenctl settings.
-# From Halogen's docs/NPU.md (0.20.7): id, what it does, memory as the docs give it (GiB or GB) (blank if the docs
+# From Halogen's docs/NPU.md (0.21.0): id, what it does, memory as the docs give it (GiB or GB) (blank if the docs
 # don't say). Tab-separated. A model missing here can still be named in HALOGEN_NPU_MODELS by hand;
 # the checklist keeps any name your file already has. halogen-spotter-0.6b is left out: only the agent
 # guard uses it, and HALOGEN_AGENT_GUARD adds it.

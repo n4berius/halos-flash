@@ -1487,6 +1487,23 @@ and tracked on the owner's project board. [ROADMAP.md](ROADMAP.md) holds the ord
   name is removed and refused (`preflight`) as before. FLAGS.md changed only `HALOGEN_CONC_MODE`'s and
   `HALOGEN_CK_OVERLAY`'s text and a vision timing; host-setup only image tags; `models.txt` is
   byte-identical to 0.20.6's (read from the layer), so no NPU program downloads again.
+- **Halogen 0.21.0** (#PR; the update workflow stopped at `tests/run.sh` on the new option and
+  opened nothing, so `halogen-update.yml` now opens a draft PR with the failing lines in its body
+  and fails the run after): Flash-Next's engine is 0.20.7's. New: Qwen3.8-27B in the same image
+  (the entrypoint's `engine_for_checkpoint` reads the HGN header's model id, bytes 40..103, and picks
+  `flash_serve` or `flash_serve-dense27` when the image sets `HALOGEN_IMAGE_ENGINES`; it refuses an
+  id it has no engine for, also in `verify`, so an own checkpoint with an unexpected id fails the
+  re-verify and render-config serves the official one; bf16-to-hgn writes `qwen3.8-flash-next-v2`,
+  what convert writes for a GGUF wasn't checked). halOS doesn't serve the 27B yet: `flash pull`
+  refuses a `qwen38-27b*` checkpoint before downloading and `verify_dir` fails a file whose header
+  says `qwen3.8-27b*` (render-config would give it Flash's draft head via `HALOGEN_CK_OVERLAY`,
+  `--resident-gib` runs Flash's binary, the vision tower name differs: `qwen38-27b-vision.hgn`).
+  `HALOGEN_WEB_SEARCH_URL` (SearXNG for `/v1/messages`' `web_search` tool) is in gen-options'
+  BLOCKED: the container is on `halogen-internal` (#120). Several API keys now split the prompt
+  cache per key (halOS has one key). FLAGS.md otherwise changed only text; host-setup only image
+  tags; the weights repo and revision are unchanged (Flash-Next unchanged). This session could
+  read ghcr.io manifests but not blobs, so the image's `models.txt`, env and `halogen-bench.py`
+  weren't compared with 0.20.7's (bench refuses a tool without `lead_line`/`ask`/`main`).
 - The ISO install test also runs when `versions.env` changes (#78), so every Halogen update PR
   gets the LUKS + TPM install in a VM, about 30 minutes for both editions.
 - Known upstream: bootc 1.17.1 rewrites `/etc/fstab` at every boot on Anaconda installs

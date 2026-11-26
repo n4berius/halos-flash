@@ -41,15 +41,37 @@ jobs:
           . ./versions.env
           echo "version=$HALOGEN_VERSION" >> "$GITHUB_OUTPUT"
           echo "branch=halogen-update/$HALOGEN_VERSION" >> "$GITHUB_OUTPUT"
+      # A release that adds an option fails the tests until option-kinds (and maybe more) has its
+      # line, by design. The pull request is still opened, as a draft that names the failure,
+      # so a person can finish it on its branch (0.21.0's run stopped here and opened nothing).
       - name: Check the new pins
+        id: check
         if: steps.update.outputs.version != ''
-        run: tests/run.sh
+        run: |
+          set +e
+          tests/run.sh > "$RUNNER_TEMP/tests.log" 2>&1; rc=$?
+          cat "$RUNNER_TEMP/tests.log"
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          if [ "$rc" != 0 ]; then
+            {
+              echo
+              echo '## tests/run.sh failed'
+              echo
+              echo 'The update needs work by hand before it can merge. The end of the output:'
+              echo
+              echo '```'
+              grep -v '^ok: ' "$RUNNER_TEMP/tests.log" | tail -n 30 | sed 's/```/` ` `/g'
+              echo '```'
+            } >> "$RUNNER_TEMP/body.md"
+            echo "tests/run.sh failed; the pull request opens as a draft." >> "$GITHUB_STEP_SUMMARY"
+          fi
       - name: Open the pull request
         if: steps.update.outputs.version != ''
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.update.outputs.version }}
           BRANCH: ${{ steps.update.outputs.branch }}
+          TESTS_RC: ${{ steps.check.outputs.rc }}
         run: |
           if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
             echo "$BRANCH already exists, so its pull request is already open or was closed on purpose." >> "$GITHUB_STEP_SUMMARY"
@@ -60,9 +82,16 @@ jobs:
           git switch -c "$BRANCH"
           git commit -qam "Move to Halogen $VERSION" -m "Pins, upstream hashes and options from halogen-flash-server $VERSION, by the Halogen update workflow."
           git push -q origin "$BRANCH"
-          url="$(gh pr create --base main --head "$BRANCH" --title "Move to Halogen $VERSION" --body-file "$RUNNER_TEMP/body.md")"
+          draft=()
+          [ "$TESTS_RC" = 0 ] || draft=(--draft)
+          url="$(gh pr create "${draft[@]}" --base main --head "$BRANCH" --title "Move to Halogen $VERSION" --body-file "$RUNNER_TEMP/body.md")"
           echo "Opened $url" >> "$GITHUB_STEP_SUMMARY"
           # A pull request opened with this workflow's token starts no workflows by itself,
           # so start the image build and the install test on its branch.
           gh workflow run build.yml --ref "$BRANCH"
           gh workflow run iso.yml --ref "$BRANCH"
+      - name: Fail when the tests failed
+        if: steps.check.outputs.rc != '' && steps.check.outputs.rc != '0'
+        run: |
+          echo "tests/run.sh failed on the new pins; the draft pull request names the failure." >&2
+          exit 1

@@ -1,5 +1,5 @@
 # What each Halogen option takes, for the settings screen (sudo halogenctl settings): how it asks for a
-# value, which values it accepts, a few presets and an example. Read from Halogen's docs/FLAGS.md (0.20.7):
+# value, which values it accepts, a few presets and an example. Read from Halogen's docs/FLAGS.md (0.21.0):
 # check this file with each Halogen pin (tests/settings.sh fails when an allowed option has no line).
 # Tab-separated: name, kind, accepted, presets, hint.
 #   onoff   0 or 1. accepted names the two choices (0=label|1=label).
