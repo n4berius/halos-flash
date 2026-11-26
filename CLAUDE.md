@@ -1487,7 +1487,7 @@ and tracked on the owner's project board. [ROADMAP.md](ROADMAP.md) holds the ord
   name is removed and refused (`preflight`) as before. FLAGS.md changed only `HALOGEN_CONC_MODE`'s and
   `HALOGEN_CK_OVERLAY`'s text and a vision timing; host-setup only image tags; `models.txt` is
   byte-identical to 0.20.6's (read from the layer), so no NPU program downloads again.
-- **Halogen 0.21.0** (#PR; the update workflow stopped at `tests/run.sh` on the new option and
+- **Halogen 0.21.0** (#182; the update workflow stopped at `tests/run.sh` on the new option and
   opened nothing, so `halogen-update.yml` now opens a draft PR with the failing lines in its body
   and fails the run after): Flash-Next's engine is 0.20.7's. New: Qwen3.8-27B in the same image
   (the entrypoint's `engine_for_checkpoint` reads the HGN header's model id, bytes 40..103, and picks
