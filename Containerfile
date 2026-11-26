@@ -220,13 +220,17 @@ RUN set -eu; \
     # Web search (halogenctl web-search): its link to Halogen is internal, without DNS, at the
     # addresses render-config names; only the search container is on the network with a way out,
     # and Halogen isn't on either until the drop-in halogenctl writes (Podman 5's Quadlet reads it).
-    grep -qxF 'ExecStart=/usr/bin/podman network create --ignore --disable-dns --subnet=10.89.250.0/29 --internal halos-search' /tmp/quadlet.txt \
-      || { echo "web search's network isn't internal on 10.89.250.0/29 without DNS" >&2; grep 'network create' /tmp/quadlet.txt >&2; exit 1; }; \
+    netline="$(grep -E '^ExecStart=/usr/bin/podman network create .* halos-search$' /tmp/quadlet.txt)"; \
+    for want in ' --internal ' ' --disable-dns ' ' --subnet[= ]10\.89\.250\.0/29 '; do \
+      printf '%s \n' "$netline" | grep -qE -- "$want" \
+        || { echo "web search's network isn't internal on 10.89.250.0/29 without DNS: $netline" >&2; exit 1; }; \
+    done; \
     for c in halos-search halos-search-relay; do \
       sed -n "/^---$c.service---/,/^---/p" /tmp/quadlet.txt | grep -E '^ExecStart=/usr/bin/podman run ' > /tmp/q-run.txt; \
-      grep -qF -- ' --network=halos-search:ip=10.89.250.2 --network=halos-search-out ' /tmp/q-run.txt \
-        && grep -qF -- ' --publish 127.0.0.1:18730:8080 ' /tmp/q-run.txt && grep -qF -- ' --cap-drop=all ' /tmp/q-run.txt \
-        && grep -qF -- ' --read-only ' /tmp/q-run.txt || { echo "$c isn't set up as halOS expects:" >&2; cat /tmp/q-run.txt >&2; exit 1; }; \
+      for want in ' --network[= ]halos-search:ip=10\.89\.250\.2( |$)' ' --network[= ]halos-search-out( |$)' \
+          ' --publish[= ]127\.0\.0\.1:18730:8080( |$)' ' --cap-drop[= ]all( |$)' ' --read-only( |$)'; do \
+        grep -qE -- "$want" /tmp/q-run.txt || { echo "$c isn't set up as halOS expects ($want):" >&2; cat /tmp/q-run.txt >&2; exit 1; }; \
+      done; \
     done; \
     sed -n '/^---halogen.service---/,/^---/p' /tmp/quadlet.txt | grep -E '^ExecStart=/usr/bin/podman run ' > /tmp/q-run.txt; \
     if grep -qF 'halos-search' /tmp/q-run.txt; then echo "Halogen joins web search's network without the drop-in" >&2; exit 1; fi; \
