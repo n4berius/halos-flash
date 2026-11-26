@@ -542,7 +542,9 @@ if [ "${running:-0}" = 1 ] && have journalctl && have systemctl; then
       say INFO draft-head "Halogen drafts with ${dh#halogen: overlay /models/flash/}, a draft head shipped with your checkpoint (sudo halogenctl flash drafter <name> official goes back)" ;;
     *"is not in"*)
       if [ -n "$flash" ] && [ "$flash" != official ]; then say INFO draft-head "${dh#halogen: }"; else say WARN draft-head "Halogen didn't find the official draft head beside the checkpoint, so the checkpoint's own drafts (slower): sudo halogenctl restart fetches it"; fi ;;
-    "") say INFO draft-head "the checkpoint's built-in draft head (Halogen names no draft head file at its start: sudo halogenctl config says why)" ;;
+    "") if grep -qx 'HALOGEN_MODEL_ID=halogen-qwen3.8-27b' <<< "${rendered:-}" && grep -q '^HALOGEN_CHECKPOINT=/models/flash/' <<< "${rendered:-}"; then
+          say INFO draft-head "Qwen3.8-27B is served, which takes no draft head file"
+        else say INFO draft-head "the checkpoint's built-in draft head (Halogen names no draft head file at its start: sudo halogenctl config says why)" ; fi ;;
     *) say INFO draft-head "${dh#halogen: }" ;;
   esac
 fi

@@ -23,6 +23,7 @@ state="${HALOGEN_STATE_DIR:-/var/lib/halogen}"
 
 table=qwen38-flash-next-ngram.hgn
 vision=qwen38-flash-next-vision.hgn
+vision27=qwen38-27b-vision.hgn
 die() { echo "$*" >&2; exit 1; }
 # podman and its conmon would inherit the pull lock (fd 9) and hold it after a hard kill, for as
 # long as a leftover container runs: every podman call closes it.
@@ -184,12 +185,30 @@ offline() {
 }
 info_get() { sed -n "s/^$2=//p" "$1" 2>/dev/null | tail -n 1; }
 info_get_all() { sed -n "s/^$2=//p" "$1" 2>/dev/null; }
-# The model a .hgn file declares (header bytes 40..103, where Halogen's entrypoint reads it).
-model_id_of() { timeout 5 head -c 104 -- "$1" 2>/dev/null | tail -c 64 | tr -d '\0' | tr -cd '[:print:]'; }
-# Halogen 0.21.0 also serves Qwen3.8-27B from the same image. halOS doesn't yet: render-config
-# would give it Flash-Next's draft head, lookup table and vision tower.
-is_27b_id() { [[ "${1,,}" == qwen3.8-27b* || "${1,,}" == qwen/qwen3.8-27b* ]]; }
-no_27b="halOS serves Qwen3.8-Flash-Next checkpoints only for now; Qwen3.8-27B (new in Halogen 0.21.0) isn't supported yet."
+# The model a .hgn file declares (header bytes 40..103 of an HGN1 file, where Halogen's
+# entrypoint reads it: hgn_model_id).
+# Only NULs are dropped, as there: a byte it would keep must not make another answer here.
+model_id_of() {
+  [ "$(timeout 5 head -c 4 -- "$1" 2>/dev/null)" = HGN1 ] || return 0
+  timeout 5 head -c 104 -- "$1" 2>/dev/null | tail -c 64 | tr -d '\0'
+}
+# Halogen 0.21.0 serves Qwen3.8-27B from the same image, with an engine of its own. Its entrypoint
+# (engine_for_checkpoint) picks that engine by the model the header names, qwen3.8-27b-*; it
+# refuses a file whose header names none (the qwen38-27b-*.hgn name counts only for a file not
+# there yet, as the pull's first guess). The 27B takes no lookup table and no draft head file,
+# and its vision tower is qwen38-27b-vision.hgn.
+is_27b_file() { [[ "$(model_id_of "$1")" == qwen3.8-27b-* ]]; }
+# The ids the entrypoint calls companions, not checkpoints: verify passes them, a start refuses them.
+is_companion_id() {
+  case "$1" in qwen3.8-flash-next-mtp*|qwen3.8-flash-next-ngram*|qwen3.8-flash-next-vision*|qwen3.8-flash-next-drafter*|qwen3.8-27b-vision*) return 0 ;; esac
+  return 1
+}
+# The checkpoint file of a folder's halos.info, when it is a plain file there.
+ck_file() {
+  local ck; ck="$(info_get "$models/flash/$1/halos.info" checkpoint)"
+  [[ "$ck" =~ ^[A-Za-z0-9._-]+\.hgn$ ]] && [ -f "$models/flash/$1/$ck" ] && [ ! -L "$models/flash/$1/$ck" ] || return 1
+  printf '%s\n' "$models/flash/$1/$ck"
+}
 # The names a draft head file a repository ships may have (as the pull picks them).
 is_drafter_name() { [[ "$1" =~ ^[A-Za-z0-9._-]*drafter[A-Za-z0-9._-]*\.hgn$ ]]; }
 
@@ -230,10 +249,20 @@ fill_tokenizer() {
 }
 
 verify_dir() {
-  local name="$1" dir="$models/flash/$1" info="$models/flash/$1/halos.info" f result=pass checked=0
+  local name="$1" dir="$models/flash/$1" info="$models/flash/$1/halos.info" f result=pass checked=0 ck own=unknown facts model=""
   # A link could point at a file that changes after it was checked, so links are never checked.
   if [ -L "$dir" ] || [ -L "$info" ]; then echo "$dir holds links; pull it again." >&2; return 1; fi
-  if ! fill_tokenizer "$dir" || [ ! -f "$dir/tokenizer/tokenizer.json" ]; then
+  ck="$(info_get "$info" checkpoint)"
+  if [[ "$ck" =~ ^[A-Za-z0-9._-]+\.hgn$ ]] && [ -f "$dir/$ck" ] && [ ! -L "$dir/$ck" ]; then
+    if is_27b_file "$dir/$ck"; then model=qwen3.8-27b; else model=qwen3.8-flash-next; fi
+    if is_companion_id "$(model_id_of "$dir/$ck")"; then
+      echo "$ck is a companion file (its header says $(model_id_of "$dir/$ck" | tr -cd '[:print:]')), not a checkpoint: Halogen won't serve it." >&2; result=fail
+    fi
+  fi
+  # The official tokenizer is Flash-Next's: a 27B must bring its own.
+  if [ "$model" = qwen3.8-27b ] && [ ! -f "$dir/tokenizer/tokenizer.json" ]; then
+    echo "$dir/tokenizer has no tokenizer.json, and halOS has none for Qwen3.8-27B." >&2; result=fail
+  elif [ "$model" != qwen3.8-27b ] && { ! fill_tokenizer "$dir" || [ ! -f "$dir/tokenizer/tokenizer.json" ]; }; then
     echo "So $dir/tokenizer has no tokenizer.json, which Halogen needs to start." >&2; result=fail
   fi
   for f in "$dir"/*.hgn; do
@@ -256,19 +285,16 @@ verify_dir() {
   # third field of --resident-gib; its start script reads it the same way). Only then does
   # HALOGEN_CK_OVERLAY name a draft head; otherwise it selects a precision sidecar, so render-config
   # names the official draft head only with own_precision=1.
-  local ck own=unknown facts
-  ck="$(info_get "$info" checkpoint)"
-  # The entrypoint also takes a qwen38-27b-*.hgn name as the 27B when the header names no model.
-  if [[ "$ck" =~ ^[A-Za-z0-9._-]+\.hgn$ ]] && [ -f "$dir/$ck" ] && [ ! -L "$dir/$ck" ] &&
-     { [[ "${ck,,}" == qwen38-27b* ]] || is_27b_id "$(model_id_of "$dir/$ck")"; }; then
-    echo "$ck is a Qwen3.8-27B checkpoint. $no_27b" >&2; result=fail
-  elif [[ "$ck" =~ ^[A-Za-z0-9._-]+\.hgn$ ]] && [ -f "$dir/$ck" ] && [ ! -L "$dir/$ck" ]; then
+  # The 27B takes no draft head file, so its own precision doesn't matter; --resident-gib is
+  # Flash-Next's binary, which doesn't read it.
+  if [ "$model" = qwen3.8-flash-next ]; then
     facts="$(offline --entrypoint /usr/local/bin/flash_serve "$HALOGEN_IMAGE" --resident-gib "/models/flash/$name/$ck" 2>/dev/null \
       | grep -E '^[0-9]+\.[0-9] [01]( [01]){0,2}( [0-9]+\.[0-9])?$' | tail -n 1)"
     if [ -n "$facts" ]; then own="$(awk '{ print ($3 == "" ? 0 : $3) }' <<< "$facts")"; fi
   fi
-  { grep -v -e '^verified=' -e '^verified_with=' -e '^verified_at=' -e '^own_precision=' "$info"
+  { grep -v -e '^verified=' -e '^verified_with=' -e '^verified_at=' -e '^own_precision=' -e '^model=' "$info"
     echo "own_precision=$own"
+    [ -z "$model" ] || echo "model=$model"
     echo "verified=$result"
     echo "verified_with=$HALOGEN_VERSION"
     echo "verified_at=$(date -u '+%Y-%m-%d %H:%M UTC')"; } | write_new "$info.new" && mv -f "$info.new" "$info" || return 1
@@ -877,6 +903,11 @@ case "${1:-}" in
     [ -f "$models/flash/$name/halos.info" ] || die "No checkpoint called $name. See: sudo halogenctl flash list"
     if [ -L "$models/flash/$name" ] || [ -L "$models/flash/$name/halos.info" ]; then die "$models/flash/$name holds links; pull it again."; fi
     name_lock "$name"
+    # The check measures against the official Qwen3.8-Flash-Next checkpoint: another model's
+    # numbers against it say nothing.
+    if f="$(ck_file "$name")" && is_27b_file "$f"; then
+      die "$name is a Qwen3.8-27B checkpoint. flash check compares a checkpoint with the official Qwen3.8-Flash-Next one, so it can't check this model."
+    fi
     gpu_work refuse
     if [ "$1" = check-prepare ]; then check_prepare "$name"; else check_dir_run "$name"; fi
     exit 0 ;;
@@ -950,6 +981,11 @@ case "${1:-}" in
     if ! plain_dir "$d" || [ ! -f "$d/halos.info" ] || [ -L "$d/halos.info" ]; then
       die "No checkpoint called $name (any more). See: sudo halogenctl flash list"
     fi
+    # The 27B's engine takes no draft head file (its entrypoint's drafter_head skips it), and
+    # render-config names none for it; official only drops a line left from before.
+    if [ "$want" != official ] && f="$(ck_file "$name")" && is_27b_file "$f"; then
+      die "$name is a Qwen3.8-27B checkpoint, which takes no draft head file: Halogen runs it as it ships."
+    fi
     case "$want" in
       official|off) ;;
       # Halogen 0.20.6's official draft head, kept in /srv/models after the upgrade (the fetch
@@ -1013,9 +1049,14 @@ while [ $# -gt 0 ]; do
     *) repo="$1"; shift ;;
   esac
 done
+# Peonist's own Qwen3.8-27B (Halogen 0.21.0's second model, for a machine short of memory):
+# flash pull 27b, served as qwen3.8-27b unless --as names another.
+if [ "$repo" = 27b ]; then
+  repo="${HALOGEN_27B_REPO:-peonist-ai/halogen-qwen3.8-27b-ht4}"; name="${name:-qwen3.8-27b}"
+fi
 case "$repo" in
   */*) ;;
-  *) die "usage: halogenctl flash pull <hf-repo, such as someone/My-Flash-HGN> [--revision <rev>] [--as <name>] [--file <checkpoint.hgn|build.gguf>] [--keep-gguf]" ;;
+  *) die "usage: halogenctl flash pull <hf-repo, such as someone/My-Flash-HGN, or 27b for Qwen3.8-27B> [--revision <rev>] [--as <name>] [--file <checkpoint.hgn|build.gguf>] [--keep-gguf]" ;;
 esac
 [[ "$repo" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "'$repo' is not a Hugging Face repository name"
 [[ "$revision" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || die "'$revision' is not a branch, tag or commit"
@@ -1053,21 +1094,33 @@ else
     *) die "$repo holds several checkpoints. Pick one with --file: $(tr '\n' ' ' <<< "$candidates")" ;;
   esac
 fi
-[[ "${checkpoint,,}" != qwen38-27b* ]] || die "$checkpoint is a Qwen3.8-27B checkpoint. $no_27b"
+# Qwen3.8-27B or Flash-Next: by the name until the header is here (as Halogen picks when the
+# header names no model), then by the header. The companions differ (see is_27b_file).
+ck27=0; [[ "$checkpoint" != qwen38-27b-*.hgn ]] || ck27=1
+companions() {
+  if [ "$ck27" = 1 ]; then
+    ck_vision="$vision27"; drafters=()
+  else
+    ck_vision="$vision"
+    # Draft head files the repository ships beside the checkpoint (a third party's drafter). They
+    # are downloaded and checked like the rest, but used only after sudo halogenctl flash drafter
+    # <name> <file>: by default the official draft head drafts.
+    mapfile -t drafters < <(cut -f1 <<< "$files" | grep -E '^[A-Za-z0-9._-]*drafter[A-Za-z0-9._-]*\.hgn$' || true)
+  fi
+}
+companions
 wanted=("$checkpoint")
 overlay="${checkpoint%.hgn}.overlay.hgn"
 ! has "$overlay" || wanted+=("$overlay")
-! has "$vision" || wanted+=("$vision")
-# Draft head files the repository ships beside the checkpoint (a third party's drafter). They are
-# downloaded and checked like the rest, but used only after sudo halogenctl flash drafter <name>
-# <file>: by default the official draft head drafts.
-mapfile -t drafters < <(cut -f1 <<< "$files" | grep -E '^[A-Za-z0-9._-]*drafter[A-Za-z0-9._-]*\.hgn$' || true)
+! has "$ck_vision" || wanted+=("$ck_vision")
 mapfile -t tokenizer < <(cut -f1 <<< "$files" | grep -E '^tokenizer/[A-Za-z0-9._-]+\.(json|jinja|txt|model|tiktoken)$' || true)
 wanted+=("${tokenizer[@]}")
 
-# Enough room for everything still missing, the lookup table and draft heads included until we know.
-need=0; sized=("${wanted[@]}" "${drafters[@]}")
-! has "$table" || sized+=("$table")
+# Enough room for everything still missing, the lookup table, draft heads and both models' vision
+# towers included until the header says which model this is.
+need=0; sized=("${wanted[@]}")
+mapfile -t -O "${#sized[@]}" sized < <(cut -f1 <<< "$files" | grep -E '^[A-Za-z0-9._-]*drafter[A-Za-z0-9._-]*\.hgn$' || true)
+for f in "$table" "$vision" "$vision27"; do ! has "$f" || [ "$f" = "$ck_vision" ] || sized+=("$f"); done
 for f in "${sized[@]}"; do
   s="$(size_of "$f")"; [ "${s:-0}" -gt 0 ] || continue
   [ "$(stat -c %s "$dir/$f" 2>/dev/null)" = "$s" ] || need=$((need + s))
@@ -1110,6 +1163,19 @@ fetch() {
 }
 fetch "${wanted[@]}"
 
+# The header decides, as it does for Halogen. A checkpoint whose name said otherwise gets the
+# other model's vision tower (and draft heads) instead; the first one is removed below with the
+# other files this pull doesn't want.
+was27="$ck27"; ck27=0
+! is_27b_file "$dir/$checkpoint" || ck27=1
+if [ "$ck27" != "$was27" ]; then
+  old_vision="$ck_vision"; companions
+  for i in "${!wanted[@]}"; do [ "${wanted[$i]}" != "$old_vision" ] || unset 'wanted[i]'; done
+  wanted=("${wanted[@]}")
+  if has "$ck_vision"; then fetch "$ck_vision"; wanted+=("$ck_vision"); fi
+fi
+if [ "$ck27" = 1 ]; then echo "$checkpoint is a Qwen3.8-27B checkpoint: Halogen serves it with its 27B engine."; fi
+
 # Draft head files. A copy of an official one (Peonist's layout ships the draft head beside the
 # checkpoint) is copied, not downloaded, as the lookup table below is: a reflink where the
 # filesystem can, never a link (the next pull's container gets this folder writable).
@@ -1134,7 +1200,10 @@ for f in "${drafters[@]}"; do
 done
 
 # Does the checkpoint carry the model's lookup table, or need it beside it? Halogen's server
-# binary says, the same way its start script asks.
+# binary says, the same way its start script asks. The 27B takes none.
+if [ "$ck27" = 1 ]; then
+  [ ! -L "$dir/$table" ] || rm -f -- "$dir/$table"
+else
 facts="$(offline --entrypoint /usr/local/bin/flash_serve "$HALOGEN_IMAGE" --resident-gib "/models/flash/$name/$checkpoint" 2>/dev/null \
   | grep -E '^[0-9]+\.[0-9] [01]( [01]){0,2}( [0-9]+\.[0-9])?$' | tail -n 1)"
 own_table="$(awk '{ print $2 }' <<< "$facts")"
@@ -1168,6 +1237,7 @@ else
   echo "Note: Halogen couldn't say whether $checkpoint needs a lookup table, and $repo has none." \
        "If Halogen asks for one at start, go back with: sudo halogenctl flash use official"
 fi
+fi
 [ -z "${reporter:-}" ] || kill "$reporter" 2>/dev/null
 
 echo "Checking the files against $repo's hashes..."
@@ -1178,7 +1248,7 @@ check_hashes "$dir" "${wanted[@]}"
 for f in "$dir"/*.hgn; do
   [ -e "$f" ] || [ -L "$f" ] || continue
   keep=0; for w in "${wanted[@]}"; do [ "$w" != "$(basename "$f")" ] || keep=1; done
-  [ "$keep" = 1 ] || { echo "Removing $(basename "$f") from an earlier pull."; rm -f -- "$f"; }
+  [ "$keep" = 1 ] || { echo "Removing $(basename "$f"), which this checkpoint doesn't use."; rm -f -- "$f"; }
 done
 # The pull's container could leave a link in place of tokenizer/: nothing is removed through it.
 [ ! -L "$dir/tokenizer" ] || die "$dir/tokenizer is a link, not a folder. Remove the link (sudo rm $dir/tokenizer), then pull again."
@@ -1192,7 +1262,9 @@ fi
 
 # Halogen finds tokenizer/ beside the checkpoint. A repository without one gets the official
 # tokenizer, copied rather than linked; Halogen checks its chat template at start.
-if [ "${#tokenizer[@]}" = 0 ]; then
+if [ "${#tokenizer[@]}" = 0 ] && [ "$ck27" = 1 ]; then
+  die "$repo has no tokenizer/, and the official one is Qwen3.8-Flash-Next's, not Qwen3.8-27B's. It can't run."
+elif [ "${#tokenizer[@]}" = 0 ]; then
   echo "$repo has no tokenizer/, so the official tokenizer is copied in."
   # The official tokenizer must be a folder of plain files: a link there would be copied as one.
   if [ -L "$models/tokenizer" ] || [ -n "$(find "$models/tokenizer" -maxdepth 1 -type l 2>/dev/null | head -n 1)" ]; then
@@ -1214,6 +1286,9 @@ if ! verify_dir "$name"; then
   die "$name failed Halogen's verify (above), so it can't be used. Remove it: sudo halogenctl flash remove $name"
 fi
 echo "$name is ready: $checkpoint from $repo at commit ${commit:0:12}, checked by Halogen's verify."
+if [ "$ck27" = 1 ]; then
+  echo "Served, it answers to the model name halogen-qwen3.8-27b (unless HALOGEN_MODEL_ID sets another): apps that name halogen-qwen3.8-flash-next must change it."
+fi
 if [ "${#drafters[@]}" -gt 0 ]; then
   echo "$repo also ships its own draft head: ${drafters[*]}. Halogen's official draft head drafts by default;"
   echo "to try the repository's instead: sudo halogenctl flash drafter $name ${drafters[0]}"

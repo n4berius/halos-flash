@@ -204,6 +204,7 @@ case "${1:-status}" in
         v="$(flash_info "$name" verified)"; [[ "$v" =~ $plain ]] || v=none
         own_drafters="$( { as_owner head -c 65536 -- "$models/flash/$name/halos.info" 2>/dev/null < /dev/null || true; } | sed -n 's/^drafter=//p' | { grep -E "$plain" || true; } | tr '\n' ' ')"
         echo "flash $name $v $own_drafters"
+        [ "$(flash_info "$name" model)" != qwen3.8-27b ] || echo "flash-27b $name"
       done
       { as_owner grep -E '^[A-Za-z0-9][A-Za-z0-9._-]*=[A-Za-z0-9][A-Za-z0-9._-]*$' "$configs/flash-drafter" 2>/dev/null || true; } | sed 's/^/drafter /'
       { as_owner find "$models/npu" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null || true; } | { grep -E "$plain" || true; } | sed 's/^/npu-downloaded /'
@@ -376,6 +377,9 @@ case "${1:-status}" in
         name="${3:-}"
         if ! valid "$name" || [ "$name" = official ]; then echo "usage: halogenctl flash check <name> [--yes]" >&2; exit 2; fi
         [ -n "$(flash_info "$name" repo)" ] || { echo "No checkpoint called $name. See: sudo halogenctl flash list" >&2; exit 1; }
+        if [ "$(flash_info "$name" model)" = qwen3.8-27b ]; then
+          echo "$name is a Qwen3.8-27B checkpoint. flash check compares a checkpoint with the official Qwen3.8-Flash-Next one, so it can't check this model." >&2; exit 1
+        fi
         if [ "$(unit is-active halogen-fetch.service 2>/dev/null)" = activating ]; then
           echo "Halogen is downloading models (sudo halogenctl fetch-logs). Check $name when that is done." >&2; exit 1
         fi
@@ -425,8 +429,9 @@ case "${1:-status}" in
             *) v="incomplete pull" ;;
           esac
           commit="$(flash_info "$name" commit)"
+          m=""; [ "$(flash_info "$name" model)" != qwen3.8-27b ] || m=" (Qwen3.8-27B)"
           printf '  %-24s %-8s %-7s %-22s %s\n' "$name" "$( { as_owner du -sh "$dir" 2>/dev/null || true; } | cut -f1)" "$(mark "$name")" "$v" \
-            "$(flash_info "$name" repo)${commit:+ at ${commit:0:12}}"
+            "$(flash_info "$name" repo)${commit:+ at ${commit:0:12}}$m"
         done
         checks=""
         for dir in "$models"/flash/*/; do
@@ -462,6 +467,9 @@ case "${1:-status}" in
           fi
           echo "$name: $(flash_info "$name" checkpoint) from $(flash_info "$name" repo), commit $(flash_info "$name" commit | cut -c1-12)."
           echo "halOS can't judge a checkpoint's answers. Compare them with the official model's before relying on it."
+          if [ "$(flash_info "$name" model)" = qwen3.8-27b ]; then
+            echo "It is a Qwen3.8-27B checkpoint: apps then name the model halogen-qwen3.8-27b (unless HALOGEN_MODEL_ID sets another), not halogen-qwen3.8-flash-next."
+          fi
         fi
         restart_now "Switch Halogen to $name?"
         # After the answer: the restart below must not come during a flash check's measurement.
@@ -496,6 +504,10 @@ case "${1:-status}" in
           echo "usage: halogenctl flash drafter [<name>] [official|off|<file>] [--yes] (the official checkpoint always uses the official one)" >&2; exit 2
         fi
         [ -n "$(flash_info "$name" repo)" ] || { echo "No checkpoint called $name. See: sudo halogenctl flash list" >&2; exit 1; }
+        # official only drops a line left from before (the helper checks the header again).
+        if [ "$(flash_info "$name" model)" = qwen3.8-27b ] && [ "$want" != official ]; then
+          echo "$name is a Qwen3.8-27B checkpoint, which takes no draft head file: Halogen runs it as it ships." >&2; exit 1
+        fi
         # shellcheck disable=SC2016 # awk expands them.
         now="$( { as_owner awk -F= -v n="$name" '$1 == n { v = substr($0, length($1) + 2) } END { print v }' "$configs/flash-drafter" 2> /dev/null || true; } | tr -cd 'A-Za-z0-9._-')"
         now="${now:-official}"
@@ -645,7 +657,7 @@ case "${1:-status}" in
         as_halogen /usr/libexec/halogen/flash-checkpoint remove "$name" || exit 1
         names_now
         ;;
-      *) echo "usage: halogenctl flash pull <hf-repo> [--revision <rev>] [--as <name>] [--file <checkpoint.hgn|build.gguf>] [--keep-gguf] | convert <hf-repo> [--revision <rev>] [--as <name>] [--threads <n>] [--keep-source] [--yes] | convert-logs [lines] | convert-stop [<name>] [--yes] | list | use <name>|official [--yes] | drafter [<name>] [official|official-r2|off|<file>] [--yes] | verify <name> | check <name> [--yes] | remove <name> [--yes]" >&2; exit 2 ;;
+      *) echo "usage: halogenctl flash pull <hf-repo>|27b [--revision <rev>] [--as <name>] [--file <checkpoint.hgn|build.gguf>] [--keep-gguf] | convert <hf-repo> [--revision <rev>] [--as <name>] [--threads <n>] [--keep-source] [--yes] | convert-logs [lines] | convert-stop [<name>] [--yes] | list | use <name>|official [--yes] | drafter [<name>] [official|official-r2|off|<file>] [--yes] | verify <name> | check <name> [--yes] | remove <name> [--yes]" >&2; exit 2 ;;
     esac
     ;;
   model)

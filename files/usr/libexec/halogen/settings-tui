@@ -292,6 +292,7 @@ class Model:
         self.flash_chosen = "official"
         self.flash = {}          # name -> (verified, [drafter files])
         self.drafter = {}        # name -> official|off|<file>
+        self.no_drafter = set()  # Qwen3.8-27B checkpoints: no draft head file to choose
         downloaded, own = set(), []
         for line in state_text.splitlines():
             parts = line.split()
@@ -304,6 +305,8 @@ class Model:
                 self.flash_chosen = args[0]
             elif kind == "flash" and len(args) >= 2 and NAME.match(args[0]) and args[0] != "official":
                 self.flash[args[0]] = (args[1], [a for a in args[2:] if NAME.match(a)])
+            elif kind == "flash-27b" and len(args) == 1 and NAME.match(args[0]):
+                self.no_drafter.add(args[0])
             elif kind == "drafter" and len(args) == 1 and "=" in args[0]:
                 n, v = args[0].split("=", 1)
                 if NAME.match(n) and NAME.match(v):
@@ -402,9 +405,13 @@ class Model:
         return out
 
     def drafter_choices(self, name):
+        if name in self.no_drafter:
+            return ["official"]
         return ["official", "off"] + [f for f in self.flash.get(name, ("", []))[1] if f not in ("official", "off")]
 
     def drafter_of(self, name):
+        if name in self.no_drafter:
+            return "official"
         return self.drafter.get(name, "official")
 
     def cycle_drafter(self, name):
@@ -858,11 +865,14 @@ class Screen:
         def rows():
             if not names:
                 return [("You have no checkpoints of your own. The official one always uses Halogen's draft head.", 0, False)]
-            return [("%-28s %s" % (n, self.m.drafter_of(n)), self.attr(2) if self.m.drafter_of(n) != self.m.orig_drafter.get(n, "official") else 0, True) for n in names]
+            return [("%-28s %s" % (n, "none (Qwen3.8-27B takes no draft head)" if n in self.m.no_drafter else self.m.drafter_of(n)), self.attr(2) if self.m.drafter_of(n) != self.m.orig_drafter.get(n, "official") else 0, True) for n in names]
 
         def act(k, pos):
             if k in ("enter", " ") and names:
-                self.m.cycle_drafter(names[pos])
+                if names[pos] in self.m.no_drafter:
+                    self.msg = "%s is a Qwen3.8-27B checkpoint, which takes no draft head" % names[pos]
+                else:
+                    self.m.cycle_drafter(names[pos])
             return None
 
         def header():

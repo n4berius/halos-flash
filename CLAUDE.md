@@ -1494,10 +1494,35 @@ and tracked on the owner's project board. [ROADMAP.md](ROADMAP.md) holds the ord
   `flash_serve` or `flash_serve-dense27` when the image sets `HALOGEN_IMAGE_ENGINES`; it refuses an
   id it has no engine for, also in `verify`, so an own checkpoint with an unexpected id fails the
   re-verify and render-config serves the official one; bf16-to-hgn writes `qwen3.8-flash-next-v2`,
-  what convert writes for a GGUF wasn't checked). halOS doesn't serve the 27B yet: `flash pull`
-  refuses a `qwen38-27b*` checkpoint before downloading and `verify_dir` fails a file whose header
-  says `qwen3.8-27b*` (render-config would give it Flash's draft head via `HALOGEN_CK_OVERLAY`,
-  `--resident-gib` runs Flash's binary, the vision tower name differs: `qwen38-27b-vision.hgn`).
+  what convert writes for a GGUF wasn't checked). The 27B as an own Flash checkpoint (#184, owner asked; the use case: a machine short of
+  memory, so `flash pull 27b` is Peonist's `peonist-ai/halogen-qwen3.8-27b-ht4` as `qwen3.8-27b`,
+  `HALOGEN_27B_REPO` test hook, and GUIDE.md has a memory table from the entrypoint's
+  `kv_budget_note`: Flash 68 GiB weights + the 47.7 GiB table through the file cache, ~29 KiB per
+  position; 27B ~13 GiB, ~73 KiB per position; the official Flash files are still fetched):
+  `flash-checkpoint`'s `is_27b_file` follows the entrypoint: header id `qwen3.8-27b-*` of an HGN1
+  file (only NULs dropped, case-sensitive); the entrypoint uses the name `qwen38-27b-*.hgn` only
+  for a file that isn't there and refuses an existing one with no id, so the name is only the
+  pull's guess before the download. Pull: guesses by name, then decides by the downloaded header
+  (`companions` swaps the vision tower and drafter list when they disagree; the wrong tower goes
+  with the sweep of unwanted `.hgn`; the space check counts both towers, the table and every
+  drafter); a 27B gets `qwen38-27b-vision.hgn`, no drafters, no lookup table, no `--resident-gib`
+  (Flash's binary), and a repository without `tokenizer/` is refused (the official one is
+  Flash-Next's; verify doesn't fill one in for a 27B). `verify_dir` also fails a checkpoint whose
+  header id is one of the entrypoint's companion ids (verify passes those, a start refuses them). `verify_dir` records
+  `model=qwen3.8-27b|qwen3.8-flash-next` in `halos.info` (halogenctl's `flash list`, `use`,
+  `check`, `drafter` read it; the helper's `check`/`drafter` read the header again under the
+  lock: `check` refuses a 27B, `drafter` takes only `official`, which drops a line).
+  render-config reads `mid` (HGN1 only) before the vision check: for a 27B the tower is
+  `qwen38-27b-vision.hgn`, the drafter block (including Peonist-layout `none`) is skipped,
+  `HALOGEN_COMPOSABLE_CONTEXT=1` is ignored (the entrypoint exits 1 on it), and
+  `HALOGEN_MODEL_ID` defaults to `halogen-qwen3.8-27b` (the entrypoint's own default, said so
+  `config` and bench-tools name it). halogenctl's settings state gains `flash-27b <name>` and the
+  settings screen offers such a checkpoint no draft head; the selftest's `draft-head` says a 27B
+  takes none. The entrypoint itself sets `HALOGEN_FORK_GIB=3`, skips
+  `drafter_head` and the ngram check, and the concurrency mode falls back. LoRA `adapters/` stays
+  refused by preflight (#183). Not checked: `bench` (halogen-bench.py's model name), the
+  27B's speed and memory beside the NPU models, and the image's `HALOGEN_IMAGE_ENGINES` (blobs
+  unreadable here): freyja.
   `HALOGEN_WEB_SEARCH_URL` (SearXNG for `/v1/messages`' `web_search` tool) is in gen-options'
   BLOCKED: the container is on `halogen-internal` (#120). Several API keys now split the prompt
   cache per key (halOS has one key). FLAGS.md otherwise changed only text; host-setup only image

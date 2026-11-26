@@ -375,6 +375,17 @@ grep -q 'systemctl start --no-block halos-status.service' "$work/log" || { echo 
 [ "$(cat "$work/configs/flash-drafter")" = mine=off ] || { cat "$work/configs/flash-drafter" >&2; echo "remove didn't drop the line, or a bad line was kept" >&2; exit 1; }
 : > "$work/configs/flash-drafter"
 ok "flash drafter is official by default, saves a choice as halogen, takes only a listed or official file (by name or path), defaults to the served checkpoint, asks and restarts only for the served checkpoint, and remove drops it"
+# A Qwen3.8-27B checkpoint (verify recorded model=qwen3.8-27b): marked in flash list, refused by
+# flash check and by flash drafter (but official, which only drops a line), before anything runs.
+mkdir -p "$fm/flash/q27"; printf 'repo=peonist-ai/halogen-qwen3.8-27b-ht4\ncheckpoint=qwen38-27b-ht4.hgn\nmodel=qwen3.8-27b\nverified=pass\n' > "$fm/flash/q27/halos.info"
+"$ctl" flash list > "$work/out"; grep -qE '^  q27 .*\(Qwen3.8-27B\)$' "$work/out" || { cat "$work/out" >&2; echo "flash list doesn't mark the 27B" >&2; exit 1; }
+: > "$work/log"
+if "$ctl" flash check q27 --yes > "$work/out" 2>&1; then echo "flash check took the 27B" >&2; exit 1; fi
+if "$ctl" flash drafter q27 off --yes > "$work/out" 2>&1; then echo "flash drafter took the 27B" >&2; exit 1; fi
+grep -q 'no draft head' "$work/out" || { cat "$work/out" >&2; exit 1; }
+if grep -q -e prepare -e 'flash-checkpoint drafter' "$work/log"; then echo "a 27B refusal still ran the helper" >&2; exit 1; fi
+rm -rf "$fm/flash/q27"
+ok "a Qwen3.8-27B checkpoint is marked in flash list and refused by flash check and flash drafter"
 
 # What another terminal does while flash use or remove asks is checked again under the
 # checkpoint's lock (#119), and a checkpoint another command holds is a busy message.

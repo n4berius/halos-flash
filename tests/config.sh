@@ -170,6 +170,29 @@ printf 'peo=off\n' > "$work/flash-drafter"
 rm -f "$work/flash-drafter" "$work/models/qwen38-flash-next-drafter-r2-ht4.hgn"; rm -rf "$work/models/flash/mine" "$work/models/flash/peo"
 echo "ok: your own checkpoint drafts with the official draft head by default, with its repository's when chosen, and never over a sidecar or HALOGEN_CK_OVERLAY=none"
 
+# Qwen3.8-27B (Halogen 0.21.0), by the model its header names: its own
+# vision tower, no draft head file (none of it, not even off's none), its model name, and no
+# composable context, which Halogen refuses on it.
+mkdir -p "$work/models/flash/q27"; printf 'repo=a/b\ncheckpoint=model.hgn\nown_precision=1\nverified=pass\n' > "$work/models/flash/q27/halos.info"
+{ printf 'HGN1'; head -c 36 /dev/zero; printf 'qwen3.8-27b-ht4'; head -c 49 /dev/zero; } > "$work/models/flash/q27/model.hgn"
+printf 'HGN1head' > "$work/models/qwen38-flash-next-drafter-r2-ht4.hgn"; touch "$work/models/flash/q27/qwen38-flash-next-vision.hgn"
+echo q27 > "$work/flash-checkpoint"; : > "$work/flash-drafter"
+printf 'HALOGEN_VISION_TOWER=1\nHALOGEN_COMPOSABLE_CONTEXT=1\n' > "$work/config"
+"$render" --show 2> "$work/log" > "$work/out"
+{ grep -qx HALOGEN_CHECKPOINT=/models/flash/q27/model.hgn "$work/out" && ! grep -q -e '^HALOGEN_CK_OVERLAY=' -e '^HALOGEN_MTP_GATE_RULE=' -e '^HALOGEN_VISION_TOWER=' -e '^HALOGEN_COMPOSABLE_CONTEXT=' "$work/out" \
+  && grep -qx HALOGEN_MODEL_ID=halogen-qwen3.8-27b "$work/out" && grep -q 'ignored HALOGEN_COMPOSABLE_CONTEXT' "$work/log"; } \
+  || { cat "$work/out" "$work/log" >&2; echo "the 27B got Flash-Next's draft head, tower or composable context, or not its name" >&2; exit 1; }
+touch "$work/models/flash/q27/qwen38-27b-vision.hgn"; printf 'HALOGEN_VISION_TOWER=1\nHALOGEN_MODEL_ID=mine\n' > "$work/config"
+"$render" --show 2> /dev/null > "$work/out"
+{ grep -qx HALOGEN_VISION_TOWER=1 "$work/out" && grep -qx HALOGEN_MODEL_ID=mine "$work/out"; } || { echo "the 27B's own tower or the user's model name was dropped" >&2; exit 1; }
+# The name alone doesn't make a 27B (Halogen refuses a file whose header names no model; verify
+# keeps such a file from being served): it gets Flash-Next's draft head like any other.
+{ printf 'HGN1'; head -c 100 /dev/zero; } > "$work/models/flash/q27/qwen38-27b-x.hgn"; sed -i 's/^checkpoint=.*/checkpoint=qwen38-27b-x.hgn/' "$work/models/flash/q27/halos.info"
+"$render" --show 2> /dev/null > "$work/out"
+grep -qx "HALOGEN_CK_OVERLAY=/models/qwen38-flash-next-drafter-r2-ht4.hgn" "$work/out" || { echo "a name alone was taken for a 27B" >&2; exit 1; }
+rm -rf "$work/models/flash/q27" "$work/flash-drafter" "$work/models/qwen38-flash-next-drafter-r2-ht4.hgn"; : > "$work/config"
+echo "ok: a Qwen3.8-27B checkpoint gets its own vision tower and model name, no draft head and no composable context"
+
 
 # Request records (#107): off unless halogenctl records on put its mount in place; then counts only
 # unless HALOGEN_RECORD_TEXT says otherwise, and a value Halogen would refuse never reaches it.

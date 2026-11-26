@@ -17,13 +17,18 @@ it promotes.
   request.
 - Halogen 0.21.0 (#182). Halogen keeps the same Flash model, with the same speed and answers. It
   fixes replies that could end with an invented `<|im_start|>user` turn, and a `seed` sent as text
-  to `/v1/audio/speech`. Halogen 0.21.0 can also serve Qwen3.8-27B and send web searches to a
-  SearXNG server: halOS supports neither yet. `flash pull` refuses a 27B checkpoint, and
-  `HALOGEN_WEB_SEARCH_URL` isn't accepted, because Halogen's container has no outside network.
+  to `/v1/audio/speech`. Halogen 0.21.0 can also send web searches to a SearXNG server,
+  which halOS doesn't support yet: `HALOGEN_WEB_SEARCH_URL` isn't accepted, because Halogen's
+  container has no outside network.
   Claude Code's WebSearch tool now gets an error from Halogen in place of an answer from memory.
   Halogen 0.21.0 also refuses a checkpoint file that names a model it doesn't know. If your own
   Flash checkpoint is refused, it fails its check at the first start after the update, halOS
   serves the official checkpoint, and `sudo halogenctl status` tells you why.
+- Halogen can now serve Qwen3.8-27B in place of the Flash model, for a machine short of memory
+  (#184): `sudo halogenctl flash pull 27b`, then `sudo halogenctl flash use qwen3.8-27b`. Its
+  weights take about 13 GiB of memory, against about 68 GiB and a 48 GiB lookup table for the
+  Flash model. Apps ask for it as `halogen-qwen3.8-27b`. The guide shows the memory each needs.
+  `flash check` and `flash drafter` don't apply to it.
 - When a Halogen update needs work by hand, the Halogen update workflow now opens its pull
   request as a draft that names the failed checks, in place of stopping without one (#182).
 - `sudo halogenctl bench` measures reading speed correctly again (#181). From the second run on,

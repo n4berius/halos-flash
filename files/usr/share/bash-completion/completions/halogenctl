@@ -92,6 +92,7 @@ _halogenctl() {
       elif [ "$cword" -eq 3 ]; then
         case "${words[2]}" in
           use) _halogenctl_names flash; _halogenctl_add official ;;
+          pull) _halogenctl_offer "27b" ;;
           drafter) _halogenctl_names flash; _halogenctl_add official; _halogenctl_add official-r2; _halogenctl_add off ;;
           verify|check|remove) _halogenctl_names flash ;;
           convert-stop) _halogenctl_names convert ;;

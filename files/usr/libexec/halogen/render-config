@@ -99,14 +99,35 @@ case "$choice" in
     else
       checkpoint="/models/flash/$choice/$file"
       own_dir="$models/flash/$choice"; own_file="$file"
+      # The model its header names (bytes 40..103 of an HGN1 file), where Halogen's entrypoint
+      # reads it to pick an engine: Qwen3.8-27B (Halogen 0.21.0) by qwen3.8-27b-* (a file whose
+      # header names none it refuses). Read into a variable, not piped into grep -q.
+      mid=""
+      if [ "$(timeout 5 head -c 4 -- "$own_dir/$own_file" 2>/dev/null)" = HGN1 ]; then
+        mid="$(timeout 5 head -c 104 -- "$own_dir/$own_file" 2>/dev/null | tail -c 64 | tr -d '\0')"
+      fi
+      own_27b=0
+      [[ "$mid" != qwen3.8-27b-* ]] || own_27b=1
+      tower=qwen38-flash-next-vision.hgn
+      [ "$own_27b" = 0 ] || tower=qwen38-27b-vision.hgn
       # HALOGEN_VISION_TOWER=1 looks beside the checkpoint, and a missing tower stops Halogen.
-      if [ -n "${values[HALOGEN_VISION_TOWER]:-}" ] && [ ! -f "$models/flash/$choice/qwen38-flash-next-vision.hgn" ]; then
+      if [ -n "${values[HALOGEN_VISION_TOWER]:-}" ] && [ ! -f "$models/flash/$choice/$tower" ]; then
         ignore HALOGEN_VISION_TOWER "$choice has no vision tower, so images stay off"
         unset 'values[HALOGEN_VISION_TOWER]'
       fi
     fi ;;
 esac
 values[HALOGEN_CHECKPOINT]="$checkpoint"
+if [ "${own_27b:-0}" = 1 ]; then
+  # Halogen 0.21.0 refuses to start the 27B with the composable context.
+  if [ "${values[HALOGEN_COMPOSABLE_CONTEXT]:-}" = 1 ]; then
+    ignore HALOGEN_COMPOSABLE_CONTEXT "Qwen3.8-27B can't use it in Halogen 0.21.0 (the prompt cache works as usual)"
+    unset 'values[HALOGEN_COMPOSABLE_CONTEXT]'
+  fi
+  # The name Halogen gives the 27B when none is set (its entrypoint's own default), said here so
+  # that halogenctl config and the benchmarks name the model being served.
+  values[HALOGEN_MODEL_ID]="${values[HALOGEN_MODEL_ID]:-halogen-qwen3.8-27b}"
+fi
 
 # The draft head for your own checkpoint. Halogen's entrypoint picks the official one up only
 # beside a checkpoint named qwen38-flash-next-*.hgn, so for any other it is named here. A draft
@@ -116,13 +137,16 @@ values[HALOGEN_CHECKPOINT]="$checkpoint"
 # halos.info after checking its hash). HALOGEN_CK_OVERLAY holds one file, so a checkpoint with a
 # quality sidecar (<checkpoint>.overlay.hgn) keeps the sidecar, and HALOGEN_CK_OVERLAY=none in
 # halogen.env wins.
-if [ -n "${own_dir:-}" ]; then
+if [ -n "${own_dir:-}" ] && [ "$own_27b" = 1 ]; then
+  # The 27B's engine takes no draft head file (the entrypoint's drafter_head skips it), so
+  # nothing is named. A line left in flash-drafter changes nothing.
+  :
+elif [ -n "${own_dir:-}" ]; then
   want="$(N="$choice" awk -F= '$1 == ENVIRON["N"] { v = substr($0, length($1) + 2) } END { print v }' "$drafter_choice" 2>/dev/null)"
   [[ "$want" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || want=official
   head_path=""
-  # A GGUF converted to .hgn (Halogen's convert mode) names it in its header, where Halogen's
-  # entrypoint reads it; such a file takes no sidecar. Read into a variable, not piped into grep -q.
-  mid="$(timeout 5 head -c 104 -- "$own_dir/$own_file" 2>/dev/null | tail -c 64 | tr -d '\0')"
+  # A GGUF converted to .hgn (Halogen's convert mode) names it in its header (mid, above); such a
+  # file takes no sidecar.
   if [ "$want" = off ]; then :
   elif [ -n "${values[HALOGEN_CK_OVERLAY]:-}" ]; then
     echo "halogen-config: $choice: halogen.env sets HALOGEN_CK_OVERLAY=${values[HALOGEN_CK_OVERLAY]}, which wins over the draft head choice ($want)" >&2
