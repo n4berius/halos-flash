@@ -1,0 +1,29 @@
+#!/bin/bash
+# Runs as halogen before the bundled web search starts (halos-search.container): makes SearXNG's
+# settings file, /srv/configs/searxng/settings.yml, from halOS's template when it is missing, with
+# a secret made for this machine. Once there, the file is yours: it is never changed again. It goes
+# into the container read-only, read by SearXNG's own user, so it must be readable by others (the
+# folder above it, /srv/configs, still keeps other users of this machine out).
+set -euo pipefail
+configs="${HALOGEN_CONFIGS_DIR:-/srv/configs}"
+template="${HALOS_SEARCH_TEMPLATE:-/usr/share/halos/search/settings.yml}"
+dir="$configs/searxng"; f="$dir/settings.yml"
+fail() { echo "search-prepare: $*" >&2; exit 1; }
+[ ! -L "$dir" ] || fail "$dir is a link, not a folder: remove it (sudo rm $dir) and start again"
+[ -d "$dir" ] || mkdir -m 0750 -- "$dir"
+[ -O "$dir" ] || fail "$dir isn't halogen's"
+[ ! -L "$f" ] || fail "$f is a link, not a file: remove it (sudo rm $f) and start again; halOS then makes a new one"
+if [ ! -e "$f" ]; then
+  secret="$(head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 40)"
+  [ "${#secret}" -ge 32 ] || fail "couldn't make a secret"
+  tmp="$(mktemp "$dir/.settings.XXXXXX")"
+  sed "s/@SECRET@/$secret/" "$template" > "$tmp"
+  chmod 0644 "$tmp"
+  # -n: one made meanwhile (a second start) is kept.
+  mv -n -T "$tmp" "$f"; rm -f "$tmp"
+  echo "search-prepare: made $f from halOS's template"
+fi
+[ -f "$f" ] || fail "$f isn't a plain file"
+[ -O "$f" ] || fail "$f isn't halogen's"
+# SearXNG's user in the container is one of halogen's subordinate ids, so it reads as "others".
+chmod go+r,go-w -- "$f"

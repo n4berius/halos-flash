@@ -1,0 +1,40 @@
+#!/bin/bash
+# Runs as halogen before the relay to your own SearXNG starts (halos-search-relay.container): makes
+# its tiny image, localhost/halos-search-relay:1, from this machine's own files: halOS's Caddy (a
+# static program), the relay's Caddyfile and the system's trust store (for HTTPS to your server).
+# Made again only when one of them changed (an update of halOS or of the trust store); the files'
+# hash is the image's label. Nothing is downloaded.
+set -euo pipefail
+img=localhost/halos-search-relay:1
+caddy="${HALOS_RELAY_CADDY:-/usr/libexec/halogen/caddy}"
+conf="${HALOS_RELAY_CONF:-/usr/share/halos/search/relay.caddy}"
+ca="${HALOS_RELAY_CA:-/etc/pki/tls/certs/ca-bundle.crt}"
+label=io.github.n4berius.halos.sum
+for f in "$0" "$caddy" "$conf" "$ca"; do [ -r "$f" ] || { echo "search-relay-image: can't read $f" >&2; exit 1; }; done
+# This script itself counts too, so a change to how the image is made makes it again.
+sum="$(cat -- "$0" "$caddy" "$conf" "$ca" | sha256sum | cut -c1-64)"
+# shellcheck disable=SC2016 # a Go template, not shell
+have="$(podman image inspect --format "{{index .Labels \"$label\"}}" "$img" 2> /dev/null || true)"
+[ "$have" != "$sum" ] || exit 0
+old="$(podman image inspect --format '{{.Id}}' "$img" 2> /dev/null || true)"
+work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
+r="$work/root"
+# The mount points podman uses exist in the image (crun 1.31 stopped making missing ones under a
+# read-only root, crun#2480).
+mkdir -p "$r"/{dev,proc,sys,run,tmp,etc/ssl/certs,etc/relay}
+cp -- "$caddy" "$r/caddy"; chmod 0755 "$r/caddy"
+cp -- "$conf" "$r/etc/relay/Caddyfile"
+cat -- "$ca" > "$r/etc/ssl/certs/ca-certificates.crt"
+: > "$r/etc/resolv.conf"; : > "$r/etc/hosts"; : > "$r/etc/hostname"
+printf '%s\n' 'nobody:x:65534:65534:nobody:/:/sbin/nologin' > "$r/etc/passwd"
+printf '%s\n' 'nobody:x:65534:' > "$r/etc/group"
+chmod -R a+rX "$r"
+# podman's tmpfs on /tmp (--read-only) takes the folder's mode: Caddy, as nobody, keeps a lock there.
+chmod 1777 "$r/tmp"
+tar -C "$r" --owner=0 --group=0 -c . | podman import \
+  --change 'ENTRYPOINT ["/caddy", "run", "--config", "/etc/relay/Caddyfile", "--adapter", "caddyfile"]' \
+  --change "LABEL $label=$sum" - "$img" > /dev/null 2> "$work/err" \
+  || { tr -cd '[:print:]\n' < "$work/err" | tail -n 3 >&2; echo "search-relay-image: couldn't make $img" >&2; exit 1; }
+# The image it replaced, unless something still uses it.
+if [ -n "$old" ]; then podman rmi -i "$old" > /dev/null 2>&1 || true; fi
+echo "search-relay-image: made $img"

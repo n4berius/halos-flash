@@ -34,7 +34,8 @@ f setpriv 'while [ $# -gt 0 ] && [ "$1" != env ]; do shift; done; exec "$@"'
 f podman 'case "$*" in *"exec halogen "*) [ "$PWD" = / ] || { echo "cannot chdir to $PWD: Permission denied"; exit 125; }
     [ -n "${FAKE_MEMLOCK:-}" ] || { echo "crun: setrlimit RLIMIT_MEMLOCK: Operation not permitted"; exit 126; } ;; esac; case "$*" in *"exec halogen stat"*) printf "/tmp xfs\n/var/tmp %s\n/root xfs\n" "${FAKE_VARTMP:-xfs}" ;;
     *"exec halogen python3 -I -c import socket"*) echo "${FAKE_NETOUT-ENETUNREACH ENETUNREACH EPERM}" ;;
-    *"inspect halogen --format"*) echo "${FAKE_NETS-halogen-internal }" ;; *"network inspect halogen-internal"*) echo "${FAKE_NETCFG-true false false 0 gw:<nil>}" ;; *) exit 1 ;; esac'
+    *"inspect halogen --format"*) echo "${FAKE_NETS-halogen-internal }" ;; *"network inspect halogen-internal"*) echo "${FAKE_NETCFG-true false false 0 gw:<nil>}" ;;
+    *"network inspect halos-search"*) echo "${FAKE_SNETCFG-true false false 0 gw:<nil>}" ;; *"exec halogen python3 -I -c import urllib"*) echo "${FAKE_SINSIDE-200}" ;; *) exit 1 ;; esac'
 f mokutil 'echo "SecureBoot ${FAKE_SB:-enabled}"'
 f getenforce 'echo "${FAKE_SELINUX:-Enforcing}"'
 # fail2ban: both jails loaded and two addresses shut out, unless FAKE_F2B says otherwise.
@@ -63,6 +64,7 @@ f systemd-run 'case "$*" in *render-config*) printf "%s\n" "${FAKE_RENDER:-HALOG
 f bootc 'case "$*" in *json*) echo "{\"spec\":{\"image\":{\"image\":\"${FAKE_FOLLOWS:-ghcr.io/n4berius/halos-flash:stable}\",\"signature\":\"${FAKE_SIG:-containerPolicy}\"}}}" ;; *) echo "Booted image: ghcr.io/n4berius/halos-flash:9.9.9" ;; esac'
 f systemctl 'case "$*" in *--failed*) cat "$FAKE/failed" 2>/dev/null ;; *"show -p Job"*) echo "${FAKE_JOB:-}" ;;
   *"is-active firewalld"*) echo active ;; *"is-active fail2ban"*) echo "${FAKE_F2B_STATE:-active}" ;; *"is-enabled fail2ban"*) echo "${FAKE_F2B_ENABLED:-enabled}" ;;
+  *"is-active halos-search"*) echo "${FAKE_SSTATE:-active}" ;;
   *"is-enabled halos-dashboard"*) echo "${FAKE_DASH:-enabled}" ;; *"is-active halos-proxy"*) echo "${FAKE_PROXY:-active}" ;;
   *"IPIngressBytes --value halos-dashboard"*) echo "${FAKE_DASH_IPIN-1234}" ;; *"IPAddressDeny --value halos-dashboard"*) echo "${FAKE_DASH_DENY-0.0.0.0/0 ::/0}" ;;
   *"IPAddressAllow --value halos-dashboard"*) echo "127.0.0.0/8 ::1/128" ;; *"MainPID --value halos-dashboard"*) echo "${FAKE_DASH_PID-4242}" ;; *"MainPID --value user@"*) echo "${FAKE_MGR_PID-0}" ;;
@@ -74,7 +76,7 @@ f fabric-clock 'exit 0'
 f ssh-unlock 'case "$1" in verify) exit "${FAKE_VERIFY:-0}" ;; *) echo "${FAKE_SSHU:-on 2}" ;; esac'
 # Group, owner and label as the real image sets them.
 f stat 'case "$2" in %G|%U) echo halogen ;; %u) case "$3" in /proc/4242/environ) echo "${FAKE_DASH_DUMP_UID:-0}" ;; *) exec /usr/bin/stat "$@" ;; esac ;; %C) case "$3" in *accel*) echo system_u:object_r:dri_device_t:s0 ;; *) echo system_u:object_r:container_file_t:s0 ;; esac ;; *) exec /usr/bin/stat "$@" ;; esac'
-f curl 'echo "curl $*" >> "$FAKE/curl.log"; case "$*" in *-H*) ;; *-w*18731/v1/models*) printf "${FAKE_NOKEY_CODE:-401}"; exit 0 ;; esac; case "$*" in *-w*) ;; *18731/health*) h="${FAKE_HEALTH:-}"; [ -n "$h" ] || h="{\"status\":\"ok\"}"; echo "$h"; exit 0 ;; esac; case "$*" in *8732/healthz*) printf "${FAKE_DASH_CODE:-200}" ;; *models*) echo "{\"data\":[{\"id\":\"halogen-qwen3.8-flash-next\"},{\"id\":\"qwen3.5-2b\"}]}" ;; *::1*) [ -n "${FAKE_NOIPV6:-}" ] && printf 000 || printf 200 ;; *) printf 200 ;; esac'
+f curl 'echo "curl $*" >> "$FAKE/curl.log"; case "$*" in *18730/*healthz*) [ -n "${FAKE_SDOWN:-}" ] || echo OK; exit 0 ;; *-H*) ;; *-w*18731/v1/models*) printf "${FAKE_NOKEY_CODE:-401}"; exit 0 ;; esac; case "$*" in *-w*) ;; *18731/health*) h="${FAKE_HEALTH:-}"; [ -n "$h" ] || h="{\"status\":\"ok\"}"; echo "$h"; exit 0 ;; esac; case "$*" in *8732/healthz*) printf "${FAKE_DASH_CODE:-200}" ;; *models*) echo "{\"data\":[{\"id\":\"halogen-qwen3.8-flash-next\"},{\"id\":\"qwen3.5-2b\"}]}" ;; *::1*) [ -n "${FAKE_NOIPV6:-}" ] && printf 000 || printf 200 ;; *) printf 200 ;; esac'
 echo "halogen" > "$work/services"
 # Files halogen owns are read through runuser (security audit P2/P7); log it, then run the command.
 f runuser 'echo "runuser $*" >> "$FAKE/runuser.log"; [ "$1 $2 $3" = "-u halogen --" ] || exit 9; shift 3; exec "$@"'
@@ -94,6 +96,7 @@ export HALOGEN_STATE_DIR="$work/hstate" PATH="$fake:$sysbin" HALOGEN_RELEASE_FIL
   HALOGEN_DEV="$work/dev" HALOGEN_CMDLINE="$work/cmdline" HALOGEN_MEMINFO="$work/meminfo" \
   HALOGEN_MODELS_DIR="$work/models" HALOGEN_CONFIGS_DIR="$work/configs" HALOGEN_CLOCK="$fake/fabric-clock" \
   HALOGEN_LOGS_DIR="$work/logs" HALOGEN_RECORDS_DROPIN="$work/20-records.conf" HALOS_LOG_DIR="$work" \
+  HALOGEN_SEARCH_DROPIN="$work/30-web-search.conf" HALOS_SEARCH_CONF="$work/web-search.env" \
   HALOS_AUDIT_RULES="$work/halos.rules" HALOGEN_PROC="$work/proc" HALOGEN_HOME="$work/home" HALOGEN_RUNTIME_DIR="$work/run-user" \
   HALOS_POLICY="$repo/files/etc/containers/policy.json" HALOS_SSH_UNLOCK="$fake/ssh-unlock" HALOS_TANG_UNLOCK="$fake/tang-unlock" \
   HALOS_ETC="$work/etc" HALOS_USR_ETC="$work/usretc" HALOS_ROOT_POLICY="$work/root-policy.json" \
@@ -246,6 +249,16 @@ echo off > "$work/configs/prompt-cache"
 echo 'Volume=/srv/configs:/models/.prompt-cache' > "$work/etc/containers/systemd/users/halogen.container.d/15-prompt-cache.conf"
 "$selftest" > "$work/out" 2>&1 || true; expect "^WARN config-files: .*15-prompt-cache.conf \\(not what halogenctl cache off writes\\)"
 /usr/bin/rm "$work/etc/containers/systemd/users/halogen.container.d/15-prompt-cache.conf" "$work/configs/prompt-cache"
+# The drop-in web-search writes, bundled or external: exactly its content, else flagged.
+wsd="$work/etc/containers/systemd/users/970/halogen.container.d/30-web-search.conf"
+for u in halos-search.service halos-search-relay.service; do
+  printf '%s\n' '# Written by sudo halogenctl web-search; removed by web-search off.' '[Unit]' "Wants=$u" "After=$u" '[Container]' \
+    'Network=halos-search.network:ip=10.89.250.3' 'Sysctl=net.ipv6.conf.eth1.disable_ipv6=1' > "$wsd"
+  "$selftest" > "$work/out" 2>&1 || true; expect '^PASS config-files:'
+done
+echo 'Volume=/:/host' >> "$wsd"
+"$selftest" > "$work/out" 2>&1 || true; expect "^WARN config-files: .*30-web-search.conf \\(not what halogenctl web-search writes"
+/usr/bin/rm "$wsd"
 # A file is excused by its full path only: the same name elsewhere, and auditd plugins, are flagged.
 /usr/bin/rm -f "$work/etc/containers/systemd/users/970/halogen.container.d/20-records.conf"
 mkdir -p "$work/etc/containers/systemd/users/halogen.container.d" "$work/etc/audit/plugins.d"
@@ -294,6 +307,31 @@ rm "$work/20-records.conf"
 # Off, but Halogen still records (an off cut short before the restart).
 FAKE_HEALTH='{"request_records":{"written":3}}' "$selftest" > "$work/out" 2>&1 || true; expect '^WARN records: off, but Halogen still keeps records'
 ok "request records: off, on with Halogen's counts, and a mount or state that doesn't match"
+
+# Web search (halogenctl web-search): off; on, with the search answering here and from Halogen's
+# container, and Halogen's networks as made; then each half missing.
+"$selftest" > "$work/out" 2>&1 || true; expect '^INFO web-search: off'
+su='ExecStart=podman run --network=halogen-internal --network=halos-search:ip=10.89.250.3 x'
+: > "$work/30-web-search.conf"; printf 'HALOS_WEB_SEARCH=bundled\n' > "$work/web-search.env"
+FAKE_UNIT="$su" FAKE_NETS="halogen-internal halos-search " "$selftest" > "$work/out" 2>&1 || true
+expect '^PASS web-search: on \(SearXNG on this machine\): it answers, also from Halogen.s container'
+expect '^PASS network-config: .*halos-search'
+FAKE_UNIT="$su" "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL network-config: '
+FAKE_UNIT="$su" FAKE_NETS="halogen-internal halos-search " FAKE_SNETCFG="false true false 0 gw:10.89.250.1" "$selftest" > "$work/out" 2>&1 || true
+expect '^FAIL network-config: '
+FAKE_NETS="halogen-internal halos-search " "$selftest" > "$work/out" 2>&1 || true; expect "^WARN web-search: .*isn't on the search network"
+FAKE_UNIT="$su" FAKE_SSTATE=failed "$selftest" > "$work/out" 2>&1 || true; expect '^WARN web-search: .*halos-search.service is failed'
+FAKE_UNIT="$su" FAKE_SDOWN=1 "$selftest" > "$work/out" 2>&1 || true; expect "^WARN web-search: .*doesn't answer"
+FAKE_UNIT="$su" FAKE_SINSIDE=URLError "$selftest" > "$work/out" 2>&1 || true; expect "^WARN web-search: .*not from Halogen.s container \\(URLError\\)"
+FAKE_UNIT="$su" FAKE_STATE=inactive "$selftest" > "$work/out" 2>&1 || true; expect "^INFO web-search: on .*Halogen isn't running"
+printf 'HALOS_WEB_SEARCH=external\nHALOS_SEARCH_UPSTREAM=https://search.example.com\nHALOS_SEARCH_PATH=/searx\n' > "$work/web-search.env"
+: > "$work/curl.log"; FAKE_UNIT="$su" "$selftest" > "$work/out" 2>&1 || true; expect '^PASS web-search: on \(your own SearXNG, through the relay\)'
+grep -q '127.0.0.1:18730/searx/healthz' "$work/curl.log" || { echo "the relay's health was asked without the path" >&2; exit 1; }
+refuse 'search.example.com'
+printf 'HALOS_WEB_SEARCH=\n' > "$work/web-search.env"
+FAKE_UNIT="$su" "$selftest" > "$work/out" 2>&1 || true; expect '^WARN web-search: .*names no mode'
+/usr/bin/rm -f "$work/30-web-search.conf" "$work/web-search.env"
+ok "web search: off, on with the search answering here and in Halogen's container, and each half missing"
 FAKE_DASH=disabled "$selftest" > "$work/out" 2>&1 || true; expect '^INFO dashboard: off; .*halosctl dashboard on'
 FAKE_DASH_CODE=000 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN dashboard: .*journalctl -u halos-dashboard'
 refuse '^(PASS|WARN) dashboard-(filter|nodump)'

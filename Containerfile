@@ -159,6 +159,8 @@ ARG BF16_TO_HGN_COMMIT
 ARG HALOGEN_DASHBOARD_COMMIT
 ARG TOOL_EVAL_BENCH_COMMIT
 ARG TOOL_EVAL_BENCH_VERSION
+ARG SEARXNG_IMAGE
+ARG SEARXNG_VERSION
 # What this build was made from (#121): the Fedora base as build.sh resolved it (repository@digest,
 # used by every stage), the base's own version label and the halOS source commit.
 ARG FEDORA_BOOTC_IMAGE
@@ -172,15 +174,22 @@ RUN set -eu; \
     for tls in internal custom; do \
       HOME=/tmp XDG_DATA_HOME=/tmp XDG_CONFIG_HOME=/tmp HALOS_TLS=$tls RUNTIME_DIRECTORY=/tmp/halos-tls \
         HALOS_API_SITES="https://localhost:8731, https://127.0.0.1:8731" HALOS_DASH_SITES="https://localhost:8732" \
+        HALOS_SEARCH_SITES="https://localhost:8730" \
         /usr/libexec/halogen/caddy adapt --config /usr/share/halos/proxy/Caddyfile.https --adapter caddyfile > /dev/null; \
     done; \
     for dns in cloudflare duckdns porkbun namecheap; do for mail in yes no; do \
       HOME=/tmp XDG_DATA_HOME=/tmp XDG_CONFIG_HOME=/tmp CREDENTIALS_DIRECTORY=/tmp/halos-creds HALOS_ACME_DNS=$dns \
         HALOS_ACME_EMAIL_SET=$mail HALOS_ACME_EMAIL=admin@example.com HALOS_ACME_CA=https://acme-staging-v02.api.letsencrypt.org/directory \
         HALOS_ACME_API_SITES="https://halos.example.com:8731" HALOS_ACME_DASH_SITES="https://halos.example.com:8732" \
+        HALOS_ACME_SEARCH_SITES="https://halos.example.com:8730" \
         HALOS_API_SITES="https://localhost:8731, https://127.0.0.1:8731" HALOS_DASH_SITES="https://localhost:8732" \
+        HALOS_SEARCH_SITES="https://localhost:8730" \
         /usr/libexec/halogen/caddy adapt --config /usr/share/halos/proxy/Caddyfile.letsencrypt --adapter caddyfile > /dev/null; \
     done; done; \
+    # The relay to your own SearXNG (halogenctl web-search external): its Caddyfile, with an upstream.
+    HOME=/tmp XDG_DATA_HOME=/tmp XDG_CONFIG_HOME=/tmp HALOS_SEARCH_UPSTREAM=https://search.example.com \
+      /usr/libexec/halogen/caddy adapt --config /usr/share/halos/search/relay.caddy --adapter caddyfile > /dev/null; \
+    grep -q '@SECRET@' /usr/share/halos/search/settings.yml; \
     chmod 0755 /usr/bin/halosctl /usr/bin/halogenctl /usr/bin/halogen-enroll-tpm /usr/libexec/halogen/*; \
     # tool-eval-bench must import with Fedora's libraries and list its scenarios (no server needed);
     # compiled once here, since /usr is read-only on the machine (unchecked-hash: ostree sets every
@@ -192,13 +201,15 @@ RUN set -eu; \
     [ "$(cd /tmp && /usr/libexec/halogen/tool-eval-bench --version)" = "tool-eval-bench ${TOOL_EVAL_BENCH_VERSION}" ] \
       || { echo "tool-eval-bench reports another version than ${TOOL_EVAL_BENCH_VERSION}" >&2; exit 1; }; \
     find /etc/containers/systemd/users/970 -type f -exec sed -i \
-      -e "s|@HALOGEN_IMAGE@|${HALOGEN_IMAGE}|g" -e "s|@HALOGEN_VERSION@|${HALOGEN_VERSION}|g" {} +; \
-    if grep -rq '@HALOGEN_' /etc/containers/systemd/users/970; then exit 1; fi; \
+      -e "s|@HALOGEN_IMAGE@|${HALOGEN_IMAGE}|g" -e "s|@HALOGEN_VERSION@|${HALOGEN_VERSION}|g" \
+      -e "s|@SEARXNG_IMAGE@|${SEARXNG_IMAGE}|g" {} +; \
+    if grep -rqE '@(HALOGEN|SEARXNG)_' /etc/containers/systemd/users/970; then exit 1; fi; \
+    case "$SEARXNG_IMAGE" in docker.io/searxng/searxng@sha256:*) ;; *) echo "SearXNG must come by digest" >&2; exit 1 ;; esac; \
     # Halogen's container is on its own network with no route out and no DNS (#120): netavark makes it,
     # and Quadlet must still turn the files into exactly that.
     rpm -q netavark; \
     QUADLET_UNIT_DIRS=/etc/containers/systemd/users/970 /usr/libexec/podman/quadlet -dryrun -user > /tmp/quadlet.txt 2>&1 || { cat /tmp/quadlet.txt; exit 1; }; \
-    netline="$(grep -E '^ExecStart=/usr/bin/podman network create ' /tmp/quadlet.txt)"; \
+    netline="$(grep -E '^ExecStart=/usr/bin/podman network create .* halogen-internal$' /tmp/quadlet.txt)"; \
     case "$netline" in *' --internal '*) ;; *) echo "Halogen's network isn't internal: $netline" >&2; exit 1 ;; esac; \
     case "$netline" in *' --disable-dns '*) ;; *) echo "Halogen's network has DNS: $netline" >&2; exit 1 ;; esac; \
     case "$netline" in *' halogen-internal') ;; *) echo "Halogen's network has another name: $netline" >&2; exit 1 ;; esac; \
@@ -206,7 +217,20 @@ RUN set -eu; \
       || { echo "Halogen's container isn't on halogen-internal" >&2; exit 1; }; \
     grep -E '^ExecStart=/usr/bin/podman run ' /tmp/quadlet.txt | grep -qF -- ' --sysctl net.ipv6.conf.eth0.disable_ipv6=1' \
       || { echo "Halogen's container keeps IPv6 on its network link" >&2; exit 1; }; \
-    rm -f /tmp/quadlet.txt; \
+    # Web search (halogenctl web-search): its link to Halogen is internal, without DNS, at the
+    # addresses render-config names; only the search container is on the network with a way out,
+    # and Halogen isn't on either until the drop-in halogenctl writes (Podman 5's Quadlet reads it).
+    grep -qxF 'ExecStart=/usr/bin/podman network create --ignore --disable-dns --subnet=10.89.250.0/29 --internal halos-search' /tmp/quadlet.txt \
+      || { echo "web search's network isn't internal on 10.89.250.0/29 without DNS" >&2; grep 'network create' /tmp/quadlet.txt >&2; exit 1; }; \
+    for c in halos-search halos-search-relay; do \
+      sed -n "/^---$c.service---/,/^---/p" /tmp/quadlet.txt | grep -E '^ExecStart=/usr/bin/podman run ' > /tmp/q-run.txt; \
+      grep -qF -- ' --network=halos-search:ip=10.89.250.2 --network=halos-search-out ' /tmp/q-run.txt \
+        && grep -qF -- ' --publish 127.0.0.1:18730:8080 ' /tmp/q-run.txt && grep -qF -- ' --cap-drop=all ' /tmp/q-run.txt \
+        && grep -qF -- ' --read-only ' /tmp/q-run.txt || { echo "$c isn't set up as halOS expects:" >&2; cat /tmp/q-run.txt >&2; exit 1; }; \
+    done; \
+    sed -n '/^---halogen.service---/,/^---/p' /tmp/quadlet.txt | grep -E '^ExecStart=/usr/bin/podman run ' > /tmp/q-run.txt; \
+    if grep -qF 'halos-search' /tmp/q-run.txt; then echo "Halogen joins web search's network without the drop-in" >&2; exit 1; fi; \
+    rm -f /tmp/quadlet.txt /tmp/q-run.txt; \
     { echo "HALOGEN_IMAGE=${HALOGEN_IMAGE}"; \
       echo "HALOGEN_VERSION=${HALOGEN_VERSION}"; \
       echo "HALOGEN_VARIANT=${HALOGEN_VARIANT}"; \
@@ -217,6 +241,8 @@ RUN set -eu; \
       echo "HALOGEN_DASHBOARD_COMMIT=${HALOGEN_DASHBOARD_COMMIT}"; \
       echo "TOOL_EVAL_BENCH_COMMIT=${TOOL_EVAL_BENCH_COMMIT}"; \
       echo "TOOL_EVAL_BENCH_VERSION=${TOOL_EVAL_BENCH_VERSION}"; \
+      echo "SEARXNG_IMAGE=${SEARXNG_IMAGE}"; \
+      echo "SEARXNG_VERSION=${SEARXNG_VERSION}"; \
       echo "HALOS_KERNEL=${KERNEL_TRACK}"; \
       echo "HALOS_KERNEL_BUILT=$(rpm -q --qf '%{BUILDTIME}' kernel-core)"; \
       echo "HALOS_BASE_IMAGE=${FEDORA_BOOTC_IMAGE}"; \
@@ -231,6 +257,9 @@ RUN set -eu; \
     echo 'halogen:524288:65536' >> /etc/subgid; \
     firewall-offline-cmd --add-service=halogen; \
     firewall-offline-cmd --add-service=halos-dashboard; \
+    # Web search's page (8730): open as the dashboard's is; Caddy answers it only from private networks,
+    # and says "off" until sudo halogenctl web-search bundled.
+    firewall-offline-cmd --add-service=halos-search; \
     # Only ports firewalld itself opens are reachable: by default it also lets through any port a
     # rootful container publishes (traffic DNAT'd by others), which something with CAP_NET_ADMIN
     # could use to open one with a NAT rule of its own. halOS publishes none that way (Halogen is

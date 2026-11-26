@@ -139,6 +139,11 @@ done
 for l in 'RECCONF 2 [1-9][0-9]*' 'RECST 0 1' 'RECOFF 0' 'RECDIR halogen 700' 'RECMNT 3 [1-9][0-9]*' 'PCDIR halogen 700' 'PCACHE 2 [1-9][0-9]*' 'PCOFF [1-9][0-9]* 0 1' 'PCON [1-9][0-9]* 1 0'; do
   grep -qxE "$l" "$out/report.txt" || { echo "request records or prompt cache: expected '$l'" >&2; grep -E '^REC|^PC|records' "$out/report.txt" >&2; exit 1; }
 done
+# Web search: SearXNG on this machine, joined to Halogen's unit and settings, answering JSON and
+# through the front door; off takes it all away again.
+for l in 'WSON 1 1 [1-9][0-9]*' 'WSJSON 1 [1-9]' 'WSOFF 0 0 inactive'; do
+  grep -qxE "$l" "$out/report.txt" || { echo "web search: expected '$l'" >&2; grep -E '^WS|web-search|SearXNG|network-config' "$out/report.txt" >&2; exit 1; }
+done
 grep -qE '^uid=[0-9]+\(admin\).*\(wheel\)' "$out/report.txt" || { echo "the admin user is missing or not in wheel" >&2; exit 1; }
 # No password or passphrase in a file or the journal on the installed system.
 if grep -q '^PWLEAK ' "$out/report.txt"; then grep '^PWLEAK ' "$out/report.txt" >&2; echo "a password was written to disk" >&2; exit 1; fi

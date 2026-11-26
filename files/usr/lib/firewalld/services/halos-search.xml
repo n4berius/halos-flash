@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<service>
+  <short>halOS web search</short>
+  <description>SearXNG's page for Halogen's web search (on only after sudo halogenctl web-search bundled)</description>
+  <port protocol="tcp" port="8730"/>
+</service>

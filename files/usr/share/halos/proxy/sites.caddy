@@ -1,4 +1,5 @@
-# halOS's front door: what the API (8731) and the dashboard (8732) sites do, whatever the mode.
+# halOS's front door: what the API (8731), the dashboard (8732) and the web search page (8730) sites
+# do, whatever the mode.
 # Imported by Caddyfile (HTTP) and Caddyfile.https (HTTPS).
 
 (api) {
@@ -47,6 +48,20 @@
 	}
 	handle_errors 502 503 {
 		respond "The halOS dashboard is off or starting. Turn it on with: sudo halosctl dashboard on
+" 503
+	}
+}
+
+(search) {
+	# Web search's page (sudo halogenctl web-search bundled: SearXNG, on 127.0.0.1:18730), to look
+	# at results and set your own preferences. No login, so the same networks as the dashboard
+	# (HALOS_DASHBOARD_ALLOW widens both), IPv4 only, and no access log: the address holds the query.
+	bind 0.0.0.0
+	@outside not remote_ip 127.0.0.0/8 ::1/128 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 fe80::/10 100.64.0.0/10 fc00::/7 {$HALOS_DASHBOARD_ALLOW}
+	abort @outside
+	reverse_proxy 127.0.0.1:18730
+	handle_errors 502 503 {
+		respond "halOS web search is off or starting. Turn it on with: sudo halogenctl web-search bundled
 " 503
 	}
 }

@@ -1,5 +1,5 @@
 #!/bin/bash
-# HTTPS for halOS's front door (halos-proxy.service, Caddy on 8731 and 8732). Root only.
+# HTTPS for halOS's front door (halos-proxy.service, Caddy on 8731, 8732 and 8730). Root only.
 #
 #   https mode                 off, self-signed, custom or letsencrypt (from /etc/halos/https.env)
 #   https names                the names and addresses halOS's own authority covers (self-signed,
@@ -212,8 +212,10 @@ case "${1:-}" in
         { echo "HALOS_PROXY_CONFIG=$share/Caddyfile.letsencrypt"
           echo "HALOS_API_SITES=\"$(sites 8731)\""
           echo "HALOS_DASH_SITES=\"$(sites 8732 v4)\""
+          echo "HALOS_SEARCH_SITES=\"$(sites 8730 v4)\""
           echo "HALOS_ACME_API_SITES=\"$api\""
           echo "HALOS_ACME_DASH_SITES=\"$(acme_sites 8732)\""
+          echo "HALOS_ACME_SEARCH_SITES=\"$(acme_sites 8730)\""
           echo "HALOS_ACME_DNS=$p"
           echo "HALOS_ACME_CA=$ca"
           if [ -n "$email" ]; then echo "HALOS_ACME_EMAIL_SET=yes"; echo "HALOS_ACME_EMAIL=$email"
@@ -224,7 +226,8 @@ case "${1:-}" in
         { echo "HALOS_PROXY_CONFIG=$share/Caddyfile.https"
           echo "HALOS_TLS=internal"
           echo "HALOS_API_SITES=\"$(sites 8731)\""
-          echo "HALOS_DASH_SITES=\"$(sites 8732 v4)\""; } > "$tmp" ;;
+          echo "HALOS_DASH_SITES=\"$(sites 8732 v4)\""
+          echo "HALOS_SEARCH_SITES=\"$(sites 8730 v4)\""; } > "$tmp" ;;
       custom)
         # Fail closed: without its certificate, Caddy doesn't start, rather than serve the key in clear.
         for f in cert.pem key.pem; do
@@ -239,7 +242,8 @@ case "${1:-}" in
         { echo "HALOS_PROXY_CONFIG=$share/Caddyfile.https"
           echo "HALOS_TLS=custom"
           echo "HALOS_API_SITES=https://:8731"
-          echo "HALOS_DASH_SITES=https://:8732"; } > "$tmp" ;;
+          echo "HALOS_DASH_SITES=https://:8732"
+          echo "HALOS_SEARCH_SITES=https://:8730"; } > "$tmp" ;;
     esac
     chmod 0644 "$tmp"
     mv -fT "$tmp" "$run/proxy.env"

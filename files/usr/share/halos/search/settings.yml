@@ -1,0 +1,25 @@
+# SearXNG's settings for halOS's bundled web search (sudo halogenctl web-search bundled).
+# Made once, from halOS's template, with a secret of its own; halOS never changes it after that.
+# Edit it (sudo halogenctl web-search edit), then: sudo halogenctl web-search restart
+# Every setting: https://docs.searxng.org/admin/settings/ (use_default_settings keeps SearXNG's
+# own defaults for everything not named here).
+use_default_settings: true
+
+general:
+  instance_name: "halOS search"
+
+search:
+  # Halogen asks for JSON (its FLAGS.md: "your own SearXNG instance (JSON output enabled)"); html
+  # is the page on port 8730.
+  formats:
+    - html
+    - json
+
+server:
+  # Signs SearXNG's cookies and links; made for this machine.
+  secret_key: "@SECRET@"
+  # The bot limiter needs a Valkey database, and Halogen is the main client here.
+  limiter: false
+  # Results' images are loaded by your browser from their own sites, not fetched by this machine.
+  image_proxy: false
+  public_instance: false

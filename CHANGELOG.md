@@ -10,12 +10,21 @@ it promotes.
 
 ## Unreleased
 
+- Web search for Halogen, off until you turn it on (#PR). `sudo halogenctl web-search bundled`
+  runs SearXNG, a metasearch engine, in a container of its own on this machine, and
+  `sudo halogenctl web-search external <url>` uses your own SearXNG server. Claude Code's
+  WebSearch tool then works with Halogen. Halogen still has no connection out of the machine: it
+  reaches only the search container, over a private network of its own, and with your own server
+  a relay sends its searches to that server only. SearXNG's page is on port 8730, for this machine
+  and private networks only, over HTTPS when that is on. `sudo halogenctl selftest` checks the
+  search, also from Halogen's container.
 - Halogen 0.21.0 (#182). Halogen keeps the same Flash model, with the same speed and answers. It
   fixes replies that could end with an invented `<|im_start|>user` turn, and a `seed` sent as text
   to `/v1/audio/speech`. Halogen 0.21.0 can also serve Qwen3.8-27B and send web searches to a
-  SearXNG server: halOS supports neither yet. `flash pull` refuses a 27B checkpoint, and
-  `HALOGEN_WEB_SEARCH_URL` isn't accepted, because Halogen's container has no outside network.
-  Claude Code's WebSearch tool now gets an error from Halogen in place of an answer from memory.
+  SearXNG server. halOS doesn't support the 27B yet: `flash pull` refuses a 27B checkpoint. Web
+  search has its own command (below); `HALOGEN_WEB_SEARCH_URL` isn't accepted in `halogen.env`,
+  because Halogen's container has no outside network. While web search is off, Claude Code's
+  WebSearch tool gets an error from Halogen in place of an answer from memory.
   Halogen 0.21.0 also refuses a checkpoint file that names a model it doesn't know. If your own
   Flash checkpoint is refused, it fails its check at the first start after the update, halOS
   serves the official checkpoint, and `sudo halogenctl status` tells you why.

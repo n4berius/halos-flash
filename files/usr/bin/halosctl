@@ -56,7 +56,7 @@ ssh-passwords off allows SSH logins only with keys (your account needs one first
 passwords again. The console login always takes the password.
 dashboard is a live web page of Halogen's load and health on port 8732 (Quaternion's
 halogen-dashboard), open to your network and without a login; off stops it.
-https turns on HTTPS for both (8731 and 8732): self-signed uses halOS's own authority, which your
+https turns on HTTPS for all three (8731, 8732, 8730): self-signed uses halOS's own authority, which your
 apps must trust once (ca prints it); custom takes your certificate and key (PEM). Plain http://
 then redirects to https://. letsencrypt gets certificates apps already trust for public names
 (such as halos.example.com) through your DNS provider's API; it asks for the provider's
@@ -954,7 +954,7 @@ case "$cmd" in
         echo "Deleted." ;;
       off)
         [ "$("$https" mode)" != off ] || { echo "HTTPS is already off."; exit 0; }
-        confirm "Go back to plain HTTP on 8731 and 8732? Apps set to https:// stop working until changed back."
+        confirm "Go back to plain HTTP on 8731, 8732 and 8730? Apps set to https:// stop working until changed back."
         old="$("$https" mode)"; apply off
         record https "$old" off
         show ;;

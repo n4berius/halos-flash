@@ -208,11 +208,13 @@ You can also put `NODE_EXTRA_CA_CERTS` in the `env` section of `~/.claude/settin
 Code also trusts the computer's store. The address has no `/v1`. For more information, including the reason for
 the output limit, see [Halogen's Claude Code guide](https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/claude-code.md).
 
-Claude Code's WebSearch tool doesn't work with halOS. Halogen 0.21.0 can send web searches to a
-SearXNG server that you give in `HALOGEN_WEB_SEARCH_URL`. But on halOS, Halogen's container has no
-connection to the network outside the machine, so halOS doesn't accept this setting. When a
-request has only the `web_search` tool, Halogen answers with an error (400) that says that this
-server does no web search. Before 0.21.0, the model answered from what it knew.
+Claude Code's WebSearch tool works when you turn on [web search](GUIDE.md#web-search):
+`sudo halogenctl web-search bundled` (SearXNG on this machine) or
+`sudo halogenctl web-search external <url>` (your own SearXNG). Halogen 0.21.0 then sends the
+searches to SearXNG (halOS sets `HALOGEN_WEB_SEARCH_URL` for it) and gives the results to the
+model. Halogen fetches no pages itself. When web search is off and a request has only the
+`web_search` tool, Halogen answers with an error (400) that says that this server does no web
+search. Before 0.21.0, the model answered from what it knew.
 
 ### Cline and Roo Code
 
