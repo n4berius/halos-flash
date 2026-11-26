@@ -55,6 +55,7 @@ name, but allows saying halOS runs Halogen.
 | `files/` | Copied into both editions: systemd units, `halosctl`, `halogenctl`, `halogen-enroll-tpm` (bash completion for all three in `usr/share/bash-completion/completions/`; `tests/completion.sh` fails when a tool gains a top-level command, or a `flash`/`model` subcommand, its completion doesn't offer; checkpoint folder names are written by halogen and its containers, so they are never passed to `compgen -W`, which expands `$(...)`: only plain names, matched by hand; under sudo completion runs as the admin, who can't read `/srv/models` (0750), so the names come from `/run/halos/model-names` (`model-names`, root, run by login-status every 30 s and by halogenctl's `names_now` after a pull or removal: `find` as halogen with setpriv, folder and `*drafter*.hgn` names only, never file contents; plain names, no line breaks; each `find` under root's `timeout -k` and cut at 1000 entries, one per folder; start points are the folders, so a link at `flash` is never followed; 0640 group wheel), while a root shell reads the folders directly), `/usr/libexec/halogen/*` (`flash-checkpoint` and `model-pull` download your own checkpoints) |
 | `variants/npu`, `variants/no-npu` | Per-edition kernel arguments, Quadlet drop-ins, the allowed-options list and default `halogen.env` |
 | `scripts/` | `build.sh`, `build-helpers.sh`, `build-info.sh` (an image's build record, #121), `build-iso.sh` (`installer` or `iso` builds one half: `iso.yml` builds the installer image beside the OS image, on the base `build-helpers.sh --resolve` prints, passed to both as `HALOS_BASE`), `ci-background.sh` (runs a slow CI step in the background and waits for it later: `iso.yml`'s disk cleanup, VM tools and ISO builder pull), `package-iso.sh` (single-file release ISO), `release-info.sh`, `gen-options.py` (options from upstream `FLAGS.md`), `halogen-update.sh` (pins a new Halogen release), `size-report.sh`, `channels.sh` (which channel tags a release moves), `next-tag.sh` (the next release tag), `push-image.sh`, `sign-image.sh` (cosign signing), `kernel-next-update.sh` (moves kernel-next's pin to Fedora's newest plain build), `go-test.sh` (the Go tests of `src/caddy` without an image build; needs network; CI's `check` job in `build.yml` runs it and `tests/run.sh` once, and both edition builds wait for it, #123) |
+| `files/usr/share/halos/search/`, `files/usr/libexec/halogen/search-*` | Web search (`halogenctl web-search`): SearXNG's settings template, the relay's Caddyfile, and the helpers that make the settings file and the relay's image |
 | `files/usr/libexec/halogen/settings-tui`, `files/usr/share/halogen/npu-models.list`, `files/usr/share/halogen/option-kinds` | The settings screen behind `halogenctl settings` (Python curses), its list of Halogen's NPU models, and what each option takes (from FLAGS.md; check it with every Halogen pin) |
 | `docs/` | `GUIDE.md` (using the machine: settings, updates, each feature and its reasons; INSTALL.md holds only the installation, first boot and disk unlock), `CLI.md` (every command; update it with a command or option), `CLIENTS.md` (connecting apps and coding agents, and trusting the certificate per agent, from each project's docs and source) |
 | `CHANGELOG.md`, `ROADMAP.md` | What each release changed (PRs add to Unreleased), and the order of the work ahead |
@@ -1277,6 +1278,44 @@ name, but allows saying halOS runs Halogen.
   real one. On freyja still: Halogen's start, a bench (the path is
   rootlessport, not pasta's splice), and both editions.
 
+- Web search (#184, owner asked: opt-in, bundled or your own): `halogenctl web-search
+  [status|bundled|external <url>|off|restart|edit]`. Two networks of halogen's (Quadlet,
+  `files/etc/containers/systemd/users/970/`): `halos-search` (internal, no DNS, `Subnet=10.89.250.0/29`,
+  no gateway in podman 4.9.3) and `halos-search-out` (ordinary, DNS, `isolate=true`). The search
+  container stands at 10.89.250.2:8080 on both and publishes `127.0.0.1:18730`: `halos-search.container`
+  (SearXNG's own image by digest, `SEARXNG_IMAGE`/`_VERSION` in versions.env, `Pull=missing`, so it
+  downloads at first start and after a pin change; `User=977:977` (a subuid, not halogen),
+  `--cap-drop=all`, read-only, `GRANIAN_HOST=0.0.0.0` (its `::` default fails without IPv6),
+  only `settings.yml` mounted read-only over the image's `/etc/searxng` volume, so the entrypoint's
+  ownership warning stays quiet; `search-prepare` (as halogen) makes it from
+  `/usr/share/halos/search/settings.yml` with a random secret, JSON on, limiter and image proxy off)
+  or `halos-search-relay.container` (halOS's static Caddy in `localhost/halos-search-relay:1`, made by
+  `search-relay-image` from the binary, `relay.caddy` and the trust store, remade when their sha256
+  (and the script's) label differs; `/tmp` 1777 for Caddy's lock; GET/HEAD only to
+  `HALOS_SEARCH_UPSTREAM` from root's `/etc/halos/web-search.env`, `header_up Host`). The two
+  `Conflicts=`. Halogen joins only while root's drop-in `halogen.container.d/30-web-search.conf`
+  exists (`Wants=`/`After=` the chosen unit, `Network=halos-search.network:ip=10.89.250.3`,
+  `Sysctl=net.ipv6.conf.eth1.disable_ipv6=1`); podman 4.9.3's Quadlet ignores drop-ins, Fedora's 6
+  reads them (records relies on that too). render-config sets `HALOGEN_WEB_SEARCH_URL=http://10.89.250.2:8080`
+  (+ `HALOS_SEARCH_PATH` for external, re-checked) only with the drop-in; `search_conf` is a fixed
+  path (tests sed it). `external` checks the URL's shape (no userinfo, query, `..`, `.local`,
+  loopback, 10.89.250.x) and asks `<url>/search?format=json` as nobody (`as_nobody`, like
+  tang-unlock) before writing anything. Caddy serves 8730 (`(search)` in sites.caddy: dashboard's
+  private-ranges rule and `HALOS_DASHBOARD_ALLOW`, IPv4, no access log) in all three Caddyfiles
+  (`HALOS_SEARCH_SITES`, `HALOS_ACME_SEARCH_SITES`); `SocketBindAllow=tcp:8730`; firewalld service
+  `halos-search` open by default like the dashboard's. Selftest: `web-search` (unit, health from
+  the host and from Halogen's container with urllib), `network-config` accepts `halos-search`
+  only with the drop-in and checks it the same way, `config-files` excuses the drop-in's two exact
+  forms. Checked here with rootless podman 4.9.3 and SearXNG's real image: JSON on the internal
+  address from a Halogen-like container that has no route out, the relay to another SearXNG, 405
+  for POST. Podman 6's Quadlet writes `--flag value` (4.9.3: `--flag=value`) and orders the network's
+  flags differently, so every check of its output matches `[= ]`; the Containerfile also dry-runs
+  Quadlet with the drop-in. IPv6 upstreams are refused (`halos-search-out` has no IPv6). `halosctl
+  rollback` warns while the drop-in exists (an older image has no `halos-search.network`, and
+  Quadlet then makes no halogen.service). The VM test's first boot has no network, so
+  `iso-install.sh` copies SearXNG's index and amd64 image (`skopeo --all --preserve-digests`, other
+  blobs deleted) onto the probe disk and the VM `skopeo copy`s it into halogen's storage (`WSIMG`).
+  Not run on freyja yet (Podman 6, SELinux, a real search).
 - Build record (#121): the base stays the moving tag `fedora-bootc:45` (Fedora's fixes, weekly
   rebuild). `scripts/build-helpers.sh` (run by `build.sh`, or once per CI run, #122) resolves it once with `skopeo inspect` (a pinned `repo@sha256:` is checked
   to answer with that digest; a tag+digest reference is asked for as `repo@digest`, since
@@ -1498,8 +1537,8 @@ and tracked on the owner's project board. [ROADMAP.md](ROADMAP.md) holds the ord
   refuses a `qwen38-27b*` checkpoint before downloading and `verify_dir` fails a file whose header
   says `qwen3.8-27b*` (render-config would give it Flash's draft head via `HALOGEN_CK_OVERLAY`,
   `--resident-gib` runs Flash's binary, the vision tower name differs: `qwen38-27b-vision.hgn`).
-  `HALOGEN_WEB_SEARCH_URL` (SearXNG for `/v1/messages`' `web_search` tool) is in gen-options'
-  BLOCKED: the container is on `halogen-internal` (#120). Several API keys now split the prompt
+  `HALOGEN_WEB_SEARCH_URL` (SearXNG for `/v1/messages`' `web_search` tool) stays in gen-options'
+  BLOCKED: only `halogenctl web-search` turns it on (see "Web search" above). Several API keys now split the prompt
   cache per key (halOS has one key). FLAGS.md otherwise changed only text; host-setup only image
   tags; the weights repo and revision are unchanged (Flash-Next unchanged). This session could
   read ghcr.io manifests but not blobs, so the image's `models.txt`, env and `halogen-bench.py`

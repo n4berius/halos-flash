@@ -1,0 +1,12 @@
+# Web search's own link (halogenctl web-search): Halogen and the search container meet here, and
+# nowhere else. Like halogen-internal: internal (no route out, no gateway) and no DNS, so joining it
+# gives Halogen one more neighbour, never a way out. Fixed addresses: 10.89.250.2 is the search
+# container (bundled SearXNG or the relay to your own), 10.89.250.3 is Halogen.
+# Halogen joins it only while web search is on (root's drop-in halogen.container.d/30-web-search.conf).
+# Quadlet creates the network with --ignore: one of this name that already exists is kept as it is,
+# so a change here needs a new NetworkName. The selftest's web-search line checks it.
+[Network]
+NetworkName=halos-search
+Internal=true
+DisableDNS=true
+Subnet=10.89.250.0/29

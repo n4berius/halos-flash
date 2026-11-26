@@ -5,12 +5,14 @@ repo="$(cd "$(dirname "$0")/.." && pwd)"
 work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
 export XDG_RUNTIME_DIR="$work/run" HALOGEN_CONFIG_FILE="$work/config"
 export HALOGEN_FLASH_FILE="$work/flash-checkpoint" HALOGEN_MODELS_DIR="$work/models"
-export HALOGEN_RECORDS_DROPIN="$work/20-records.conf"
+export HALOGEN_RECORDS_DROPIN="$work/20-records.conf" HALOGEN_SEARCH_DROPIN="$work/30-web-search.conf"
 # The API key off for the checks below, so they compare only what halogen.env sets; the key's own
 # checks are at the end.
 # render-config reads a fixed path (halogen can set its manager's environment), so the test runs
 # a copy that reads this folder's file instead.
-sed "s|^api_key_off=/etc/halos/api-key-off$|api_key_off=$work/api-key-off|" "$repo/files/usr/libexec/halogen/render-config" > "$work/render-config"
+sed -e "s|^api_key_off=/etc/halos/api-key-off$|api_key_off=$work/api-key-off|" \
+  -e "s|^search_conf=/etc/halos/web-search.env$|search_conf=$work/web-search.env|" "$repo/files/usr/libexec/halogen/render-config" > "$work/render-config"
+grep -q "^search_conf=$work/web-search.env$" "$work/render-config" || { echo "the test couldn't point render-config at its web-search.env" >&2; exit 1; }
 chmod +x "$work/render-config"; touch "$work/api-key-off"
 official=HALOGEN_CHECKPOINT=/models/qwen38-flash-next-v2.hgn
 export HALOGEN_ALLOWED_FILE="$repo/variants/npu/usr/share/halogen/options.allowed"
@@ -239,3 +241,22 @@ echo "ok: the API key is required unless root's off file is there"
 HALOGEN_API_KEY_OFF_FILE="$work/api-key-off" "$repo/files/usr/libexec/halogen/render-config" --show 2>/dev/null \
   | grep -qx 'HALOGEN_API_KEY_FILE=/run/secrets/halogen-api-key' || { echo "an environment variable turned the key off" >&2; exit 1; }
 echo "ok: the environment can't turn the key off"
+
+# Web search: the URL only while root's drop-in puts Halogen on the search network, always the
+# search container's address, with your SearXNG's path for external; never from halogen.env.
+ws() { "$render" --show 2>"$work/log" | sed -n 's/^HALOGEN_WEB_SEARCH_URL=//p'; }
+echo 'HALOGEN_WEB_SEARCH_URL=http://evil.example.com' > "$work/config"
+printf 'HALOS_WEB_SEARCH=bundled\n' > "$work/web-search.env"
+[ -z "$(ws)" ] || { echo "web search reached Halogen without the drop-in" >&2; exit 1; }
+touch "$work/30-web-search.conf"
+[ "$(ws)" = http://10.89.250.2:8080 ] || { echo "bundled web search didn't give the search container's address" >&2; exit 1; }
+printf 'HALOS_WEB_SEARCH=external\nHALOS_SEARCH_UPSTREAM=https://search.example.com\nHALOS_SEARCH_PATH=/searx\n' > "$work/web-search.env"
+[ "$(ws)" = http://10.89.250.2:8080/searx ] || { echo "external web search lost its path" >&2; exit 1; }
+for bad in '/a?b' '/../x' '/a b' 'x'; do
+  printf 'HALOS_WEB_SEARCH=external\nHALOS_SEARCH_PATH=%s\n' "$bad" > "$work/web-search.env"
+  if ! { [ -z "$(ws)" ] && grep -q 'web search stays off' "$work/log"; }; then echo "a bad path '$bad' reached Halogen" >&2; exit 1; fi
+done
+printf 'HALOS_WEB_SEARCH=other\n' > "$work/web-search.env"
+if ! { [ -z "$(ws)" ] && grep -q 'names no mode' "$work/log"; }; then echo "an unknown mode turned web search on" >&2; exit 1; fi
+rm -f "$work/30-web-search.conf" "$work/web-search.env"
+echo "ok: web search reaches Halogen only through halogenctl's drop-in, at the search container's address"

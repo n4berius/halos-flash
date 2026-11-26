@@ -12,7 +12,7 @@ CHAT_TEMPLATE CHECKPOINT DOWNLOAD ENGINE GGUF_CACHE GGUF_THREADS
 MATMUL_TUNING_FILE MTP_HEAD NPU_VERIFY NPU_WITH_GPU PORT RECORD_DIR
 TEMPLATE_CHECK TEMPLATE_UNCHECKED TOKENIZER WEB_SEARCH_URL""".split())
 # WEB_SEARCH_URL (0.21.0): Halogen's container has no outbound network (halogen-internal.network,
-# #120), so a search URL could never be reached; allowing it needs a network exception first.
+# #120), so only halOS's own search address can work: sudo halogenctl web-search (render-config sets it).
 # Where halOS's default differs from Halogen's. Recording itself is turned on with
 # sudo halogenctl records on (render-config sets HALOGEN_RECORD_DIR); the owner chose counts only.
 DEFAULTS = {"RECORD_TEXT": "none on halOS (counts only; recording is off until: sudo halogenctl records on)",

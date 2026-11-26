@@ -1,0 +1,38 @@
+# Web search through your own SearXNG (sudo halogenctl web-search external <url>): Halogen's
+# container has no way out (#120), so this relay stands at Halogen's search address
+# (10.89.250.2:8080 on halos-search) and passes GET requests to that one URL and nowhere else.
+# It is halOS's own Caddy (the front door's binary) in a tiny image made from this machine's files
+# (search-relay-image), with your URL from root's /etc/halos/web-search.env. Off by default, as the
+# bundled one.
+[Unit]
+Description=Relay from Halogen to your own SearXNG
+Conflicts=halos-search.service
+StartLimitIntervalSec=900
+StartLimitBurst=5
+
+[Container]
+Image=localhost/halos-search-relay:1
+Pull=never
+ContainerName=halos-search-relay
+Network=halos-search.network:ip=10.89.250.2
+Network=halos-search-out.network
+# The same as the bundled one: the selftest and halogenctl check it here, and port 8730 shows your
+# SearXNG's page too.
+PublishPort=127.0.0.1:18730:8080
+EnvironmentFile=/etc/halos/web-search.env
+Environment=HOME=/tmp XDG_DATA_HOME=/tmp XDG_CONFIG_HOME=/tmp SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+# Go's collector works to stay under this, below the service's cap.
+Environment=GOMEMLIMIT=192MiB
+User=65534:65534
+DropCapability=all
+NoNewPrivileges=true
+ReadOnly=true
+
+[Service]
+# Makes (or remakes, when this machine's Caddy or trust store changed) the relay's image.
+ExecStartPre=/usr/libexec/halogen/search-relay-image
+ExecStartPre=-/usr/bin/podman rm -v -f -i halos-search-relay
+Restart=on-failure
+RestartSec=10
+MemoryMax=256M
+TasksMax=128

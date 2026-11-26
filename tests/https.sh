@@ -58,6 +58,9 @@ grep -q 'https://\[2001:db8::20\]:8731' "$work/run/proxy.env" || fail "an IPv6 a
 grep '^HALOS_DASH_SITES=' "$work/run/proxy.env" > "$work/dash"
 grep -q 'https://192.168.1.20:8732' "$work/dash" || fail "the dashboard has no site for the LAN address"
 if grep -q '\[' "$work/dash"; then fail "the dashboard (IPv4 only) got IPv6 sites"; fi
+# Web search's page (8730) has the dashboard's IPv4 sites: an empty value would stop all of Caddy.
+[ "$(sed -n 's/^HALOS_SEARCH_SITES=//p' "$work/run/proxy.env" | sed 's/:8730/:8732/g')" = "$(sed 's/^HALOS_DASH_SITES=//' "$work/dash")" ] \
+  || fail "web search's sites aren't the dashboard's on 8730: $(env_of)"
 [ "$(stat -c %a "$work/run/proxy.env")" = 644 ] || fail "proxy.env isn't 644"
 ok "self-signed covers this machine's names and addresses and the extra names, the dashboard on IPv4"
 
@@ -118,7 +121,7 @@ if grep -q comment "$work/etc/https/.pending/cert.pem"; then fail "text around t
 if [ "$(stat -c %a "$work/etc/https")" != 700 ] || [ "$(stat -c %a "$work/etc/https/key.pem")" != 600 ]; then fail "the key isn't private"; fi
 "$h" set custom
 "$h" env
-if ! { grep -qx 'HALOS_TLS=custom' "$work/run/proxy.env" && grep -qx 'HALOS_API_SITES=https://:8731' "$work/run/proxy.env"; }; then fail "custom env is wrong: $(env_of)"; fi
+if ! { grep -qx 'HALOS_TLS=custom' "$work/run/proxy.env" && grep -qx 'HALOS_API_SITES=https://:8731' "$work/run/proxy.env" && grep -qx 'HALOS_SEARCH_SITES=https://:8730' "$work/run/proxy.env"; }; then fail "custom env is wrong: $(env_of)"; fi
 if ! { cmp -s "$work/rt/key.pem" "$work/good.key" && cmp -s "$work/rt/cert.pem" "$work/good.crt"; }; then fail "the certificate wasn't copied for Caddy"; fi
 [ "$(stat -c %a "$work/rt/key.pem")" = 600 ] || fail "the key copy isn't private"
 "$h" describe > "$work/d"
@@ -184,7 +187,7 @@ if "$h" set letsencrypt cloudflare halos.example.com --email not-an-address 2> /
 "$h" set letsencrypt cloudflare Halos.Example.com --email admin@example.com
 if ! { grep -qx 'HALOS_HTTPS_NAMES=halos.example.com' "$work/etc/https.env" && grep -qx 'HALOS_ACME_DNS=cloudflare' "$work/etc/https.env" && grep -qx 'HALOS_ACME_STAGING=0' "$work/etc/https.env"; }; then fail "set letsencrypt wrote: $(cat "$work/etc/https.env")"; fi
 "$h" env
-if ! { grep -qx 'HALOS_PROXY_CONFIG=/usr/share/halos/proxy/Caddyfile.letsencrypt' "$work/run/proxy.env"   && grep -qx 'HALOS_ACME_API_SITES="https://halos.example.com:8731"' "$work/run/proxy.env"   && grep -qx 'HALOS_ACME_DASH_SITES="https://halos.example.com:8732"' "$work/run/proxy.env"   && grep -qx 'HALOS_ACME_DNS=cloudflare' "$work/run/proxy.env"   && grep -qx 'HALOS_ACME_CA=https://acme-v02.api.letsencrypt.org/directory' "$work/run/proxy.env"   && grep -qx 'HALOS_ACME_EMAIL_SET=yes' "$work/run/proxy.env" && grep -qx 'HALOS_ACME_EMAIL=admin@example.com' "$work/run/proxy.env"; }; then fail "letsencrypt's proxy.env: $(env_of)"; fi
+if ! { grep -qx 'HALOS_PROXY_CONFIG=/usr/share/halos/proxy/Caddyfile.letsencrypt' "$work/run/proxy.env"   && grep -qx 'HALOS_ACME_API_SITES="https://halos.example.com:8731"' "$work/run/proxy.env"   && grep -qx 'HALOS_ACME_DASH_SITES="https://halos.example.com:8732"' "$work/run/proxy.env" && grep -qx 'HALOS_ACME_SEARCH_SITES="https://halos.example.com:8730"' "$work/run/proxy.env" && grep -q '^HALOS_SEARCH_SITES="https://' "$work/run/proxy.env"   && grep -qx 'HALOS_ACME_DNS=cloudflare' "$work/run/proxy.env"   && grep -qx 'HALOS_ACME_CA=https://acme-v02.api.letsencrypt.org/directory' "$work/run/proxy.env"   && grep -qx 'HALOS_ACME_EMAIL_SET=yes' "$work/run/proxy.env" && grep -qx 'HALOS_ACME_EMAIL=admin@example.com' "$work/run/proxy.env"; }; then fail "letsencrypt's proxy.env: $(env_of)"; fi
 grep -q '^HALOS_API_SITES="https://localhost:8731, .*https://192.168.1.20:8731' "$work/run/proxy.env" || fail "the local names lost halOS's authority: $(env_of)"
 if grep '^HALOS_API_SITES=' "$work/run/proxy.env" | grep -q halos.example.com; then fail "a public name is also a local site"; fi
 if grep -q cf-token-1- "$work/run/proxy.env"; then fail "the token is in proxy.env"; fi

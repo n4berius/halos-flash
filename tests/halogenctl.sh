@@ -682,3 +682,68 @@ if "$ctl" api-key off --yes > "$work/out" 2>&1 || ! grep -q 'stays on' "$work/ou
 rm -rf "$HALOS_API_KEY_OFF_FILE"
 if "$ctl" api-key open > /dev/null 2>&1; then echo "api-key took an unknown word" >&2; exit 1; fi
 ok "api-key on/off writes root's off file after asking and restarts a running Halogen; the bare command prints the key"
+
+# Web search (halogenctl web-search): root's drop-in puts Halogen on the search network and wants
+# the search unit; root's web-search.env says which search. An external URL is checked (shape, then
+# a JSON search from this machine) before anything changes. All ask first.
+mkdir -p "$work/etc-halos"
+export HALOGEN_SEARCH_DROPIN="$work/dropin.d/30-web-search.conf" HALOS_SEARCH_CONF="$work/etc-halos/web-search.env" \
+  HALOS_SEARCH_WAIT=1 HALOS_FETCH_AS_ROOT=1
+printf 'HALOGEN_IMAGE=x\nSEARXNG_VERSION=2026.11.23-a7163d091\n' > "$work/release.env"
+f systemctl 'echo "systemctl $*" >> "$FAKE/log"; case "$*" in *"is-active halogen.service"*) echo "${FAKE_ACTIVE-active}" ;;
+  *"is-active halos-search"*) echo active ;;
+  *"cat halogen.service"*) if [ -z "${FAKE_NOJOIN:-}" ] && [ -f "$HALOGEN_SEARCH_DROPIN" ]; then echo "ExecStart=podman run --network halogen-internal --network halos-search:ip=10.89.250.3 x"; fi ;; esac'
+f curl 'echo "curl $*" >> "$FAKE/log"; case "$*" in *healthz*) [ -n "${FAKE_SEARCH_DOWN:-}" ] || echo OK ;;
+  *format=json*) if [ -n "${FAKE_NOJSON:-}" ]; then echo "<html>"; else echo "{\"results\":[]}"; fi ;; esac'
+: > "$work/log"
+"$ctl" web-search > "$work/out"; grep -q '^Web search: off' "$work/out" || { cat "$work/out" >&2; exit 1; }
+if "$ctl" web-search bundled < /dev/null > /dev/null 2>&1; then echo "web-search bundled ran without --yes or a terminal" >&2; exit 1; fi
+if [ -e "$HALOGEN_SEARCH_DROPIN" ] || [ -e "$HALOS_SEARCH_CONF" ]; then echo "web-search bundled changed something before asking" >&2; exit 1; fi
+if FAKE_UID=1000 "$ctl" web-search bundled --yes > "$work/out" 2>&1 || ! grep -q 'Run it with sudo' "$work/out"; then echo "web-search ran without root" >&2; exit 1; fi
+"$ctl" web-search bundled --yes > "$work/out" || { cat "$work/out" "$work/log" >&2; exit 1; }
+want_dropin='[Unit]|Wants=halos-search.service|After=halos-search.service|[Container]|Network=halos-search.network:ip=10.89.250.3|Sysctl=net.ipv6.conf.eth1.disable_ipv6=1|'
+[ "$(grep -v '^#' "$HALOGEN_SEARCH_DROPIN" | tr '\n' '|')" = "$want_dropin" ] || { cat "$HALOGEN_SEARCH_DROPIN" >&2; echo "bundled wrote another drop-in" >&2; exit 1; }
+# The selftest's config-files line excuses exactly what halogenctl writes.
+grep -qF "'$want_dropin'" "$repo/files/usr/libexec/halogen/selftest" || { echo "the selftest doesn't know the bundled drop-in" >&2; exit 1; }
+grep -qx 'HALOS_WEB_SEARCH=bundled' "$HALOS_SEARCH_CONF" || { echo "bundled wrote no mode" >&2; exit 1; }
+for w in 'systemctl --user daemon-reload' 'systemctl --user stop halos-search-relay.service' 'systemctl --user start halos-search.service' 'restart halogen.service'; do
+  grep -qF "$w" "$work/log" || { cat "$work/log" >&2; echo "bundled didn't run: $w" >&2; exit 1; }
+done
+"$ctl" web-search > "$work/out"; grep -q '^Web search: on, with SearXNG on this machine' "$work/out" || { cat "$work/out" >&2; exit 1; }
+# Addresses that can't work, or carry what mustn't reach the relay's settings: refused, nothing changed.
+cp "$HALOS_SEARCH_CONF" "$work/conf.before"
+for bad in 'ftp://search.example.com' 'search.example.com' 'https://user:pw@search.example.com' 'https://search.local' \
+    'http://127.0.0.1:8888' 'http://localhost:8888' 'https://search.example.com/a?b=c' 'https://search.example.com/a#x' \
+    'https://search.example.com:99999' 'https://sea$rch.example.com' 'https://search.example.com/a b' 'http://10.89.250.2:8080' \
+    'https://-x.example.com' 'https://search.example.com/../x' 'http://[fd00::5]:8888' 'http://0.0.0.0:8888'; do
+  if "$ctl" web-search external "$bad" --yes > "$work/out" 2>&1; then echo "external took '$bad'" >&2; exit 1; fi
+  cmp -s "$HALOS_SEARCH_CONF" "$work/conf.before" || { echo "'$bad' changed the settings" >&2; exit 1; }
+done
+if "$ctl" web-search external > /dev/null 2>&1; then echo "external ran without a URL" >&2; exit 1; fi
+# A server that doesn't answer JSON (search: formats without json) is refused before anything changes.
+if FAKE_NOJSON=1 "$ctl" web-search external https://search.example.com --yes > "$work/out" 2>&1 || ! grep -q 'formats' "$work/out"; then
+  cat "$work/out" >&2; echo "a server without JSON was taken" >&2; exit 1
+fi
+cmp -s "$HALOS_SEARCH_CONF" "$work/conf.before" || { echo "a refused server changed the settings" >&2; exit 1; }
+: > "$work/log"
+"$ctl" web-search external https://search.example.com:8443/searx/ --yes > "$work/out" || { cat "$work/out" "$work/log" >&2; exit 1; }
+if ! { grep -qx 'HALOS_WEB_SEARCH=external' "$HALOS_SEARCH_CONF" && grep -qx 'HALOS_SEARCH_UPSTREAM=https://search.example.com:8443' "$HALOS_SEARCH_CONF" \
+  && grep -qx 'HALOS_SEARCH_PATH=/searx' "$HALOS_SEARCH_CONF"; }; then cat "$HALOS_SEARCH_CONF" >&2; echo "external wrote other settings" >&2; exit 1; fi
+grep -qx 'Wants=halos-search-relay.service' "$HALOGEN_SEARCH_DROPIN" || { echo "external's drop-in doesn't want the relay" >&2; exit 1; }
+grep -qF "'${want_dropin//halos-search.service/halos-search-relay.service}'" "$repo/files/usr/libexec/halogen/selftest" || { echo "the selftest doesn't know the relay's drop-in" >&2; exit 1; }
+for w in 'curl -q -fsS -G -m 20 --max-filesize 4194304 --proto =http,https --proto-redir =http,https --data-urlencode q=halOS --data format=json https://search.example.com:8443/searx/search' \
+    'systemctl --user stop halos-search.service' 'systemctl --user restart halos-search-relay.service' 'healthz' 'restart halogen.service'; do
+  grep -qF -- "$w" "$work/log" || { cat "$work/log" >&2; echo "external didn't run: $w" >&2; exit 1; }
+done
+grep -qF '127.0.0.1:18730/searx/healthz' "$work/log" || { echo "the relay's health was asked without the path" >&2; exit 1; }
+# A reload that leaves Halogen off the search network is reported, not called done.
+if FAKE_NOJOIN=1 "$ctl" web-search bundled --yes > "$work/out" 2>&1 || ! grep -q "isn't on the search network" "$work/out"; then cat "$work/out" >&2; echo "a missing network after on wasn't reported" >&2; exit 1; fi
+: > "$work/log"; FAKE_ACTIVE=inactive "$ctl" web-search off --yes > "$work/out" || { cat "$work/out" >&2; exit 1; }
+if [ -e "$HALOGEN_SEARCH_DROPIN" ] || [ -e "$HALOS_SEARCH_CONF" ]; then echo "off left Halogen's drop-in or the mode" >&2; exit 1; fi
+grep -qF 'systemctl --user stop halos-search.service halos-search-relay.service' "$work/log" || { echo "off didn't stop the search" >&2; exit 1; }
+if grep -q 'restart halogen.service' "$work/log"; then echo "off started a stopped Halogen" >&2; exit 1; fi
+"$ctl" web-search off --yes > "$work/out"; grep -q 'already off' "$work/out" || { cat "$work/out" >&2; exit 1; }
+if FAKE_ACTIVE=x "$ctl" web-search bundled --yes > "$work/out" 2>&1; then echo "no answer from the manager was taken for stopped" >&2; exit 1; fi
+rm -f "$HALOGEN_SEARCH_DROPIN" "$HALOS_SEARCH_CONF"
+if "$ctl" web-search on > /dev/null 2>&1; then echo "web-search took an unknown word" >&2; exit 1; fi
+ok "web-search bundled/external/off write Halogen's drop-in and the mode after asking, check your URL first, and restart a running Halogen"
