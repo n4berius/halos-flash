@@ -1065,8 +1065,9 @@ done
 # (release.env, from versions.env): one commit, and the sha256 of every file the pull may take.
 from27=0
 if [ "$repo" = 27b ]; then
-  [ -n "${HALOGEN_27B_REPO:-}" ] && [[ "${HALOGEN_27B_REVISION:-}" =~ ^[0-9a-f]{40}$ ]] && [ -n "${HALOGEN_27B_SHA256:-}" ] \
-    || die "This release pins no Qwen3.8-27B download (release.env has no HALOGEN_27B_* lines)."
+  if [ -z "${HALOGEN_27B_REPO:-}" ] || ! [[ "${HALOGEN_27B_REVISION:-}" =~ ^[0-9a-f]{40}$ ]] || [ -z "${HALOGEN_27B_SHA256:-}" ]; then
+    die "This release pins no Qwen3.8-27B download (release.env has no HALOGEN_27B_* lines)."
+  fi
   [ "$revision_given" = 0 ] || die "27b is the commit this release pins ($HALOGEN_27B_REVISION). For another revision, name the repository: sudo halogenctl flash pull $HALOGEN_27B_REPO --revision <rev> --as <name>"
   repo="$HALOGEN_27B_REPO"; revision="$HALOGEN_27B_REVISION"; name="${name:-qwen3.8-27b}"; from27=1
 fi
@@ -1096,7 +1097,9 @@ if [ "$from27" = 1 ]; then
   pinned=""; read -ra pins <<< "$HALOGEN_27B_SHA256"
   for pin in "${pins[@]}"; do
     pf="${pin%%:*}"; ph="${pin#*:}"
-    [[ "$pf" =~ ^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)?$ ]] && [[ "$ph" =~ ^[0-9a-f]{64}$ ]] || die "release.env's HALOGEN_27B_SHA256 has an odd entry: $pin"
+    if ! [[ "$pf" =~ ^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)?$ ]] || ! [[ "$ph" =~ ^[0-9a-f]{64}$ ]]; then
+      die "release.env's HALOGEN_27B_SHA256 has an odd entry: $pin"
+    fi
     has "$pf" || die "$repo at $commit has no $pf, which this release pins."
     ps="$(sha_of "$pf")"
     [ "$ps" = - ] || [ "$ps" = "$ph" ] || die "$pf in $repo at $commit doesn't match the hash this release pins."

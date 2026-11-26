@@ -66,8 +66,9 @@ HALOGEN_UPDATE_DIGEST="$digest" "$here/scripts/halogen-update.sh" "$up" "$work/b
 [ "$HALOGEN_WEIGHTS_REVISION" = "$(sed -n 's/^HALOGEN_WEIGHTS_REVISION=//p' "$repo/versions.env")" ]
 grep -qF "| 9.1.0, commit \`$(g -C "$up" rev-parse --short=7 v9.1.0)\`" "$here/THIRD-PARTY-NOTICES.md" \
   || { echo "the notices still name the old Halogen version" >&2; exit 1; }
-[ "$HALOGEN_27B_REVISION" = "$new27" ] && [ "$HALOGEN_27B_SHA256" = "q27.hgn:$lfs27 tokenizer/tokenizer.json:$(printf tok | sha256sum | cut -d' ' -f1)" ] \
-  || { echo "the 27B pin didn't move to the repository's newest commit with its hashes: $HALOGEN_27B_REVISION $HALOGEN_27B_SHA256" >&2; exit 1; }
+if [ "$HALOGEN_27B_REVISION" != "$new27" ] || [ "$HALOGEN_27B_SHA256" != "q27.hgn:$lfs27 tokenizer/tokenizer.json:$(printf tok | sha256sum | cut -d' ' -f1)" ]; then
+  echo "the 27B pin didn't move to the repository's newest commit with its hashes: $HALOGEN_27B_REVISION $HALOGEN_27B_SHA256" >&2; exit 1
+fi
 grep -q "/resolve/$new27/tokenizer/tokenizer.json" "$work/curl.log" || { echo "a small 27B file wasn't read at the pinned commit" >&2; exit 1; }
 grep -qF "| \`HALOGEN_27B_REVISION\` | [\`${new27:0:12}\`]" "$work/body.md" || { echo "the description doesn't name the new 27B pin" >&2; exit 1; }
 echo "ok: the newest release's pins and hashes are written, the 27B pin moves, and the weights stay pinned"
