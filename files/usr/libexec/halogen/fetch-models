@@ -122,7 +122,8 @@ done
 choice="$(head -n 1 "$flash_choice" 2>/dev/null | tr -cd 'A-Za-z0-9._-')"
 # No choice (or flash use auto) with less memory than the Flash model needs: render-config
 # serves Qwen3.8-27B (the same rule and name as there), so it is pulled here when it isn't
-# ready. A failed pull doesn't stop the start: render-config then serves the official one.
+# ready. A failed pull stops the start only without the Flash model (below); with it on disk,
+# render-config serves the official one, which preflight then refuses for its memory.
 small=0
 if [ -z "$choice" ] || [ "$choice" = auto ]; then
   choice=official

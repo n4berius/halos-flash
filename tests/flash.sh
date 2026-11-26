@@ -395,6 +395,10 @@ if pull someone/Companion --as comp; then fail "a companion file passed as a che
 reset_repo; rm "$work/repo/model.hgn"; hdr qwen3.8-27b-ht4 > "$work/repo/qwen38-27b-ht4.hgn"
 mv "$work/models/tokenizer/tokenizer.json" "$work/tok.bak"
 pull someone/Small-27B --as s27 || { cat "$work/out" >&2; fail "a 27B didn't pull without the official tokenizer"; }
+# flash pull 27b by its alias, whatever Peonist calls the file.
+reset_repo; hdr qwen3.8-27b-ht4 > "$work/repo/model.hgn"
+HALOGEN_27B_REPO=someone/Plain-27B pull 27b --as p27 || { cat "$work/out" >&2; fail "flash pull 27b of a model.hgn didn't pull without the official tokenizer"; }
+rm -rf "$work/models/flash/p27"
 reset_repo
 if pull someone/My-Flash-HGN --as nf; then fail "a Flash-Next checkpoint pulled without the official tokenizer"; fi
 grep -q "official model isn't downloaded yet" "$work/out" || fail "the missing official tokenizer wasn't explained"

@@ -546,6 +546,12 @@ touch "$work/models/flash/qwen3.8-27b/model.hgn"; rm -f "$work/hf.log" "$work/po
 rm -f "$work/state/fetch-stamp"; : > "$work/state/weights-unchecked"
 "$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; echo "a small machine without the Flash model failed the fetch" >&2; exit 1; }
 [ -e "$work/state/weights-unchecked" ] || { echo "the unchecked marker went without the Flash model being checked" >&2; exit 1; }
+# What is fetched ignores memory too: the 27B without a tower doesn't drop the official one.
+if ! grep -q HALOGEN_VISION_TOWER "$work/allowed"; then echo HALOGEN_VISION_TOWER >> "$work/allowed"; fi
+cp "$work/config.env" "$work/config.bak"; echo 'HALOGEN_VISION_TOWER=1' >> "$work/config.env"; rm -f "$work/state/fetch-stamp"
+"$work/fetch" > "$work/out" 2>&1 || { cat "$work/out" >&2; exit 1; }
+grep -q -- '-e VISION=1 ' "$work/last-run" || { cat "$work/last-run" >&2; echo "memory's 27B (no tower) changed what is fetched" >&2; exit 1; }
+cp "$work/config.bak" "$work/config.env"; "$work/fetch" > /dev/null 2>&1 || exit 1
 if grep -qs 'qwen38-flash-next\|tokenizer' "$work/hf.log" || [ -e "$work/models/qwen38-flash-next-v2.hgn" ]; then cat "$work/hf.log" >&2; echo "a small machine downloaded the Flash model" >&2; exit 1; fi
 { grep -q 'SKIP_FLASH=1' "$work/last-run" && grep -q ':/models:ro ' "$work/last-run"; } || { cat "$work/last-run" >&2; echo "the download wasn't told to skip the Flash model, or got the top writable" >&2; exit 1; }
 if grep -q ' verify ' "$work/podman.log"; then echo "the missing Flash model was verified" >&2; exit 1; fi

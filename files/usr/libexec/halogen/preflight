@@ -96,8 +96,12 @@ if [ "${mem_gib:-0}" -lt 100 ]; then
       mid="$(timeout 5 head -c 104 -- "$f" 2>/dev/null | tail -c 64 | tr -d '\0')"
     fi ;;
   esac
+  # With no choice (auto) the 27B is what memory wanted, so it isn't ready yet.
+  choice="$(head -n 1 "${HALOGEN_FLASH_FILE:-/srv/configs/flash-checkpoint}" 2>/dev/null | tr -cd 'A-Za-z0-9._-')"
+  hint="serve Qwen3.8-27B: sudo halogenctl flash use auto"
+  [ -n "$choice" ] && [ "$choice" != auto ] || hint="let Qwen3.8-27B download: sudo halogenctl fetch-logs (or sudo halogenctl flash pull 27b)"
   [[ "$mid" == qwen3.8-27b-* ]] \
-    || fail "the OS sees ${mem_gib:-0} GiB, too little for the Flash model. Set the BIOS UMA frame buffer to its explicit minimum, not Auto, or serve Qwen3.8-27B: sudo halogenctl flash use auto"
+    || fail "the OS sees ${mem_gib:-0} GiB, too little for the Flash model. Set the BIOS UMA frame buffer to its explicit minimum, not Auto, or $hint"
 fi
 
 if [ -n "$npu_models" ]; then

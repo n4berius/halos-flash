@@ -1059,8 +1059,9 @@ while [ $# -gt 0 ]; do
 done
 # Peonist's own Qwen3.8-27B (Halogen 0.21.0's second model, for a machine short of memory):
 # flash pull 27b, served as qwen3.8-27b unless --as names another.
+from27=0
 if [ "$repo" = 27b ]; then
-  repo="${HALOGEN_27B_REPO:-peonist-ai/halogen-qwen3.8-27b-ht4}"; name="${name:-qwen3.8-27b}"
+  repo="${HALOGEN_27B_REPO:-peonist-ai/halogen-qwen3.8-27b-ht4}"; name="${name:-qwen3.8-27b}"; from27=1
 fi
 case "$repo" in
   */*) ;;
@@ -1103,6 +1104,8 @@ fi
 # Qwen3.8-27B or Flash-Next: by the name until the header is here (as Halogen picks when the
 # header names no model), then by the header. The companions differ (see is_27b_file).
 ck27=0; [[ "$checkpoint" != qwen38-27b-*.hgn ]] || ck27=1
+# flash pull 27b is a 27B whatever its file is called.
+[ "$from27" = 0 ] || ck27=1
 # A Flash-Next checkpoint without its own tokenizer gets the official one. A 27B brings its own
 # (refused below without), so it pulls also where the Flash model was never downloaded (a
 # machine that serves the 27B by memory). Checked again once the header decides.

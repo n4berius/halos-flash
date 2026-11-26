@@ -305,6 +305,7 @@ if "$ctl" flash remove qwen3.8-27b --yes > "$work/out" 2>&1; then echo "the 27B 
 rm -f "$work/configs/flash-checkpoint"
 "$ctl" flash use official --yes > /dev/null
 [ "$(cat "$work/configs/flash-checkpoint")" = official ] || { echo "flash use official didn't save over memory's choice" >&2; exit 1; }
+"$ctl" flash list > "$work/out"; grep -qE '^  official .* not downloaded ' "$work/out" || { cat "$work/out" >&2; echo "flash list doesn't say the Flash model isn't downloaded" >&2; exit 1; }
 rm -rf "$fm/flash/qwen3.8-27b"; printf 'MemTotal:       131072000 kB\n' > "$work/meminfo"
 ok "flash use auto chooses by memory, and flash use official saves a choice over it"
 "$ctl" flash pull someone/Mine-HGN --as mine > "$work/out" 2>/dev/null; grep -q 'sudo halogenctl flash use mine' "$work/out" || { echo "pull doesn't say how to use it" >&2; exit 1; }
