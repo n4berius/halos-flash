@@ -5,14 +5,18 @@ repo="$(cd "$(dirname "$0")/.." && pwd)"
 work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
 export XDG_RUNTIME_DIR="$work/run" HALOGEN_CONFIG_FILE="$work/config"
 export HALOGEN_FLASH_FILE="$work/flash-checkpoint" HALOGEN_MODELS_DIR="$work/models"
-export HALOGEN_RECORDS_DROPIN="$work/20-records.conf" HALOGEN_SEARCH_DROPIN="$work/30-web-search.conf"
+export HALOGEN_RECORDS_DROPIN="$work/20-records.conf"
 # The API key off for the checks below, so they compare only what halogen.env sets; the key's own
 # checks are at the end.
 # render-config reads a fixed path (halogen can set its manager's environment), so the test runs
 # a copy that reads this folder's file instead.
 sed -e "s|^api_key_off=/etc/halos/api-key-off$|api_key_off=$work/api-key-off|" \
-  -e "s|^search_conf=/etc/halos/web-search.env$|search_conf=$work/web-search.env|" "$repo/files/usr/libexec/halogen/render-config" > "$work/render-config"
-grep -q "^search_conf=$work/web-search.env$" "$work/render-config" || { echo "the test couldn't point render-config at its web-search.env" >&2; exit 1; }
+  -e "s|^search_conf=/etc/halos/web-search.env$|search_conf=$work/web-search.env|" \
+  -e "s|^search_dropin=/etc/containers/systemd/users/970/halogen.container.d/30-web-search.conf$|search_dropin=$work/30-web-search.conf|" \
+  "$repo/files/usr/libexec/halogen/render-config" > "$work/render-config"
+for want in "search_conf=$work/web-search.env" "search_dropin=$work/30-web-search.conf"; do
+  grep -qxF "$want" "$work/render-config" || { echo "the test couldn't point render-config at $want" >&2; exit 1; }
+done
 chmod +x "$work/render-config"; touch "$work/api-key-off"
 official=HALOGEN_CHECKPOINT=/models/qwen38-flash-next-v2.hgn
 export HALOGEN_ALLOWED_FILE="$repo/variants/npu/usr/share/halogen/options.allowed"
@@ -236,7 +240,12 @@ if grep -q '^HALOGEN_API_KEY' <<< "$out"; then echo "the key is still required w
 grep -q 'the API key is off' "$work/log" || { echo "no warning while the key is off" >&2; exit 1; }
 rm "$work/api-key-off"; mkdir "$work/api-key-off"
 "$render" --show 2>/dev/null | grep -qx 'HALOGEN_API_KEY_FILE=/run/secrets/halogen-api-key' || { echo "a folder at the off file's name turned the key off" >&2; exit 1; }
-echo "ok: the API key is required unless root's off file is there"
+# Beside web search's drop-in the key stays on, whatever the off file says.
+rm -r "$work/api-key-off"; touch "$work/api-key-off" "$work/30-web-search.conf"
+"$render" --show 2>"$work/log" | grep -qx 'HALOGEN_API_KEY_FILE=/run/secrets/halogen-api-key' || { echo "the key went off beside web search" >&2; exit 1; }
+grep -q 'the API key stays on: web search is on' "$work/log" || { echo "no word that the key stays on beside web search" >&2; exit 1; }
+rm "$work/api-key-off" "$work/30-web-search.conf"; mkdir "$work/api-key-off"
+echo "ok: the API key is required unless root's off file is there, and always beside web search"
 # The real script: no variable can point it at another off file.
 HALOGEN_API_KEY_OFF_FILE="$work/api-key-off" "$repo/files/usr/libexec/halogen/render-config" --show 2>/dev/null \
   | grep -qx 'HALOGEN_API_KEY_FILE=/run/secrets/halogen-api-key' || { echo "an environment variable turned the key off" >&2; exit 1; }

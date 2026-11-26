@@ -1,8 +1,9 @@
 # The search container's way out (halogenctl web-search): an ordinary network with DNS and a route
 # to the internet and your LAN, for SearXNG's queries to search engines, or the relay's to your own
-# SearXNG. Halogen is never on it. isolate=strict: no traffic between it and any other Podman network
-# (isolate=true would cut only networks that also set it; Podman's default network, used by the
-# download containers, doesn't). halogen-internal is internal, with no route in or out anyway.
+# SearXNG. Halogen is never on it. isolate=strict: no traffic between it and any other Podman bridge
+# network of halogen's (isolate=true cuts only networks that also set it). Today the others are
+# internal anyway, and the download containers use pasta, not a bridge: this keeps it so if that
+# changes. halogen-internal is internal, with no route in or out anyway.
 [Network]
 NetworkName=halos-search-out
 Options=isolate=strict

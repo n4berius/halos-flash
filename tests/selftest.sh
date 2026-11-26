@@ -35,7 +35,7 @@ f podman 'case "$*" in *"exec halogen "*) [ "$PWD" = / ] || { echo "cannot chdir
     [ -n "${FAKE_MEMLOCK:-}" ] || { echo "crun: setrlimit RLIMIT_MEMLOCK: Operation not permitted"; exit 126; } ;; esac; case "$*" in *"exec halogen stat"*) printf "/tmp xfs\n/var/tmp %s\n/root xfs\n" "${FAKE_VARTMP:-xfs}" ;;
     *"exec halogen python3 -I -c import socket"*) echo "${FAKE_NETOUT-ENETUNREACH ENETUNREACH EPERM}" ;;
     *"inspect halogen --format"*) echo "${FAKE_NETS-halogen-internal }" ;; *"network inspect halogen-internal"*) echo "${FAKE_NETCFG-true false false 0 gw:<nil>}" ;;
-    *"network inspect halos-search-out"*) echo "${FAKE_SISO-strict}" ;; *"network inspect halos-search"*) echo "${FAKE_SNETCFG-true false false 0 gw:<nil>}" ;; *"exec halogen python3 -I -c import urllib"*) echo "${FAKE_SINSIDE-200}" ;; *) exit 1 ;; esac'
+    *"network inspect halos-search-out"*) echo "${FAKE_SISO-strict}" ;; *"network inspect halos-search"*) echo "${FAKE_SNETCFG-true false false 0 gw:<nil>}" ;; *"exec halogen python3 -I -c import urllib"*) echo "${FAKE_SINSIDE-200}" ;; *"exec halos-search cat"*) echo ${FAKE_SV6-1 1} ;; *) exit 1 ;; esac'
 f mokutil 'echo "SecureBoot ${FAKE_SB:-enabled}"'
 f getenforce 'echo "${FAKE_SELINUX:-Enforcing}"'
 # fail2ban: both jails loaded and two addresses shut out, unless FAKE_F2B says otherwise.
@@ -321,6 +321,8 @@ FAKE_UNIT="$su" FAKE_NETS="halogen-internal halos-search " FAKE_SNETCFG="false t
 expect '^FAIL network-config: '
 FAKE_NETS="halogen-internal halos-search " "$selftest" > "$work/out" 2>&1 || true; expect "^WARN web-search: .*isn't on the search network"
 FAKE_UNIT="$su" FAKE_SISO=true "$selftest" > "$work/out" 2>&1 || true; expect "^WARN web-search: .*isn't isolate=strict \\(true\\)"
+FAKE_UNIT="$su" FAKE_SV6='1 0' "$selftest" > "$work/out" 2>&1 || true; expect "^WARN web-search: .*keeps IPv6 on a network link \\(10\\)"
+FAKE_UNIT="$su" FAKE_SV6='' "$selftest" > "$work/out" 2>&1 || true; expect '^PASS web-search: on \(SearXNG'
 FAKE_UNIT="$su" FAKE_SSTATE=failed "$selftest" > "$work/out" 2>&1 || true; expect '^WARN web-search: .*halos-search.service is failed'
 FAKE_UNIT="$su" FAKE_SDOWN=1 "$selftest" > "$work/out" 2>&1 || true; expect "^WARN web-search: .*doesn't answer"
 FAKE_UNIT="$su" FAKE_SINSIDE=URLError "$selftest" > "$work/out" 2>&1 || true; expect "^WARN web-search: .*not from Halogen.s container \\(URLError\\)"
@@ -388,6 +390,11 @@ FAKE_NOKEY_CODE=200 "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL api-ke
 FAKE_NOKEY_CODE=200 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN api-key: off: anyone who can reach port 8731'
 "$selftest" > "$work/out" 2>&1 || true; expect '^WARN api-key: off, but Halogen still asks for the key'
 FAKE_STATE=inactive "$selftest" > "$work/out" 2>&1 || true; expect '^WARN api-key: off: .*once Halogen runs'
+# Off beside web search: render-config keeps the key, so a 401 warns and a 200 fails.
+: > "$work/30-web-search.conf"
+"$selftest" > "$work/out" 2>&1 || true; expect '^WARN api-key: off was asked, but web search is on'
+FAKE_NOKEY_CODE=200 "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL api-key: off while web search is on'
+/usr/bin/rm -f "$work/30-web-search.conf"
 rm "$work/api-key-off"
 FAKE_STATE=inactive "$selftest" > "$work/out" 2>&1 || true; refuse 'api-key:'
 ok "the selftest checks that Halogen asks for the key as chosen"

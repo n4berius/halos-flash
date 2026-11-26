@@ -70,6 +70,10 @@ REPORT = ("{ echo RESULT-START; cat /proc/cmdline; dmesg | grep -i secure; bootc
     "echo WSJSON $(curl -s -m 60 'http://127.0.0.1:18730/search?q=fedora&format=json' | jq -e '.results|type==\"array\"' 2>/dev/null | grep -c true) "
     "$({ curl -s -m 10 http://127.0.0.1:8730/healthz; echo; curl -sk -m 10 https://127.0.0.1:8730/healthz; echo; } | grep -c -x OK); "
     "halogenctl selftest 2>&1 | grep -e web-search: -e network-config: >> /tmp/ws; "
+    # What the search container said, and its user ID map (UserNS=auto: no line maps 970).
+    "journalctl -q --no-pager -n 25 _SYSTEMD_USER_UNIT=halos-search.service >> /tmp/ws 2>&1; "
+    "echo WSUIDMAP $(setpriv --reuid=halogen --regid=halogen --init-groups env -C / HOME=/var/lib/halogen XDG_RUNTIME_DIR=/run/user/970 "
+    "podman exec halos-search cat /proc/self/uid_map 2>/dev/null | tr -s ' ' | tr '\\n' ,) >> /tmp/ws; "
     "halogenctl web-search off --yes >> /tmp/ws 2>&1; "
     "echo WSOFF $(ls /etc/containers/systemd/users/970/halogen.container.d | grep -c -e web-search) $(halogenctl config 2>/dev/null | grep -c -e WEB_SEARCH) "
     "$(setpriv --reuid=halogen --regid=halogen --init-groups env -C / XDG_RUNTIME_DIR=/run/user/970 systemctl --user is-active halos-search.service 2>/dev/null); cat /tmp/ws; "

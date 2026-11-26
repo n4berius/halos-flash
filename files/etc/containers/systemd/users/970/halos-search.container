@@ -28,14 +28,16 @@ Environment=GRANIAN_HOST=0.0.0.0
 # halogen itself), with no capabilities, on a read-only image. The settings come in read-only; its
 # cache folder is a volume of its own, removed with the container.
 User=977:977
-# A user ID range of its own (security audit of #184): no ID in it is halogen's (host 970), so a
-# process that broke out of the container still wouldn't own the API key or the HF token. 4096
-# IDs cover SearXNG's user (977).
+# A user namespace of Podman's automatic ranges (security audit of #184): no ID in it maps to
+# halogen (host 970), so a process that broke out of the container still wouldn't own the API key
+# or the HF token. 4096 IDs cover SearXNG's user (977). The ranges come from halogen's subordinate
+# IDs, which other containers of halogen's also use; nothing of halOS's runs as those.
 UserNS=auto:size=4096
-# No IPv6 on either link: neither network has an IPv6 subnet, and this keeps the container off the
-# link-local neighbourhood of halogen's other networks (as for Halogen's own, #120).
-Sysctl=net.ipv6.conf.eth0.disable_ipv6=1
-Sysctl=net.ipv6.conf.eth1.disable_ipv6=1
+# No IPv6 on its links: neither network has an IPv6 subnet, and this keeps the container off the
+# link-local neighbourhood of halogen's other networks (as for Halogen's own, #120). "default", not
+# eth0/eth1: with a user namespace Podman makes the links after this is written (naming them
+# failed the start, security audit of #186); links made later copy it, loopback keeps its own.
+Sysctl=net.ipv6.conf.default.disable_ipv6=1
 DropCapability=all
 NoNewPrivileges=true
 ReadOnly=true

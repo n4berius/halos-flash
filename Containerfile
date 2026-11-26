@@ -230,7 +230,8 @@ RUN set -eu; \
     for c in halos-search halos-search-relay; do \
       sed -n "/^---$c.service---/,/^---/p" /tmp/quadlet.txt | grep -E '^ExecStart=/usr/bin/podman run ' > /tmp/q-run.txt; \
       for want in ' --network[= ]halos-search:ip=10\.89\.250\.2( |$)' ' --network[= ]halos-search-out( |$)' \
-          ' --publish[= ]127\.0\.0\.1:18730:8080( |$)' ' --cap-drop[= ]all( |$)' ' --read-only( |$)'; do \
+          ' --publish[= ]127\.0\.0\.1:18730:8080( |$)' ' --cap-drop[= ]all( |$)' ' --read-only( |$)' \
+          ' --userns[= ]auto:size=[0-9]+( |$)' ' --sysctl[= ]net\.ipv6\.conf\.default\.disable_ipv6=1( |$)'; do \
         grep -qE -- "$want" /tmp/q-run.txt || { echo "$c isn't set up as halOS expects ($want):" >&2; cat /tmp/q-run.txt >&2; exit 1; }; \
       done; \
     done; \

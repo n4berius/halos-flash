@@ -1318,19 +1318,39 @@ name, but allows saying halOS runs Halogen.
   Not run on freyja yet (Podman 6, SELinux, a real search).
   Hardening (#186, security audit of #184, owner agreed all five): `bundled|external` refuse while root's
   `api-key-off` exists and `api-key off` refuses while the drop-in exists (the search container
-  reaches Halogen's API at 10.89.250.3 past Caddy, fail2ban and the access log); `halos-search-out`
-  is `isolate=strict` (`true` cut only networks that also set it, not Podman's default one; the
-  build checks Quadlet's `--opt`, the selftest's `web-search` WARNs on another value, since
-  `--ignore` keeps an old network's options; netavark 1.4 here refuses `strict`, Fedora 45's 2.1
-  takes it); both search containers `UserNS=auto:size=4096|2048` (no ID maps to halogen's 970;
-  tried rootless with SearXNG's real image and the relay) and `Sysctl=` IPv6 off on eth0 and eth1
-  (this sandbox has no IPv6, so only the VM test runs it); the relay runs as 1000 (65534 would need
-  a 65535-ID range) and passes only GET/HEAD to `$HALOS_SEARCH_PATH/search` and `/healthz`, 404
-  for the rest, 405 for other methods (`handle` blocks: a bare `respond @other` is ordered after
-  `handle`, so a POST would have been proxied); `scripts/searxng-update.sh` (Docker Hub's tag list,
-  newest `YYYY.M.D-<commit>` by `sort -V`, never back; the raw index's sha256 as the pin, checked
-  to be an index with linux/amd64 whose revision label starts with the tag's commit;
-  `tests/searxng-update.sh` fakes curl and skopeo) and `searxng-update.yml` (like kernel-next's).
+  reaches Halogen's API at 10.89.250.3 past Caddy, fail2ban and the access log); render-config also
+  keeps `HALOGEN_API_KEY_FILE` while the drop-in exists, whatever the off file says (its
+  `search_dropin` is now a fixed path, like `api_key_off`: halogen can set its manager's
+  environment; `tests/config.sh` seds it), and the selftest's `api-key` WARNs on both files (FAIL
+  on a 200 then); `halos-search-out` is `isolate=strict` (`true` cuts only networks that also set
+  it; halogen's other bridges are internal and the download containers use pasta, so it's
+  future-proofing; the build checks Quadlet's `--opt`, the selftest's `web-search` WARNs on another
+  value once the unit is active, since `--ignore` keeps an old network's options; netavark 1.4
+  here refuses `strict`, Fedora 45's 2.1 takes it); both search containers
+  `UserNS=auto:size=4096|2048` (no ID maps to halogen's 970; the auto ranges come from halogen's
+  subuids, so they overlap low IDs of halogen's default-userns containers, nothing of halOS's runs
+  as those; tried rootless with SearXNG's real image and the relay) and
+  `Sysctl=net.ipv6.conf.default.disable_ipv6=1`: with a user namespace libpod makes the links after
+  the runtime writes sysctls, so naming eth0/eth1 fails the start (`open sysctl … no such file`,
+  security audit of #186, reproduced with runc; Halogen's own container has no userns and keeps
+  eth0/eth1); links made later copy `default`, `lo` keeps its own. The build checks `--userns` and
+  that sysctl; the selftest reads both links' `disable_ipv6` in the bundled container (the relay's
+  image has no `cat`). The relay runs as 1000 (65534 would need a 65535-ID range) and passes only
+  GET/HEAD to `$HALOS_SEARCH_PATH/search` and `/healthz`, 404 for the rest, 405 for other methods
+  (`handle` blocks: a bare `respond @other` is ordered after `handle`, so a POST would have been
+  proxied); each `handle` `rewrite`s to its literal path (`/search?{query}`), since Caddy matches
+  the cleaned, decoded, case-folded path but forwards the raw one (code review: `stats/../search`
+  and `preferences/..%2fsearch` went on as sent; tried with halOS's Caddy and a stand-in upstream).
+  `scripts/searxng-update.sh`: Docker Hub's tag list with `last_updated`, the newest
+  `YYYY.M.D-<commit>` by date (`sort -V`), then push time (a day has several releases and the hex
+  orders nothing); on the pin's own date only a tag pushed later moves it, never back; a date after
+  tomorrow UTC is refused; the raw index's sha256 is the pin, checked to be an index with
+  linux/amd64 whose revision label is a full commit starting with the tag's, the same digest on
+  `ghcr.io/searxng/searxng`, and the commit `behind`/`identical` to master in GitHub's anonymous
+  compare API (this session's proxy refuses that API, so only the fakes ran it);
+  `tests/searxng-update.sh` fakes curl and skopeo and checks each refusal's message. The workflow
+  (`searxng-update.yml`, like kernel-next's) commits only `versions.env` and stops if anything else
+  changed.
 - Build record (#121): the base stays the moving tag `fedora-bootc:45` (Fedora's fixes, weekly
   rebuild). `scripts/build-helpers.sh` (run by `build.sh`, or once per CI run, #122) resolves it once with `skopeo inspect` (a pinned `repo@sha256:` is checked
   to answer with that digest; a tag+digest reference is asked for as `repo@digest`, since

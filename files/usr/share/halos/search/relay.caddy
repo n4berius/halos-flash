@@ -19,14 +19,28 @@
 
 http://:8080 {
 	# handle blocks run in the order written, the first that matches alone.
+	# Caddy matches the cleaned, decoded path, without case, but would pass on the path as it came
+	# (code review of #186: /searx/stats/../search matched and went on as it was), so each page goes
+	# on as exactly its own path, with only the query kept.
 	@search {
 		method GET HEAD
-		path {$HALOS_SEARCH_PATH}/search {$HALOS_SEARCH_PATH}/healthz
+		path {$HALOS_SEARCH_PATH}/search
 	}
 	handle @search {
+		rewrite * {$HALOS_SEARCH_PATH}/search?{query}
 		reverse_proxy {$HALOS_SEARCH_UPSTREAM} {
 			# Your server sees its own name, as a browser would send it (needed for HTTPS and for
 			# servers that answer several names).
+			header_up Host {upstream_hostport}
+		}
+	}
+	@health {
+		method GET HEAD
+		path {$HALOS_SEARCH_PATH}/healthz
+	}
+	handle @health {
+		rewrite * {$HALOS_SEARCH_PATH}/healthz
+		reverse_proxy {$HALOS_SEARCH_UPSTREAM} {
 			header_up Host {upstream_hostport}
 		}
 	}

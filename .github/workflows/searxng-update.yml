@@ -61,8 +61,12 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Only the pin goes in: anything else the tests changed stops the run.
+          changed="$(git status --porcelain | cut -c4-)"
+          [ "$changed" = versions.env ] || { echo "more than versions.env changed: $changed" >&2; exit 1; }
           git switch -c "$BRANCH"
-          git commit -qam "Web search: move SearXNG to $NVR" -m "SearXNG's newest dated release, by the SearXNG update workflow."
+          git add versions.env
+          git commit -qm "Web search: move SearXNG to $NVR" -m "SearXNG's newest dated release, by the SearXNG update workflow."
           git push -q origin "$BRANCH"
           url="$(gh pr create --base main --head "$BRANCH" --title "Web search: move SearXNG to $NVR" --body-file "$RUNNER_TEMP/body.md")"
           echo "Opened $url" >> "$GITHUB_STEP_SUMMARY"
