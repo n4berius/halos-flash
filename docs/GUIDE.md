@@ -626,9 +626,17 @@ an earlier run.
 Halogen's [measurements](https://github.com/peonist-ai/halogen-flash-server/blob/main/docs/performance.md)
 used about 85 W of sustained power. A machine with a lower power limit shows lower numbers. The
 run uses the prompt cache as your server does. So compare the reading speeds with Halogen's "cache on (a cold
-request)" rows, not with the cache-off headline figures. The prompts of the run also go into the
-cache. They can push out long conversations from the cache, which then read their history again
-one time.
+request)" rows, not with the cache-off headline figures.
+
+Halogen's tool sends the same prompts at each run. The prompt cache keeps them on disk, so it can
+answer them again without reading them: then a 32K-token prompt seems to take 0.2 s. To prevent
+this, halOS starts each prompt with a word that is new for each run. If the cache still answers
+most of a prompt, the report shows a warning. Reports from before this change are not used for
+"Last run", because their reading speeds can be too high.
+
+The prompts of the run also go into the cache. Each full run adds about 3 GB that no later run
+uses, and the cache keeps 64 GiB by default, so many runs can push out long conversations from
+the cache. Those conversations then read their history again one time.
 
 ## Measuring tool calls
 
