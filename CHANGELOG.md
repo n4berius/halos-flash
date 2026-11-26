@@ -25,7 +25,7 @@ it promotes.
   Flash checkpoint is refused, it fails its check at the first start after the update, halOS
   serves the official checkpoint, and `sudo halogenctl status` tells you why.
 - Halogen can now serve Qwen3.8-27B in place of the Flash model, for a machine short of memory
-  (#184): `sudo halogenctl flash pull 27b`, then `sudo halogenctl flash use qwen3.8-27b`. Its
+  (#185): `sudo halogenctl flash pull 27b`, then `sudo halogenctl flash use qwen3.8-27b`. Its
   weights take about 13 GiB of memory, against about 68 GiB and a 48 GiB lookup table for the
   Flash model. Apps ask for it as `halogen-qwen3.8-27b`. The guide shows the memory each needs.
   `flash check` and `flash drafter` don't apply to it. Until you choose a checkpoint, halOS

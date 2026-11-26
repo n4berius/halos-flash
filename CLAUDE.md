@@ -1494,7 +1494,7 @@ and tracked on the owner's project board. [ROADMAP.md](ROADMAP.md) holds the ord
   `flash_serve` or `flash_serve-dense27` when the image sets `HALOGEN_IMAGE_ENGINES`; it refuses an
   id it has no engine for, also in `verify`, so an own checkpoint with an unexpected id fails the
   re-verify and render-config serves the official one; bf16-to-hgn writes `qwen3.8-flash-next-v2`,
-  what convert writes for a GGUF wasn't checked). The 27B as an own Flash checkpoint (#184, owner asked; the use case: a machine short of
+  what convert writes for a GGUF wasn't checked). The 27B as an own Flash checkpoint (#185, owner asked; the use case: a machine short of
   memory, so `flash pull 27b` is Peonist's `peonist-ai/halogen-qwen3.8-27b-ht4` as `qwen3.8-27b`,
   `HALOGEN_27B_REPO` test hook; owner's follow-up: choose by memory: no choice file, or `auto`
   (`flash use auto`; `valid_name` refuses `auto`), with MemTotal under 100 GiB (the selftest's
