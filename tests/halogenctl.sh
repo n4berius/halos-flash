@@ -698,6 +698,10 @@ f curl 'echo "curl $*" >> "$FAKE/log"; case "$*" in *healthz*) [ -n "${FAKE_SEAR
 : > "$work/log"
 "$ctl" web-search > "$work/out"; grep -q '^Web search: off' "$work/out" || { cat "$work/out" >&2; exit 1; }
 if "$ctl" web-search bundled < /dev/null > /dev/null 2>&1; then echo "web-search bundled ran without --yes or a terminal" >&2; exit 1; fi
+# With the API key off, the search container would reach Halogen's API unchecked: refused.
+touch "$HALOS_API_KEY_OFF_FILE"
+if "$ctl" web-search bundled --yes > "$work/out" 2>&1 || ! grep -q 'api-key on' "$work/out"; then cat "$work/out" >&2; echo "web search went on with the API key off" >&2; exit 1; fi
+rm -f "$HALOS_API_KEY_OFF_FILE"
 if [ -e "$HALOGEN_SEARCH_DROPIN" ] || [ -e "$HALOS_SEARCH_CONF" ]; then echo "web-search bundled changed something before asking" >&2; exit 1; fi
 if FAKE_UID=1000 "$ctl" web-search bundled --yes > "$work/out" 2>&1 || ! grep -q 'Run it with sudo' "$work/out"; then echo "web-search ran without root" >&2; exit 1; fi
 "$ctl" web-search bundled --yes > "$work/out" || { cat "$work/out" "$work/log" >&2; exit 1; }
@@ -706,6 +710,9 @@ want_dropin='[Unit]|Wants=halos-search.service|After=halos-search.service|[Conta
 # The selftest's config-files line excuses exactly what halogenctl writes.
 grep -qF "'$want_dropin'" "$repo/files/usr/libexec/halogen/selftest" || { echo "the selftest doesn't know the bundled drop-in" >&2; exit 1; }
 grep -qx 'HALOS_WEB_SEARCH=bundled' "$HALOS_SEARCH_CONF" || { echo "bundled wrote no mode" >&2; exit 1; }
+if "$ctl" api-key off --yes > "$work/out" 2>&1 || [ -e "$HALOS_API_KEY_OFF_FILE" ] || ! grep -q 'web-search off' "$work/out"; then
+  cat "$work/out" >&2; echo "the API key went off with web search on" >&2; exit 1
+fi
 for w in 'systemctl --user daemon-reload' 'systemctl --user stop halos-search-relay.service' 'systemctl --user start halos-search.service' 'restart halogen.service'; do
   grep -qF "$w" "$work/log" || { cat "$work/log" >&2; echo "bundled didn't run: $w" >&2; exit 1; }
 done

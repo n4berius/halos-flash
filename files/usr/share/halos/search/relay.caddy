@@ -1,9 +1,11 @@
 # The relay from Halogen to your own SearXNG (halos-search-relay.container): halOS's Caddy in a tiny
 # image, listening on 10.89.250.2:8080 on halos-search, where Halogen looks for web search. It
 # passes GET (and HEAD) requests to HALOS_SEARCH_UPSTREAM, the scheme, host and port of the URL
-# given to sudo halogenctl web-search external (checked there), and to nothing else; the path is
-# Halogen's, which render-config gives the URL's path as its prefix. Checked with caddy adapt when
-# the image is built.
+# given to sudo halogenctl web-search external (checked there), and to nothing else. Only the two
+# pages Halogen and halOS use pass: the search and the health page under HALOS_SEARCH_PATH, the URL's
+# path (render-config gives Halogen the same prefix). Every other page of your server gets 404, so
+# port 8730 can't be used to reach the rest of it (security audit of #184). Checked with caddy adapt
+# when the image is built.
 {
 	admin off
 	persist_config off
@@ -16,12 +18,24 @@
 }
 
 http://:8080 {
+	# handle blocks run in the order written, the first that matches alone.
+	@search {
+		method GET HEAD
+		path {$HALOS_SEARCH_PATH}/search {$HALOS_SEARCH_PATH}/healthz
+	}
+	handle @search {
+		reverse_proxy {$HALOS_SEARCH_UPSTREAM} {
+			# Your server sees its own name, as a browser would send it (needed for HTTPS and for
+			# servers that answer several names).
+			header_up Host {upstream_hostport}
+		}
+	}
 	@other not method GET HEAD
-	respond @other 405
-	reverse_proxy {$HALOS_SEARCH_UPSTREAM} {
-		# Your server sees its own name, as a browser would send it (needed for HTTPS and for
-		# servers that answer several names).
-		header_up Host {upstream_hostport}
+	handle @other {
+		respond 405
+	}
+	handle {
+		respond "Only searches pass to your SearXNG server; open its page on that server" 404
 	}
 	handle_errors 502 503 504 {
 		respond "Your SearXNG server didn't answer" 502

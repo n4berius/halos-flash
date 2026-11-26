@@ -310,6 +310,9 @@ and port forwards on your router. A home network with IPv6 can be reachable from
   request has a wrong key.
 - While the key is off, anybody can read Halogen's `/metrics`. Each read resets two values that
   the dashboard shows (see [The dashboard](#the-dashboard)).
+- You can't turn the key off while [web search](#web-search) is on, and you can't turn web search on
+  while the key is off. The search container can reach Halogen's API directly, without the front
+  door, so the key must stop it.
 - `sudo halogenctl selftest` shows `api-key`. It sends a request without the key. While the key is
   on, it shows FAIL if Halogen answers the request, and WARN for an unexpected answer.
 - The setting is the file `/etc/halos/api-key-off`, which only root can write. A rollback to a
@@ -527,6 +530,18 @@ the search container is on that network with Halogen. With your own SearXNG, the
 container is a small relay: it sends Halogen's requests to your server's address, and to no
 other address. So Halogen still can't connect to the internet or to your network.
 
+The search container is also kept apart from the rest of the machine:
+
+- Its network to the internet has no path to Podman's other networks.
+- It has no IPv6 on its links.
+- Its user IDs are its own. No ID in the container is the `halogen` user's, which owns the API key
+  and your Hugging Face token.
+- Web search works only while the [API key](#the-api-key) is on, because the search container can
+  reach Halogen's API directly.
+
+halOS pins SearXNG's image by its digest. A weekly check proposes each new SearXNG release as an
+update to halOS, so SearXNG's fixes come with halOS's updates.
+
 **Note:** Halogen's model writes the search queries from the conversation. So text from the
 conversation can leave the machine in a query: to public search engines with SearXNG on this
 machine, or to your own server. Text in a document or a search result can also tell the model
@@ -571,7 +586,8 @@ a DNS name. The relay uses IPv4 only, so give an IPv4 address or a name with an 
 `https://<this machine's address>:8730` (`http://` with [HTTPS](#https) off). Use it to try a
 search and to set your own preferences, which your browser keeps. The page has the same rules as
 [the dashboard](#the-dashboard): no login, and only this machine and private networks get an
-answer. When web search is off, port 8730 only says that it's off. The front door keeps no log of
+answer. When web search is off, port 8730 only says that it's off. With your own SearXNG, port 8730
+passes only searches to it: open that server's page on the server itself. The front door keeps no log of
 what you search on that port. SearXNG's own messages in halogen's journal can still show a query,
 for example when a search engine fails.
 

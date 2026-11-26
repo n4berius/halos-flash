@@ -26,10 +26,10 @@ cp -- "$caddy" "$r/caddy"; chmod 0755 "$r/caddy"
 cp -- "$conf" "$r/etc/relay/Caddyfile"
 cat -- "$ca" > "$r/etc/ssl/certs/ca-certificates.crt"
 : > "$r/etc/resolv.conf"; : > "$r/etc/hosts"; : > "$r/etc/hostname"
-printf '%s\n' 'nobody:x:65534:65534:nobody:/:/sbin/nologin' > "$r/etc/passwd"
-printf '%s\n' 'nobody:x:65534:' > "$r/etc/group"
+printf '%s\n' 'relay:x:1000:1000:relay:/:/sbin/nologin' > "$r/etc/passwd"
+printf '%s\n' 'relay:x:1000:' > "$r/etc/group"
 chmod -R a+rX "$r"
-# podman's tmpfs on /tmp (--read-only) takes the folder's mode: Caddy, as nobody, keeps a lock there.
+# podman's tmpfs on /tmp (--read-only) takes the folder's mode: Caddy, as its own user, keeps a lock there.
 chmod 1777 "$r/tmp"
 tar -C "$r" --owner=0 --group=0 -c . | podman import \
   --change 'ENTRYPOINT ["/caddy", "run", "--config", "/etc/relay/Caddyfile", "--adapter", "caddyfile"]' \

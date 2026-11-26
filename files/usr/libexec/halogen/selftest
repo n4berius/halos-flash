@@ -706,6 +706,10 @@ else
   [ "$smode" != external ] || { sunit=halos-search-relay.service; swhat="your own SearXNG, through the relay"; }
   sstate="$(run_alone setpriv --reuid="$huid" --regid="$huid" --clear-groups env -C / XDG_RUNTIME_DIR="/run/user/$huid" systemctl --user is-active "$sunit" | head -n 1 | tr -cd '[:alnum:]-')"
   sunit_text="$(run_alone setpriv --reuid="$huid" --regid="$huid" --clear-groups env -C / XDG_RUNTIME_DIR="/run/user/$huid" systemctl --user cat halogen.service)"
+  # The search container's way out keeps no path to Podman's other networks (isolate=strict). Quadlet
+  # never changes an existing network, so one made by an older halOS keeps its old options.
+  siso="$(run_alone setpriv --reuid="$huid" --regid="$huid" --clear-groups env -C / HOME=/var/lib/halogen XDG_RUNTIME_DIR="/run/user/$huid" \
+    podman network inspect halos-search-out --format '{{index .Options "isolate"}}' | tr -cd '[:alnum:]\n' | tail -n 1)"
   shealth="$(curl -q -sS -m 5 "http://127.0.0.1:$search_port$spath/healthz" 2>/dev/null | head -c 16 | tr -cd '[:alnum:]')"
   sinside=""
   if [ "${running:-0}" = 1 ]; then
@@ -719,6 +723,8 @@ except Exception as e:
   fi
   if [ "$smode" != bundled ] && [ "$smode" != external ]; then
     say WARN web-search "Halogen's drop-in is there, but $search_conf names no mode, so Halogen isn't told: sudo halogenctl web-search off, then on again"
+  elif [ "$siso" != strict ]; then
+    say WARN web-search "on ($swhat), but its network halos-search-out isn't isolate=strict (${siso:-no answer}): sudo halogenctl web-search off; then as halogen: podman network rm halos-search-out; then turn web search on again"
   elif ! grep -qE -- ' --network[= ]halos-search:ip=10\.89\.250\.3( |$)' <<< "$sunit_text"; then
     say WARN web-search "on ($swhat), but Halogen's service isn't on the search network: sudo halogenctl web-search $smode again"
   elif [ "$sstate" != active ]; then

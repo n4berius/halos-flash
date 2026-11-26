@@ -35,7 +35,7 @@ f podman 'case "$*" in *"exec halogen "*) [ "$PWD" = / ] || { echo "cannot chdir
     [ -n "${FAKE_MEMLOCK:-}" ] || { echo "crun: setrlimit RLIMIT_MEMLOCK: Operation not permitted"; exit 126; } ;; esac; case "$*" in *"exec halogen stat"*) printf "/tmp xfs\n/var/tmp %s\n/root xfs\n" "${FAKE_VARTMP:-xfs}" ;;
     *"exec halogen python3 -I -c import socket"*) echo "${FAKE_NETOUT-ENETUNREACH ENETUNREACH EPERM}" ;;
     *"inspect halogen --format"*) echo "${FAKE_NETS-halogen-internal }" ;; *"network inspect halogen-internal"*) echo "${FAKE_NETCFG-true false false 0 gw:<nil>}" ;;
-    *"network inspect halos-search"*) echo "${FAKE_SNETCFG-true false false 0 gw:<nil>}" ;; *"exec halogen python3 -I -c import urllib"*) echo "${FAKE_SINSIDE-200}" ;; *) exit 1 ;; esac'
+    *"network inspect halos-search-out"*) echo "${FAKE_SISO-strict}" ;; *"network inspect halos-search"*) echo "${FAKE_SNETCFG-true false false 0 gw:<nil>}" ;; *"exec halogen python3 -I -c import urllib"*) echo "${FAKE_SINSIDE-200}" ;; *) exit 1 ;; esac'
 f mokutil 'echo "SecureBoot ${FAKE_SB:-enabled}"'
 f getenforce 'echo "${FAKE_SELINUX:-Enforcing}"'
 # fail2ban: both jails loaded and two addresses shut out, unless FAKE_F2B says otherwise.
@@ -320,6 +320,7 @@ FAKE_UNIT="$su" "$selftest" > "$work/out" 2>&1 || true; expect '^FAIL network-co
 FAKE_UNIT="$su" FAKE_NETS="halogen-internal halos-search " FAKE_SNETCFG="false true false 0 gw:10.89.250.1" "$selftest" > "$work/out" 2>&1 || true
 expect '^FAIL network-config: '
 FAKE_NETS="halogen-internal halos-search " "$selftest" > "$work/out" 2>&1 || true; expect "^WARN web-search: .*isn't on the search network"
+FAKE_UNIT="$su" FAKE_SISO=true "$selftest" > "$work/out" 2>&1 || true; expect "^WARN web-search: .*isn't isolate=strict \\(true\\)"
 FAKE_UNIT="$su" FAKE_SSTATE=failed "$selftest" > "$work/out" 2>&1 || true; expect '^WARN web-search: .*halos-search.service is failed'
 FAKE_UNIT="$su" FAKE_SDOWN=1 "$selftest" > "$work/out" 2>&1 || true; expect "^WARN web-search: .*doesn't answer"
 FAKE_UNIT="$su" FAKE_SINSIDE=URLError "$selftest" > "$work/out" 2>&1 || true; expect "^WARN web-search: .*not from Halogen.s container \\(URLError\\)"

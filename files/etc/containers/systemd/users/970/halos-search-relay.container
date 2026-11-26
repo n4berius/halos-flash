@@ -23,7 +23,11 @@ EnvironmentFile=/etc/halos/web-search.env
 Environment=HOME=/tmp XDG_DATA_HOME=/tmp XDG_CONFIG_HOME=/tmp SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 # Go's collector works to stay under this, below the service's cap.
 Environment=GOMEMLIMIT=192MiB
-User=65534:65534
+User=1000:1000
+# Its own user ID range and no IPv6 on its links, as halos-search.container (security audit of #184).
+UserNS=auto:size=2048
+Sysctl=net.ipv6.conf.eth0.disable_ipv6=1
+Sysctl=net.ipv6.conf.eth1.disable_ipv6=1
 DropCapability=all
 NoNewPrivileges=true
 ReadOnly=true
