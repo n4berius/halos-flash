@@ -1052,6 +1052,198 @@ case "${1:-status}" in
       *) echo "usage: halogenctl cache [status | on | off | clear] [--yes]" >&2; exit 2 ;;
     esac
     ;;
+  web-search)
+    # Halogen's web_search tool (Halogen 0.21.0, HALOGEN_WEB_SEARCH_URL in its FLAGS.md): the
+    # server tool of /v1/messages that Claude Code's WebSearch uses. Off by default. bundled: SearXNG
+    # in a container of its own (halos-search.container); external <url>: your own SearXNG, through
+    # a relay (halos-search-relay.container), since Halogen's container has no way out (#120).
+    # Either way Halogen joins only the internal halos-search network, through root's drop-in
+    # below, and finds the search at 10.89.250.2:8080; render-config then sets the URL. Root's
+    # /etc/halos/web-search.env says which (and the relay's upstream). Off removes the drop-in and
+    # stops both; SearXNG's settings in /srv/configs/searxng stay.
+    wdropin="${HALOGEN_SEARCH_DROPIN:-/etc/containers/systemd/users/970/halogen.container.d/30-web-search.conf}"
+    wconf="${HALOS_SEARCH_CONF:-/etc/halos/web-search.env}"
+    wsettings="$configs/searxng/settings.yml"
+    wport="${HALOS_SEARCH_LOCAL_PORT:-18730}"
+    yes=0; args=()
+    for a in "${@:2}"; do if [ "$a" = --yes ]; then yes=1; else args+=("$a"); fi; done
+    wusage() { echo "usage: halogenctl web-search [status | bundled | external <url> | off | restart | edit] [--yes]" >&2; exit 2; }
+    wask() {
+      [ "$yes" != 1 ] || return 0
+      [ -t 0 ] || { echo "Nothing changed: add --yes to confirm without a terminal." >&2; exit 1; }
+      read -rp "$1 [y/N] " answer
+      [ "$answer" = y ] || [ "$answer" = Y ] || { echo "Nothing changed."; exit 1; }
+    }
+    huid="$(id -u halogen 2> /dev/null || echo 970)"
+    # halogen's own manager over its private socket, as records and cache use it.
+    as_manager() { setpriv --reuid="$huid" --regid="$huid" --clear-groups env -C / XDG_RUNTIME_DIR="/run/user/$huid" setsid -w systemctl --user "$@"; }
+    # Whether a unit of halogen's runs; an answer that is neither running nor stopped stops here.
+    wrunning() {
+      local s; s="$(as_manager is-active "$1" 2> /dev/null | head -n 1)" || true
+      case "$s" in active|activating|reloading|deactivating) return 0 ;; inactive|failed) return 1 ;;
+        *) echo "Couldn't ask halogen's service manager about $1 (${s:-no answer}); try again." >&2; exit 1 ;; esac
+    }
+    # The mode: off unless the drop-in is there; then what root's file says.
+    wmode() {
+      local m=""
+      [ -f "$wdropin" ] || { echo off; return; }
+      [ ! -f "$wconf" ] || m="$(sed -n 's/^HALOS_WEB_SEARCH=//p' "$wconf" | tail -n 1 | tr -cd '[:lower:]')"
+      case "$m" in bundled|external) echo "$m" ;; *) echo unknown ;; esac
+    }
+    wunit() { case "$1" in bundled) echo halos-search.service ;; *) echo halos-search-relay.service ;; esac; }
+    wvalue() { [ ! -f "$wconf" ] || sed -n "s/^$1=//p" "$wconf" | tail -n 1 | tr -cd '[:print:]'; }
+    # Whether halogen's generated unit has Halogen on the search network, read whole (no SIGPIPE).
+    joined() { local u; u="$(as_manager cat halogen.service 2> /dev/null)" || true; grep -qE -- ' --network[= ]halos-search:ip=10\.89\.250\.3( |$)' <<< "$u"; }
+    # SearXNG's health page, from this machine (the search container publishes it on 127.0.0.1 only).
+    answers() { [ "$(curl -q -sS -m 5 "http://127.0.0.1:$wport$1/healthz" 2> /dev/null | head -c 16 | tr -cd '[:alnum:]')" = OK ]; }
+    wait_answer() {
+      local i
+      for i in $(seq 1 "${HALOS_SEARCH_WAIT:-60}"); do answers "$1" && return 0; [ "$i" = "${HALOS_SEARCH_WAIT:-60}" ] || sleep 1; done
+      return 1
+    }
+    # A request to your own server from this machine, as nobody, with no terminal (as tang-unlock
+    # reads a tang server): it must answer JSON, as Halogen will ask it.
+    as_nobody() {
+      if [ -z "${HALOS_FETCH_AS_ROOT:-}" ]; then
+        setsid -w setpriv --reuid=65534 --regid=65534 --clear-groups --no-new-privs -- env -C / "$@" < /dev/null
+      else setsid -w "$@" < /dev/null; fi
+    }
+    wjson() {
+      as_nobody curl -q -fsS -G -m 20 --max-filesize 4194304 --proto =http,https --proto-redir =http,https \
+        --data-urlencode "q=halOS" --data format=json "$1/search" 2> /dev/null | head -c 4194304 | jq -e '.results | type == "array"' > /dev/null 2>&1
+    }
+    # Halogen's drop-in: on halos-search at its own address, IPv6 off on both its links (which one
+    # is eth1 depends on Podman's order), and the search unit started with it.
+    write_dropin() {
+      install -d -m 0755 "${wdropin%/*}"
+      printf '%s\n' "# Written by sudo halogenctl web-search; removed by web-search off." "[Unit]" \
+        "Wants=$1" "After=$1" "[Container]" "Network=halos-search.network:ip=10.89.250.3" \
+        "Sysctl=net.ipv6.conf.eth1.disable_ipv6=1" > "$wdropin.new"
+      chmod 0644 "$wdropin.new"; mv -f "$wdropin.new" "$wdropin"
+    }
+    write_conf() {
+      install -d -m 0755 "${wconf%/*}"
+      { echo "# Written by sudo halogenctl web-search: bundled, or external with your SearXNG's address."
+        echo "HALOS_WEB_SEARCH=$1"
+        if [ "$1" = external ]; then echo "HALOS_SEARCH_UPSTREAM=$2"; echo "HALOS_SEARCH_PATH=$3"; fi; } > "$wconf.new"
+      chmod 0644 "$wconf.new"; mv -f "$wconf.new" "$wconf"
+    }
+    restart_if_running() {
+      if wrunning halogen.service; then start_halogen restart; echo "Halogen is restarting; follow it with: sudo halogenctl logs"
+      else echo "It applies when Halogen next starts (sudo halogenctl start)."; fi
+    }
+    cmd="${args[0]:-status}"
+    # Every form needs root, status too: without it the reads of halogen's units fail quietly and
+    # status would give wrong advice.
+    [ "$(id -u)" = 0 ] || { echo "Run it with sudo: sudo halogenctl web-search ${args[*]}" >&2; exit 1; }
+    case "$cmd" in
+      status)
+        m="$(wmode)"
+        case "$m" in
+          off) echo "Web search: off. Halogen answers a request that needs it with an error."
+               echo "On: sudo halogenctl web-search bundled (SearXNG on this machine), or external <url> (your own SearXNG)." ;;
+          unknown) echo "Web search: Halogen's drop-in is there, but $wconf names no mode: sudo halogenctl web-search off, then on again." ;;
+          *)
+            u="$(wunit "$m")"; st="$(as_manager is-active "$u" 2> /dev/null | head -n 1 | tr -cd '[:alnum:]-')" || true
+            wpath=""; [ "$m" = bundled ] || wpath="$(wvalue HALOS_SEARCH_PATH)"
+            if [ "$m" = bundled ]; then echo "Web search: on, with SearXNG on this machine ($u: ${st:-unknown})."
+            else echo "Web search: on, with your SearXNG at $(wvalue HALOS_SEARCH_UPSTREAM)$wpath, through the relay ($u: ${st:-unknown})."; fi
+            if answers "$wpath"; then echo "SearXNG answers."; else echo "SearXNG doesn't answer yet. Its log: sudo journalctl _SYSTEMD_USER_UNIT=$u. Try: sudo halogenctl web-search restart"; fi
+            if joined; then echo "Halogen's service is on the search network."; else echo "Halogen's service isn't on the search network: sudo halogenctl web-search $m${wpath:+ ...} again."; fi
+            [ "$m" != bundled ] || echo "Its settings: $wsettings (sudo halogenctl web-search edit). Its page: port 8730 (sudo halosctl https shows the address)." ;;
+        esac ;;
+      bundled|external)
+        up=""; path=""
+        if [ "$cmd" = external ]; then
+          url="${args[1]:-}"; if [ -z "$url" ] || [ -n "${args[2]:-}" ]; then wusage; fi
+          # http(s)://host[:port][/path], plain characters only: the parts go into the relay's
+          # settings and into Halogen's URL. No user name or password, query or fragment.
+          case "$url" in http://*|https://*) ;; *) echo "Give the address with http:// or https://, such as https://search.example.com" >&2; exit 2 ;; esac
+          scheme="${url%%://*}"; rest="${url#*://}"; hostport="${rest%%/*}"; path="${rest#"$hostport"}"; path="${path%/}"
+          host="$hostport"; port=""
+          # The relay's network has no IPv6, so an IPv6 address could never be reached from it.
+          if [[ "$hostport" == \[* ]]; then echo "The relay reaches your server over IPv4 only: give its IPv4 address or a DNS name with an IPv4 address." >&2; exit 2
+          elif [[ "$hostport" =~ ^([A-Za-z0-9]([A-Za-z0-9-]{0,62}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,62}[A-Za-z0-9])?)*)(:([0-9]{1,5}))?$ ]]; then host="${BASH_REMATCH[1]}"; port="${BASH_REMATCH[6]}"
+          else echo "That address's host part isn't a plain name or IP address (no user name, password or odd characters): $hostport" >&2; exit 2; fi
+          if [ -n "$port" ] && { [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; }; then echo "No such port: $port" >&2; exit 2; fi
+          if ! [[ "$path" =~ ^(/[A-Za-z0-9._~-]+)*$ ]] || [[ "$path/" == */./* ]] || [[ "$path/" == */../* ]]; then
+            echo "The path may hold only letters, digits and . _ ~ - between slashes (no . or .. step), with no ? or #: ${path}" >&2; exit 2
+          fi
+          case "${host,,}" in
+            *.local) echo "A .local name can't be found from the relay's container (no mDNS there): give the server's IP address or a DNS name." >&2; exit 2 ;;
+            localhost|*.localhost|127.*|0.*) echo "A SearXNG on this machine itself can't be reached from the relay: use sudo halogenctl web-search bundled." >&2; exit 2 ;;
+            10.89.250.*) echo "That address is web search's own network inside halOS." >&2; exit 2 ;;
+          esac
+          up="$scheme://$hostport"
+          echo "Asking $up$path/search for JSON, as Halogen will..."
+          if ! wjson "$up$path"; then
+            echo "$up$path doesn't answer a search in JSON. In that SearXNG's settings.yml, search: formats: must list json (and its bot limiter must let this machine through); then run this again." >&2
+            exit 1
+          fi
+          echo "It answers."
+          wask "Turn on web search through your SearXNG at $up$path? Halogen's searches go to that server only, and its queries can hold text from your conversations. Halogen restarts if it runs."
+        else
+          wask "Turn on web search with SearXNG on this machine? Its first start downloads SearXNG's image (about 100 MB, $(sed -n 's/^SEARXNG_VERSION=//p' "${HALOGEN_RELEASE_FILE:-/usr/share/halogen/release.env}" | tail -n 1 | tr -cd '[:alnum:].-')); searches then go from this machine to public search engines, and their queries can hold text from your conversations. Halogen restarts if it runs."
+        fi
+        other=halos-search-relay.service; [ "$cmd" = bundled ] || other=halos-search.service
+        u="$(wunit "$cmd")"
+        write_conf "$cmd" "$up" "$path"
+        write_dropin "$u"
+        as_manager daemon-reload || { echo "halogen's service manager didn't reload; see: sudo halogenctl selftest" >&2; exit 1; }
+        joined || { echo "Halogen's service isn't on the search network after the reload; see: sudo halogenctl selftest" >&2; exit 1; }
+        as_manager stop "$other" 2> /dev/null || true
+        if [ "$cmd" = bundled ]; then echo "Starting SearXNG (the first start downloads it)..."; fi
+        # restart: the relay reads its upstream at start, and a running SearXNG keeps going.
+        as_manager reset-failed "$u" 2> /dev/null || true
+        if [ "$cmd" = bundled ]; then as_manager start "$u" || true; else as_manager restart "$u" || true; fi
+        if wait_answer "$path"; then echo "SearXNG answers."
+        else echo "SearXNG doesn't answer yet. Halogen is set to use it anyway; see: sudo halogenctl web-search status, and sudo journalctl _SYSTEMD_USER_UNIT=$u" >&2; fi
+        restart_if_running ;;
+      off)
+        m="$(wmode)"
+        if [ "$m" = off ]; then
+          # Already off, unless an earlier off was cut short before a search unit stopped.
+          as_manager stop halos-search.service halos-search-relay.service 2> /dev/null || true
+          echo "Web search is already off. If Halogen didn't restart since: sudo halogenctl restart"; exit 0
+        fi
+        wask "Turn web search off? Halogen restarts if it runs. SearXNG's settings in $configs/searxng stay."
+        rm -f "$wdropin" "$wconf"
+        as_manager daemon-reload || { echo "halogen's service manager didn't reload; see: sudo halogenctl selftest" >&2; exit 1; }
+        ! joined || { echo "Halogen's service is still on the search network after the reload; see: sudo halogenctl selftest" >&2; exit 1; }
+        as_manager stop halos-search.service halos-search-relay.service 2> /dev/null || true
+        echo "Web search is off."
+        restart_if_running ;;
+      restart)
+        m="$(wmode)"
+        case "$m" in bundled|external) ;; *) echo "Web search is off: nothing to restart." >&2; exit 1 ;; esac
+        u="$(wunit "$m")"; wpath=""; [ "$m" = bundled ] || wpath="$(wvalue HALOS_SEARCH_PATH)"
+        as_manager reset-failed "$u" 2> /dev/null || true
+        as_manager restart "$u" || true
+        if wait_answer "$wpath"; then echo "SearXNG answers."; else echo "SearXNG doesn't answer yet; see: sudo journalctl _SYSTEMD_USER_UNIT=$u" >&2; exit 1; fi ;;
+      edit)
+        # Root's private copy, as halogenctl settings --editor does: nothing of halogen's runs on
+        # root's terminal, and root never opens halogen's file itself. It goes back as halogen.
+        if [ ! -t 0 ] || [ ! -t 1 ]; then echo "edit needs a terminal." >&2; exit 1; fi
+        # shellcheck disable=SC2016 # expanded by the halogen shell, from its arguments
+        wread() { as_owner sh -c '[ -f "$1" ] && [ ! -L "$1" ] && head -c 1048577 -- "$1"' sh "$wsettings" < /dev/null; }
+        tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+        wread > "$tmp/settings.yml" || { echo "There is no $wsettings yet: it is made at SearXNG's first start (sudo halogenctl web-search bundled)." >&2; exit 1; }
+        [ "$(stat -c %s "$tmp/settings.yml")" -le 1048576 ] || { echo "$wsettings is larger than 1 MiB; nothing changed." >&2; exit 1; }
+        cp "$tmp/settings.yml" "$tmp/before"
+        editor="$(command -v "${EDITOR:-nano}" || command -v nano || command -v vi || true)"
+        [ -n "$editor" ] || { echo "No editor found." >&2; exit 1; }
+        if ! "$editor" "$tmp/settings.yml" || cmp -s "$tmp/before" "$tmp/settings.yml"; then echo "No change."; exit 0; fi
+        wread 2> /dev/null | cmp -s - "$tmp/before" || { echo "$wsettings changed while you were editing it, so nothing was saved. Run this again." >&2; exit 1; }
+        # shellcheck disable=SC2016 # expanded by the halogen shell, from its arguments
+        as_owner sh -c 't="$(mktemp "$1.XXXXXX")" && cat > "$t" && chmod 0644 "$t" && mv -f "$t" "$1" || { rm -f "$t"; exit 1; }' sh "$wsettings" < "$tmp/settings.yml"
+        echo "Saved."
+        if [ "$(wmode)" = bundled ] && wrunning halos-search.service; then
+          as_manager restart halos-search.service || true
+          if wait_answer ""; then echo "SearXNG restarted and answers."; else echo "SearXNG doesn't answer after the restart: a mistake in the file? Edit it again, or see: sudo journalctl _SYSTEMD_USER_UNIT=halos-search.service" >&2; exit 1; fi
+        fi ;;
+      *) wusage ;;
+    esac
+    ;;
   bench)
     # Speed: Halogen's own sweep against the running server; the report goes to /srv/configs/bench.
     # Tool calls: tool-eval-bench's scenarios; the report goes to /srv/configs/bench/tools.
@@ -1066,5 +1258,5 @@ case "${1:-status}" in
       halogen_run /usr/libexec/halogen/bench ${2:+"$2"}
     fi
     ;;
-  *) echo "usage: halogenctl status|start|stop|restart|logs [lines]|fetch-logs [lines]|doctor|selftest|bench [--quick]|bench tools [--quick]|config|options [--new]|settings [--editor] [--no-restart]|api-key [status|on|off]|hf-token [--remove]|records [on|off|stats|prune]|cache [on|off|clear]|model pull|list|remove|flash pull|convert|convert-logs|convert-stop|list|use|drafter|verify|check|remove" >&2; exit 2 ;;
+  *) echo "usage: halogenctl status|start|stop|restart|logs [lines]|fetch-logs [lines]|doctor|selftest|bench [--quick]|bench tools [--quick]|config|options [--new]|settings [--editor] [--no-restart]|api-key [status|on|off]|hf-token [--remove]|records [on|off|stats|prune]|cache [on|off|clear]|web-search [bundled|external <url>|off|restart|edit]|model pull|list|remove|flash pull|convert|convert-logs|convert-stop|list|use|drafter|verify|check|remove" >&2; exit 2 ;;
 esac

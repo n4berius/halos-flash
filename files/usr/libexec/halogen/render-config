@@ -8,6 +8,9 @@
 # at /records (a Quadlet drop-in only root writes); then the text kept defaults to none.
 # The prompt cache on disk (HALOGEN_CACHE_DIR=/models/.prompt-cache, the folder /srv/models/.prompt-cache) is on
 # unless sudo halogenctl cache off wrote "off" in /srv/configs/prompt-cache.
+# Web search (Halogen's HALOGEN_WEB_SEARCH_URL) is on only while sudo halogenctl web-search has put
+# Halogen on the halos-search network (root's drop-in), where the search container (bundled SearXNG
+# or the relay to your own) stands at 10.89.250.2:8080; root's /etc/halos/web-search.env says which.
 # The API key (/srv/configs/api-key, mounted at /run/secrets/halogen-api-key) is required unless
 # sudo halogenctl api-key off made root's /etc/halos/api-key-off, which halogen can't write.
 # Halogen's own draft head file (qwen38-flash-next-drafter-r2-ht4.hgn) drafts beside the official
@@ -37,6 +40,9 @@ cache_off_dropin="${HALOGEN_CACHE_OFF_DROPIN:-/etc/containers/systemd/users/halo
 # environment halogen can set (systemctl --user set-environment), and that must not open the API.
 api_key_off=/etc/halos/api-key-off
 records_dropin="${HALOGEN_RECORDS_DROPIN:-/etc/containers/systemd/users/970/halogen.container.d/20-records.conf}"
+search_dropin="${HALOGEN_SEARCH_DROPIN:-/etc/containers/systemd/users/970/halogen.container.d/30-web-search.conf}"
+# Fixed, as the API key's off file: halogen can't write /etc/halos, nor point this elsewhere.
+search_conf=/etc/halos/web-search.env
 runtime="${XDG_RUNTIME_DIR:-/run/user/970}/halogen"
 output="$runtime/effective.env"
 mkdir -p "$runtime" || exit 1
@@ -255,6 +261,22 @@ if [ -f "$records_dropin" ]; then
 else
   # Off: nothing is mounted, so nothing about records reaches Halogen.
   unset 'values[HALOGEN_RECORD_TEXT]' 'values[HALOGEN_RECORD_GIB]' 'values[HALOGEN_RECORD_DAYS]'
+fi
+
+# Web search. HALOGEN_WEB_SEARCH_URL is blocked in halogen.env (gen-options.py): the address is
+# always the search container's on halos-search, the only place Halogen's container can reach.
+unset 'values[HALOGEN_WEB_SEARCH_URL]'
+if [ -f "$search_dropin" ]; then
+  smode="$(sed -n 's/^HALOS_WEB_SEARCH=//p' "$search_conf" 2>/dev/null | tail -n 1)"
+  spath="$(sed -n 's/^HALOS_SEARCH_PATH=//p' "$search_conf" 2>/dev/null | tail -n 1)"
+  case "$smode" in
+    bundled) values[HALOGEN_WEB_SEARCH_URL]=http://10.89.250.2:8080 ;;
+    # Your SearXNG's own path, if it has one: the relay passes it on as it is.
+    external)
+      if [[ "$spath" =~ ^(/[A-Za-z0-9._~-]+)*$ ]] && [[ "$spath/" != */./* ]] && [[ "$spath/" != */../* ]]; then values[HALOGEN_WEB_SEARCH_URL]="http://10.89.250.2:8080$spath"
+      else echo "halogen-config: web search stays off: the path in $search_conf isn't plain (sudo halogenctl web-search external <url> again)" >&2; fi ;;
+    *) echo "halogen-config: web search stays off: $search_conf names no mode (sudo halogenctl web-search off, then on again)" >&2 ;;
+  esac
 fi
 
 # The prompt cache on disk. Halogen writes only under HALOGEN_CACHE_DIR; without the folder

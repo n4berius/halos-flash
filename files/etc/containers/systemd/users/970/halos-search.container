@@ -1,0 +1,48 @@
+# Bundled web search (sudo halogenctl web-search bundled): SearXNG, a metasearch engine
+# (https://github.com/searxng/searxng, AGPL-3.0-or-later), from its own project's image, pinned by
+# digest in versions.env (SEARXNG_IMAGE) and downloaded at its first start, not shipped in halOS.
+# Halogen's web_search tool (Halogen 0.21.0, HALOGEN_WEB_SEARCH_URL in its FLAGS.md) asks it at
+# http://10.89.250.2:8080 over halos-search, the one network they share; only this container goes
+# out (halos-search-out). Its page is on port 8730 through the front door (halos-proxy, private
+# networks only). Off by default: nothing starts it until Halogen's drop-in, written by
+# halogenctl web-search, wants it. Its settings: /srv/configs/searxng/settings.yml.
+[Unit]
+Description=SearXNG web search for Halogen (bundled)
+Documentation=https://docs.searxng.org/admin/settings/
+Conflicts=halos-search-relay.service
+StartLimitIntervalSec=900
+StartLimitBurst=5
+
+[Container]
+Image=@SEARXNG_IMAGE@
+# Downloaded at the first start, and again only when a halOS update pins another digest.
+Pull=missing
+ContainerName=halos-search
+Network=halos-search.network:ip=10.89.250.2
+Network=halos-search-out.network
+# Its page, for the front door's port 8730 only.
+PublishPort=127.0.0.1:18730:8080
+# IPv4 only: the image listens on :: by default, which fails where a network has no IPv6.
+Environment=GRANIAN_HOST=0.0.0.0
+# As SearXNG's own user (977 in the image; on the host one of halogen's subordinate ids, not
+# halogen itself), with no capabilities, on a read-only image. The settings come in read-only; its
+# cache folder is a volume of its own, removed with the container.
+User=977:977
+DropCapability=all
+NoNewPrivileges=true
+ReadOnly=true
+Volume=/srv/configs/searxng/settings.yml:/etc/searxng/settings.yml:ro
+Volume=/var/cache/searxng
+
+[Service]
+# Makes /srv/configs/searxng/settings.yml from halOS's template (with its own secret) when missing.
+ExecStartPre=/usr/libexec/halogen/search-prepare
+# A container left by a hard reboot goes first, with its volumes.
+ExecStartPre=-/usr/bin/podman rm -v -f -i halos-search
+# The first start downloads the image (about 100 MB).
+TimeoutStartSec=900
+Restart=on-failure
+RestartSec=10
+MemoryMax=768M
+CPUQuota=200%
+TasksMax=256

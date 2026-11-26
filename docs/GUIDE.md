@@ -260,9 +260,10 @@ that the machine unlocks automatically again. Without TPM unlock, nothing change
 
 ## The front door
 
-[Caddy](https://caddyserver.com) (`halos-proxy.service`) answers the network on both ports:
-**8731** for the API of Halogen and **8732** for the dashboard. Halogen and the dashboard listen
-only on this machine (`127.0.0.1:18731` and `127.0.0.1:18732`). So every connection from another
+[Caddy](https://caddyserver.com) (`halos-proxy.service`) answers the network on three ports:
+**8731** for the API of Halogen, **8732** for the dashboard and **8730** for the page of
+[web search](#web-search). Halogen and the dashboard listen only on this machine
+(`127.0.0.1:18731` and `127.0.0.1:18732`), and so does web search (`127.0.0.1:18730`). So every connection from another
 computer goes through Caddy, over plain HTTP or [HTTPS](#https).
 
 - Caddy sends replies on as Halogen sends them. It adds no buffer.
@@ -332,7 +333,7 @@ sudo halosctl https letsencrypt cloudflare halos.example.com   # on, with Let's 
 sudo halosctl https off                    # back to plain HTTP
 ```
 
-With HTTPS on, both ports use it. Apps use `https://<address>:8731/v1`, and the dashboard is at
+With HTTPS on, all three ports use it. Apps use `https://<address>:8731/v1`, and the dashboard is at
 `https://<address>:8732`. On each port, Caddy redirects a plain `http://` request to `https://`.
 Apps that send the key over `http://` still send it one time before they follow the redirect.
 So change their address to `https://`.
@@ -507,6 +508,95 @@ as its own user, with no access to Halogen's files, models or tokens.
   `http://<address>:8732/metrics`.
 - If you change the API key in `/srv/configs/api-key`, restart the dashboard:
   `sudo systemctl restart halos-dashboard`.
+
+## Web search
+
+Halogen can search the web for a model that asks for it. Claude Code's WebSearch tool uses this
+(the `web_search` tool of `/v1/messages`). Web search is off by default. You can turn it on in
+two ways:
+
+- **SearXNG on this machine.** halOS runs [SearXNG](https://github.com/searxng/searxng), a
+  metasearch engine, in a container of its own. SearXNG sends the searches to public search
+  engines and gives the results to Halogen.
+- **Your own SearXNG.** Halogen uses a SearXNG server that you already have, for example on
+  your NAS or in Kubernetes. Halogen's searches then go only to that server.
+
+Halogen's container has no connection out of the machine (see [Design choices](#design-choices)),
+and web search doesn't change that. Halogen gets one more private network, `halos-search`. Only
+the search container is on that network with Halogen. With your own SearXNG, the search
+container is a small relay: it sends Halogen's requests to your server's address, and to no
+other address. So Halogen still can't connect to the internet or to your network.
+
+**Note:** Halogen's model writes the search queries from the conversation. So text from the
+conversation can leave the machine in a query: to public search engines with SearXNG on this
+machine, or to your own server. Text in a document or a search result can also tell the model
+what to search for. Turn on web search only if that is acceptable for what you send to Halogen.
+
+To use SearXNG on this machine:
+
+1. Run this command:
+
+   ```bash
+   sudo halogenctl web-search bundled
+   ```
+
+   The first start downloads SearXNG's image (about 100 MB). Then Halogen restarts.
+2. Look at the result:
+
+   ```bash
+   sudo halogenctl web-search
+   ```
+
+To use your own SearXNG, give its address, with `http://` or `https://`:
+
+```bash
+sudo halogenctl web-search external https://search.example.com
+```
+
+Before it changes something, halOS sends one search to that address and asks for JSON, as
+Halogen will. If the server doesn't answer in JSON, halOS changes nothing. Then add `json` to
+`search: formats:` in that server's `settings.yml`. If the server uses SearXNG's bot limiter,
+let this machine's address through. The relay can't find `.local` names: give an IP address or
+a DNS name. The relay uses IPv4 only, so give an IPv4 address or a name with an IPv4 address.
+
+`sudo halogenctl web-search off` turns web search off again. Halogen restarts.
+
+**Warning:** Turn web search off before you go back to a halOS image from before web search
+(`sudo halosctl rollback`). That image can't start Halogen while web search is on, and its
+`halogenctl` can't turn it off. If you forgot, remove the file
+`/etc/containers/systemd/users/970/halogen.container.d/30-web-search.conf` and run
+`sudo halogenctl restart`.
+
+**SearXNG's page.** With SearXNG on this machine, its page is on port 8730:
+`https://<this machine's address>:8730` (`http://` with [HTTPS](#https) off). Use it to try a
+search and to set your own preferences, which your browser keeps. The page has the same rules as
+[the dashboard](#the-dashboard): no login, and only this machine and private networks get an
+answer. When web search is off, port 8730 only says that it's off. The front door keeps no log of
+what you search on that port. SearXNG's own messages in halogen's journal can still show a query,
+for example when a search engine fails.
+
+**SearXNG's settings.** halOS makes `/srv/configs/searxng/settings.yml` at SearXNG's first start,
+with a secret of its own, and never changes it after that. halOS's settings turn on the JSON
+answers that Halogen needs, and turn off SearXNG's bot limiter and image proxy. To change the
+settings:
+
+1. Run `sudo halogenctl web-search edit`. The file opens in an editor.
+2. Save the file and close the editor. SearXNG restarts with the new settings.
+
+All SearXNG settings are in [SearXNG's documentation](https://docs.searxng.org/admin/settings/).
+If you change the file in another way, run `sudo halogenctl web-search restart`.
+
+Some facts about web search:
+
+- SearXNG runs as its own user in its container, without capabilities, on a read-only image. It
+  can use at most 768 MB of memory and two CPU cores, so it can't take much from Halogen.
+- SearXNG's image comes from the SearXNG project, at the exact version that halOS names
+  (`SEARXNG_IMAGE` in `/usr/share/halogen/release.env`). A halOS update can name a newer
+  version. SearXNG then downloads again at its next start.
+- What a web page says can try to give the model instructions. Treat search results as you treat
+  any text from the internet.
+- `sudo halogenctl selftest` checks that the search answers, also from Halogen's container
+  (the `web-search` line).
 
 ## fail2ban
 

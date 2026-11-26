@@ -12,6 +12,9 @@ models="${HALOGEN_MODELS_DIR:-/srv/models}"
 configs="${HALOGEN_CONFIGS_DIR:-/srv/configs}"
 logs="${HALOGEN_LOGS_DIR:-/srv/logs}"
 records_dropin="${HALOGEN_RECORDS_DROPIN:-/etc/containers/systemd/users/970/halogen.container.d/20-records.conf}"
+search_dropin="${HALOGEN_SEARCH_DROPIN:-/etc/containers/systemd/users/970/halogen.container.d/30-web-search.conf}"
+search_conf="${HALOS_SEARCH_CONF:-/etc/halos/web-search.env}"
+search_port="${HALOS_SEARCH_LOCAL_PORT:-18730}"
 clock="${HALOGEN_CLOCK:-/usr/libexec/halogen/halogen-fabric-clock}"
 port="${HALOGEN_API_PORT:-8731}"
 # Halogen itself, behind halos-proxy (Caddy) on this machine only.
@@ -112,12 +115,22 @@ done < <(cd "$usretc" 2>/dev/null && find audit containers/systemd ! -type d 2>/
 rec="containers/systemd/users/970/halogen.container.d/20-records.conf"
 # The same for the drop-in "halogenctl cache off" writes, which mounts the cache folder read-only.
 pcoff="containers/systemd/users/halogen.container.d/15-prompt-cache.conf"
+# And the one "halogenctl web-search" writes, which puts Halogen on the search network.
+wsd="containers/systemd/users/970/halogen.container.d/30-web-search.conf"
 extra=""
 while IFS= read -r f; do
-  [ -e "$usretc/$f" ] || [ "$f" = "$rec" ] || [ "$f" = "$pcoff" ] || extra+="/etc/$f "
+  [ -e "$usretc/$f" ] || [ "$f" = "$rec" ] || [ "$f" = "$pcoff" ] || [ "$f" = "$wsd" ] || extra+="/etc/$f "
 done < <(cd "$etc" 2>/dev/null && find audit containers/systemd ! -type d 2>/dev/null | head -n 200 | tr -cd '[:print:]\n')
 if [ -e "$etc/$rec" ] && [ "$(grep -v -e '^#' -e '^$' -e '^\[Container\]$' "$etc/$rec")" != 'Volume=/srv/logs/halogen:/records:noexec,nosuid,nodev' ]; then extra+="/etc/$rec (not what halogenctl records on writes now; if an older version wrote it: sudo halogenctl records off, then sudo halogenctl records on) "; fi
 if [ -e "$etc/$pcoff" ] && [ "$(grep -v -e '^#' -e '^$' -e '^\[Container\]$' "$etc/$pcoff")" != 'Volume=/srv/models/.prompt-cache:/models/.prompt-cache:ro,noexec,nosuid,nodev' ]; then extra+="/etc/$pcoff (not what halogenctl cache off writes) "; fi
+if [ -e "$etc/$wsd" ]; then
+  wsl="$(grep -v -e '^#' -e '^$' "$etc/$wsd" | tr '\n' '|')"
+  case "$wsl" in
+    '[Unit]|Wants=halos-search.service|After=halos-search.service|[Container]|Network=halos-search.network:ip=10.89.250.3|Sysctl=net.ipv6.conf.eth1.disable_ipv6=1|') ;;
+    '[Unit]|Wants=halos-search-relay.service|After=halos-search-relay.service|[Container]|Network=halos-search.network:ip=10.89.250.3|Sysctl=net.ipv6.conf.eth1.disable_ipv6=1|') ;;
+    *) extra+="/etc/$wsd (not what halogenctl web-search writes: sudo halogenctl web-search off, then on again) " ;;
+  esac
+fi
 if [ ! -e "$usretc/audit/rules.d/50-halos.rules" ]; then
   say SKIP config-files "the image's copies in $usretc are missing, so there is nothing to compare with"
 elif [ -n "$cchanged" ]; then
@@ -637,9 +650,20 @@ print(" ".join(r))'
     podman inspect halogen --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' | tr -cd '[:print:]\n' | tail -n 1)
 $(run_alone setpriv --reuid="$huid" --regid="$huid" --clear-groups env -C / HOME=/var/lib/halogen XDG_RUNTIME_DIR="/run/user/$huid" \
     podman network inspect halogen-internal --format '{{.Internal}} {{.DNSEnabled}} {{.IPv6Enabled}} {{len .Routes}} gw:{{range .Subnets}}{{.Gateway}}{{end}}' | tr -cd '[:print:]\n' | tail -n 1)"
-  if [ "$netcfg" = $'halogen-internal \ntrue false false 0 gw:<nil>' ] || [ "$netcfg" = $'halogen-internal \ntrue false false 0 gw:' ]; then
+  # With web search on (halogenctl web-search), also on halos-search, made the same way.
+  want_nets="halogen-internal "; [ ! -f "$search_dropin" ] || want_nets="halogen-internal halos-search "
+  [ ! -f "$search_dropin" ] || netcfg+=$'\n'"$(run_alone setpriv --reuid="$huid" --regid="$huid" --clear-groups env -C / HOME=/var/lib/halogen XDG_RUNTIME_DIR="/run/user/$huid" \
+    podman network inspect halos-search --format '{{.Internal}} {{.DNSEnabled}} {{.IPv6Enabled}} {{len .Routes}} gw:{{range .Subnets}}{{.Gateway}}{{end}}' | tr -cd '[:print:]\n' | tail -n 1)"
+  netok=1
+  { IFS= read -r l1; IFS= read -r l2; IFS= read -r l3; } <<< "$netcfg"
+  [ "$l1" = "$want_nets" ] || netok=0
+  case "$l2" in 'true false false 0 gw:<nil>'|'true false false 0 gw:') ;; *) netok=0 ;; esac
+  if [ -f "$search_dropin" ]; then case "${l3:-}" in 'true false false 0 gw:<nil>'|'true false false 0 gw:') ;; *) netok=0 ;; esac; fi
+  if [ "$netok" = 1 ] && [ -f "$search_dropin" ]; then
+    say PASS network-config "Halogen's container is on halogen-internal and web search's halos-search only: both internal, no DNS, IPv6, routes or gateway"
+  elif [ "$netok" = 1 ]; then
     say PASS network-config "Halogen's container is on halogen-internal alone: internal, no DNS, IPv6, routes or gateway"
-  else say FAIL network-config "Halogen's network isn't as halOS makes it: $(tr '\n' '|' <<< "$netcfg"); expected halogen-internal|true false false 0 gw:<nil>. Stop Halogen, then as halogen: podman network rm halogen-internal, and start it again"; fi
+  else say FAIL network-config "Halogen's network isn't as halOS makes it: $(tr '\n' '|' <<< "$netcfg"); expected ${want_nets% }|true false false 0 gw:<nil>$([ ! -f "$search_dropin" ] || echo '|true false false 0 gw:<nil>'). Stop Halogen, then as halogen: podman network rm <the network>, and start it again"; fi
 fi
 # A tiny container set up like Halogen's (read-only, the key mounted into /run/secrets) starts as
 # halogen: a podman or crun update can break that setup for every start of Halogen (crun 1.31 did).
@@ -688,6 +712,45 @@ else
   elif [ -n "$rr" ]; then say PASS records "on, ${used:-?} in $d; Halogen reports $rr"
   elif [ "${running:-0}" = 1 ]; then say WARN records "on, but Halogen's /health has no request_records: is the mount in place? sudo halogenctl restart"
   else say INFO records "on, ${used:-?} in $d (Halogen isn't running)"; fi
+fi
+# Web search (sudo halogenctl web-search, Halogen's HALOGEN_WEB_SEARCH_URL): off, or the search
+# container (bundled SearXNG or the relay to yours), its health page from here, Halogen's service
+# on the search network, and the search as Halogen's own container reaches it. No address printed.
+if [ ! -f "$search_dropin" ]; then
+  say INFO web-search "off (sudo halogenctl web-search bundled runs SearXNG for Claude Code's WebSearch)"
+else
+  huid="$(id -u halogen 2> /dev/null || echo 970)"
+  smode="$(sed -n 's/^HALOS_WEB_SEARCH=//p' "$search_conf" 2>/dev/null | tail -n 1 | tr -cd '[:lower:]')"
+  spath="$(sed -n 's/^HALOS_SEARCH_PATH=//p' "$search_conf" 2>/dev/null | tail -n 1)"
+  [[ "$spath" =~ ^(/[A-Za-z0-9._~-]+)*$ ]] || spath=""
+  sunit=halos-search.service; swhat="SearXNG on this machine"
+  [ "$smode" != external ] || { sunit=halos-search-relay.service; swhat="your own SearXNG, through the relay"; }
+  sstate="$(run_alone setpriv --reuid="$huid" --regid="$huid" --clear-groups env -C / XDG_RUNTIME_DIR="/run/user/$huid" systemctl --user is-active "$sunit" | head -n 1 | tr -cd '[:alnum:]-')"
+  sunit_text="$(run_alone setpriv --reuid="$huid" --regid="$huid" --clear-groups env -C / XDG_RUNTIME_DIR="/run/user/$huid" systemctl --user cat halogen.service)"
+  shealth="$(curl -q -sS -m 5 "http://127.0.0.1:$search_port$spath/healthz" 2>/dev/null | head -c 16 | tr -cd '[:alnum:]')"
+  sinside=""
+  if [ "${running:-0}" = 1 ]; then
+    sprobe="import urllib.request
+try:
+    print(urllib.request.urlopen('http://10.89.250.2:8080$spath/healthz', timeout=5).status)
+except Exception as e:
+    print(type(e).__name__)"
+    sinside="$(run_alone prlimit --memlock=unlimited:unlimited -- setpriv --reuid="$huid" --regid="$huid" --clear-groups env -C / HOME=/var/lib/halogen XDG_RUNTIME_DIR="/run/user/$huid" \
+      podman exec halogen python3 -I -c "$sprobe" | tr -cd '[:alnum:]\n' | tail -n 1)"
+  fi
+  if [ "$smode" != bundled ] && [ "$smode" != external ]; then
+    say WARN web-search "Halogen's drop-in is there, but $search_conf names no mode, so Halogen isn't told: sudo halogenctl web-search off, then on again"
+  elif ! grep -qE -- ' --network[= ]halos-search:ip=10\.89\.250\.3( |$)' <<< "$sunit_text"; then
+    say WARN web-search "on ($swhat), but Halogen's service isn't on the search network: sudo halogenctl web-search $smode again"
+  elif [ "$sstate" != active ]; then
+    say WARN web-search "on ($swhat), but $sunit is ${sstate:-unknown}: sudo halogenctl web-search restart (log: sudo journalctl _SYSTEMD_USER_UNIT=$sunit)"
+  elif [ "$shealth" != OK ]; then
+    say WARN web-search "on ($swhat), but SearXNG doesn't answer its health page: sudo halogenctl web-search status"
+  elif [ "${running:-0}" = 1 ] && [ "$sinside" != 200 ]; then
+    say WARN web-search "on ($swhat) and answering, but not from Halogen's container (${sinside:-no answer}): sudo halogenctl restart"
+  elif [ "${running:-0}" = 1 ]; then
+    say PASS web-search "on ($swhat): it answers, also from Halogen's container"
+  else say INFO web-search "on ($swhat) and answering (Halogen isn't running)"; fi
 fi
 # The prompt cache on disk (Halogen's HALOGEN_CACHE_DIR): on unless sudo halogenctl cache off.
 # Halogen refuses a folder on tmpfs or an overlay and then keeps the cache in memory only.

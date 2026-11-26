@@ -56,6 +56,23 @@ REPORT = ("{ echo RESULT-START; cat /proc/cmdline; dmesg | grep -i secure; bootc
     "halogenctl cache on --yes >> /tmp/pc 2>&1; "
     "echo PCON $(setpriv --reuid=halogen --regid=halogen --init-groups env -C / XDG_RUNTIME_DIR=/run/user/970 systemctl --user cat halogen.service 2>/dev/null | grep -c -F .prompt-cache:/models/.prompt-cache:noexec) "
     "$(halogenctl config 2>/dev/null | grep -c -x -e HALOGEN_CACHE_DIR=/models/.prompt-cache) $(ls /etc/containers/systemd/users/halogen.container.d | grep -c prompt); cat /tmp/pc; "
+    # Web search: bundled SearXNG joins Halogen's unit and settings, answers JSON on its own address
+    # and through the front door on 8730; off undoes both. This boot has no network, so SearXNG's
+    # pinned image comes from the probe disk (iso-install.sh copied it there with its index), and
+    # its searches find nothing: the answer is JSON with an empty list.
+    "setpriv --reuid=halogen --regid=halogen --init-groups env -C / HOME=/var/lib/halogen XDG_RUNTIME_DIR=/run/user/970 "
+    "skopeo copy -q dir:/run/halos-probe/searxng containers-storage:docker.io/searxng/searxng:halos-vmtest > /tmp/ws 2>&1; "
+    "echo WSIMG $? $(setpriv --reuid=halogen --regid=halogen --init-groups env -C / HOME=/var/lib/halogen XDG_RUNTIME_DIR=/run/user/970 "
+    "podman image exists $(sed -n s/^SEARXNG_IMAGE=//p /usr/share/halogen/release.env) 2>> /tmp/ws; echo $?); "
+    "halogenctl web-search bundled --yes >> /tmp/ws 2>&1; "
+    "echo WSON $(grep -c 'SearXNG answers' /tmp/ws) $(halogenctl config 2>/dev/null | grep -c -x -e HALOGEN_WEB_SEARCH_URL=http://10.89.250.2:8080) "
+    "$(setpriv --reuid=halogen --regid=halogen --init-groups env -C / XDG_RUNTIME_DIR=/run/user/970 systemctl --user cat halogen.service 2>/dev/null | grep -c -E -e '^ExecStart=.* --network[= ]halos-search:ip=10[.]89[.]250[.]3( |$)'); "
+    "echo WSJSON $(curl -s -m 60 'http://127.0.0.1:18730/search?q=fedora&format=json' | jq -e '.results|type==\"array\"' 2>/dev/null | grep -c true) "
+    "$({ curl -s -m 10 http://127.0.0.1:8730/healthz; echo; curl -sk -m 10 https://127.0.0.1:8730/healthz; echo; } | grep -c -x OK); "
+    "halogenctl selftest 2>&1 | grep -e web-search: -e network-config: >> /tmp/ws; "
+    "halogenctl web-search off --yes >> /tmp/ws 2>&1; "
+    "echo WSOFF $(ls /etc/containers/systemd/users/970/halogen.container.d | grep -c -e web-search) $(halogenctl config 2>/dev/null | grep -c -e WEB_SEARCH) "
+    "$(setpriv --reuid=halogen --regid=halogen --init-groups env -C / XDG_RUNTIME_DIR=/run/user/970 systemctl --user is-active halos-search.service 2>/dev/null); cat /tmp/ws; "
     # Hardening: the logs volume can't hold programs, and Halogen's container is read-only.
     "echo RECMNT $(findmnt -n -o OPTIONS /var/srv/logs | tr , ' ' | xargs -n 1 | grep -c -x -e nodev -e nosuid -e noexec) "
     "$(setpriv --reuid=halogen --regid=halogen --init-groups env XDG_RUNTIME_DIR=/run/user/970 systemctl --user cat halogen.service 2>/dev/null | grep -c -e --read-only); "

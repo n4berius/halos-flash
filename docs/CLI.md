@@ -79,7 +79,7 @@ The `Signatures:` line of `version` shows this.
 | `halosctl fail2ban unban <address>` | Removes the block on one address immediately. |
 | `halosctl dashboard [on\|off]` | Turns on or off the live web page of Halogen's load and health on port 8732. The page is for your local network and has no login. Without `on` or `off`, it shows the state and the address. |
 | `halosctl https` | Shows if HTTPS is on, and what apps use. |
-| `halosctl https self-signed [<name>...] [--yes]` | Turns on HTTPS on the two ports with halOS's own certificate authority. The certificates are for the names and addresses of this machine, and for other names that you give. Apps must trust the authority one time. |
+| `halosctl https self-signed [<name>...] [--yes]` | Turns on HTTPS on the three ports (8731, 8732 and 8730) with halOS's own certificate authority. The certificates are for the names and addresses of this machine, and for other names that you give. Apps must trust the authority one time. |
 | `halosctl https custom <certificate> <key> [--yes]` | Turns on HTTPS with your own certificate and key (PEM files, the key without a passphrase). It shows whose certificate it is, and asks before it changes something. |
 | `halosctl https letsencrypt <cloudflare\|duckdns\|porkbun\|namecheap> <name>... [--email <address>] [--staging] [--yes]` | Turns on HTTPS with Let's Encrypt certificates for public names that you own, through the API of your DNS provider. It opens no port to the internet. It asks for the provider's credential, and does not show it while you type. With `--yes`, it reads the credential as `field=value` lines on standard input. Then it waits for the certificate. If no certificate comes in five minutes, it puts back the previous setting. `--staging` uses the Let's Encrypt test service first. The addresses of this machine keep halOS's authority. |
 | `halosctl https forget-dns [--yes]` | Deletes the saved credential of the DNS provider, when you no longer use Let's Encrypt. It restarts the front door for a short time, so that Caddy also removes its copy. Also revoke the credential at the provider. |
@@ -106,6 +106,12 @@ after a change, halOS puts back the previous setting automatically.
 | `halogenctl cache on\|off [--yes]` | Turns the cache on (the default) or off. If Halogen runs, it restarts Halogen. `off` keeps the saved data, and then Halogen can only read the folder. |
 | `halogenctl cache clear [--yes]` | Asks, then deletes all saved conversation states. It stops Halogen for a short time and starts it again. |
 | `halogenctl records [on\|off] [--yes]` | Controls Halogen's [request records](GUIDE.md#request-records): one line for each request in `/srv/logs/halogen`. They contain only counts, unless `HALOGEN_RECORD_TEXT` sets a different value. `on` and `off` restart Halogen. Without `on` or `off`, it shows the state and the space used. |
+| `halogenctl web-search` | Shows if [web search](GUIDE.md#web-search) is on, and if the search answers. |
+| `halogenctl web-search bundled [--yes]` | Turns on web search with SearXNG on this machine. Its page is on port 8730. Halogen restarts. |
+| `halogenctl web-search external <url> [--yes]` | Turns on web search with your own SearXNG server, through a relay that goes only to that server. It first checks that the server answers a search in JSON. Halogen restarts. |
+| `halogenctl web-search off [--yes]` | Turns web search off. Halogen restarts. SearXNG's settings stay. |
+| `halogenctl web-search edit` | Opens SearXNG's settings (`/srv/configs/searxng/settings.yml`) in an editor, then restarts SearXNG. |
+| `halogenctl web-search restart` | Restarts the search, for example after you change its settings. |
 | `halogenctl records stats` | Shows counts by API, client and finish, the part that the cache supplied, and tool errors. It uses Halogen's own tool: inside Halogen's container while it runs, else in a short-lived copy of the pinned image with only the records folder. |
 | `halogenctl records prune --days <n>\|--gib <g>\|--session <hash>\|--unit <hash>\|--all [--yes]` | Asks, then deletes records. |
 | `halogenctl hf-token [--remove]` | Asks for your Hugging Face read token and saves it, for gated models. It does not show the token. `--remove` deletes it. |
@@ -189,6 +195,8 @@ BIOS or Secure Boot change, use `sudo halosctl tang-unlock renew` instead.
 | `/srv/configs/prompt-cache` | `off` after `halogenctl cache off`. If not, the cache is on |
 | `/etc/containers/systemd/users/halogen.container.d/15-prompt-cache.conf` | `halogenctl cache off` writes it, and `cache on` removes it. It mounts the cache folder read-only |
 | `/srv/logs/halogen/` | Halogen's request records, when they are on |
+| `/srv/configs/searxng/settings.yml` | SearXNG's settings, when web search uses SearXNG on this machine |
+| `/etc/halos/web-search.env` | Which web search is on, and the address of your own SearXNG (root's, written by `halogenctl web-search`) |
 | `/srv/models/` | The models, and your own checkpoints |
 | `/etc/halos/https.env` | The HTTPS setting (only root can change it) |
 | `/etc/halos/https/` | Your certificate and key, and the credential of the DNS provider for Let's Encrypt (only root) |

@@ -50,6 +50,10 @@ import /usr/share/halos/proxy/sites.caddy
 	import dashboard
 }
 
+{$HALOS_ACME_SEARCH_SITES} {
+	import search
+}
+
 {$HALOS_API_SITES} {
 	import tls_internal
 	import api
@@ -58,4 +62,9 @@ import /usr/share/halos/proxy/sites.caddy
 {$HALOS_DASH_SITES} {
 	import tls_internal
 	import dashboard
+}
+
+{$HALOS_SEARCH_SITES} {
+	import tls_internal
+	import search
 }
