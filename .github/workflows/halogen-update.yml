@@ -14,18 +14,24 @@ on:
 concurrency:
   group: ${{ github.workflow }}
 
-permissions:
-  contents: write
-  pull-requests: write
-  actions: write
+# Nothing by default. The checkout keeps no token and only the last step hands one to git, so the
+# tests and the update script (which read upstream's files) can't leak it by accident. A step
+# that ran hostile code could still reach it later in the same job (through $GITHUB_ENV, say):
+# this is no wall against that.
+permissions: {}
 
 jobs:
   update:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
+          persist-credentials: false
       - name: Fetch upstream
         run: git clone -q --filter=blob:none --no-checkout https://github.com/peonist-ai/halogen-flash-server "$RUNNER_TEMP/upstream"
       - name: Update the pins
@@ -73,6 +79,12 @@ jobs:
           BRANCH: ${{ steps.update.outputs.branch }}
           TESTS_RC: ${{ steps.check.outputs.rc }}
         run: |
+          # The token for git, for this step only (the checkout kept none), through the environment
+          # rather than git's argv, and with no hooks from the checkout.
+          b64="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          echo "::add-mask::$b64"
+          export GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader \
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $b64" GIT_CONFIG_KEY_1=core.hooksPath GIT_CONFIG_VALUE_1=/dev/null
           if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
             echo "$BRANCH already exists, so its pull request is already open or was closed on purpose." >> "$GITHUB_STEP_SUMMARY"
             exit 0
