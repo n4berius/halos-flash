@@ -1316,7 +1316,7 @@ name, but allows saying halOS runs Halogen.
   `iso-install.sh` copies SearXNG's index and amd64 image (`skopeo --all --preserve-digests`, other
   blobs deleted) onto the probe disk and the VM `skopeo copy`s it into halogen's storage (`WSIMG`).
   Not run on freyja yet (Podman 6, SELinux, a real search).
-  Hardening (security audit of #184, owner agreed all five): `bundled|external` refuse while root's
+  Hardening (#186, security audit of #184, owner agreed all five): `bundled|external` refuse while root's
   `api-key-off` exists and `api-key off` refuses while the drop-in exists (the search container
   reaches Halogen's API at 10.89.250.3 past Caddy, fail2ban and the access log); `halos-search-out`
   is `isolate=strict` (`true` cut only networks that also set it, not Podman's default one; the

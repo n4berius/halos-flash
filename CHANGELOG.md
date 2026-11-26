@@ -18,6 +18,10 @@ it promotes.
   a relay sends its searches to that server only. SearXNG's page is on port 8730, for this machine
   and private networks only, over HTTPS when that is on. `sudo halogenctl selftest` checks the
   search, also from Halogen's container.
+- Web search is locked down further (#186). It works only while the API key is on, and the key
+  can't go off while web search is on. The search container gets user IDs of its own, no IPv6, and
+  no path to halOS's other container networks. With your own SearXNG, only searches pass to your
+  server. A weekly check proposes each new SearXNG release as a halOS update.
 - Halogen no longer starts when there is an `adapters` folder beside its checkpoint (#183).
   Halogen 0.21.0 loads LoRA adapters from such a folder, and halOS doesn't make one, so only a
   download could have put it there. The start message tells you how to remove it. The two update

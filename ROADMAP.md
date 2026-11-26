@@ -59,7 +59,8 @@ Simplified Technical English (#152).
    Halogen serves, and `flash check` of the result.
 6. Try web search on the test machine (#184): `halogenctl web-search bundled`, then Claude Code's
    WebSearch through Halogen, SearXNG's page on port 8730, and `external` with a SearXNG on the
-   network. Podman 6 reads Halogen's drop-in there for the first time.
+   network. Podman 6 reads Halogen's drop-in there for the first time. With #186: the search
+   container's own user IDs, IPv6 off on its links, and `isolate=strict` on its network.
 7. Try the settings screen (`halogenctl settings`) on the test machine over SSH. Then extend it:
    the `:fast` and `:qad` forms of own NPU checkpoints. (Pick lists and value checks for every
    setting: #179.)
