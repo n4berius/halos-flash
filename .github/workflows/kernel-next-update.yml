@@ -10,18 +10,22 @@ on:
 concurrency:
   group: ${{ github.workflow }}
 
-permissions:
-  contents: write
-  pull-requests: write
-  actions: write
+# Nothing by default; the job's write rights reach only the last step: the checkout keeps no
+# token, so the tests and the update script (which read upstream's files) never hold one.
+permissions: {}
 
 jobs:
   update:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
+          persist-credentials: false
       - name: Update the pin
         id: update
         run: |
@@ -43,7 +47,10 @@ jobs:
           NVR: ${{ steps.update.outputs.nvr }}
           BRANCH: ${{ steps.update.outputs.branch }}
         run: |
-          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
+          # The token for git, for this step only (the checkout kept none).
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          echo "::add-mask::$auth"
+          if git -c "http.https://github.com/.extraheader=$auth" ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
             echo "$BRANCH already exists, so its pull request is already open or was closed on purpose." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
@@ -51,7 +58,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -c "$BRANCH"
           git commit -qam "kernel-next: move to kernel $NVR" -m "Fedora's newest plain kernel build, by the kernel-next update workflow."
-          git push -q origin "$BRANCH"
+          git -c "http.https://github.com/.extraheader=$auth" push -q origin "$BRANCH"
           url="$(gh pr create --base main --head "$BRANCH" --title "kernel-next: move to kernel $NVR" --body-file "$RUNNER_TEMP/body.md")"
           echo "Opened $url" >> "$GITHUB_STEP_SUMMARY"
           # A pull request opened with this workflow's token starts no workflows by itself, so

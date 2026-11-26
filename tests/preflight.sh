@@ -61,3 +61,8 @@ if grep -q 'already in use' <<< "$out" || ! grep -q 'by the running server' <<< 
   echo "doctor warned about the running server's own GTT" >&2; exit 1
 fi
 echo "ok: GTT held by the running server is not a warning"
+# An adapters/ folder beside the official checkpoint or an own one (Halogen 0.21.0 would read it).
+mkdir "$work/models/adapters"; expect_fail "an adapters folder beside the official checkpoint"; rmdir "$work/models/adapters"
+mkdir -p "$work/models/flash/mine/adapters"; expect_fail "an adapters folder beside an own checkpoint"
+rmdir "$work/models/flash/mine/adapters"; ln -s "$work/elsewhere" "$work/models/flash/mine/adapters"; expect_fail "a link named adapters beside an own checkpoint"
+rm "$work/models/flash/mine/adapters"; run > /dev/null; echo "ok: an own checkpoint without adapters passes"

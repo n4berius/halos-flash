@@ -1504,6 +1504,14 @@ and tracked on the owner's project board. [ROADMAP.md](ROADMAP.md) holds the ord
   tags; the weights repo and revision are unchanged (Flash-Next unchanged). This session could
   read ghcr.io manifests but not blobs, so the image's `models.txt`, env and `halogen-bench.py`
   weren't compared with 0.20.7's (bench refuses a tool without `lead_line`/`ask`/`main`).
+- Hardening after #182 (its security audit, owner agreed): `preflight` fails on anything at
+  `/srv/models/adapters` or `/srv/models/flash/*/adapters` (0.21.0's `adapters_setup` runs
+  `lora_to_hgn.py --scan` on the folder beside the checkpoint at every start, 27B only today;
+  the download and pull containers can write there, halOS makes none). `halogen-update.yml` and
+  `kernel-next-update.yml`: `permissions: {}` at the top, the write rights on the job, checkout
+  with `persist-credentials: false`, and the token reaches git only in the step that opens the PR
+  (`git -c http.https://github.com/.extraheader=…`, masked), so `tests/run.sh` and the update
+  scripts run without one.
 - The ISO install test also runs when `versions.env` changes (#78), so every Halogen update PR
   gets the LUKS + TPM install in a VM, about 30 minutes for both editions.
 - Known upstream: bootc 1.17.1 rewrites `/etc/fstab` at every boot on Anaconda installs
