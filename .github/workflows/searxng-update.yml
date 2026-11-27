@@ -1,0 +1,76 @@
+name: SearXNG update
+# Opens a pull request when SearXNG has a newer dated release than the one the bundled web search
+# pins (halogenctl web-search bundled): SearXNG parses pages from the internet, and its fixes reach
+# machines only when the pin moves. Merging stays a person's decision.
+on:
+  schedule:
+    - cron: "41 6 * * 3"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+
+# Nothing by default. The checkout keeps no token and only the last step hands one to git, so the
+# tests and the update script (which read upstream's files) can't leak it by accident. A step
+# that ran hostile code could still reach it later in the same job (through $GITHUB_ENV, say):
+# this is no wall against that.
+permissions: {}
+
+jobs:
+  update:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Update the pin
+        id: update
+        run: |
+          scripts/searxng-update.sh "$RUNNER_TEMP/body.md"
+          if git diff --quiet; then
+            echo "The bundled web search is on SearXNG's newest dated release." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          . ./versions.env
+          echo "nvr=$SEARXNG_VERSION" >> "$GITHUB_OUTPUT"
+          echo "branch=searxng-update/$SEARXNG_VERSION" >> "$GITHUB_OUTPUT"
+      - name: Check the new pin
+        if: steps.update.outputs.nvr != ''
+        run: tests/run.sh
+      - name: Open the pull request
+        if: steps.update.outputs.nvr != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NVR: ${{ steps.update.outputs.nvr }}
+          BRANCH: ${{ steps.update.outputs.branch }}
+        run: |
+          # The token for git, for this step only (the checkout kept none), through the environment
+          # rather than git's argv, and with no hooks from the checkout.
+          b64="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          echo "::add-mask::$b64"
+          export GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader \
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $b64" GIT_CONFIG_KEY_1=core.hooksPath GIT_CONFIG_VALUE_1=/dev/null
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
+            echo "$BRANCH already exists, so its pull request is already open or was closed on purpose." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Only the pin goes in: anything else the tests changed stops the run.
+          changed="$(git status --porcelain | cut -c4-)"
+          [ "$changed" = versions.env ] || { echo "more than versions.env changed: $changed" >&2; exit 1; }
+          git switch -c "$BRANCH"
+          git add versions.env
+          git commit -qm "Web search: move SearXNG to $NVR" -m "SearXNG's newest dated release, by the SearXNG update workflow."
+          git push -q origin "$BRANCH"
+          url="$(gh pr create --base main --head "$BRANCH" --title "Web search: move SearXNG to $NVR" --body-file "$RUNNER_TEMP/body.md")"
+          echo "Opened $url" >> "$GITHUB_STEP_SUMMARY"
+          # A pull request opened with this workflow's token starts no workflows by itself, so
+          # start the image build and the install test (which turns bundled web search on) on its branch.
+          gh workflow run build.yml --ref "$BRANCH"
+          gh workflow run iso.yml --ref "$BRANCH"

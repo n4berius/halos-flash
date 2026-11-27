@@ -443,7 +443,10 @@ if have curl; then
   # running Halogen: a request with no key gets 401 while the key is on.
   if [ "${running:-0}" = 1 ]; then
     code="$(curl -q -sS -m 10 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$local_port/v1/models" 2>/dev/null)"
-    if [ -f "$api_key_off" ]; then
+    if [ -f "$api_key_off" ] && [ -f "$search_dropin" ]; then
+      if [ "$code" = 200 ]; then say FAIL api-key "off while web search is on: its container reaches the API with no key. sudo halogenctl web-search off, or sudo halogenctl api-key on"
+      else say WARN api-key "off was asked, but web search is on, so the key stays on: sudo halogenctl api-key on (or web search off, then api-key off)"; fi
+    elif [ -f "$api_key_off" ]; then
       if [ "$code" = 401 ]; then say WARN api-key "off, but Halogen still asks for the key: sudo halogenctl restart"
       else say WARN api-key "off: anyone who can reach port $port can use the API (sudo halogenctl api-key on)"; fi
     elif [ "$code" = 401 ]; then say PASS api-key "on: a request without the key is refused"
@@ -727,7 +730,18 @@ else
   [ "$smode" != external ] || { sunit=halos-search-relay.service; swhat="your own SearXNG, through the relay"; }
   sstate="$(run_alone setpriv --reuid="$huid" --regid="$huid" --clear-groups env -C / XDG_RUNTIME_DIR="/run/user/$huid" systemctl --user is-active "$sunit" | head -n 1 | tr -cd '[:alnum:]-')"
   sunit_text="$(run_alone setpriv --reuid="$huid" --regid="$huid" --clear-groups env -C / XDG_RUNTIME_DIR="/run/user/$huid" systemctl --user cat halogen.service)"
+  # The search container's way out keeps no path to Podman's other networks (isolate=strict). Quadlet
+  # never changes an existing network, so one made by an older halOS keeps its old options.
+  siso="$(run_alone setpriv --reuid="$huid" --regid="$huid" --clear-groups env -C / HOME=/var/lib/halogen XDG_RUNTIME_DIR="/run/user/$huid" \
+    podman network inspect halos-search-out --format '{{index .Options "isolate"}}' | tr -cd '[:alnum:]\n' | tail -n 1)"
   shealth="$(curl -q -sS -m 5 "http://127.0.0.1:$search_port$spath/healthz" 2>/dev/null | head -c 16 | tr -cd '[:alnum:]')"
+  # IPv6 off on SearXNG's links (Sysctl=…default…, which links made after it copy). The relay's image
+  # has no cat, so only the bundled one is asked; a kernel without IPv6 answers nothing.
+  sv6=""
+  if [ "$smode" = bundled ] && [ "$sstate" = active ]; then
+    sv6="$(run_alone setpriv --reuid="$huid" --regid="$huid" --clear-groups env -C / HOME=/var/lib/halogen XDG_RUNTIME_DIR="/run/user/$huid" \
+      podman exec halos-search cat /proc/sys/net/ipv6/conf/eth0/disable_ipv6 /proc/sys/net/ipv6/conf/eth1/disable_ipv6 2>/dev/null | tr -cd '01')"
+  fi
   sinside=""
   if [ "${running:-0}" = 1 ]; then
     sprobe="import urllib.request
@@ -744,6 +758,10 @@ except Exception as e:
     say WARN web-search "on ($swhat), but Halogen's service isn't on the search network: sudo halogenctl web-search $smode again"
   elif [ "$sstate" != active ]; then
     say WARN web-search "on ($swhat), but $sunit is ${sstate:-unknown}: sudo halogenctl web-search restart (log: sudo journalctl _SYSTEMD_USER_UNIT=$sunit)"
+  elif [ "$siso" != strict ]; then
+    say WARN web-search "on ($swhat), but its network halos-search-out isn't isolate=strict (${siso:-no answer}): sudo halogenctl web-search off; sudo -u halogen env -C / XDG_RUNTIME_DIR=/run/user/$huid podman network rm halos-search-out; then turn web search on again"
+  elif [ -n "$sv6" ] && [ "$sv6" != 11 ]; then
+    say WARN web-search "on ($swhat), but SearXNG's container keeps IPv6 on a network link ($sv6): sudo halogenctl web-search restart"
   elif [ "$shealth" != OK ]; then
     say WARN web-search "on ($swhat), but SearXNG doesn't answer its health page: sudo halogenctl web-search status"
   elif [ "${running:-0}" = 1 ] && [ "$sinside" != 200 ]; then
