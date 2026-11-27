@@ -101,14 +101,14 @@ after a change, halOS puts back the previous setting automatically.
 | `halogenctl fetch-logs [lines]` | Shows only the log of the download-and-check step. |
 | `halogenctl api-key` | Prints the API key that apps need (`/srv/configs/api-key`). |
 | `halogenctl api-key status` | Shows if Halogen requires the [API key](GUIDE.md#the-api-key) (on, the default) or not (off). |
-| `halogenctl api-key on\|off [--yes]` | Requires the API key again, or stops requiring it. `off` asks first. If Halogen runs, both restart it. The key itself does not change. |
+| `halogenctl api-key on\|off [--yes]` | Requires the API key again, or stops requiring it. `off` asks first, and refuses while web search is on. If Halogen runs, both restart it. The key itself does not change. |
 | `halogenctl cache [status]` | Shows if Halogen's [prompt cache on disk](GUIDE.md#prompt-cache-on-disk) is on, and the space that it uses. |
 | `halogenctl cache on\|off [--yes]` | Turns the cache on (the default) or off. If Halogen runs, it restarts Halogen. `off` keeps the saved data, and then Halogen can only read the folder. |
 | `halogenctl cache clear [--yes]` | Asks, then deletes all saved conversation states. It stops Halogen for a short time and starts it again. |
 | `halogenctl records [on\|off] [--yes]` | Controls Halogen's [request records](GUIDE.md#request-records): one line for each request in `/srv/logs/halogen`. They contain only counts, unless `HALOGEN_RECORD_TEXT` sets a different value. `on` and `off` restart Halogen. Without `on` or `off`, it shows the state and the space used. |
 | `halogenctl web-search` | Shows if [web search](GUIDE.md#web-search) is on, and if the search answers. |
-| `halogenctl web-search bundled [--yes]` | Turns on web search with SearXNG on this machine. Its page is on port 8730. Halogen restarts. |
-| `halogenctl web-search external <url> [--yes]` | Turns on web search with your own SearXNG server, through a relay that goes only to that server. It first checks that the server answers a search in JSON. Halogen restarts. |
+| `halogenctl web-search bundled [--yes]` | Turns on web search with SearXNG on this machine. Its page is on port 8730. Halogen restarts. Refused while the API key is off. |
+| `halogenctl web-search external <url> [--yes]` | Turns on web search with your own SearXNG server, through a relay that goes only to that server. It first checks that the server answers a search in JSON. Only searches pass through the relay. Halogen restarts. Refused while the API key is off. |
 | `halogenctl web-search off [--yes]` | Turns web search off. Halogen restarts. SearXNG's settings stay. |
 | `halogenctl web-search edit` | Opens SearXNG's settings (`/srv/configs/searxng/settings.yml`) in an editor, then restarts SearXNG. |
 | `halogenctl web-search restart` | Restarts the search, for example after you change its settings. |

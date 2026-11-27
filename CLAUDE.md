@@ -54,7 +54,7 @@ name, but allows saying halOS runs Halogen.
 | `Containerfile.installer`, `installer/` | The live installer image, Anaconda defaults (storage layout for custom partitioning), branding and boot menu. `installer/guided/`: the guided install's kickstart and `plan-install` (#42) |
 | `files/` | Copied into both editions: systemd units, `halosctl`, `halogenctl`, `halogen-enroll-tpm` (bash completion for all three in `usr/share/bash-completion/completions/`; `tests/completion.sh` fails when a tool gains a top-level command, or a `flash`/`model` subcommand, its completion doesn't offer; checkpoint folder names are written by halogen and its containers, so they are never passed to `compgen -W`, which expands `$(...)`: only plain names, matched by hand; under sudo completion runs as the admin, who can't read `/srv/models` (0750), so the names come from `/run/halos/model-names` (`model-names`, root, run by login-status every 30 s and by halogenctl's `names_now` after a pull or removal: `find` as halogen with setpriv, folder and `*drafter*.hgn` names only, never file contents; plain names, no line breaks; each `find` under root's `timeout -k` and cut at 1000 entries, one per folder; start points are the folders, so a link at `flash` is never followed; 0640 group wheel), while a root shell reads the folders directly), `/usr/libexec/halogen/*` (`flash-checkpoint` and `model-pull` download your own checkpoints) |
 | `variants/npu`, `variants/no-npu` | Per-edition kernel arguments, Quadlet drop-ins, the allowed-options list and default `halogen.env` |
-| `scripts/` | `build.sh`, `build-helpers.sh`, `build-info.sh` (an image's build record, #121), `build-iso.sh` (`installer` or `iso` builds one half: `iso.yml` builds the installer image beside the OS image, on the base `build-helpers.sh --resolve` prints, passed to both as `HALOS_BASE`), `ci-background.sh` (runs a slow CI step in the background and waits for it later: `iso.yml`'s disk cleanup, VM tools and ISO builder pull), `package-iso.sh` (single-file release ISO), `release-info.sh`, `gen-options.py` (options from upstream `FLAGS.md`), `halogen-update.sh` (pins a new Halogen release), `size-report.sh`, `channels.sh` (which channel tags a release moves), `next-tag.sh` (the next release tag), `push-image.sh`, `sign-image.sh` (cosign signing), `kernel-next-update.sh` (moves kernel-next's pin to Fedora's newest plain build), `go-test.sh` (the Go tests of `src/caddy` without an image build; needs network; CI's `check` job in `build.yml` runs it and `tests/run.sh` once, and both edition builds wait for it, #123) |
+| `scripts/` | `build.sh`, `build-helpers.sh`, `build-info.sh` (an image's build record, #121), `build-iso.sh` (`installer` or `iso` builds one half: `iso.yml` builds the installer image beside the OS image, on the base `build-helpers.sh --resolve` prints, passed to both as `HALOS_BASE`), `ci-background.sh` (runs a slow CI step in the background and waits for it later: `iso.yml`'s disk cleanup, VM tools and ISO builder pull), `package-iso.sh` (single-file release ISO), `release-info.sh`, `gen-options.py` (options from upstream `FLAGS.md`), `halogen-update.sh` (pins a new Halogen release), `size-report.sh`, `channels.sh` (which channel tags a release moves), `next-tag.sh` (the next release tag), `push-image.sh`, `sign-image.sh` (cosign signing), `kernel-next-update.sh` (moves kernel-next's pin to Fedora's newest plain build), `searxng-update.sh` (moves the bundled web search's SearXNG pin to its newest dated release), `go-test.sh` (the Go tests of `src/caddy` without an image build; needs network; CI's `check` job in `build.yml` runs it and `tests/run.sh` once, and both edition builds wait for it, #123) |
 | `files/usr/share/halos/search/`, `files/usr/libexec/halogen/search-*` | Web search (`halogenctl web-search`): SearXNG's settings template, the relay's Caddyfile, and the helpers that make the settings file and the relay's image |
 | `files/usr/libexec/halogen/settings-tui`, `files/usr/share/halogen/npu-models.list`, `files/usr/share/halogen/option-kinds` | The settings screen behind `halogenctl settings` (Python curses), its list of Halogen's NPU models, and what each option takes (from FLAGS.md; check it with every Halogen pin) |
 | `docs/` | `GUIDE.md` (using the machine: settings, updates, each feature and its reasons; INSTALL.md holds only the installation, first boot and disk unlock), `CLI.md` (every command; update it with a command or option), `CLIENTS.md` (connecting apps and coding agents, and trusting the certificate per agent, from each project's docs and source) |
@@ -63,7 +63,7 @@ name, but allows saying halOS runs Halogen.
 | `tests/` | `run.sh` (fast checks, no GPU or network), `iso-install.sh` + `vm-login.py` (QEMU install test) |
 | `.claude/skills/ste100/` | Write or rewrite user documentation in ASD-STE100 Simplified Technical English (#152): the rules, what never changes, and `check.py` (code, inline code, links and numbers as on main; every `#anchor` link resolves). Not for CLAUDE.md or `.claude/agents` |
 | `.claude/agents/` | Subagents: `code-reviewer` (QA review before merge) and `security-auditor` (audit, zero-cost hardening ideas). Both only read and report |
-| `.github/workflows/` | `build.yml` (image, edge tag; also weekly, Thursday 05:37 UTC; pull requests and other branches run job `build`, read-only; main runs `publish`, the same steps by YAML anchors plus Push and Sign, with `packages`/`id-token: write` and the signing environment), `iso.yml` (ISO + VM install test), `release.yml`, `refresh.yml` (weekly rebuild of stable), `halogen-update.yml` (daily: opens a PR for a new Halogen release), `kernel-next-update.yml` (weekly: a PR for a newer test kernel) |
+| `.github/workflows/` | `build.yml` (image, edge tag; also weekly, Thursday 05:37 UTC; pull requests and other branches run job `build`, read-only; main runs `publish`, the same steps by YAML anchors plus Push and Sign, with `packages`/`id-token: write` and the signing environment), `iso.yml` (ISO + VM install test), `release.yml`, `refresh.yml` (weekly rebuild of stable), `halogen-update.yml` (daily: opens a PR for a new Halogen release), `kernel-next-update.yml` (weekly: a PR for a newer test kernel), `searxng-update.yml` (weekly, Wednesday 06:41 UTC: a PR for a newer SearXNG) |
 
 ## How the running system works
 
@@ -1281,7 +1281,7 @@ name, but allows saying halOS runs Halogen.
 - Web search (#184, owner asked: opt-in, bundled or your own): `halogenctl web-search
   [status|bundled|external <url>|off|restart|edit]`. Two networks of halogen's (Quadlet,
   `files/etc/containers/systemd/users/970/`): `halos-search` (internal, no DNS, `Subnet=10.89.250.0/29`,
-  no gateway in podman 4.9.3) and `halos-search-out` (ordinary, DNS, `isolate=true`). The search
+  no gateway in podman 4.9.3) and `halos-search-out` (ordinary, DNS, `isolate=strict`: cut from every other Podman network, the default one included; the selftest's `web-search` WARNs otherwise). The search
   container stands at 10.89.250.2:8080 on both and publishes `127.0.0.1:18730`: `halos-search.container`
   (SearXNG's own image by digest, `SEARXNG_IMAGE`/`_VERSION` in versions.env, `Pull=missing`, so it
   downloads at first start and after a pin change; `User=977:977` (a subuid, not halogen),
@@ -1316,6 +1316,41 @@ name, but allows saying halOS runs Halogen.
   `iso-install.sh` copies SearXNG's index and amd64 image (`skopeo --all --preserve-digests`, other
   blobs deleted) onto the probe disk and the VM `skopeo copy`s it into halogen's storage (`WSIMG`).
   Not run on freyja yet (Podman 6, SELinux, a real search).
+  Hardening (#186, security audit of #184, owner agreed all five): `bundled|external` refuse while root's
+  `api-key-off` exists and `api-key off` refuses while the drop-in exists (the search container
+  reaches Halogen's API at 10.89.250.3 past Caddy, fail2ban and the access log); render-config also
+  keeps `HALOGEN_API_KEY_FILE` while the drop-in exists, whatever the off file says (its
+  `search_dropin` is now a fixed path, like `api_key_off`: halogen can set its manager's
+  environment; `tests/config.sh` seds it), and the selftest's `api-key` WARNs on both files (FAIL
+  on a 200 then); `halos-search-out` is `isolate=strict` (`true` cuts only networks that also set
+  it; halogen's other bridges are internal and the download containers use pasta, so it's
+  future-proofing; the build checks Quadlet's `--opt`, the selftest's `web-search` WARNs on another
+  value once the unit is active, since `--ignore` keeps an old network's options; netavark 1.4
+  here refuses `strict`, Fedora 45's 2.1 takes it); both search containers
+  `UserNS=auto:size=4096|2048` (no ID maps to halogen's 970; the auto ranges come from halogen's
+  subuids, so they overlap low IDs of halogen's default-userns containers, nothing of halOS's runs
+  as those; tried rootless with SearXNG's real image and the relay) and
+  `Sysctl=net.ipv6.conf.default.disable_ipv6=1`: with a user namespace libpod makes the links after
+  the runtime writes sysctls, so naming eth0/eth1 fails the start (`open sysctl … no such file`,
+  security audit of #186, reproduced with runc; Halogen's own container has no userns and keeps
+  eth0/eth1); links made later copy `default`, `lo` keeps its own. The build checks `--userns` and
+  that sysctl; the selftest reads both links' `disable_ipv6` in the bundled container (the relay's
+  image has no `cat`). The relay runs as 1000 (65534 would need a 65535-ID range) and passes only
+  GET/HEAD to `$HALOS_SEARCH_PATH/search` and `/healthz`, 404 for the rest, 405 for other methods
+  (`handle` blocks: a bare `respond @other` is ordered after `handle`, so a POST would have been
+  proxied); each `handle` `rewrite`s to its literal path (`/search?{query}`), since Caddy matches
+  the cleaned, decoded, case-folded path but forwards the raw one (code review: `stats/../search`
+  and `preferences/..%2fsearch` went on as sent; tried with halOS's Caddy and a stand-in upstream).
+  `scripts/searxng-update.sh`: Docker Hub's tag list with `last_updated`, the newest
+  `YYYY.M.D-<commit>` by date (`sort -V`), then push time (a day has several releases and the hex
+  orders nothing); on the pin's own date only a tag pushed later moves it, never back; a date after
+  tomorrow UTC is refused; the raw index's sha256 is the pin, checked to be an index with
+  linux/amd64 whose revision label is a full commit starting with the tag's, the same digest on
+  `ghcr.io/searxng/searxng`, and the commit `behind`/`identical` to master in GitHub's anonymous
+  compare API (this session's proxy refuses that API, so only the fakes ran it);
+  `tests/searxng-update.sh` fakes curl and skopeo and checks each refusal's message. The workflow
+  (`searxng-update.yml`, like kernel-next's) commits only `versions.env` and stops if anything else
+  changed.
 - Build record (#121): the base stays the moving tag `fedora-bootc:45` (Fedora's fixes, weekly
   rebuild). `scripts/build-helpers.sh` (run by `build.sh`, or once per CI run, #122) resolves it once with `skopeo inspect` (a pinned `repo@sha256:` is checked
   to answer with that digest; a tag+digest reference is asked for as `repo@digest`, since

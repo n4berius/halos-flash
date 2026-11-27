@@ -40,7 +40,8 @@ cache_off_dropin="${HALOGEN_CACHE_OFF_DROPIN:-/etc/containers/systemd/users/halo
 # environment halogen can set (systemctl --user set-environment), and that must not open the API.
 api_key_off=/etc/halos/api-key-off
 records_dropin="${HALOGEN_RECORDS_DROPIN:-/etc/containers/systemd/users/970/halogen.container.d/20-records.conf}"
-search_dropin="${HALOGEN_SEARCH_DROPIN:-/etc/containers/systemd/users/970/halogen.container.d/30-web-search.conf}"
+# Fixed too: it decides whether the key may be off (below), so halogen mustn't point it elsewhere.
+search_dropin=/etc/containers/systemd/users/970/halogen.container.d/30-web-search.conf
 # Fixed, as the API key's off file: halogen can't write /etc/halos, nor point this elsewhere.
 search_conf=/etc/halos/web-search.env
 runtime="${XDG_RUNTIME_DIR:-/run/user/970}/halogen"
@@ -300,7 +301,12 @@ fi
 # can't be read) keeps it, so a mistake never opens the API. HALOGEN_API_KEY and _FILE are blocked
 # in halogen.env (gen-options.py), so only this line sets them.
 unset 'values[HALOGEN_API_KEY]' 'values[HALOGEN_API_KEY_FILE]'
-if [ -f "$api_key_off" ]; then
+# Never off beside web search: the search container reaches Halogen's API on halos-search, past the
+# front door (halogenctl refuses both at once; this holds when they were made otherwise, say by hand).
+if [ -f "$api_key_off" ] && [ -e "$search_dropin" ]; then
+  echo "halogen-config: the API key stays on: web search is on, and its container reaches the API (sudo halogenctl web-search off first)" >&2
+  values[HALOGEN_API_KEY_FILE]=/run/secrets/halogen-api-key
+elif [ -f "$api_key_off" ]; then
   echo "halogen-config: the API key is off (sudo halogenctl api-key off): anyone who can reach port 8731 can use the API" >&2
 else
   values[HALOGEN_API_KEY_FILE]=/run/secrets/halogen-api-key

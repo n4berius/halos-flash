@@ -321,6 +321,11 @@ case "${1:-status}" in
         if [ "$want" = "$kstate" ]; then
           echo "The API key is already $want. If Halogen didn't restart since: sudo halogenctl restart"; exit 0
         fi
+        # Web search's container shares a network with Halogen and reaches its API there directly,
+        # past the front door (fail2ban, the access log): with web search on, the key must stay on.
+        if [ "$want" = off ] && [ -e "${HALOGEN_SEARCH_DROPIN:-/etc/containers/systemd/users/970/halogen.container.d/30-web-search.conf}" ]; then
+          echo "Web search is on, and its container can reach Halogen's API directly. Turn web search off first: sudo halogenctl web-search off" >&2; exit 1
+        fi
         if [ "$want" = off ] && [ "$yes" != 1 ]; then
           [ -t 0 ] || { echo "Nothing changed: add --yes to confirm without a terminal." >&2; exit 1; }
           echo "With the API key off, anyone who can reach port 8731 can use Halogen: send prompts, read"
@@ -1153,6 +1158,11 @@ case "${1:-status}" in
             [ "$m" != bundled ] || echo "Its settings: $wsettings (sudo halogenctl web-search edit). Its page: port 8730 (sudo halosctl https shows the address)." ;;
         esac ;;
       bundled|external)
+        # The search container reaches Halogen's API on their shared network, past the front door:
+        # only with the API key on (security audit of #184).
+        if [ -f "${HALOS_API_KEY_OFF_FILE:-/etc/halos/api-key-off}" ]; then
+          echo "The API key is off, and web search's container would reach Halogen's API directly. Turn the key on first: sudo halogenctl api-key on" >&2; exit 1
+        fi
         up=""; path=""
         if [ "$cmd" = external ]; then
           url="${args[1]:-}"; if [ -z "$url" ] || [ -n "${args[2]:-}" ]; then wusage; fi

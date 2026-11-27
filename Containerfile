@@ -187,7 +187,7 @@ RUN set -eu; \
         /usr/libexec/halogen/caddy adapt --config /usr/share/halos/proxy/Caddyfile.letsencrypt --adapter caddyfile > /dev/null; \
     done; done; \
     # The relay to your own SearXNG (halogenctl web-search external): its Caddyfile, with an upstream.
-    HOME=/tmp XDG_DATA_HOME=/tmp XDG_CONFIG_HOME=/tmp HALOS_SEARCH_UPSTREAM=https://search.example.com \
+    HOME=/tmp XDG_DATA_HOME=/tmp XDG_CONFIG_HOME=/tmp HALOS_SEARCH_UPSTREAM=https://search.example.com HALOS_SEARCH_PATH=/searx \
       /usr/libexec/halogen/caddy adapt --config /usr/share/halos/search/relay.caddy --adapter caddyfile > /dev/null; \
     grep -q '@SECRET@' /usr/share/halos/search/settings.yml; \
     chmod 0755 /usr/bin/halosctl /usr/bin/halogenctl /usr/bin/halogen-enroll-tpm /usr/libexec/halogen/*; \
@@ -225,10 +225,13 @@ RUN set -eu; \
       printf '%s \n' "$netline" | grep -qE -- "$want" \
         || { echo "web search's network isn't internal on 10.89.250.0/29 without DNS: $netline" >&2; exit 1; }; \
     done; \
+    grep -E '^ExecStart=/usr/bin/podman network create .* halos-search-out$' /tmp/quadlet.txt | grep -qE -- ' --opt[= ]isolate=strict ' \
+      || { echo "web search's way out isn't isolate=strict" >&2; grep 'network create' /tmp/quadlet.txt >&2; exit 1; }; \
     for c in halos-search halos-search-relay; do \
       sed -n "/^---$c.service---/,/^---/p" /tmp/quadlet.txt | grep -E '^ExecStart=/usr/bin/podman run ' > /tmp/q-run.txt; \
       for want in ' --network[= ]halos-search:ip=10\.89\.250\.2( |$)' ' --network[= ]halos-search-out( |$)' \
-          ' --publish[= ]127\.0\.0\.1:18730:8080( |$)' ' --cap-drop[= ]all( |$)' ' --read-only( |$)'; do \
+          ' --publish[= ]127\.0\.0\.1:18730:8080( |$)' ' --cap-drop[= ]all( |$)' ' --read-only( |$)' \
+          ' --userns[= ]auto:size=[0-9]+( |$)' ' --sysctl[= ]net\.ipv6\.conf\.default\.disable_ipv6=1( |$)'; do \
         grep -qE -- "$want" /tmp/q-run.txt || { echo "$c isn't set up as halOS expects ($want):" >&2; cat /tmp/q-run.txt >&2; exit 1; }; \
       done; \
     done; \
