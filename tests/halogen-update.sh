@@ -36,6 +36,25 @@ sed -i -e 's/^HALOGEN_VERSION=.*/HALOGEN_VERSION=9.0.0/' \
   -e "s/^HALOGEN_SOURCE_COMMIT=.*/HALOGEN_SOURCE_COMMIT=$(g -C "$up" rev-parse v9.0.0)/" "$here/versions.env"
 g -C "$here" init -q && g -C "$here" add -A && g -C "$here" commit -qm base
 
+# A fake Hugging Face (curl) for scripts/pin-27b.sh: the 27B repository at a newer commit.
+mkdir -p "$work/bin"; export FAKE="$work" PATH="$work/bin:$PATH"
+printf 'tok' > "$work/small"
+new27="$(printf '%040d' 27)"; lfs27="$(printf '%064d' 5)"
+blob27="$( { printf 'blob 3\0'; printf tok; } | sha1sum | cut -d' ' -f1)"
+printf '{"sha":"%s","siblings":[{"rfilename":"README.md","blobId":"x"},{"rfilename":"q27.hgn","lfs":{"sha256":"%s"},"blobId":"y"},{"rfilename":"tokenizer/tokenizer.json","blobId":"%s"}]}' \
+  "$new27" "$lfs27" "$blob27" > "$work/hf27.json"
+cat > "$work/bin/curl" <<'C'
+#!/bin/bash
+out=""; url=""
+while [ $# -gt 0 ]; do case "$1" in -o) out="$2"; shift 2 ;; -m|--proto|--proto-redir) shift 2 ;; -*) shift ;; *) url="$1"; shift ;; esac; done
+echo "$url" >> "$FAKE/curl.log"
+case "$url" in
+  */api/models/*/revision/main*) cat "$FAKE/hf27.json" ;;
+  */resolve/*/tokenizer/tokenizer.json) cat "$FAKE/small" > "${out:-/dev/stdout}" ;;
+  *) exit 22 ;;
+esac
+C
+chmod +x "$work/bin/curl"
 digest="sha256:$(printf '%064d' 7)"
 HALOGEN_UPDATE_DIGEST="$digest" "$here/scripts/halogen-update.sh" "$up" "$work/body.md" > /dev/null
 # shellcheck source=/dev/null
@@ -47,7 +66,12 @@ HALOGEN_UPDATE_DIGEST="$digest" "$here/scripts/halogen-update.sh" "$up" "$work/b
 [ "$HALOGEN_WEIGHTS_REVISION" = "$(sed -n 's/^HALOGEN_WEIGHTS_REVISION=//p' "$repo/versions.env")" ]
 grep -qF "| 9.1.0, commit \`$(g -C "$up" rev-parse --short=7 v9.1.0)\`" "$here/THIRD-PARTY-NOTICES.md" \
   || { echo "the notices still name the old Halogen version" >&2; exit 1; }
-echo "ok: the newest release's pins and hashes are written, and the weights stay pinned"
+if [ "$HALOGEN_27B_REVISION" != "$new27" ] || [ "$HALOGEN_27B_SHA256" != "q27.hgn:$lfs27 tokenizer/tokenizer.json:$(printf tok | sha256sum | cut -d' ' -f1)" ]; then
+  echo "the 27B pin didn't move to the repository's newest commit with its hashes: $HALOGEN_27B_REVISION $HALOGEN_27B_SHA256" >&2; exit 1
+fi
+grep -q "/resolve/$new27/tokenizer/tokenizer.json" "$work/curl.log" || { echo "a small 27B file wasn't read at the pinned commit" >&2; exit 1; }
+grep -qF "| \`HALOGEN_27B_REVISION\` | [\`${new27:0:12}\`]" "$work/body.md" || { echo "the description doesn't name the new 27B pin" >&2; exit 1; }
+echo "ok: the newest release's pins and hashes are written, the 27B pin moves, and the weights stay pinned"
 
 [ "$(cat "$here/variants/npu/usr/share/halogen/options.allowed")" = "$(printf 'HALOGEN_AGENT_GUARD\nHALOGEN_TEMPERATURE')" ]
 [ "$(cat "$here/variants/no-npu/usr/share/halogen/options.allowed")" = HALOGEN_TEMPERATURE ]
@@ -64,7 +88,23 @@ g -C "$here" commit -qam update
 before="$(cat "$here/versions.env")"
 HALOGEN_UPDATE_DIGEST="$digest" "$here/scripts/halogen-update.sh" "$up" "$work/again.md" > /dev/null
 [ "$before" = "$(cat "$here/versions.env")" ] && [ ! -e "$work/again.md" ]
+# A small 27B file that doesn't match its blob id stops the update.
+printf 'bad' > "$work/small"
+if (cd "$here" && scripts/pin-27b.sh) > /dev/null 2>&1; then echo "pin-27b took a file that doesn't match its blob id" >&2; exit 1; fi
+[ "$before" = "$(cat "$here/versions.env")" ] || { echo "a failed pin-27b changed versions.env" >&2; exit 1; }
 if HALOGEN_UPDATE_DIGEST=bad "$here/scripts/halogen-update.sh" "$up" "$work/x.md" 9.9.9 >/dev/null 2>&1; then
   echo "accepted a version upstream does not have" >&2; exit 1
 fi
 echo "ok: nothing changes when already up to date, and an unknown version fails"
+
+# Hugging Face failing doesn't stop a Halogen update: the 27B pin stays and the description says so.
+git -C "$here" reset -q --hard HEAD~1
+pin_before="$(grep '^HALOGEN_27B_' "$here/versions.env")"
+mv "$work/hf27.json" "$work/hf27.off"
+HALOGEN_UPDATE_DIGEST="$digest" "$here/scripts/halogen-update.sh" "$up" "$work/down.md" > /dev/null \
+  || { echo "a failing Hugging Face stopped the Halogen update" >&2; exit 1; }
+if [ "$(sed -n 's/^HALOGEN_VERSION=//p' "$here/versions.env")" != 9.1.0 ] || [ "$pin_before" != "$(grep '^HALOGEN_27B_' "$here/versions.env")" ]; then
+  echo "with Hugging Face down, the Halogen pins weren't written or the 27B pin changed" >&2; exit 1
+fi
+grep -qF '| `HALOGEN_27B_REVISION` | **not moved**' "$work/down.md" || { echo "the description doesn't say the 27B pin didn't move" >&2; exit 1; }
+echo "ok: a failing Hugging Face keeps the 27B pin and the update goes on"

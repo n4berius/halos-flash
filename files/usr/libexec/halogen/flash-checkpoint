@@ -451,7 +451,10 @@ check_hashes() { # dir file...
     if [ "$s" != - ]; then got="$(sha256sum "$dir/$f" | cut -d' ' -f1)"
     elif [ "$b" != - ]; then got="$({ printf 'blob %d\0' "$(stat -c %s "$dir/$f")"; cat "$dir/$f"; } | sha1sum | cut -d' ' -f1)"; s="$b"
     else die "$repo lists no hash for $f, so it can't be checked."; fi
-    [ "$got" = "$s" ] || die "$f does not match $repo's hash. Run it again to download it afresh."
+    if [ "$got" != "$s" ]; then
+      [ "${from27:-0}" = 1 ] && die "$f does not match the hash this release pins for $repo. Run it again to download it afresh."
+      die "$f does not match $repo's hash. Run it again to download it afresh."
+    fi
   done
 }
 
@@ -1045,23 +1048,28 @@ case "${1:-}" in
   *) die "usage: flash-checkpoint pull <hf-repo> [--revision <rev>] [--as <name>] [--file <checkpoint.hgn|build.gguf>] [--keep-gguf] | verify <name> | check-prepare <name> | check <name>" ;;
 esac
 
-repo=""; revision=main; name=""; want_file=""; keep_gguf=0
+repo=""; revision=main; revision_given=0; name=""; want_file=""; keep_gguf=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --keep-gguf) keep_gguf=1; shift ;;
     --revision|--as|--file)
       [ $# -ge 2 ] || die "$1 needs a value"
-      case "$1" in --revision) revision="$2" ;; --as) name="$2" ;; --file) want_file="$2" ;; esac
+      case "$1" in --revision) revision="$2"; revision_given=1 ;; --as) name="$2" ;; --file) want_file="$2" ;; esac
       shift 2 ;;
     -*) die "unknown option $1" ;;
     *) repo="$1"; shift ;;
   esac
 done
 # Peonist's own Qwen3.8-27B (Halogen 0.21.0's second model, for a machine short of memory):
-# flash pull 27b, served as qwen3.8-27b unless --as names another.
+# flash pull 27b, served as qwen3.8-27b unless --as names another. This release pins it
+# (release.env, from versions.env): one commit, and the sha256 of every file the pull may take.
 from27=0
 if [ "$repo" = 27b ]; then
-  repo="${HALOGEN_27B_REPO:-peonist-ai/halogen-qwen3.8-27b-ht4}"; name="${name:-qwen3.8-27b}"; from27=1
+  if [ -z "${HALOGEN_27B_REPO:-}" ] || ! [[ "${HALOGEN_27B_REVISION:-}" =~ ^[0-9a-f]{40}$ ]] || [ -z "${HALOGEN_27B_SHA256:-}" ]; then
+    die "This release pins no Qwen3.8-27B download (release.env has no HALOGEN_27B_* lines)."
+  fi
+  [ "$revision_given" = 0 ] || die "27b is the commit this release pins ($HALOGEN_27B_REVISION). For another revision, name the repository: sudo halogenctl flash pull $HALOGEN_27B_REPO --revision <rev> --as <name>"
+  repo="$HALOGEN_27B_REPO"; revision="$HALOGEN_27B_REVISION"; name="${name:-qwen3.8-27b}"; from27=1
 fi
 case "$repo" in
   */*) ;;
@@ -1080,6 +1088,25 @@ if [ -f "$info" ] && [ "$(info_get "$info" repo)" != "$repo" ]; then
 fi
 
 list_repo "$repo" "$revision"
+# The pinned 27B: Hugging Face must answer with the pinned commit, and the pull sees only the files
+# the pin lists, each with the pinned sha256 in place of Hugging Face's (so check_hashes checks
+# every file, small ones too, against versions.env). An LFS hash that differs stops it before the
+# download.
+if [ "$from27" = 1 ]; then
+  [ "$commit" = "$HALOGEN_27B_REVISION" ] || die "Hugging Face answered with commit $commit for $repo, not the pinned $HALOGEN_27B_REVISION."
+  pinned=""; read -ra pins <<< "$HALOGEN_27B_SHA256"
+  for pin in "${pins[@]}"; do
+    pf="${pin%%:*}"; ph="${pin#*:}"
+    if ! [[ "$pf" =~ ^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)?$ ]] || ! [[ "$ph" =~ ^[0-9a-f]{64}$ ]]; then
+      die "release.env's HALOGEN_27B_SHA256 has an odd entry: $pin"
+    fi
+    has "$pf" || die "$repo at $commit has no $pf, which this release pins."
+    ps="$(sha_of "$pf")"
+    [ "$ps" = - ] || [ "$ps" = "$ph" ] || die "$pf in $repo at $commit doesn't match the hash this release pins."
+    pinned+="$(awk -F'\t' -v f="$pf" -v h="$ph" '$1 == f { print $1 "\t" $2 "\t" h "\t-"; exit }' <<< "$files")"$'\n'
+  done
+  files="${pinned%$'\n'}"
+fi
 
 # The checkpoint: a .hgn in the repository's top folder that isn't one of its companions.
 candidates="$(cut -f1 <<< "$files" | grep -E '^[A-Za-z0-9._-]+\.hgn$' | grep -vE 'ngram|vision|mtp|overlay|drafter' || true)"
@@ -1259,7 +1286,7 @@ fi
 fi
 [ -z "${reporter:-}" ] || kill "$reporter" 2>/dev/null
 
-echo "Checking the files against $repo's hashes..."
+if [ "$from27" = 1 ]; then echo "Checking the files against the hashes this release pins..."; else echo "Checking the files against $repo's hashes..."; fi
 check_hashes "$dir" "${wanted[@]}"
 
 # Files from an earlier pull that this commit doesn't have would still be loaded (an old

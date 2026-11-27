@@ -181,6 +181,11 @@ request does these things:
 - It copies in upstream's release notes.
 - It starts the image build and the VM install test on its branch.
 
+It also moves `HALOGEN_27B_REVISION` (the Qwen3.8-27B that `flash pull 27b` downloads) to the
+newest commit of `HALOGEN_27B_REPO`, and writes `HALOGEN_27B_SHA256` again with
+`scripts/pin-27b.sh`. Its description says whether the pin moved. To move it by hand, run
+`scripts/pin-27b.sh` (or `scripts/pin-27b.sh <commit>`).
+
 It does not change `HALOGEN_WEIGHTS_REVISION`. If the notes say that the Flash checkpoints
 changed, change it manually. To ask for a version now, open **Actions > Halogen update > Run
 workflow**. You can give a version, for example `0.20.7`. If you close its pull request without a

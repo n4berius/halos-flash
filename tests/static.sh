@@ -78,6 +78,15 @@ assert f"from {pins['HALOGEN_WEIGHTS_REPO']}\n" in sums, "weights.sha256 is for 
 assert f"\n# revision {pins['HALOGEN_WEIGHTS_REVISION']}\n" in sums, "weights.sha256 is for another weights revision: run scripts/weights-sums.sh"
 for f in ("qwen38-flash-next-v2.hgn", "qwen38-flash-next-ngram.hgn", "qwen38-flash-next-drafter-r2-ht4.hgn", "qwen38-flash-next-drafter-r2.hgn", "qwen38-flash-next-vision.hgn", "tokenizer/tokenizer.json"):
     assert re.search(r"^[0-9a-f]{64}  " + re.escape(f) + "$", sums, re.M), f"weights.sha256 has no hash for {f}"
+# flash pull 27b is pinned to one commit with every file's sha256 (scripts/pin-27b.sh), and the
+# image carries the pin.
+assert re.fullmatch(r"[0-9a-f]{40}", pins["HALOGEN_27B_REVISION"]), "HALOGEN_27B_REVISION must be a commit: run scripts/pin-27b.sh"
+sums27 = dict(e.split(":", 1) for e in pins["HALOGEN_27B_SHA256"].strip('"').split())
+assert all(re.fullmatch(r"[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)?", f) and re.fullmatch(r"[0-9a-f]{64}", h) for f, h in sums27.items()), "HALOGEN_27B_SHA256 holds an odd entry"
+assert "tokenizer/tokenizer.json" in sums27 and any(f.endswith(".hgn") and "vision" not in f for f in sums27), "HALOGEN_27B_SHA256 lacks the checkpoint or the tokenizer"
+assert '--build-arg "HALOGEN_27B_SHA256=$HALOGEN_27B_SHA256"' in open("scripts/build.sh").read(), "build.sh doesn't pass the 27B pin"
+assert 'echo "HALOGEN_27B_SHA256=\\"${HALOGEN_27B_SHA256}\\""' in open("Containerfile").read(), "release.env doesn't carry the 27B pin"
+assert "scripts/pin-27b.sh" in open("scripts/halogen-update.sh").read(), "the Halogen update doesn't move the 27B pin"
 # Older Halogen images have no XRT of their own and need the host's.
 assert tuple(map(int, re.match(r"(\d+)\.(\d+)\.(\d+)", pins["HALOGEN_VERSION"]).groups())) >= (0, 19, 1), "Halogen before 0.19.1 needs the host's XRT"
 assert "DEBIAN_IMAGE" not in pins and "XRT_MIN_VERSION" not in pins

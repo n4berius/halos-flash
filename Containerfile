@@ -10,6 +10,9 @@ ARG HALOGEN_LICENSE_SHA256
 ARG HALOGEN_NOTICES_SHA256
 ARG HALOGEN_WEIGHTS_REPO
 ARG HALOGEN_WEIGHTS_REVISION
+ARG HALOGEN_27B_REPO
+ARG HALOGEN_27B_REVISION
+ARG HALOGEN_27B_SHA256
 
 # A headless AMD server: AMD GPU, NPU and CPU firmware, the network firmware Strix Halo boards
 # use (Realtek, MediaTek, Qualcomm), the Wi-Fi channel rules (wireless-regdb, small, with iw;
@@ -256,6 +259,9 @@ RUN set -eu; \
       echo "HALOS_RELEASE=${HALOS_RELEASE}"; \
       echo "HALOGEN_WEIGHTS_REPO=${HALOGEN_WEIGHTS_REPO}"; \
       echo "HALOGEN_WEIGHTS_REVISION=${HALOGEN_WEIGHTS_REVISION}"; \
+      echo "HALOGEN_27B_REPO=${HALOGEN_27B_REPO}"; \
+      echo "HALOGEN_27B_REVISION=${HALOGEN_27B_REVISION}"; \
+      echo "HALOGEN_27B_SHA256=\"${HALOGEN_27B_SHA256}\""; \
       echo "BF16_TO_HGN_COMMIT=${BF16_TO_HGN_COMMIT}"; \
       echo "HALOGEN_DASHBOARD_COMMIT=${HALOGEN_DASHBOARD_COMMIT}"; \
       echo "TOOL_EVAL_BENCH_COMMIT=${TOOL_EVAL_BENCH_COMMIT}"; \
@@ -268,6 +274,8 @@ RUN set -eu; \
       echo "HALOS_BASE_VERSION=${HALOS_BASE_VERSION}"; \
       echo "HALOS_SOURCE_COMMIT=${HALOS_SOURCE_COMMIT}"; } > /usr/share/halogen/release.env; \
     case "$FEDORA_BOOTC_IMAGE" in *@sha256:*) ;; *) echo "the base must come by digest (scripts/build.sh resolves it)" >&2; exit 1 ;; esac; \
+    printf '%s\n' "$HALOGEN_27B_REVISION" | grep -qxE '[0-9a-f]{40}' && [ -n "$HALOGEN_27B_REPO" ] && [ -n "$HALOGEN_27B_SHA256" ] \
+      || { echo "versions.env must pin the 27B download to a commit with its hashes (scripts/pin-27b.sh)" >&2; exit 1; }; \
     cat /tmp/toolchain-1.txt /tmp/toolchain-2.txt /tmp/toolchain-3.txt /tmp/toolchain-4.txt > /usr/share/halogen/toolchains.txt; \
     rm -f /tmp/toolchain-*.txt; \
     rpm -qa --qf '%{NAME}-%{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort > /usr/share/halogen/packages.txt; \

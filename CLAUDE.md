@@ -48,7 +48,7 @@ name, but allows saying halOS runs Halogen.
 
 | Path | What it is |
 |---|---|
-| `versions.env` | Every pinned input: Fedora base, kernel-next's test kernel, Halogen version, digest and source commit, upstream file hashes, weights repo and revision, ISO builder, bf16-to-hgn and halogen-dashboard commits |
+| `versions.env` | Every pinned input: Fedora base, kernel-next's test kernel, Halogen version, digest and source commit, upstream file hashes, weights repo and revision, the 27B's repo, commit and file hashes, ISO builder, bf16-to-hgn and halogen-dashboard commits |
 | `Containerfile` | The OS image. XRT is not in it: Halogen's image carries its own since 0.19.1 |
 | `Containerfile.helpers` | bf16-to-hgn, halogen-dashboard (+ `dashboard-nodump.so`) and Caddy, built from source (#122). `scripts/build-helpers.sh <dir>` builds it on the base by digest into `<dir>/tree` and records `<dir>/inputs` (the versions.env base, its digest and version label, both commits, a hash of its sources); each stage's `toolchain.txt` (#121) travels in the tree; `build.sh` takes `HALOS_HELPERS=<dir>` (else builds it first), refuses a folder whose inputs differ (`--check`), passes it as `--build-context helpers=` and builds the OS image on that same digest, so the libraries match. `build.yml`'s `helpers` job (beside `check`, also the change detection) builds it once and hands it to the four image jobs as a tar artifact of the run (a zip drops modes); no cache crosses runs. Locally, the caddy stage reuses its Go and module layers after a source-only change (`go.mod`/`go.sum` copied first, the source built with `GOPROXY=off`) and keeps Go's compile cache in a podman cache mount (`halos-caddy-go-build`; the tests are compiled with `go test -c` and the binary run directly, so they always run: plain `go test` reused a cached pass after a comment-only change); bf16-to-hgn's and the dashboard's compilers are installed before their commit `ARG`; the caddy step runs the test binary and Caddy as nobody, who can't write to that cache (Go trusts an entry by its key). `release.yml`, `refresh.yml` and `iso.yml` still build it inside each job |
 | `Containerfile.installer`, `installer/` | The live installer image, Anaconda defaults (storage layout for custom partitioning), branding and boot menu. `installer/guided/`: the guided install's kickstart and `plan-install` (#42) |
@@ -1570,7 +1570,13 @@ and tracked on the owner's project board. [ROADMAP.md](ROADMAP.md) holds the ord
   re-verify and render-config serves the official one; bf16-to-hgn writes `qwen3.8-flash-next-v2`,
   what convert writes for a GGUF wasn't checked). The 27B as an own Flash checkpoint (#185, owner asked; the use case: a machine short of
   memory, so `flash pull 27b` is Peonist's `peonist-ai/halogen-qwen3.8-27b-ht4` as `qwen3.8-27b`,
-  `HALOGEN_27B_REPO` test hook; owner's follow-up: choose by memory: no choice file, or `auto`
+  pinned (#187) by `HALOGEN_27B_REPO`/`_REVISION`/`_SHA256` in versions.env (path:sha256 of every top-level
+  `.hgn` and `tokenizer/` file, written by `scripts/pin-27b.sh`, which `halogen-update.sh` runs, so every
+  Halogen update PR moves it to the newest commit) and release.env: `pull 27b` refuses `--revision`,
+  needs HF's commit to be the pin, sees only pinned files (others are dropped from the listing), refuses
+  a differing LFS hash before the download and checks every file (small ones too) by the pinned sha256;
+  `tests/flash.sh`'s `pin27` writes the fake pin; an already downloaded 27B keeps its commit (no re-pull);
+  owner's follow-up: choose by memory: no choice file, or `auto`
   (`flash use auto`; `valid_name` refuses `auto`), with MemTotal under 100 GiB (the selftest's
   line; `HALOGEN_MEMINFO` test hook in render-config, fetch-models, halogenctl) makes render-config
   serve `qwen3.8-27b` when its `halos.info` is there (else official, said), fetch-models run

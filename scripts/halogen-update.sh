@@ -40,6 +40,19 @@ set_pin HALOGEN_SOURCE_COMMIT "$commit"
 set_pin HALOGEN_CLOCK_SHA256 "$clock"
 set_pin HALOGEN_LICENSE_SHA256 "$license"
 set_pin HALOGEN_NOTICES_SHA256 "$notices"
+# Peonist's Qwen3.8-27B (flash pull 27b) moves to its repository's newest commit with every
+# Halogen update, with fresh hashes of its files (scripts/pin-27b.sh, which needs the network).
+old_27b="$HALOGEN_27B_REVISION"; work_27b="$(mktemp)"
+# A failure (Hugging Face down, the repository gone) keeps the old pin (pin-27b.sh writes
+# versions.env only at its end) and doesn't stop the Halogen update: the description says so.
+if ! scripts/pin-27b.sh > "$work_27b" 2>&1; then
+  row_27b="**not moved**: scripts/pin-27b.sh failed ($(tail -n 1 "$work_27b" | tr -cd '[:print:]' | tr '|`' '  ' | cut -c1-200)). Still \`${old_27b:0:12}\`: run it by hand on this branch"
+elif new_27b="$(sed -n 's/^HALOGEN_27B_REVISION=//p' versions.env)"; [ "$new_27b" = "$old_27b" ]; then
+  row_27b="unchanged ([\`${old_27b:0:12}\`](https://huggingface.co/$HALOGEN_27B_REPO/tree/$old_27b)): the repository has no newer commit"
+else
+  row_27b="[\`${new_27b:0:12}\`](https://huggingface.co/$HALOGEN_27B_REPO/tree/$new_27b) (was \`${old_27b:0:12}\`; [its commits](https://huggingface.co/$HALOGEN_27B_REPO/commits/main)), with \`HALOGEN_27B_SHA256\` written again: check the 27B's notes say it suits Halogen $want"
+fi
+rm -f "$work_27b"
 # Our notices name the Halogen version and commit we ship, as Peonist's trademark policy asks.
 if [ -f THIRD-PARTY-NOTICES.md ]; then
   sed -i -E "s/^(\| \[halogen-flash-server\][^|]*\| )[0-9.]+, commit \`[0-9a-f]+\`/\1$want, commit \`${commit:0:7}\`/" THIRD-PARTY-NOTICES.md
@@ -83,6 +96,7 @@ Moves Halogen from **$old_version** to **$want**. Opened by the Halogen update w
 | \`HALOGEN_DIGEST\` | \`$digest\` |
 | \`HALOGEN_SOURCE_COMMIT\` | [\`${commit:0:12}\`](https://github.com/$source_repo/tree/$commit) ([changes since $old_version]($compare)) |
 | Clock script, license, notices | hashes updated from that commit |
+| \`HALOGEN_27B_REVISION\` | $row_27b |
 | \`HALOGEN_WEIGHTS_REVISION\` | unchanged (\`$HALOGEN_WEIGHTS_REVISION\`): check the notes below say the Flash checkpoints are unchanged (if they changed, set the new revision and run \`scripts/weights-sums.sh\`) |
 
 ### Settings
